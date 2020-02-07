@@ -1,0 +1,29 @@
+---
+VCloudDirector:
+  Common:
+    ipAddress: cpsbu-tpm-vcd.eng.vmware.com # IP/FQDN of VCD
+    username: administrator # VCD login name
+  Organization:
+    OrgName: Coke  # Short name of the organization that is already created
+  SourceOrgVDC:
+    OrgVDCName: v-CokeOVDC # # Name of the source organization VDC which will be migrated
+  NSXTProviderVDC:
+    ProviderVDCName: t-pvdc # Name of NSX-T BACKED Provider VDC
+    ExternalNetwork: tpm-externalnetwork # Name of the external network to which this Provider VDC is connected.
+  NSXVProviderVDC:
+    ProviderVDCName: v-pvdc # Name of NSX-T BACKED Provider VDC
+    ExternalNetwork: v-edgenetwork # Name of the external network to which this Provider VDC is connected.
+    DummyExternalNetwork: Dummy-ext-net # Name of the dummy external network which will be attached to source edge gateway
+
+NSXT:
+  Common:
+    ipAddress: 10.196.235.14 # IP/FQDN of NSXT
+    username: admin # NSXT login name
+  EdgeClusterName: Bridge-edge-cluster1 # Name of bridge Edge cluster
+  TransportZone: # bridge transport zone
+    TransportZoneName: Bridge-TZ
+
+Vcenter:
+  Common:
+    ipAddress: cpsbu-tpm-vcsa.eng.vmware.com # IP/FQDN of Vcenter
+    username: administrator@vsphere.local # Vcenter login name

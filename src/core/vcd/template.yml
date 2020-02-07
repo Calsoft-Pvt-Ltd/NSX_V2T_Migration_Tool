@@ -1,0 +1,229 @@
+---
+vCloudDirector:
+  createOrgVDC:
+    <CreateVdcParams xmlns='http://www.vmware.com/vcloud/v1.5' xmlns:extension_v1.5='http://www.vmware.com/vcloud/extension/v1.5' name='{{OrgVDCName}}'>
+    <Description></Description>
+    <AllocationModel>{{AllocationModel}}</AllocationModel>
+    <ComputeCapacity>
+      <Cpu>
+        <Units>{{cpuUnits}}</Units>
+        <Allocated>{{cpuAllocated}}</Allocated>
+        <Limit>{{cpuLimit}}</Limit>
+        <Reserved>{{cpuReserved}}</Reserved>
+        <Used>{{cpuUsed}}</Used>
+      </Cpu>
+      <Memory>
+      <Units>{{memoryUnits}}</Units>
+      <Allocated>{{memoryAllocated}}</Allocated>
+      <Limit>{{memoryLimit}}</Limit>
+      <Reserved>{{memoryReserved}}</Reserved>
+      <Used>{{memoryUsed}}</Used>
+      </Memory>
+    </ComputeCapacity>
+    <NicQuota>{{NicQuota}}</NicQuota>
+    <NetworkQuota>{{NetworkQuota}}</NetworkQuota>
+    <VmQuota>{{VmQuota}}</VmQuota>
+    <IsEnabled>true</IsEnabled>
+    <VdcStorageProfile>
+      <Enabled>true</Enabled>
+      <Units>MB</Units>
+      <Limit>0</Limit>
+      <Default>true</Default>
+      <ProviderVdcStorageProfile href="https://cpsbu-tpm-vcd.eng.vmware.com/api/admin/pvdcStorageProfile/4f6095bd-6a3b-4d4e-bfd8-234d0a567b14" name="test storage Policy"/>
+    </VdcStorageProfile>
+    <VdcStorageProfile>
+      <Enabled>true</Enabled>
+      <Units>MB</Units>
+      <Limit>0</Limit>
+      <Default>false</Default>
+      <ProviderVdcStorageProfile href="https://cpsbu-tpm-vcd.eng.vmware.com/api/admin/pvdcStorageProfile/6a285b33-5e2c-45a7-a7cf-57be464e5c73" name="iSCSI storage profile"/>
+    </VdcStorageProfile>
+    <ResourceGuaranteedMemory>{{ResourceGuaranteedMemory}}</ResourceGuaranteedMemory>
+    <ResourceGuaranteedCpu>{{ResourceGuaranteedCpu}}</ResourceGuaranteedCpu>
+    <VCpuInMhz>{{VCpuInMhz2}}</VCpuInMhz>
+    <IsThinProvision>{{IsThinProvision}}</IsThinProvision>
+    <NetworkPoolReference href='{{networkPoolReference}}' id='{{networkPoolReferenceId}}' type='{{networkPoolReferenceType}}' name='{{networkPoolReferenceName}}'/>
+    <ProviderVdcReference href='{{proVdcReference}}' id='{{proVdcReferenceId}}' type='{{proVdcReferenceType}}' name='{{proVdcReferenceName}}'/>
+    <UsesFastProvisioning>{{UsesFastProvisioning}}</UsesFastProvisioning>
+    <IsElastic>{{IsElastic}}</IsElastic>
+    <IncludeMemoryOverhead>{{IncludeMemoryOverhead}}</IncludeMemoryOverhead>
+    </CreateVdcParams>
+  composeVapp:
+    <ComposeVAppParams name="{{vAppName}}" xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1">
+        <Description></Description>
+        <InstantiationParams>
+            <NetworkConfigSection>
+                <ovf:Info>Configuration parameters for logical networks</ovf:Info>
+                {{networkConfig}}
+            </NetworkConfigSection>
+        </InstantiationParams>
+        <AllEULAsAccepted>true</AllEULAsAccepted>
+    </ComposeVAppParams>
+  recomposeVapp:
+    <RecomposeVAppParams xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" powerOn="{{state}}">
+        <SourcedItem sourceDelete="true">
+            <Source href="{{vmHref}}"></Source>
+            <InstantiationParams>
+                  <NetworkConnectionSection>
+                    <ovf:Info>Specifies the available VM network connections</ovf:Info>
+                    <PrimaryNetworkConnectionIndex>0</PrimaryNetworkConnectionIndex>
+                    <NetworkConnection xmlns="http://www.vmware.com/vcloud/v1.5" network="{{networkName}}">
+                      <NetworkConnectionIndex>0</NetworkConnectionIndex>
+                      <IpAddress>{{ipAddress}}</IpAddress>
+                      <IsConnected>{{connected}}</IsConnected>
+                      <MACAddress>{{macAddress}}</MACAddress>
+                      <IpAddressAllocationMode>{{allocationModel}}</IpAddressAllocationMode>
+                      <NetworkAdapterType>{{adapterType}}</NetworkAdapterType>
+                    </NetworkConnection>
+                  </NetworkConnectionSection>
+            </InstantiationParams>
+            <StorageProfile href="{{storageProfileHref}}"/>
+        </SourcedItem>
+        <AllEULAsAccepted>true</AllEULAsAccepted>
+    </RecomposeVAppParams>
+  undeployVapp:
+    <UndeployVAppParams xmlns="http://www.vmware.com/vcloud/v1.5">
+      <UndeployPowerAction>{{action}}</UndeployPowerAction>
+    </UndeployVAppParams>
+  createOrgVDCMetadata:
+    <Metadata xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://www.w3.org/2001/XMLSchema-instance">
+    <MetadataEntry>
+        <Key>{{key}}</Key>
+        <TypedValue ovf:type="MetadataStringValue">
+            <Value>{{value}}</Value>
+        </TypedValue>
+    </MetadataEntry>
+    </Metadata>
+  createOrgVDCAccessControl:
+    <ControlAccessParams xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1">
+      <IsSharedToEveryone>false</IsSharedToEveryone>
+      <EveryoneAccessLevel>{{accessControlLevel}}</EveryoneAccessLevel>
+    </ControlAccessParams>
+  createVMGroup:
+    <vmext:VMWVmGroup xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:vmext="http://www.vmware.com/vcloud/extension/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" name="{{vmGroupName}}">
+      <vmext:vmCount>0</vmext:vmCount>
+    </vmext:VMWVmGroup>
+  composeVappWithNoNetwork:
+    <ComposeVAppParams name="{{vAppName}}" xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1">
+      <Description></Description>
+      <AllEULAsAccepted>true</AllEULAsAccepted>
+    </ComposeVAppParams>
+  changeVAppOwner:
+    <Owner xmlns="http://www.vmware.com/vcloud/v1.5">
+    <User href="{{userHref}}"/>
+    </Owner>
+  renewVappLeaseSettings:
+    <LeaseSettingsSection xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1">
+      <ovf:Info>Lease settings section</ovf:Info>
+      <DeploymentLeaseInSeconds>{{deploymentLeaseInSeconds}}</DeploymentLeaseInSeconds>
+      <StorageLeaseInSeconds>{{storageLeaseInSeconds}}</StorageLeaseInSeconds>
+    </LeaseSettingsSection>
+  createMetadataInVapp:
+    <Metadata xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://www.w3.org/2001/XMLSchema-instance">
+      <MetadataEntry>
+        <Key>{{metadataKey}}</Key>
+        <TypedValue ovf:type="{{typedValueDatatype}}">
+          <Value>{{metadataValue}}</Value>
+        </TypedValue>
+      </MetadataEntry>
+    </Metadata>
+  renameVapp:
+    <RecomposeVAppParams xmlns="http://www.vmware.com/vcloud/v1.5" name="{{vAppNewName}}" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1">
+    </RecomposeVAppParams>
+  mediaInsertOrEject:
+    <root:MediaInsertOrEjectParams xmlns:root="http://www.vmware.com/vcloud/v1.5"/>
+  recomposeVappWithPlacementPolicy:
+    <RecomposeVAppParams xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" powerOn="{{state}}">
+      <SourcedItem sourceDelete="true">
+        <Source href="{{vmHref}}"></Source>
+          <InstantiationParams>
+            <NetworkConnectionSection>
+              <ovf:Info>Specifies the available VM network connections</ovf:Info>
+              <PrimaryNetworkConnectionIndex>0</PrimaryNetworkConnectionIndex>
+              <NetworkConnection xmlns="http://www.vmware.com/vcloud/v1.5" network="{{networkName}}">
+                <NetworkConnectionIndex>0</NetworkConnectionIndex>
+                <IpAddress>{{ipAddress}}</IpAddress>
+                <IsConnected>{{connected}}</IsConnected>
+                <MACAddress>{{macAddress}}</MACAddress>
+                <IpAddressAllocationMode>{{allocationModel}}</IpAddressAllocationMode>
+                <NetworkAdapterType>{{adapterType}}</NetworkAdapterType>
+              </NetworkConnection>
+            </NetworkConnectionSection>
+          </InstantiationParams>
+        <StorageProfile href="{{storageProfileHref}}"/>
+        <ComputePolicy>
+          <VmPlacementPolicy href="{{vmPlacementPolicyHref}}"/>
+        </ComputePolicy>
+      </SourcedItem>
+      <AllEULAsAccepted>true</AllEULAsAccepted>
+    </RecomposeVAppParams>
+  recomposeVappWithSizingPolicy:
+    <RecomposeVAppParams xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" powerOn="{{state}}">
+      <SourcedItem sourceDelete="true">
+        <Source href="{{vmHref}}"></Source>
+        <InstantiationParams>
+          <NetworkConnectionSection>
+            <ovf:Info>Specifies the available VM network connections</ovf:Info>
+            <PrimaryNetworkConnectionIndex>0</PrimaryNetworkConnectionIndex>
+            <NetworkConnection xmlns="http://www.vmware.com/vcloud/v1.5" network="{{networkName}}">
+              <NetworkConnectionIndex>0</NetworkConnectionIndex>
+              <IpAddress>{{ipAddress}}</IpAddress>
+              <IsConnected>{{connected}}</IsConnected>
+              <MACAddress>{{macAddress}}</MACAddress>
+              <IpAddressAllocationMode>{{allocationModel}}</IpAddressAllocationMode>
+              <NetworkAdapterType>{{adapterType}}</NetworkAdapterType>
+            </NetworkConnection>
+          </NetworkConnectionSection>
+        </InstantiationParams>
+        <StorageProfile href="{{storageProfileHref}}"/>
+        <ComputePolicy>
+          <VmSizingPolicy href="{{sizingPolicyHref}}"/>
+        </ComputePolicy>
+      </SourcedItem>
+      <AllEULAsAccepted>true</AllEULAsAccepted>
+    </RecomposeVAppParams>
+  recomposeVappWithComputePolicy:
+    <RecomposeVAppParams xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" powerOn="{{state}}">
+      <SourcedItem sourceDelete="true">
+        <Source href="{{vmHref}}"></Source>
+        <InstantiationParams>
+          <NetworkConnectionSection>
+            <ovf:Info>Specifies the available VM network connections</ovf:Info>
+            <PrimaryNetworkConnectionIndex>0</PrimaryNetworkConnectionIndex>
+            <NetworkConnection xmlns="http://www.vmware.com/vcloud/v1.5" network="{{networkName}}">
+              <NetworkConnectionIndex>0</NetworkConnectionIndex>
+              <IpAddress>{{ipAddress}}</IpAddress>
+              <IsConnected>{{connected}}</IsConnected>
+              <MACAddress>{{macAddress}}</MACAddress>
+              <IpAddressAllocationMode>{{allocationModel}}</IpAddressAllocationMode>
+              <NetworkAdapterType>{{adapterType}}</NetworkAdapterType>
+            </NetworkConnection>
+          </NetworkConnectionSection>
+        </InstantiationParams>
+        <StorageProfile href="{{storageProfileHref}}"/>
+        <ComputePolicy>
+          <VmPlacementPolicy href="{{vmPlacementPolicyHref}}"/>
+          <VmSizingPolicy href="{{sizingPolicyHref}}"/>
+        </ComputePolicy>
+      </SourcedItem>
+      <AllEULAsAccepted>true</AllEULAsAccepted>
+    </RecomposeVAppParams>
+  composeVappNetworkConfig:
+    <NetworkConfig networkName="{{networkName}}">
+      <Configuration>
+        <ParentNetwork href="{{parentNetwork}}"/>
+        <FenceMode>{{fenceMode}}</FenceMode>
+      </Configuration>
+    </NetworkConfig>
+  createCatalog:
+    <AdminCatalog xmlns="http://www.vmware.com/vcloud/v1.5" name="{{catalogName}}">
+      <Description/>
+      <CatalogStorageProfiles>
+        <VdcStorageProfile href="{{storageProfileHref}}"/>
+      </CatalogStorageProfiles>
+    </AdminCatalog>
+  moveCatalogItem:
+    <CopyOrMoveCatalogItemParams xmlns="http://www.vmware.com/vcloud/v1.5" name="{{catalogItemName}}">
+        <Description> </Description>
+        <Source href="{{catalogItemHref}}"/>
+    </CopyOrMoveCatalogItemParams>

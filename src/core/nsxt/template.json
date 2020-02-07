@@ -1,0 +1,36 @@
+{
+  "NSXT": {
+    "createBridgeEndpointProfile": {
+       "display_name":"{{bridgeEndpointProfileName}}",
+       "description":"",
+       "edge_cluster_id" : "{{edgeClusterId}}",
+       "failover_mode" : "PREEMPTIVE"
+    },
+    "createUplinkProfiles": {
+      "resource_type": "UplinkHostSwitchProfile",
+      "description": "",
+      "display_name": "{{uplinkProfileName}}",
+      "mtu": 9000,
+      "transport_vlan": 0,
+      "teaming": {
+        "active_list": [],
+        "standby_list": null,
+        "policy": "FAILOVER_ORDER"
+      }
+    },
+    "createLogicalPort": {
+      "logical_switch_id":"{{logicalSwitchId}}",
+      "attachment": {"attachment_type":"BRIDGEENDPOINT","id":"{{bridgeProfileId}}"},
+      "admin_state":"UP"
+    },
+    "createBridgeEndpoint": {
+       "display_name":"{{BridgeEndpointName}}",
+       "description":"be",
+       "vlan":0,
+       "bridge_endpoint_profile_id":"{{bridgeEndpointProfileId}}",
+       "bridge_cluster_id": "",
+       "vlan_transport_zone_id": "{{transportZoneId}}",
+       "resource_type": "BridgeEndpoint"
+    }
+  }
+}
