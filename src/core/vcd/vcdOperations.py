@@ -16,12 +16,11 @@ import xmltodict
 
 import src.core.vcd.vcdConstants as vcdConstants
 
-from src.core.vcd.vcdValidations import VCDMigrationValidation
-
+from src.core.vcd.vcdConfigureEdgeGatewayServices import ConfigureEdgeGatewayServices
 logger = logging.getLogger('mainLogger')
 
 
-class VCloudDirectorOperations(VCDMigrationValidation):
+class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
     """
     Description: Class that performs the VMware Cloud Director NSX-V to NSX-T Migration Operations
     """
@@ -29,6 +28,8 @@ class VCloudDirectorOperations(VCDMigrationValidation):
     DELETE_TARGET_EDGE_GATEWAY = False
     DELETE_TARGET_ORG_VDC_NETWORKS = False
     CLEAR_NSX_T_BRIDGING = False
+    DISABLE_PROMISC_MODE = False
+    PROMISCUCOUS_MODE_ALREADY_DISABLED = False
 
     def _isSessionExpired(func):
         """
@@ -67,6 +68,9 @@ class VCloudDirectorOperations(VCDMigrationValidation):
                                          {"xmlns":'http://www.vmware.com/vcloud/v1.5',
                                           "xmlns:extension_v1.5":'http://www.vmware.com/vcloud/extension/v1.5',
                                           "name":data["sourceOrgVDC"]["@name"]+'-t'})
+            if data['sourceOrgVDC'].get('Description'):
+                description = ET.SubElement(createVdcParams, 'Description')
+                description.text = data['sourceOrgVDC']['Description']
             allocModel = ET.SubElement(createVdcParams, 'AllocationModel')
             allocModel.text = data['sourceOrgVDC']['AllocationModel']
             compCapacity = ET.SubElement(createVdcParams, 'ComputeCapacity')
@@ -208,60 +212,6 @@ class VCloudDirectorOperations(VCDMigrationValidation):
         except Exception:
             raise
 
-    def getOrgVDCMetadata(self, orgVDCId):
-        """
-        Description :   Gets Metadata in the specified Organization VDC
-        Parameters  :   orgVDCId    -   Id of the Organization VDC (STRING)
-        """
-        try:
-            orgVDCId = orgVDCId.split(':')[-1]
-            url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                vcdConstants.META_DATA_IN_ORG_VDC_BY_ID.format(orgVDCId))
-            response = self.restClientObj.get(url, self.headers)
-            return response
-        except Exception:
-            raise
-
-    def createMetaDataInOrgVDC(self, orgVDCId, metadataKey, metadataValue):
-        """
-        Description :   Creates/Updates Metadata in the specified Organization VDC
-                        If the specified key doesnot already exists in Org VDC then creates new (Key, Value) pair
-                        Else updates the specified existing key with the new metadatValue
-        Parameters  :   orgVDCId        -   Id of the Organization VDC (STRING)
-                        metadataKey     -   Metadata key (STRING)
-                        metadataValue   -   Metadata value for the metadata key (STRING)
-        """
-        try:
-            # spliting org vdc id as per the requirement of xml api
-            orgVDCId = orgVDCId.split(':')[-1]
-            # url to create meta data in org vdc
-            url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                vcdConstants.META_DATA_IN_ORG_VDC_BY_ID.format(orgVDCId))
-            filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
-            payloadDict = {'key': metadataKey, 'value': metadataValue}
-            # creating payload data
-            payloadData = self.vcdUtils.createPayload(filePath,
-                                                      payloadDict,
-                                                      fileType='yaml',
-                                                      componentName=vcdConstants.COMPONENT_NAME,
-                                                      templateName=vcdConstants.CREATE_ORG_VDC_METADATA_TEMPLATE)
-            payloadData = json.loads(payloadData)
-            # post api to create meta data in org vdc
-            response = self.restClientObj.post(url, self.headers, data=payloadData)
-            responseDict = xmltodict.parse(response.content)
-            if response.status_code == requests.codes.accepted:
-                task = responseDict["Task"]
-                if task["@operationName"] == vcdConstants.CREATE_METADATA_IN_ORG_VDC_TASK_NAME:
-                    taskUrl = task["@href"]
-                if taskUrl:
-                    # checking the status of the creating meta data in org vdc task
-                    self._checkTaskStatus(taskUrl, vcdConstants.CREATE_METADATA_IN_ORG_VDC_TASK_NAME)
-                logger.debug("Created Metadata {}-{} in Org VDC {} successfully".format(metadataKey, metadataValue, orgVDCId))
-                return response
-            raise Exception("Failed to create the Metadata in Org VDC: {}".format(responseDict['Error']['@message']))
-        except Exception:
-            raise
-
     @_isSessionExpired
     def createEdgeGateway(self, bgpConfigDict):
         """
@@ -278,7 +228,6 @@ class VCloudDirectorOperations(VCDMigrationValidation):
             external_network_id = externalDict['id']
             uplinks = sourceEdgeGatewayDict['edgeGatewayUplinks']
             ipAddressRangeList = []
-            externalNetworkIpRangeList = []
             self.isExternalNetworkUpdated = False
             for uplink in uplinks:
                 if uplink['uplinkName'] == sourceExternalDict['name']:
@@ -309,7 +258,7 @@ class VCloudDirectorOperations(VCDMigrationValidation):
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
             # creating payload dictionary
             payloadDict = {'edgeGatewayName': data['sourceEdgeGateway']['name'],
-                           'edgeGatewayDescription': data['sourceEdgeGateway']['description'],
+                           'edgeGatewayDescription': data['sourceEdgeGateway']['description'] if data['sourceEdgeGateway'].get('description') else '',
                            'orgVDCName': data['targetOrgVDC']['@name'],
                            'orgVDCId': data['targetOrgVDC']['@id'],
                            'orgName': data['Organization']['@name'],
@@ -383,8 +332,8 @@ class VCloudDirectorOperations(VCDMigrationValidation):
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
             for sourceOrgVDCNetwork in sourceOrgVDCNetworks:
                 # creating payload dictionary
-                payloadDict = {'orgVDCNetworkName': sourceOrgVDCNetwork['name'],
-                               'orgVDCNetworkDescription': sourceOrgVDCNetwork['description'],
+                payloadDict = {'orgVDCNetworkName': sourceOrgVDCNetwork['name'] + '-v2t',
+                               'orgVDCNetworkDescription': sourceOrgVDCNetwork['description'] if sourceOrgVDCNetwork.get('description') else '',
                                'orgVDCNetworkGateway': sourceOrgVDCNetwork['subnets']['values'][0]['gateway'],
                                'orgVDCNetworkPrefixLength': sourceOrgVDCNetwork['subnets']['values'][0]['prefixLength'],
                                'orgVDCNetworkDNSSuffix': sourceOrgVDCNetwork['subnets']['values'][0]['dnsSuffix'],
@@ -660,14 +609,13 @@ class VCloudDirectorOperations(VCDMigrationValidation):
                 headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,
                            'Content-Type': vcdConstants.JSON_UPDATE_EDGE_GATEWAY}
                 # updating the details of the edge gateway
-                response = self.restClientObj.put(url, headers, data=payloadData)
+                response = self.restClientObj.put(url+'/action/updateProperties', headers, data=payloadData)
                 responseData = response.json()
                 if response.status_code == requests.codes.accepted:
-                    if responseData["operationName"] == vcdConstants.UPDATE_EDGE_GATEWAY_TASK_NAME:
-                        taskUrl = responseData["href"]
+                    taskUrl = responseData["href"]
                     if taskUrl:
                         # checking the status of connecting/disconnecting the edge gateway
-                        self._checkTaskStatus(taskUrl, vcdConstants.UPDATE_EDGE_GATEWAY_TASK_NAME)
+                        self._checkTaskStatus(taskUrl, responseData["operationName"])
                         logger.debug('Source Edge Gateway updated successfully.')
                         return
                 else:
@@ -749,162 +697,39 @@ class VCloudDirectorOperations(VCDMigrationValidation):
             return portGroupList
         except:
             # setting the delete target org vdc, delete target edge gateway, delete target org vdc network flags required for roll back
+            self.DISABLE_PROMISC_MODE = True
+            self.PROMISCUCOUS_MODE_ALREADY_DISABLED = True
             self.DELETE_TARGET_ORG_VDC = True
             self.DELETE_TARGET_EDGE_GATEWAY = True
             self.DELETE_TARGET_ORG_VDC_NETWORKS = True
             raise
 
     @_isSessionExpired
-    def composevApp(self):
+    def createMoveVappVmPayload(self, vApp, targetOrgVDCId):
         """
-        Description :   Compose placeholder vApp
+        Description : Create vApp vm payload for move vApp api
+        Parameters : vApp - dict containing source vApp details
+                     targetOrgVDCId - target Org VDC Id (STRING)
         """
         try:
+            xmlPayloadData = ''
             fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
             # reading data from apiOutput.json
             with open(fileName, 'r') as f:
                 data = json.load(f)
-            # getting list instance of resources in the source org vdc
-            sourceOrgVDCEntityList = data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity'] if isinstance(data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity'], list) else [data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity']]
-            # retrieving target org vdc data
-            targetOrgVDCId = data["targetOrgVDC"]["@id"].split(':')[-1]
-            targetOrgVDCNetworkList = data['targetOrgVDCNetworks'] if data.get('targetOrgVDCNetworks') else []
-            # rettrieving list of source vapps
-            vAppList = [vAppEntity for vAppEntity in sourceOrgVDCEntityList if vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
-            filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
-            # iterating over the source vapps
-            for vApp in vAppList:
-                networkList = []
-                # retrieving the startup info of the source vapps
-                self.getVappStartupSectionInfo(vApp['@href'], saveResponse=True)
-                response = self.restClientObj.get(vApp['@href'], self.headers)
-                responseDict = xmltodict.parse(response.content)
-                vAppData = responseDict['VApp']
-                # cehcking for the 'NetworkConfig' in 'NetworkConfigSection' of vapp
-                if vAppData['NetworkConfigSection'].get('NetworkConfig'):
-                    vAppNetworkList = vAppData['NetworkConfigSection']['NetworkConfig'] if isinstance(vAppData['NetworkConfigSection']['NetworkConfig'], list) else [vAppData['NetworkConfigSection']['NetworkConfig']]
-                    # retrieving the network details list of same name networks from source & target
-                    networkList = [(network, vAppNetwork)  for network in targetOrgVDCNetworkList for vAppNetwork in vAppNetworkList if vAppNetwork['@networkName'] == network['name']]
-                # if networks present
-                if networkList:
-                    xmlPayloadData = ''
-                    # iterating over the network list
-                    for network, vAppNetwork in networkList:
-                        # creating payload dictionary with network details
-                        networkName = "{}network/{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                                            network["id"].split(':')[-1])
-                        payloadDict = {'networkName': network['name'],
-                                       'parentNetwork': networkName, 'fenceMode': vAppNetwork['Configuration']['FenceMode']}
-                        payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                                  componentName=vcdConstants.COMPONENT_NAME,
-                                                                  templateName=vcdConstants.COMPOSE_VAPP_NETWORK_CONFIG_TEMPLATE)
-                        xmlPayloadData += payloadData.strip("\"")
-                    payloadDict = {'vAppName': vApp['@name'] + '-t', 'networkConfig': xmlPayloadData}
-                    # creating payload data
-                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                              componentName=vcdConstants.COMPONENT_NAME,
-                                                              templateName=vcdConstants.COMPOSE_VAPP_TEMPLATE)
-                else:
-                    # creating payload dictioney without network details, since no networks present
-                    payloadDict = {'vAppName': vApp['@name'] + '-t'}
-                    # creating payload data
-                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                              componentName=vcdConstants.COMPONENT_NAME,
-                                                              templateName=vcdConstants.COMPOSE_VAPP_NONETWORK_TEMPLATE)
-                payloadData = json.loads(payloadData)
-                # url to compose vapp in target org vdc
-                url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                    vcdConstants.COMPOSE_VAPP_IN_ORG_VDC.format(targetOrgVDCId))
-                self.headers["Content-Type"] = vcdConstants.XML_COMPOSE_VAPP
-                # post api call to compose vapps in target org vdc
-                response = self.restClientObj.post(url, self.headers, data=payloadData)
-                if response.status_code == requests.codes.created:
-                    responseDict = xmltodict.parse(response.content)
-                    taskId = responseDict["VApp"]["Tasks"]["Task"]
-                    if isinstance(taskId, dict):
-                        taskId = [taskId]
-                    for task in taskId:
-                        if task["@operationName"] == vcdConstants.COMPOSE_VAPP_TASK_NAME:
-                            taskUrl = task["@href"]
-                    if taskUrl:
-                        # checking for the status of the composing vapp task
-                        self._checkTaskStatus(taskUrl, vcdConstants.COMPOSE_VAPP_TASK_NAME)
-                else:
-                    responseDict = xmltodict.parse(response.content)
-                    raise Exception('Failed to create target vApp {} - {}'.format(vApp['@name'],
-                                                                                  responseDict['Error']['@message']))
-            return vAppList
-        except:
-            raise
-
-    @_isSessionExpired
-    def recomposeTargetvApp(self):
-        """
-        Description : Recompose target vApp
-        """
-        try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
-            # retrieving the list instance of resource entities in source org vdc
-            sourceOrgVDCEntityList = data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity'] if isinstance(data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity'], list) else [data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity']]
-            # retrieving the target org vdc details from apiOutput.json
-            targetOrgVDCDict = data["targetOrgVDC"]
-            sourceVappList = [vAppEntity for vAppEntity in sourceOrgVDCEntityList if
-                              vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
-            # get api call to retrieve the details of the target org vdc
-            response = self.restClientObj.get(targetOrgVDCDict['@href'], self.headers)
-            if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
-                if not responseDict['AdminVdc']['ResourceEntities']:
-                    raise Exception("Failed to get target vApp details.")
-                # retrieving target org vdc resource entity list
-                targetOrgVDCEntityList = responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'] if isinstance(responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'], list) else [responseDict['AdminVdc']['ResourceEntities']['ResourceEntity']]
-                # retrieving target vapp list
-                targetVappList = [vAppEntity for vAppEntity in targetOrgVDCEntityList if vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
-            # retrieving over the source vapps
-            for vApp in sourceVappList:
-                vmInVappList = []
-                # get api call to retrieve the info of source vapp
-                response = self.restClientObj.get(vApp['@href'], self.headers)
-                responseDict = xmltodict.parse(response.content)
-                # checking for the 'Children' key in vapp to find if vapp has any vms present in it
-                if not responseDict['VApp'].get('Children'):
-                    logger.warning('Source vApp {} has no VM present in it.'.format(vApp['@name']))
-                    # going to the next vapp if no vms found in this vapp
-                    continue
-                # retrieving the list of vms in this vapp
-                vmList = responseDict['VApp']['Children']['Vm']
-                if isinstance(vmList, list):
-                    # iterating over the vms in vapp more than one vms
-                    for vm in vmList:
-                        # retrieving the compute policy of vm
-                        computePolicyName = vm['ComputePolicy']['VmPlacementPolicy']['@name'] if vm['ComputePolicy'].get('VmPlacementPolicy') else None
-                        # retrieving the sizing policy of vm
-                        if vm['ComputePolicy'].get('VmSizingPolicy'):
-                            if vm['ComputePolicy']['VmSizingPolicy']['@name'] != 'System Default':
-                                sizingPolicyHref = vm['ComputePolicy']['VmSizingPolicy']['@href']
-                            else:
-                                # get the target System Default policy id
-                                defaultSizingPolicy = self.getVmSizingPoliciesOfOrgVDC(targetOrgVDCDict['@id'], isTarget=True)
-                                if defaultSizingPolicy:
-                                    defaultSizingPolicyId = defaultSizingPolicy[0]['id']
-                                    sizingPolicyHref = "{}{}/{}".format(
-                                        vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                        vcdConstants.VDC_COMPUTE_POLICIES, defaultSizingPolicyId)
-                                else:
-                                    sizingPolicyHref = None
-                        else:
-                            sizingPolicyHref = None
-                        # gathering the vm's data required to create payload data and appending the dict to the 'vmInVappList' list
-                        vmInVappList.append({'name': vm['@name'], 'network': vm['NetworkConnectionSection']['NetworkConnection']['@network'],
-                                             'href': vm['@href'], 'networkConnectionSection': vm['NetworkConnectionSection'],
-                                             'storageProfileHref': vm['StorageProfile']['@href'], 'state': responseDict['VApp']['@status'],
-                                             'computePolicyName': computePolicyName, 'sizingPolicyHref': sizingPolicyHref})
-                else:
-                    # if single vm in the vapp
-                    vm = vmList
+            targetStorageProfileList = [data["targetOrgVDC"]['VdcStorageProfiles']['VdcStorageProfile']] if isinstance(data["targetOrgVDC"]['VdcStorageProfiles']['VdcStorageProfile'], dict) else data["targetOrgVDC"]['VdcStorageProfiles']['VdcStorageProfile']
+            vmInVappList = []
+            # get api call to retrieve the info of source vapp
+            response = self.restClientObj.get(vApp['@href'], self.headers)
+            responseDict = xmltodict.parse(response.content)
+            if not responseDict['VApp'].get('Children'):
+                return
+            # retrieving the list of vms in this vapp
+            vmList = responseDict['VApp']['Children']['Vm']
+            targetSizingPolicyOrgVDCUrn = 'urn:vcloud:vdc:{}'.format(targetOrgVDCId)
+            if isinstance(vmList, list):
+                # iterating over the vms in vapp more than one vms
+                for vm in vmList:
                     # retrieving the compute policy of vm
                     computePolicyName = vm['ComputePolicy']['VmPlacementPolicy']['@name'] if vm['ComputePolicy'].get('VmPlacementPolicy') else None
                     # retrieving the sizing policy of vm
@@ -913,7 +738,7 @@ class VCloudDirectorOperations(VCDMigrationValidation):
                             sizingPolicyHref = vm['ComputePolicy']['VmSizingPolicy']['@href']
                         else:
                             # get the target System Default policy id
-                            defaultSizingPolicy = self.getVmSizingPoliciesOfOrgVDC(targetOrgVDCDict['@id'], isTarget=True)
+                            defaultSizingPolicy = self.getVmSizingPoliciesOfOrgVDC(targetSizingPolicyOrgVDCUrn, isTarget=True)
                             if defaultSizingPolicy:
                                 defaultSizingPolicyId = defaultSizingPolicy[0]['id']
                                 sizingPolicyHref = "{}{}/{}".format(
@@ -923,152 +748,169 @@ class VCloudDirectorOperations(VCDMigrationValidation):
                                 sizingPolicyHref = None
                     else:
                         sizingPolicyHref = None
+                    storageProfileList = [storageProfile for storageProfile in targetStorageProfileList if storageProfile['@name'] == vm['StorageProfile']['@name']]
+                    if storageProfileList:
+                        storageProfileHref = storageProfileList[0]['@href']
+                    else:
+                        storageProfileHref = ''
+                    if vm['NetworkConnectionSection']['NetworkConnection']['@network'] == 'none':
+                        networkName = 'none'
+                    else:
+                        networkName = vm['NetworkConnectionSection']['NetworkConnection']['@network'] + '-v2t'
                     # gathering the vm's data required to create payload data and appending the dict to the 'vmInVappList' list
-                    vmInVappList.append({'name': vm['@name'], 'network': vm['NetworkConnectionSection']['NetworkConnection']['@network'],
+                    vmInVappList.append({'name': vm['@name'], 'description': vm['Description'] if vm.get('Description') else '', 'network': networkName,
                                          'href': vm['@href'], 'networkConnectionSection': vm['NetworkConnectionSection'],
-                                         'storageProfileHref': vm['StorageProfile']['@href'], 'state': responseDict['VApp']['@status'],
+                                         'storageProfileHref': storageProfileHref, 'state': responseDict['VApp']['@status'],
                                          'computePolicyName': computePolicyName, 'sizingPolicyHref': sizingPolicyHref})
-                # saving the 'vmInVappList' into vApp['vm'] which contain list of vms
-                vApp['vm'] = vmInVappList
-                # iterating over the target vapp list
-                for item1 in targetVappList:
-                    # checking for the same name vapps in source and target vapps
-                    # eg: if source vapp name is 'testvapp' then target vapp name will be 'testvapp-t'
-                    if vApp['@name']+'-t' == item1['@name']:
-                        vApp['targetVapp'] = item1
-                # for item in sourceVappList:
-                #     for item1 in targetVappList:
-                #         if item['@name']+'-t' == item1['@name']:
-                #             item['targetVapp'] = item1
-                #
-                # for vApp in sourceVappList:
-                filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
-                # iterating over the above saved vms list of source vapp
-                for vm in vApp['vm']:
-                    logger.info('Recomposing VM - {} into target vApp - {}'.format(vm['name'], vApp['targetVapp']['@name']))
-                    # url to recompose the vapp
-                    url = "{}/{}".format(vApp['targetVapp']['@href'],
-                                         vcdConstants.RECOMPOSE_VAPP_API)
-                    # checking for the 'IpAddress' attribute if present
-                    if vm['networkConnectionSection']['NetworkConnection'].get('IpAddress'):
-                        ipAddress = vm['networkConnectionSection']['NetworkConnection']['IpAddress']
+            else:
+                # if single vm in the vapp
+                vm = vmList
+                # retrieving the compute policy of vm
+                computePolicyName = vm['ComputePolicy']['VmPlacementPolicy']['@name'] if vm['ComputePolicy'].get('VmPlacementPolicy') else None
+                # retrieving the sizing policy of vm
+                if vm['ComputePolicy'].get('VmSizingPolicy'):
+                    if vm['ComputePolicy']['VmSizingPolicy']['@name'] != 'System Default':
+                        sizingPolicyHref = vm['ComputePolicy']['VmSizingPolicy']['@href']
                     else:
-                        ipAddress = ""
-                    # check whether the vapp state is powered on i.e 4 then poweron else poweroff
-                    if vm['state'] != "4":
-                        state = "false"
-                    else:
-                        state = "true"
-                    # handling the case:- if both compute policy & sizing policy are absent
-                    if not vm["computePolicyName"] and not vm['sizingPolicyHref']:
-                        payloadDict = {'vmHref': vm['href'], 'networkName': vm['network'],
+                        # get the target System Default policy id
+                        defaultSizingPolicy = self.getVmSizingPoliciesOfOrgVDC(targetSizingPolicyOrgVDCUrn, isTarget=True)
+                        if defaultSizingPolicy:
+                            defaultSizingPolicyId = defaultSizingPolicy[0]['id']
+                            sizingPolicyHref = "{}{}/{}".format(
+                                vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                vcdConstants.VDC_COMPUTE_POLICIES, defaultSizingPolicyId)
+                        else:
+                            sizingPolicyHref = None
+                else:
+                    sizingPolicyHref = None
+                storageProfileList = [storageProfile for storageProfile in targetStorageProfileList if
+                                      storageProfile['@name'] == vm['StorageProfile']['@name']]
+                if storageProfileList:
+                    storageProfileHref = storageProfileList[0]['@href']
+                else:
+                    storageProfileHref = ''
+                if vm['NetworkConnectionSection']['NetworkConnection']['@network'] == 'none':
+                    networkName = 'none'
+                else:
+                    networkName = vm['NetworkConnectionSection']['NetworkConnection']['@network'] + '-v2t'
+                # gathering the vm's data required to create payload data and appending the dict to the 'vmInVappList' list
+                vmInVappList.append({'name': vm['@name'], 'description': vm['Description'] if vm.get('Description') else '', 'network': networkName,
+                                     'href': vm['@href'], 'networkConnectionSection': vm['NetworkConnectionSection'],
+                                     'storageProfileHref': storageProfileHref, 'state': responseDict['VApp']['@status'],
+                                     'computePolicyName': computePolicyName, 'sizingPolicyHref': sizingPolicyHref})
+            # saving the 'vmInVappList' into vApp['vm'] which contain list of vms
+            vApp['vm'] = vmInVappList
+            filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
+            # iterating over the above saved vms list of source vapp
+            for vm in vApp['vm']:
+                logger.debug('Getting VM - {} details'.format(vm['name']))
+                # checking for the 'IpAddress' attribute if present
+                if vm['networkConnectionSection']['NetworkConnection'].get('IpAddress'):
+                    ipAddress = vm['networkConnectionSection']['NetworkConnection']['IpAddress']
+                else:
+                    ipAddress = ""
+                # check whether the vapp state is powered on i.e 4 then poweron else poweroff
+                if vm['state'] != "4":
+                    state = "false"
+                else:
+                    state = "true"
+                # handling the case:- if both compute policy & sizing policy are absent
+                if not vm["computePolicyName"] and not vm['sizingPolicyHref']:
+                    payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'networkName': vm['network'],
+                                   'ipAddress': ipAddress, 'state': state,
+                                   'connected': vm['networkConnectionSection']['NetworkConnection']['IsConnected'],
+                                   'macAddress': vm['networkConnectionSection']['NetworkConnection']['MACAddress'],
+                                   'allocationModel': vm['networkConnectionSection']['NetworkConnection']['IpAddressAllocationMode'],
+                                   'adapterType': vm['networkConnectionSection']['NetworkConnection']['NetworkAdapterType'],
+                                   'storageProfileHref': vm['storageProfileHref']}
+                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                                              componentName=vcdConstants.COMPONENT_NAME,
+                                                              templateName=vcdConstants.MOVE_VAPP_VM_TEMPLATE)
+                # handling the case:- if either policy is present
+                else:
+                    # handling the case:- if compute policy is present and sizing policy is absent
+                    if vm["computePolicyName"] and not vm['sizingPolicyHref']:
+                        # retrieving the org vdc compute policy
+                        allOrgVDCComputePolicesList = self.getOrgVDCComputePolicies()
+                        # getting the list instance of compute policies of org vdc
+                        orgVDCComputePolicesList = [allOrgVDCComputePolicesList] if isinstance(allOrgVDCComputePolicesList, dict) else allOrgVDCComputePolicesList
+                        # iterating over the org vdc compute policies
+                        for eachComputPolicy in orgVDCComputePolicesList:
+                            # checking if the org vdc compute policy name is same as the source vm's applied compute policy & org vdc compute policy id is same as that of target provider vdc's id
+                            if eachComputPolicy["name"] == vm["computePolicyName"] and \
+                                    eachComputPolicy["pvdcId"] == data['targetProviderVDC']['@id']:
+                                # creating the href of compute policy that should be passed in the payload data for recomposing the vapp
+                                href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                        vcdConstants.VDC_COMPUTE_POLICIES,
+                                                        eachComputPolicy["id"])
+                        # if vm's compute policy does not match with org vdc compute policy or org vdc compute policy's id does not match with target provider vdc's id then href will be set none
+                        # resulting into raising the exception that source vm's applied placement policy is absent in target org vdc
+                        if not href:
+                            raise Exception('Could not find placement policy {} in target Org VDC.'.format(vm["computePolicyName"]))
+                        # creating the payload dictionary
+                        payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'networkName': vm['network'],
                                        'ipAddress': ipAddress, 'state': state,
                                        'connected': vm['networkConnectionSection']['NetworkConnection']['IsConnected'],
                                        'macAddress': vm['networkConnectionSection']['NetworkConnection']['MACAddress'],
                                        'allocationModel': vm['networkConnectionSection']['NetworkConnection']['IpAddressAllocationMode'],
                                        'adapterType': vm['networkConnectionSection']['NetworkConnection']['NetworkAdapterType'],
-                                       'storageProfileHref': vm['storageProfileHref']}
+                                       'storageProfileHref': vm['storageProfileHref'],
+                                       'vmPlacementPolicyHref': href}
+                        # creating the payload data
                         payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                                   componentName=vcdConstants.COMPONENT_NAME,
-                                                                  templateName=vcdConstants.RECOMPOSE_VAPP_TEMPLATE)
-                    # handling the case:- if either policy is present
-                    else:
-                        # handling the case:- if compute policy is present and sizing policy is absent
-                        if vm["computePolicyName"] and not vm['sizingPolicyHref']:
-                            # retrieving the org vdc compute policy
-                            allOrgVDCComputePolicesList = self.getOrgVDCComputePolicies()
-                            # getting the list instance of compute policies of org vdc
-                            orgVDCComputePolicesList = [allOrgVDCComputePolicesList] if isinstance(allOrgVDCComputePolicesList, dict) else allOrgVDCComputePolicesList
-                            # iterating over the org vdc compute policies
-                            for eachComputPolicy in orgVDCComputePolicesList:
-                                # checking if the org vdc compute policy name is same as the source vm's applied compute policy & org vdc compute policy id is same as that of target provider vdc's id
-                                if eachComputPolicy["name"] == vm["computePolicyName"] and \
-                                        eachComputPolicy["pvdcId"] == data['targetProviderVDC']['@id']:
-                                    # creating the href of compute policy that should be passed in the payload data for recomposing the vapp
-                                    href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                            vcdConstants.VDC_COMPUTE_POLICIES,
-                                                            eachComputPolicy["id"])
-                            # if vm's compute policy does not match with org vdc compute policy or org vdc compute policy's id does not match with target provider vdc's id then href will be set none
-                            # resulting into raising the exception that source vm's applied placement policy is absent in target org vdc
-                            if not href:
-                                raise Exception('Could not find placement policy {} in target Org VDC.'.format(vm["computePolicyName"]))
-                            # creating the payload dictionary
-                            payloadDict = {'vmHref': vm['href'], 'networkName': vm['network'],
-                                           'ipAddress': ipAddress, 'state': state,
-                                           'connected': vm['networkConnectionSection']['NetworkConnection']['IsConnected'],
-                                           'macAddress': vm['networkConnectionSection']['NetworkConnection']['MACAddress'],
-                                           'allocationModel': vm['networkConnectionSection']['NetworkConnection']['IpAddressAllocationMode'],
-                                           'adapterType': vm['networkConnectionSection']['NetworkConnection']['NetworkAdapterType'],
-                                           'storageProfileHref': vm['storageProfileHref'],
-                                           'vmPlacementPolicyHref': href}
-                            # creating the payload data
-                            payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                                      componentName=vcdConstants.COMPONENT_NAME,
-                                                                      templateName=vcdConstants.RECOMPOSE_PLACEMENT_POLICY_VAPP_TEMPLATE)
-                        # handling the case:- if sizing policy is present and compute policy is absent
-                        elif vm['sizingPolicyHref'] and not vm["computePolicyName"]:
-                            # creating the payload dictionary
-                            payloadDict = {'vmHref': vm['href'], 'networkName': vm['network'],
-                                           'ipAddress': ipAddress, 'state': state,
-                                           'connected': vm['networkConnectionSection']['NetworkConnection']['IsConnected'],
-                                           'macAddress': vm['networkConnectionSection']['NetworkConnection']['MACAddress'],
-                                           'allocationModel': vm['networkConnectionSection']['NetworkConnection']['IpAddressAllocationMode'],
-                                           'adapterType': vm['networkConnectionSection']['NetworkConnection']['NetworkAdapterType'],
-                                           'storageProfileHref': vm['storageProfileHref'],
-                                           'sizingPolicyHref': vm['sizingPolicyHref']}
-                            # creating the pauload data
-                            payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                                      componentName=vcdConstants.COMPONENT_NAME,
-                                                                      templateName=vcdConstants.RECOMPOSE_SIZING_POLICY_VAPP_TEMPLATE)
-                        # handling the case:- if both policies are present
-                        elif vm['sizingPolicyHref'] and vm["computePolicyName"]:
-                            # retrieving the org vdc compute policy
-                            allOrgVDCComputePolicesList = self.getOrgVDCComputePolicies()
-                            # getting the list instance of compute policies of org vdc
-                            orgVDCComputePolicesList = [allOrgVDCComputePolicesList] if isinstance(allOrgVDCComputePolicesList, dict) else allOrgVDCComputePolicesList
-                            # iterating over the org vdc compute policies
-                            for eachComputPolicy in orgVDCComputePolicesList:
-                                # checking if the org vdc compute policy name is same as the source vm's applied compute policy & org vdc compute policy id is same as that of target provider vdc's id
-                                if eachComputPolicy["name"] == vm["computePolicyName"] and \
-                                        eachComputPolicy["pvdcId"] == data['targetProviderVDC']['@id']:
-                                    # creating the href of compute policy that should be passed in the payload data for recomposing the vapp
-                                    href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                            vcdConstants.VDC_COMPUTE_POLICIES,
-                                                            eachComputPolicy["id"])
-                            # if vm's compute policy does not match with org vdc compute policy or org vdc compute policy's id does not match with target provider vdc's id then href will be set none
-                            # resulting into raising the exception that source vm's applied placement policy is absent in target org vdc
-                            if not href:
-                                raise Exception('Could not find placement policy {} in target Org VDC.'.format(vm["computePolicyName"]))
-                            # creating the payload dictionary
-                            payloadDict = {'vmHref': vm['href'], 'networkName': vm['network'],
-                                           'ipAddress': ipAddress, 'state': state,
-                                           'connected': vm['networkConnectionSection']['NetworkConnection']['IsConnected'],
-                                           'macAddress': vm['networkConnectionSection']['NetworkConnection']['MACAddress'],
-                                           'allocationModel': vm['networkConnectionSection']['NetworkConnection'][
-                                               'IpAddressAllocationMode'],
-                                           'adapterType': vm['networkConnectionSection']['NetworkConnection'][
-                                               'NetworkAdapterType'],
-                                           'storageProfileHref': vm['storageProfileHref'],
-                                           'vmPlacementPolicyHref': href, 'sizingPolicyHref': vm['sizingPolicyHref']}
-                            # creating the pauload data
-                            payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                                      componentName=vcdConstants.COMPONENT_NAME,
-                                                                      templateName=vcdConstants.RECOMPOSE_COMPUTE_POLICY_VAPP_TEMPLATE)
-                    payloadData = json.loads(payloadData)
-                    self.headers["Content-Type"] = vcdConstants.XML_RECOMPOSE_VAPP
-                    # post api call to recompose source vapp into target vapps
-                    response = self.restClientObj.post(url, self.headers, data=payloadData)
-                    responseDict = xmltodict.parse(response.content)
-                    if response.status_code == requests.codes.accepted:
-                        task = responseDict["Task"]
-                        if task["@operationName"] == vcdConstants.RECOMPOSE_VAPP_TASK:
-                            taskUrl = task["@href"]
-                        if taskUrl:
-                            # checking the status of recomposing vapps task
-                            self._checkTaskStatus(taskUrl, vcdConstants.RECOMPOSE_VAPP_TASK)
-                            logger.info('Recomposed target vApp - {} successfully with VM - {}.'.format(vApp['targetVapp']['@name'], vm['name']))
-                    else:
-                        raise Exception('Failed to recompose vApp with errors {}'.format(responseDict['Error']['@message']))
+                                                                  templateName=vcdConstants.MOVE_VAPP_VM_PLACEMENT_POLICY_TEMPLATE)
+                    # handling the case:- if sizing policy is present and compute policy is absent
+                    elif vm['sizingPolicyHref'] and not vm["computePolicyName"]:
+                        # creating the payload dictionary
+                        payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'networkName': vm['network'],
+                                       'ipAddress': ipAddress, 'state': state,
+                                       'connected': vm['networkConnectionSection']['NetworkConnection']['IsConnected'],
+                                       'macAddress': vm['networkConnectionSection']['NetworkConnection']['MACAddress'],
+                                       'allocationModel': vm['networkConnectionSection']['NetworkConnection']['IpAddressAllocationMode'],
+                                       'adapterType': vm['networkConnectionSection']['NetworkConnection']['NetworkAdapterType'],
+                                       'storageProfileHref': vm['storageProfileHref'],
+                                       'sizingPolicyHref': vm['sizingPolicyHref']}
+                        # creating the pauload data
+                        payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                                                  componentName=vcdConstants.COMPONENT_NAME,
+                                                                  templateName=vcdConstants.MOVE_VAPP_VM_SIZING_POLICY_TEMPLATE)
+                    # handling the case:- if both policies are present
+                    elif vm['sizingPolicyHref'] and vm["computePolicyName"]:
+                        # retrieving the org vdc compute policy
+                        allOrgVDCComputePolicesList = self.getOrgVDCComputePolicies()
+                        # getting the list instance of compute policies of org vdc
+                        orgVDCComputePolicesList = [allOrgVDCComputePolicesList] if isinstance(allOrgVDCComputePolicesList, dict) else allOrgVDCComputePolicesList
+                        # iterating over the org vdc compute policies
+                        for eachComputPolicy in orgVDCComputePolicesList:
+                            # checking if the org vdc compute policy name is same as the source vm's applied compute policy & org vdc compute policy id is same as that of target provider vdc's id
+                            if eachComputPolicy["name"] == vm["computePolicyName"] and \
+                                    eachComputPolicy["pvdcId"] == data['targetProviderVDC']['@id']:
+                                # creating the href of compute policy that should be passed in the payload data for recomposing the vapp
+                                href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                        vcdConstants.VDC_COMPUTE_POLICIES,
+                                                        eachComputPolicy["id"])
+                        # if vm's compute policy does not match with org vdc compute policy or org vdc compute policy's id does not match with target provider vdc's id then href will be set none
+                        # resulting into raising the exception that source vm's applied placement policy is absent in target org vdc
+                        if not href:
+                            raise Exception('Could not find placement policy {} in target Org VDC.'.format(vm["computePolicyName"]))
+                        # creating the payload dictionary
+                        payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'networkName': vm['network'],
+                                       'ipAddress': ipAddress, 'state': state,
+                                       'connected': vm['networkConnectionSection']['NetworkConnection']['IsConnected'],
+                                       'macAddress': vm['networkConnectionSection']['NetworkConnection']['MACAddress'],
+                                       'allocationModel': vm['networkConnectionSection']['NetworkConnection'][
+                                           'IpAddressAllocationMode'],
+                                       'adapterType': vm['networkConnectionSection']['NetworkConnection'][
+                                           'NetworkAdapterType'],
+                                       'storageProfileHref': vm['storageProfileHref'],
+                                       'vmPlacementPolicyHref': href, 'sizingPolicyHref': vm['sizingPolicyHref']}
+                        # creating the pauload data
+                        payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                                                  componentName=vcdConstants.COMPONENT_NAME,
+                                                                  templateName=vcdConstants.MOVE_VAPP_VM_COMPUTE_POLICY_TEMPLATE)
+                xmlPayloadData += payloadData.strip("\"")
+            return xmlPayloadData
         except Exception:
             raise
 
@@ -1088,54 +930,6 @@ class VCloudDirectorOperations(VCDMigrationValidation):
             response = self.restClientObj.get(url, self.headers)
             responseDict = xmltodict.parse(response.content)
             return responseDict
-        except Exception:
-            raise
-
-    def getSourceVappVmMacAddress(self):
-        """
-        Description - Get source vapp vm mac address
-        """
-        try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading the data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
-            # retrieving the resource entity list of the source org vdc
-            sourceOrgVDCEntityList = data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity'] if isinstance(data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity'], list) else [data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity']]
-            # retrieving the source vapp list
-            sourceVappList = [vAppEntity for vAppEntity in sourceOrgVDCEntityList if
-                              vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
-            vmInVappList = []
-            # iterating over the source vapps
-            for vApp in sourceVappList:
-                response = self.restClientObj.get(vApp['@href'], self.headers)
-                responseDict = xmltodict.parse(response.content)
-                # checking for the vms in the vapp
-                if responseDict['VApp'].get('Children'):
-                    # retrieving the list of vms in the vapp
-                    vmList = responseDict['VApp']['Children']['Vm']
-                    if isinstance(vmList, list):
-                        # if multiple vms in vapp, iterating over the vms
-                        for vm in vmList:
-                            # checking if vm is attached to any network
-                            if vm.get('NetworkConnectionSection'):
-                                vmInVappList.append(vm['NetworkConnectionSection']['NetworkConnection']['MACAddress'])
-                            else:
-                                logger.warning('vApp {} vm doesnot have any network attached to it'.format(vApp['@name']))
-                    else:
-                        # if single vm in vapp
-                        vm = vmList
-                        # checking if vm is attached to any network
-                        if vm.get('NetworkConnectionSection'):
-                            vmInVappList.append(vm['NetworkConnectionSection']['NetworkConnection']['MACAddress'])
-                        else:
-                            logger.warning('vApp {} vm doesnot have any network attached to it'.format(vApp['@name']))
-                else:
-                    logger.warning('vApp {} doesnot have any vm in it'.format(vApp['@name']))
-            if vmInVappList:
-                # writing the vm mac address details to the log
-                logger.debug('Source vapp vm mac address details - {}'.format(vmInVappList))
-            return vmInVappList
         except Exception:
             raise
 
@@ -1193,104 +987,6 @@ class VCloudDirectorOperations(VCDMigrationValidation):
             logger.info('Successfully created ACL on target Org vdc')
         except Exception:
             self.DELETE_TARGET_ORG_VDC = True
-            raise
-
-    def createVDCPlacementPolicy(self, namedVMGroupDict):
-        """
-        Description :   creates org vdc placement policy
-        """
-        try:
-            # api output file
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
-            targetProviderVDCName = data['targetProviderVDC']['@name']
-            targetProviderVDCId = data['targetProviderVDC']['@id']
-            # url to the resource pool info
-            url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                vcdConstants.GET_RESOURCEPOOL_INFO)
-            # get api call to retrieve resource pool info
-            response = self.restClientObj.get(url, headers=self.headers)
-            if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
-                # retrieving the hrefs of resource pool records whose provider is target provider vdc
-                resourcePoolHref = [response['@href'] for response in responseDict['QueryResultRecords']['ResourcePoolRecord'] if response['@providerName'] == targetProviderVDCName]
-            if resourcePoolHref:
-                # retrieving the resource pool id
-                resourcePoolId = resourcePoolHref[0].split('/')[-1]
-            else:
-                return
-            filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
-            targetNamedVMGroupList = []
-
-            # iterating over the named vm group dict
-            for href, namedVMGroups in namedVMGroupDict.items():
-                if not namedVMGroups:
-                    # if no vm groups are present then setting empty targetNamedVMGroupList
-                    targetNamedVMGroupList = []
-                else:
-                    # iterating over the named vm groups
-                    for namedVMGroup in namedVMGroups:
-                        payloadDict = {'vmGroupName': namedVMGroup[0]+'-'+namedVMGroup[1]}
-                        # creating payload data
-                        payloadData = self.vcdUtils.createPayload(filePath,
-                                                                  payloadDict,
-                                                                  fileType='yaml',
-                                                                  componentName=vcdConstants.COMPONENT_NAME,
-                                                                  templateName=vcdConstants.CREATE_VMGROUP_TEMPLATE)
-                        payloadData = json.loads(payloadData)
-                        # url to create vm groups
-                        url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                            vcdConstants.CREATE_VMGROUPS.format(resourcePoolId))
-                        self.headers["Content-Type"] = vcdConstants.XML_CREATE_VMGROUPS_CONTENT_TYPE
-                        # post api call to create vm groups
-                        response = self.restClientObj.post(url, self.headers, data=payloadData)
-                        if response.status_code == requests.codes.accepted:
-                            responseDict = xmltodict.parse(response.content)
-                            task = responseDict["Task"]
-                            if task["@operationName"] == vcdConstants.CREATE_VMGROUP_TASK:
-                                taskUrl = task["@href"]
-                            if taskUrl:
-                                # checking the status of creating the vm group task
-                                self._checkTaskStatus(taskUrl, vcdConstants.CREATE_VMGROUP_TASK)
-                                logger.debug('VM Group {} created successfully'.format(payloadDict['vmGroupName']))
-                        else:
-                            responseDict = xmltodict.parse(response.content)
-                            raise Exception('Error occured while creating vm groups {}.'.format(responseDict['Error']['@message']))
-                        # url to get the vm group info
-                        url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                            vcdConstants.GET_VMGROUP_INFO)
-                        # get api call to retrieve the vm group info
-                        response = self.restClientObj.get(url, headers=self.headers)
-                        if response.status_code == requests.codes.ok:
-                            responseDict = xmltodict.parse(response.content)
-                            # retrieving the target vm group list
-                            targetVMGroupList = [response for response in responseDict['QueryResultRecords']['VmGroupsRecord'] if response['@vmGroupName'] == payloadDict['vmGroupName']]
-                        vmGroupName = targetVMGroupList[0]['@vmGroupName']
-                        vmGroupId = targetVMGroupList[0]['@vmGroupId']
-                        targetNamedVMGroupList.append({"name": vmGroupName, "id": "urn:vcloud:namedVmGroup:"+vmGroupId})
-                # get api call to retrieve the vm group info
-                response = self.restClientObj.get(href, headers=self.headers)
-                if response.status_code == requests.codes.ok:
-                    responseDict = response.json()
-                    payloadDict = responseDict
-                    del payloadDict['id']
-                    payloadDict['pvdcId'] = targetProviderVDCId
-                    payloadDict['namedVmGroups'] = [targetNamedVMGroupList]
-                    payloadData = json.dumps(payloadDict)
-                    # create vdc compute policy
-                    url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                        vcdConstants.VDC_COMPUTE_POLICIES)
-                    self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-                    # post api call to create vdc compute policy
-                    response = self.restClientObj.post(url, self.headers, data=payloadData)
-                    if response.status_code == requests.codes.created:
-                        logger.debug('Successfully created vdc compute coplicy in target org vdc')
-                    else:
-                        errorDict = response.json()
-                        raise Exception('Failed to create vdc compute policy in target PVDC - {}'.format(errorDict['message']))
-        except:
             raise
 
     def applyVDCPlacementPolicy(self):
@@ -1358,24 +1054,6 @@ class VCloudDirectorOperations(VCDMigrationValidation):
             self.DELETE_TARGET_ORG_VDC = True
             raise
 
-    def getVappAccessControlDetails(self, vAppHref):
-        """
-        Description :   Gets the access control details of the specified href
-        Parameters  :   vAppHref    -   Href of the vApp whose details are to be fetched (STRING)
-        """
-        try:
-            # url to get the vapp access control details
-            url = "{}{}".format(vAppHref, vcdConstants.ACCESS_CONTROL)
-            # get api call to retrieve vapp access control details
-            response = self.restClientObj.get(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
-            if response.status_code == requests.codes.ok:
-                logger.debug("Retrieved the vApp Access Control Details successfully")
-                return response
-            raise Exception("Failed to retrieve the vApp Access Control Details {}".format(responseDict['Error']['@message']))
-        except Exception:
-            raise
-
     @staticmethod
     def getSourceOrgVDCvAppsList():
         """
@@ -1427,221 +1105,6 @@ class VCloudDirectorOperations(VCDMigrationValidation):
         except Exception:
             raise
 
-    def createVappAccessControlInTargetVapp(self):
-        """
-        Description :   Replicates the Access Control from Source vApp into Target vApp
-        """
-        try:
-            # getting list of source vapps
-            sourceVappList = self.getSourceOrgVDCvAppsList()
-            # getting list of target vapps
-            targetVappList = self.getTargetOrgVDCvAppsList()
-            # getting list of vapps with same name from source & target
-            vAppList = [(sourceVapp, targetVapp) for sourceVapp in sourceVappList for targetVapp in targetVappList if
-                        sourceVapp['@name'] + '-t' == targetVapp['@name']]
-            # iterating over the vapps
-            for sourcevApp, targetvApp in vAppList:
-                # getting the source vapps access control details
-                srcVappResponse = self.getVappAccessControlDetails(sourcevApp['@href'])
-                # url to create access control in target vapp
-                url = "{}{}".format(targetvApp['@href'],
-                                    vcdConstants.VAPP_ACCESS_CONTROL_SETTINGS)
-                # post api call to create access control in target vapps
-                response = self.restClientObj.post(url, self.headers, data=srcVappResponse.content)
-                if response.status_code == requests.codes.ok:
-                    logger.debug("Replicated Same Access Control Settings into Target Vapp {} as Source vApp Successfully".format(targetvApp['@name']))
-                else:
-                    errorDict = xmltodict.parse(response.content)
-                    raise Exception("Failed to replicate Access Control into Target Vapp {} {}".format(targetvApp['@name'],
-                                                                                                       errorDict['Error']['@message']))
-        except Exception:
-            raise
-
-    def getVappOwner(self, vAppHref):
-        """
-        Description :   Gets the Owner of the specified vAppHref
-        Parameters  :   vAppHref    -   Href of a vApp (STRING)
-        """
-        try:
-            # url to get vapp's owner
-            url = "{}{}".format(vAppHref,
-                                vcdConstants.VAPP_OWNER)
-            # get api call to get vapp owner details
-            response = self.restClientObj.get(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
-            if response.status_code == requests.codes.ok:
-                return responseDict['Owner']['User']
-            errorDict = xmltodict.parse(response.content)
-            raise Exception("Failed to retrieve vApp Owner {}".format(errorDict['Error']['@message']))
-        except Exception:
-            raise
-
-    def changeVAppOwner(self):
-        """
-        Description :   Updates the User Owner of the specified VApp with the User specified in the userHref link
-        """
-        try:
-            # getting source vapps list
-            sourceVappList = self.getSourceOrgVDCvAppsList()
-            # getting target vapps list
-            targetVappList = self.getTargetOrgVDCvAppsList()
-            # getting list of vapps with same name in source & target
-            vAppList = [(sourceVapp, targetVapp) for sourceVapp in sourceVappList for targetVapp in targetVappList if
-                        sourceVapp['@name'] + '-t' == targetVapp['@name']]
-            # iterating over the vapps
-            for (srcVapp, tgtVapp) in vAppList:
-                # getting the owner details of source vapp
-                owner = self.getVappOwner(srcVapp['@href'])
-                # skipping if the owner is system
-                if owner['@name'] == 'system':
-                    continue
-                # url to update the owner settings in the target vapp
-                url = "{}{}".format(tgtVapp['@href'],
-                                    vcdConstants.VAPP_OWNER)
-                filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
-                payloadDict = {'userHref': owner['@href']}
-                # creating payload data
-                payloadData = self.vcdUtils.createPayload(filePath,
-                                                          payloadDict,
-                                                          fileType='yaml',
-                                                          componentName=vcdConstants.COMPONENT_NAME,
-                                                          templateName=vcdConstants.CHANGE_VAPP_OWNER_TEMPLATE)
-                payloadData = json.loads(payloadData)
-                # put api call to update the target vapps owner settings
-                response = self.restClientObj.put(url, self.headers, data=payloadData)
-                if response.status_code == requests.codes.no_content:
-                    logger.debug("Changed the Owner of vApp {} successfully".format(tgtVapp['@name']))
-                else:
-                    errorDict = xmltodict.parse(response.content)
-                    raise Exception("Failed to change the Owner of vApp {} {}".format(tgtVapp['@name'],
-                                                                                      errorDict['Error']['@message']))
-        except Exception:
-            raise
-
-    def getVappLeaseSettings(self, vAppHref):
-        """
-        Description :   Gets the Lease Settings of the specified vAppHref
-        Parameters  :   vAppHref    -   Href of a vApp (STRING)
-        """
-        try:
-            # url to get the lease settings of the vapp
-            url = "{}{}".format(vAppHref,
-                                vcdConstants.VAPP_LEASE_SETTINGS)
-            # get api call to retrieve the lease settings of a vapp
-            response = self.restClientObj.get(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
-            if response.status_code == requests.codes.ok:
-                return responseDict['LeaseSettingsSection']
-            raise Exception("Failed to retrieve vApp Lease Settings {}".format(responseDict['Error']['@message']))
-        except Exception:
-            raise
-
-    def renewVappLeaseSettings(self):
-        """
-        Description :   Renews the Lease Settings of the all target VApps as per Source vApps
-        """
-        try:
-            # getting the source vapp list
-            sourceVappList = self.getSourceOrgVDCvAppsList()
-            # getting the target vapp list
-            targetVappList = self.getTargetOrgVDCvAppsList()
-            # getting list of vapps with same name in source & target
-            vAppList = [(sourceVapp, targetVapp) for sourceVapp in sourceVappList for targetVapp in targetVappList if
-                        sourceVapp['@name'] + '-t' == targetVapp['@name']]
-            # iterating over the vapps
-            for (srcVapp, tgtVapp) in vAppList:
-                # retrieving the source vapps lease settings
-                leaseSettings = self.getVappLeaseSettings(srcVapp['@href'])
-                # url to update the target vapps lease settings
-                url = "{}{}".format(tgtVapp['@href'],
-                                    vcdConstants.VAPP_LEASE_SETTINGS)
-                filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
-                payloadDict = {'deploymentLeaseInSeconds': leaseSettings['DeploymentLeaseInSeconds'],
-                               'storageLeaseInSeconds': leaseSettings['StorageLeaseInSeconds']}
-                # creating the payload using the format in the template.yml
-                payloadData = self.vcdUtils.createPayload(filePath,
-                                                          payloadDict,
-                                                          fileType='yaml',
-                                                          componentName=vcdConstants.COMPONENT_NAME,
-                                                          templateName=vcdConstants.RENEW_VAPP_LEASE_SETTINGS_TEMPLATE)
-                payloadData = json.loads(payloadData)
-                # put api call to update the lease settings in the target vapps
-                response = self.restClientObj.put(url, self.headers, data=payloadData)
-                responseDict = xmltodict.parse(response.content)
-                if response.status_code == requests.codes.accepted:
-                    task = responseDict["Task"]
-                    if task["@operationName"] == vcdConstants.RENEW_VAPP_LEASE_SETTINGS_TASK_NAME:
-                        taskUrl = task["@href"]
-                    if taskUrl:
-                        # checking the status of the updating lease settings on target vapps task
-                        self._checkTaskStatus(taskUrl, vcdConstants.RENEW_VAPP_LEASE_SETTINGS_TASK_NAME)
-                    logger.debug("Lease Settings of VApp {} renewed successfully".format(tgtVapp['@name']))
-                else:
-                    raise Exception("Failed to renew Lease Settings of VApp {} {}".format(tgtVapp['@name'],
-                                                                                          responseDict['Error']['@message']))
-        except Exception:
-            raise
-
-    def getVappMetadata(self, vAppHref):
-        """
-        Description :   Gets the Metadata of the specified vAppHref
-        Parameters  :   vAppHref    -   Href of a vApp (STRING)
-        """
-        try:
-            url = "{}{}".format(vAppHref,
-                                vcdConstants.METADATA_IN_VAPP)
-            response = self.restClientObj.get(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
-            if response.status_code == requests.codes.ok:
-                return responseDict['Metadata']
-            raise Exception("Failed to retrieve vApp Metadata {}".format(responseDict['Error']['@message']))
-        except Exception:
-            raise
-
-    def createMetadataInVapp(self):
-        """
-        Description :   Create a new metadata in specified vApp with the specified  metadataKey & metadataValue
-        """
-        try:
-            sourceVappList = self.getSourceOrgVDCvAppsList()
-            targetVappList = self.getTargetOrgVDCvAppsList()
-            vAppList = [(sourceVapp, targetVapp) for sourceVapp in sourceVappList for targetVapp in targetVappList if sourceVapp['@name'] + '-t' == targetVapp['@name']]
-
-            for (srcVapp, tgtVapp) in vAppList:
-                metadata = self.getVappMetadata(srcVapp['@href'])
-                if isinstance(metadata["MetadataEntry"], dict):
-                    metadata["MetadataEntry"] = [metadata["MetadataEntry"]]
-                for eachMetadata in metadata["MetadataEntry"]:
-                    url = "{}{}".format(tgtVapp['@href'],
-                                        vcdConstants.METADATA_IN_VAPP)
-                    filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
-                    payloadDict = {'metadataKey': eachMetadata['Key'],
-                                   'metadataValue': eachMetadata['TypedValue']['Value'],
-                                   'typedValueDatatype': eachMetadata['TypedValue']['@xsi:type']}
-                    payloadData = self.vcdUtils.createPayload(filePath,
-                                                              payloadDict,
-                                                              fileType='yaml',
-                                                              componentName=vcdConstants.COMPONENT_NAME,
-                                                              templateName=vcdConstants.CREATE_VAPP_METADATA_TEMPLATE)
-
-                    payloadData = json.loads(payloadData)
-                    self.headers["Content-Type"] = vcdConstants.GENERAL_XML_CONTENT_TYPE
-                    response = self.restClientObj.post(url, self.headers, data=payloadData)
-                    responseDict = xmltodict.parse(response.content)
-                    if response.status_code == requests.codes.accepted:
-                        task = responseDict["Task"]
-                        if task["@operationName"] == vcdConstants.CREATE_METADATA_IN_VAPP_TASK_NAME:
-                            taskUrl = task["@href"]
-                        if taskUrl:
-                            self._checkTaskStatus(taskUrl, vcdConstants.CREATE_METADATA_IN_VAPP_TASK_NAME)
-                        logger.debug("Created Metadata {} in vApp {} successfully".format(eachMetadata['Key'], tgtVapp['@name']))
-                    else:
-                        raise Exception("Failed to create Metadata {} in vApp {} {}".format(eachMetadata['Key'],
-                                                                                            tgtVapp['@name'],
-                                                                                            responseDict['Error']['@message']))
-        except Exception:
-            raise
-
     @_isSessionExpired
     def enableTargetAffinityRules(self):
         """
@@ -1690,72 +1153,6 @@ class VCloudDirectorOperations(VCDMigrationValidation):
                         logger.debug('Affinity Rules got updated successfully in Target')
                     else:
                         raise Exception('Failed to update Affinity Rules in Target {}'.format(responseDict['Error']['@message']))
-        except Exception:
-            raise
-
-    @_isSessionExpired
-    def ejectMedia(self):
-        """
-        Description : Ejecting media from vm
-        """
-        try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading the data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
-            sourceOrgVDCEntityList = data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity'] if isinstance(data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity'], list) else [data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity']]
-            sourceVappList = [vAppEntity for vAppEntity in sourceOrgVDCEntityList if
-                              vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
-            # For future use need to get confirmation from Thomas
-            # mediaList = [vAppEntity for vAppEntity in sourceOrgVDCEntityList if
-            #               vAppEntity['@type'] == vcdConstants.TYPE_VAPP_MEDIA]
-            # iterating over the source vapps
-            for sourceVapp in sourceVappList:
-                hrefVapp = sourceVapp['@href']
-                # get api call to retrieve the details of a source vapp
-                response = self.restClientObj.get(hrefVapp, self.headers)
-                if response.status_code == requests.codes.ok:
-                    responseDict = xmltodict.parse(response.content)
-                    # cehcking the vapp has vms present in it
-                    if responseDict['VApp'].get('Children'):
-                        vmList = responseDict['VApp']['Children']['Vm'] if isinstance(responseDict['VApp']['Children']['Vm'], list) else [responseDict['VApp']['Children']['Vm']]
-                        filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
-                        # iterating over the vms in the source vapp
-                        for vm in vmList:
-                            vmId = vm['@id']
-                            vmId = vmId.split(':')[-1]
-                            # getting the meida settings of the source vm
-                            mediaSettings = vm['VmSpecSection']['MediaSection']['MediaSettings'] if isinstance(vm['VmSpecSection']['MediaSection']['MediaSettings'], list) else [vm['VmSpecSection']['MediaSection']['MediaSettings']]
-                            # iterating over the multiple media settings of source vm
-                            for mediaSetting in mediaSettings:
-                                # checking that media state is not disconnected
-                                if mediaSetting['MediaState'] != "DISCONNECTED":
-                                    mediaImage = mediaSetting['MediaImage']
-                                    mediaId = mediaImage['@id']
-                                    mediaId = mediaId.split(':')[-1]
-                                    payloadDict = {
-                                        "href": mediaImage['@href'],
-                                        "id": mediaId,
-                                        "name": mediaImage['@name']
-                                    }
-                                    # creating the payload data
-                                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                                              componentName=vcdConstants.COMPONENT_NAME,
-                                                                              templateName=vcdConstants.EJECT_MEDIA_TEMPLATE)
-                                    payloadData = json.loads(payloadData)
-                                    # url to eject media of source vm
-                                    url = "{}".format(vcdConstants.EJECT_MEDIA_URL.format(self.ipAddress, vmId))
-                                    # post api call to eject media of source vm
-                                    response = self.restClientObj.post(url, self.headers, data=payloadData)
-                                    if response.status_code == requests.codes.accepted:
-                                        task_url = response.headers['Location']
-                                        # checking the status of ejecting the source media task
-                                        self._checkTaskStatus(task_url, vcdConstants.EJECT_MEDIA_TASK_NAME)
-                                        logger.debug('Media got ejected successfully')
-                                    else:
-                                        response = response.json()
-                                        raise Exception('Failed to Eject media {} '.format(response['message']))
-            logger.info('Media got ejected successfully')
         except Exception:
             raise
 
@@ -1896,76 +1293,6 @@ class VCloudDirectorOperations(VCDMigrationValidation):
         except Exception:
             raise
 
-    def renameTargetOrgVDCVapps(self, targetVDCId):
-        """
-        Description :   Renames all the vApps in the specified target Org VDC as those in source Org VDC
-        Parameters  :   targetVDCId -   id of the target org vdc (STRING)
-        """
-        try:
-            # splitting thr target org vdc id as per the xml api requirements
-            targetVDCId = targetVDCId.split(':')[-1]
-            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
-            headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
-            # url to get the target org vdc details
-            url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                vcdConstants.ORG_VDC_BY_ID.format(targetVDCId))
-            # get api call to retrieve the target org vdc details
-            response = self.restClientObj.get(url, headers=headers)
-            responseDict = response.json()
-            # getting the resource entity list of target org vdc
-            targetOrgVDCEntityList = [responseDict['resourceEntities']['resourceEntity']] if isinstance(responseDict['resourceEntities']['resourceEntity'], dict) else responseDict['resourceEntities']['resourceEntity']
-            # getting the vapps list of the target org vdc
-            targetVappList = [vAppEntity for vAppEntity in targetOrgVDCEntityList if
-                              vAppEntity['type'] == vcdConstants.TYPE_VAPP]
-            # iterating over the target vapps
-            for tgtVapp in targetVappList:
-                # checking if the target vapp's name endwith -t
-                if tgtVapp['name'].endswith('-t'):
-                    # getting the startup section info of the target vapp, since required to create payload data to rename vapps
-                    startupDetails = self.getVappStartupSectionInfo(tgtVapp['href'])
-                    # since vapp name ends with -t, removing -t from the name
-                    vAppName = tgtVapp['name'][0: len(tgtVapp['name']) - 2]
-                    # creating the payload data using xml tree
-                    recomposeVappParams = ET.Element('RecomposeVAppParams',
-                                                     {"xmlns":'http://www.vmware.com/vcloud/v1.5',
-                                                      "name": vAppName,
-                                                      "xmlns:ovf": "http://schemas.dmtf.org/ovf/envelope/1"})
-                    instantiationParams = ET.SubElement(recomposeVappParams, 'InstantiationParams')
-                    startupSection = ET.SubElement(instantiationParams, "ovf:StartupSection")
-                    ET.SubElement(startupSection, "ovf:Info")
-                    if "ovf:Item" in startupDetails:
-                        if isinstance(startupDetails["ovf:Item"], dict):
-                            startupDetails["ovf:Item"] = [startupDetails["ovf:Item"]]
-                        for eachVm in startupDetails["ovf:Item"]:
-                            ET.SubElement(startupSection, "ovf:Item",
-                                          {"ovf:id": eachVm["@ovf:id"],
-                                           "ovf:order": eachVm["@ovf:order"],
-                                           "ovf:startAction": eachVm["@ovf:startAction"],
-                                           "ovf:startDelay": eachVm["@ovf:startDelay"],
-                                           "ovf:stopAction": eachVm["@ovf:stopAction"],
-                                           "ovf:stopDelay": eachVm["@ovf:stopDelay"]})
-                    payloadData = ET.tostring(recomposeVappParams, encoding='utf-8', method='xml')
-                    self.headers["Content-Type"] = vcdConstants.GENERAL_XML_CONTENT_TYPE
-                    # url to rename the target vapp
-                    url = "{}/{}".format(tgtVapp['href'],
-                                         vcdConstants.RECOMPOSE_VAPP_API)
-                    # post api call to rename the target vapp
-                    response = self.restClientObj.post(url, self.headers, data=str(payloadData, 'utf-8'))
-                    responseDict = xmltodict.parse(response.content)
-                    if response.status_code == requests.codes.accepted:
-                        task = responseDict["Task"]
-                        if task["@operationName"] == vcdConstants.RECOMPOSE_VAPP_TASK:
-                            taskUrl = task["@href"]
-                        if taskUrl:
-                            # checking the status of the renaming target vapps task
-                            self._checkTaskStatus(taskUrl, vcdConstants.RECOMPOSE_VAPP_TASK)
-                        logger.debug("Renamed vApp to {} successfully".format(vAppName))
-                    else:
-                        raise Exception("Failed to rename the vApp to {} {}".format(vAppName,
-                                                                                    responseDict['Error']['@message']))
-        except Exception:
-            raise
-
     def getVmSizingPoliciesOfOrgVDC(self, orgVdcId, isTarget=False):
         """
         Description :   Fetches the list of vm sizing policies assigned to the specified Org VDC
@@ -2034,50 +1361,6 @@ class VCloudDirectorOperations(VCDMigrationValidation):
                                                                                                    response.json()['message']))
         except Exception:
             self.DELETE_TARGET_ORG_VDC = True
-            raise
-
-    def deleteOrgVDCvApps(self, sourceOrgVDCId):
-        """
-        Description :   Delete Org VDC apps
-        Parameters  :   sourceOrgVDCId  -   id of the source org vdc (STRING)
-        """
-        try:
-            # splitting the org vdc id as per the requirements of the xml api
-            orgVDCId = sourceOrgVDCId.split(':')[-1]
-            # url to get the  source org vdc details
-            url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                vcdConstants.ORG_VDC_BY_ID.format(orgVDCId))
-            # get api call to retrieve the source org vdc details
-            response = self.restClientObj.get(url, self.headers)
-            if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
-                # checking if no resource entities present, if so returning
-                if responseDict['AdminVdc']['ResourceEntities'] is None:
-                    return
-                # getting source org vdc enttity list
-                sourceOrgVDCEntityList = responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'] if isinstance(responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'], list) else [responseDict['AdminVdc']['ResourceEntities']['ResourceEntity']]
-                # getting source vapp list
-                vAppList = [vAppEntity for vAppEntity in sourceOrgVDCEntityList if vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
-                # iterating over the source vapps
-                for vApp in vAppList:
-                    logger.info("Deleting vApp {} from source Org VDC {}".format(vApp['@name'], responseDict['AdminVdc']['@name']))
-                    # delete api call to delete the source vapp
-                    response = self.restClientObj.delete(vApp['@href'], self.headers)
-                    vAppResponseDict = xmltodict.parse(response.content)
-                    if response.status_code == requests.codes.accepted:
-                        task = vAppResponseDict["Task"]
-                        if task["@operationName"] == vcdConstants.DELETE_VAPP_TASK_NAME:
-                            taskUrl = task["@href"]
-                        if taskUrl:
-                            # checking the status of deleting the source vapp task
-                            self._checkTaskStatus(taskUrl, vcdConstants.DELETE_VAPP_TASK_NAME)
-                        logger.info("Deleted vApp {} from source Org VDC {} successfully".format(vApp['@name'],
-                                                                                                 responseDict['AdminVdc']['@name']))
-                    else:
-                        raise Exception("Failed to delete vApp {} in source Org VDC {} {}".format(vApp['@name'],
-                                                                                                  responseDict['AdminVdc']['@name'],
-                                                                                                  vAppResponseDict['Error']['@message']))
-        except Exception:
             raise
 
     def disconnectTargetOrgVDCNetwork(self):
@@ -2313,6 +1596,10 @@ class VCloudDirectorOperations(VCDMigrationValidation):
             else:
                 logger.debug('Skipping Target Org VDC Network creation as no source Org VDC network exist.')
 
+            # enable the promiscous mode and forged transmit of source org vdc networks
+            logger.info('Enabling the promiscuous mode and forged transmit of source Org VDC networks.')
+            self.enableDisablePromiscModeForgedTransmit(orgVdcNetworkList, enable=True)
+
             # get the portgroup of source org vdc networks
             logger.info('Get the portgroup of source org vdc networks.')
             portGroupList = self.getPortgroupInfo(orgVdcNetworkList)
@@ -2327,6 +1614,9 @@ class VCloudDirectorOperations(VCDMigrationValidation):
             self.enableSourceOrgVdc(sourceOrgVDCId)
             logger.info("RollBack: Enable Source vApp Affinity Rules")
             self.enableOrDisableSourceAffinityRules(sourceOrgVDCId, enable=True)
+            if self.DISABLE_PROMISC_MODE:
+                logger.info("RollBack: Disable Promiscuous Mode and Forge Transmit")
+                self.enableDisablePromiscModeForgedTransmit(None, enable=False)
             if self.DELETE_TARGET_ORG_VDC_NETWORKS:
                 logger.info("RollBack: Delete Target Org VDC Networks")
                 self.deleteOrgVDCNetworks(targetOrgVDCId, source=False)
@@ -2345,6 +1635,11 @@ class VCloudDirectorOperations(VCDMigrationValidation):
                         sourceEdgeGatewayId -   id of the source edge gateway (STRING)
         """
         try:
+            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
+            with open(fileName, 'r') as f:
+                data = json.load(f)
+            # taking target edge gateway id from apioutput jsin file
+            edgeGatewayId = data['targetEdgeGateway']['id']
             if orgVdcNetworkList:
                 # disconnecting source org vdc networks from edge gateway
                 logger.info('Disconnecting source routed Org VDC Networks from source Edge gateway.')
@@ -2367,7 +1662,8 @@ class VCloudDirectorOperations(VCDMigrationValidation):
                 logger.info('Successfully reconnected target Org VDC Networks.')
             # configuring dhcp service target Org VDC networks
             self.configureDHCP()
-
+            # configuring firewall security groups
+            self.configureFirewall(edgeGatewayId=edgeGatewayId, networktype=True)
             # reconnecting target org vdc edge gateway from T0
             logger.info('Reconnecting target Edge gateway to T0 router.')
             self.reconnectTargetEdgeGateway()
@@ -2383,312 +1679,177 @@ class VCloudDirectorOperations(VCDMigrationValidation):
                         orgUrl          - Organization url (STRING)
         """
         try:
-            # getting the source vApp template and media details
             sourceOrgVDCId = sourceOrgVDCId.split(':')[-1]
             # url to get the details of source org vdc
             url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
                                 vcdConstants.ORG_VDC_BY_ID.format(sourceOrgVDCId))
             # get api call to retrieve the source org vdc details
-            response = self.restClientObj.get(url, self.headers)
-            if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
-                # checking if no resource entities present, if so returning
-                if responseDict['AdminVdc']['ResourceEntities'] is None:
-                    return
-                # getting the resource entity list of source org vdc
-                sourceOrgVDCEntityList = responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'] if isinstance(responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'], list) else [responseDict['AdminVdc']['ResourceEntities']['ResourceEntity']]
-                # retrieving the source vapp template list
-                sourceVappTemplateList = [vAppTemplateEntity for vAppTemplateEntity in sourceOrgVDCEntityList if
-                                          vAppTemplateEntity['@type'] == vcdConstants.TYPE_VAPP_TEMPLATE]
-                # retrieving the source vapp media list
-                sourceVappMediaList = [vAppMediaEntity for vAppMediaEntity in sourceOrgVDCEntityList if
-                                       vAppMediaEntity['@type'] == vcdConstants.TYPE_VAPP_MEDIA]
-                # getting the target storage profile details
-                targetOrgVDCId = targetOrgVDCId.split(':')[-1]
-                # url to get target org vdc details
-                url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                    vcdConstants.ORG_VDC_BY_ID.format(targetOrgVDCId))
-                # get api call to retrieve the target org vdc details
-                response = self.restClientObj.get(url, self.headers)
-                if response.status_code == requests.codes.ok:
-                    responseDict = xmltodict.parse(response.content)
-                    # retrieving target org vdc storage profiles list
-                    targetOrgVDCStorageList = responseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'] if isinstance(responseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'], list) else [responseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile']]
-                storageProfileHref = ''
-                # iterating over the target org vdc storage profiles
-                for eachStorageProfile in targetOrgVDCStorageList:
-                    # fetching the details of the storage profile
-                    orgVDCStorageProfileDetails = self.getOrgVDCStorageProfileDetails(eachStorageProfile['@id'])
-                    # checking if the storage profile is the default one
-                    if orgVDCStorageProfileDetails['AdminVdcStorageProfile']['Default'] == "true":
-                        storageProfileHref = eachStorageProfile['@href']
-                        break
-                # getting the organization catalog details
-                response = self.restClientObj.get(orgUrl, headers=self.headers)
-                responseDict = xmltodict.parse(response.content)
-                orgId = responseDict['AdminOrg']['@id'].split(':')[-1]
-                # if no catalogs exist
-                if not responseDict['AdminOrg'].get("Catalogs"):
-                    return
-                # getting the catalog details
-                catalogDetails = responseDict['AdminOrg']["Catalogs"]["CatalogReference"] if isinstance(responseDict['AdminOrg']["Catalogs"]["CatalogReference"], list) else [responseDict['AdminOrg']["Catalogs"]["CatalogReference"]]
-                # getting all the vapp templates for organization
-                vAppTemplateList = self.getvAppTemplates(orgId)
-                # getting all the media for organization
-                vAppMediaList = self.getCatalogMedia(orgId)
-                vAppTemplateDetails = [vAppTemplate for vAppTemplate in vAppTemplateList for sourceVappTemplate in sourceVappTemplateList if sourceVappTemplate['@name'] == vAppTemplate['name']]
-                vAppMediaDetails = [vAppMedia for vAppMedia in vAppMediaList for sourceVappMedia in sourceVappMediaList if sourceVappMedia['@name'] == vAppMedia['name']]
-                # getting the catlogs from the corresponding vapptemplates and media
-                catalogTemplateList = []
-                # iterating over vapp template details to append catalog name in catalogTemplateList if not already in catalogTemplateList
-                for vAppTemplate in vAppTemplateDetails:
-                    if vAppTemplate['catalogName'] not in catalogTemplateList:
-                        catalogTemplateList.append(vAppTemplate['catalogName'])
-                # iterating over vapp media details to append catalog name in catalogTemplateList if not already in catalogTemplateList
-                for vAppMedia in vAppMediaDetails:
-                    if vAppMedia['catalogName'] not in catalogTemplateList:
-                        catalogTemplateList.append(vAppMedia['catalogName'])
-                # url to create target catalog
-                catalogUrl = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                           vcdConstants.CREATE_CATALOG.format(orgId))
-                filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
-                # iterating over all the catalog templates
-                for catalogName in catalogTemplateList:
-                    logger.debug('Starting to migrate Catalog - {}'.format(catalogName))
-                    # creating target catalogs for migration
-                    payloadDict = {'catalogName': catalogName +'-t', 'storageProfileHref': storageProfileHref}
-                    # creating the payload data
-                    payloadData = self.vcdUtils.createPayload(filePath,
-                                                              payloadDict,
-                                                              fileType='yaml',
-                                                              componentName=vcdConstants.COMPONENT_NAME,
-                                                              templateName=vcdConstants.CREATE_CATALOG_TEMPLATE)
-                    payloadData = json.loads(payloadData)
-                    self.headers["Content-Type"] = vcdConstants.XML_CREATE_CATALOG
-                    # post api call to create target catalogs
-                    response = self.restClientObj.post(catalogUrl, self.headers, data=payloadData)
-                    if response.status_code == requests.codes.created:
-                        logger.debug('Catalog {} created successfully'.format(catalogName+'-t'))
-                        responseDict = xmltodict.parse(response.content)
-                        # getting the newly created target catalog id
-                        catalogId = responseDict["AdminCatalog"]["@id"].split(':')[-1]
-                    else:
-                        raise Exception('Failed to create Catalog {}'.format(catalogName+'-t'))
-                    if catalogId:
-                        # getting source catalog items
-                        vApptemplateMoveUrl = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                                            vcdConstants.MOVE_VAPP.format(catalogId))
-                        if self.headers.get("Content-Type", None):
-                            del self.headers['Content-Type']
-                        catalogHref = [catalogDetail['@href'] for catalogDetail in catalogDetails if catalogDetail['@name'] == catalogName]
-                        catalogHref = catalogHref[0]
-                        acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
-                        headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
-                        response = self.restClientObj.get(catalogHref, headers)
-                        responseDict = response.json()
-                        if responseDict['catalogItems'] is None:
-                            return
-                        if response.status_code == requests.codes.ok:
-                            catalogItemList = responseDict['catalogItems']['catalogItem'] if isinstance(responseDict['catalogItems']['catalogItem'], list) else [responseDict['catalogItems']['catalogItem']]
-                        else:
-                            raise Exception('Failed to retrieve catalog item info of catalog {} - {}'.format(catalogName, responseDict['message']))
-                        # moving catalog item from the above catalog item list to target catalog created above
-                        for catalogItem in catalogItemList:
-                            logger.debug('Starting to move catalog item.')
-                            # creating payload data to move vapp template
-                            payloadDict = {'catalogItemName': catalogItem['name'], 'catalogItemHref': catalogItem['href']}
-                            payloadData = self.vcdUtils.createPayload(filePath,
-                                                                      payloadDict,
-                                                                      fileType='yaml',
-                                                                      componentName=vcdConstants.COMPONENT_NAME,
-                                                                      templateName=vcdConstants.MOVE_VAPP_TEMPLATE)
-                            payloadData = json.loads(payloadData)
-                            # post api call to move vapp templates
-                            response = self.restClientObj.post(vApptemplateMoveUrl, self.headers, data=payloadData)
-                            responseDict = xmltodict.parse(response.content)
-                            if response.status_code == requests.codes.accepted:
-                                task = responseDict["Task"]
-                                taskUrl = task["@href"]
-                                if taskUrl:
-                                    # checking the status of moving catalog item task
-                                    self._checkTaskStatus(taskUrl, task["@operationName"])
-                                logger.debug("Catalog Item {} moved successfully".format(catalogItem['name']))
-                            else:
-                                raise Exception('Failed to move catalog item - {}'.format(responseDict['Error']['@message']))
-                        # deleting catalog
-                        logger.debug('Deleting catalog {}'.format(catalogName))
-                        # url to delete the catalog
-                        deleteCatalogUrl = '{}?recursive=true&force=true'.format(catalogHref)
-                        # delete api call to delete the catalog
-                        response = self.restClientObj.delete(deleteCatalogUrl, self.headers)
-                        responseDict = xmltodict.parse(response.content)
-                        if response.status_code == requests.codes.accepted:
-                            task = responseDict["Task"]
-                            if task["@operationName"] == vcdConstants.DELETE_CATALOG_TASK:
-                                taskUrl = task["@href"]
-                            if taskUrl:
-                                # checking the status of deleting the catalog task
-                                self._checkTaskStatus(taskUrl, vcdConstants.DELETE_CATALOG_TASK)
-                            logger.debug("Catalog {} deleted successfully".format(catalogName))
-                        else:
-                            raise Exception('Failed to delete catalog {} - {}'.format(catalogName,
-                                                                                      responseDict['Error']['@message']))
-        except Exception:
-            raise
+            sourceOrgVDCResponse = self.restClientObj.get(url, self.headers)
+            sourceOrgVDCResponseDict = xmltodict.parse(sourceOrgVDCResponse.content)
 
-    def getvAppTemplates(self, orgId):
-        """
-        Description : Get all vApp Templates of specific Organization
-        Parameters  : orgId - Organization Id (STRING)
-        """
-        try:
-            # url to get vapp template info
-            url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                vcdConstants.GET_VAPP_TEMPLATE_INFO)
-            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
-            headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader, 'X-VMWARE-VCLOUD-TENANT-CONTEXT': orgId}
-            # get api call to retrieve the vapp template details
-            response = self.restClientObj.get(url, headers)
-            if response.status_code == requests.codes.ok:
-                responseDict = response.json()
-                resultTotal = responseDict['total']
-            pageNo = 1
-            pageSizeCount = 0
-            resultList = []
-            logger.debug('Getting vapp template details')
-            while resultTotal > 0 and pageSizeCount < resultTotal:
-                # url to get the vapp template info with page number and page size count
-                url = "{}{}&page={}&pageSize={}&format=records".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                                                       vcdConstants.GET_VAPP_TEMPLATE_INFO, pageNo,
-                                                                       vcdConstants.VAPP_TEMPLATE_PAGE_SIZE)
-                # get api call to retrieve the vapp template details with page number and page size count
-                response = self.restClientObj.get(url, headers)
-                if response.status_code == requests.codes.ok:
-                    responseDict = response.json()
-                    resultList.extend(responseDict['record'])
-                    pageSizeCount += len(responseDict['record'])
-                    logger.debug('vApp Template details result pageSize = {}'.format(pageSizeCount))
-                    pageNo += 1
-            logger.debug('Total vApp Template details result count = {}'.format(len(resultList)))
-            logger.debug('vApp Template details successfully retrieved')
-            return resultList
-        except Exception:
-            raise
+            # sourceStorageProfileIDsList holds list the IDs of the source org vdc storage profiles
+            sourceStorageProfileIDsList = []
+            # sourceStorageProfilesList holds the list of dictionaries of details of each source org vdc storage profile
+            sourceStorageProfilesList = []
+            storageProfiles = sourceOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'] if isinstance(sourceOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'], list) else [sourceOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile']]
+            for storageProfile in storageProfiles:
+                sourceStorageProfilesList.append(storageProfile)
+                sourceStorageProfileIDsList.append(storageProfile['@id'])
 
-    def getCatalogMedia(self, orgId):
-        """
-        Description : Get all media objects of specific Organization
-        Parameters  : orgId - Organization Id (STRING)
-        """
-        try:
-            # url to get the media info of specified organization
-            url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                vcdConstants.GET_MEDIA_INFO)
-            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
-            headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader, 'X-VMWARE-VCLOUD-TENANT-CONTEXT': orgId}
-            # get api call to retrieve the media details of organization
-            response = self.restClientObj.get(url, headers)
-            if response.status_code == requests.codes.ok:
-                responseDict = response.json()
-                resultTotal = responseDict['total']
-            pageNo = 1
-            pageSizeCount = 0
-            resultList = []
-            logger.debug('Getting media details')
-            while resultTotal > 0 and pageSizeCount < resultTotal:
-                # url to get the media info of specified organization with page number and page size count
-                url = "{}{}&page={}&pageSize={}&format=records".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                                                       vcdConstants.GET_MEDIA_INFO, pageNo,
-                                                                       vcdConstants.MEDIA_PAGE_SIZE)
-                # get api call to retrieve the media details of organization with page number and page size count
-                response = self.restClientObj.get(url, headers)
-                if response.status_code == requests.codes.ok:
-                    responseDict = response.json()
-                    resultList.extend(responseDict['record'])
-                    pageSizeCount += len(responseDict['record'])
-                    logger.debug('Media details result pageSize = {}'.format(pageSizeCount))
-                    pageNo += 1
-            logger.debug('Total media details result count = {}'.format(len(resultList)))
-            logger.debug('Media details successfully retrieved')
-            return resultList
-        except Exception:
-            raise
+            # get api call to retrieve the organization details
+            orgResponse = self.restClientObj.get(orgUrl, headers=self.headers)
+            orgResponseDict = xmltodict.parse(orgResponse.content)
+            # retrieving the organization ID
+            orgId = orgResponseDict['AdminOrg']['@id'].split(':')[-1]
 
-    @_isSessionExpired
-    def powerOffSourceVapp(self, sourceOrgVDCId):
-        """
-        Description :   Power off source vApp
-        Parameters  :   sourceOrgVDCId  -   id of the source org vdc (STRING)
-        """
-        try:
-            # splitting the org vdc id as per the xml api requirements
-            orgVDCId = sourceOrgVDCId.split(':')[-1]
-            # url to retrieve the source org vdc details
+            # orgCatalogs contains list of all catalogs in the organization
+            orgCatalogs = orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"] if isinstance(orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"], list) else [orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"]]
+
+            # sourceOrgVDCCatalogDetails will hold list of only catalogs present in the source org vdc
+            sourceOrgVDCCatalogDetails = []
+            # iterating over all the organization catalogs
+            for catalog in orgCatalogs:
+                # get api call to retrieve the catalog details
+                catalogResponse = self.restClientObj.get(catalog['@href'], headers=self.headers)
+                catalogResponseDict = xmltodict.parse(catalogResponse.content)
+                if catalogResponseDict['AdminCatalog'].get('CatalogStorageProfiles'):
+                    # checking if catalogs storage profile is same from source org vdc storage profile by matching the ID of storage profile
+                    if catalogResponseDict['AdminCatalog']['CatalogStorageProfiles']['VdcStorageProfile']['@id'] in sourceStorageProfileIDsList:
+                        # creating the list of catalogs from source org vdc
+                        sourceOrgVDCCatalogDetails.append(catalogResponseDict['AdminCatalog'])
+                else:
+                    # skipping the organization level catalogs(i.e catalogs that doesnot belong to any org vdc)
+                    logger.debug("Skipping the catalog '{}' since catalog doesnot belong to any org vdc".format(catalog['@name']))
+
+            if not sourceOrgVDCCatalogDetails:
+                logger.debug("No source catalogs found to migrate")
+                return
+
+            # getting the target storage profile details
+            targetOrgVDCId = targetOrgVDCId.split(':')[-1]
+            # url to get target org vdc details
             url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                vcdConstants.ORG_VDC_BY_ID.format(orgVDCId))
-            # get api call to retrieve the source org vdc details
-            response = self.restClientObj.get(url, self.headers)
-            if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
-                # checking if no resource entities present, if so returning
-                if responseDict['AdminVdc']['ResourceEntities'] is None:
-                    return
-                # getting list instance of source org vdc resource entities
-                sourceOrgVDCEntityList = responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'] if isinstance(responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'], list) else [responseDict['AdminVdc']['ResourceEntities']['ResourceEntity']]
-                # getting vapp of source org vdc
-                vAppList = [vAppEntity for vAppEntity in sourceOrgVDCEntityList if
-                            vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
-                filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
-                # creating payload data
-                payloadDict = {'action': "powerOff"}
-                payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                vcdConstants.ORG_VDC_BY_ID.format(targetOrgVDCId))
+
+            # get api call to retrieve the target org vdc details
+            targetOrgVDCResponse = self.restClientObj.get(url, self.headers)
+            targetOrgVDCResponseDict = xmltodict.parse(targetOrgVDCResponse.content)
+            # retrieving target org vdc storage profiles list
+            targetOrgVDCStorageList = targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'] if isinstance(targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'], list) else [targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile']]
+
+            # url to create target catalog
+            catalogUrl = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                                       vcdConstants.CREATE_CATALOG.format(orgId))
+            filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
+
+            # iterating over the source org vdc catalogs to migrate them to target org vdc
+            for srcCatalog in sourceOrgVDCCatalogDetails:
+                storageProfileHref = ''
+                for storageProfile in targetOrgVDCStorageList:
+                    srcOrgVDCStorageProfileDetails = self.getOrgVDCStorageProfileDetails(srcCatalog['CatalogStorageProfiles']['VdcStorageProfile']['@id'])
+                    # cheaking for the same name of target org vdc profile name matching with source catalog's storage profile
+                    if srcOrgVDCStorageProfileDetails['AdminVdcStorageProfile']['@name'] == storageProfile['@name']:
+                        storageProfileHref = storageProfile['@href']
+                        break
+
+                # creating target catalogs for migration
+                payloadDict = {'catalogName': srcCatalog['@name'] + '-t',
+                               'storageProfileHref': storageProfileHref,
+                               'catalogDescription': srcCatalog['Description'] if srcCatalog.get('Description') else ''}
+                # creating the payload data
+                payloadData = self.vcdUtils.createPayload(filePath,
+                                                          payloadDict,
+                                                          fileType='yaml',
                                                           componentName=vcdConstants.COMPONENT_NAME,
-                                                          templateName=vcdConstants.UNDEPLOY_VAPP_TEMPLATE)
+                                                          templateName=vcdConstants.CREATE_CATALOG_TEMPLATE)
                 payloadData = json.loads(payloadData)
-                # iterating over the source vapps
-                for vApp in vAppList:
-                    self.headers["Content-Type"] = vcdConstants.XML_UNDEPLOY_VAPP
-                    # url to power-off the vapp
-                    url = "{}/{}".format(vApp['@href'],
-                                         vcdConstants.POWER_OFF_VAPP)
-                    # post api call to power-off the vapp
-                    response = self.restClientObj.post(url, self.headers, data=payloadData)
-                    responseDict = xmltodict.parse(response.content)
-                    if response.status_code == requests.codes.accepted:
-                        task = responseDict["Task"]
-                        if task["@operationName"] == vcdConstants.UNDEPLOY_VAPP_TASK:
+                self.headers["Content-Type"] = vcdConstants.XML_CREATE_CATALOG
+                # post api call to create target catalogs
+                createCatalogResponse = self.restClientObj.post(catalogUrl, self.headers, data=payloadData)
+                if createCatalogResponse.status_code == requests.codes.created:
+                    logger.debug("Catalog '{}' created successfully".format(srcCatalog['@name'] + '-t'))
+                    createCatalogResponseDict = xmltodict.parse(createCatalogResponse.content)
+                    # getting the newly created target catalog id
+                    catalogId = createCatalogResponseDict["AdminCatalog"]["@id"].split(':')[-1]
+                else:
+                    errorDict = xmltodict.parse(createCatalogResponse.content)
+                    raise Exception("Failed to create Catalog '{}' : {}".format(srcCatalog['@name'] + '-t',
+                                                                                errorDict['@message']))
+
+                if catalogId:
+                    if self.headers.get("Content-Type"):
+                        del self.headers['Content-Type']
+                    # empty catalogs
+                    if not srcCatalog.get('CatalogItems'):
+                        logger.debug("Migrating empty catalog '{}'".format(srcCatalog['@name']))
+                        # deleting the source org vdc catalog
+                        self.deleteSourceCatalog(srcCatalog['@href'], srcCatalog)
+                        # renaming the target org vdc catalog
+                        self.renameTargetCatalog(catalogId, srcCatalog)
+                        continue
+
+                    # non-empty catalogs
+                    logger.debug("Migrating non-empty catalog '{}'".format(srcCatalog['@name']))
+                    # retrieving the catalog items of the catalog
+                    catalogItemList = srcCatalog['CatalogItems']['CatalogItem'] if isinstance(srcCatalog['CatalogItems']['CatalogItem'], list) else [srcCatalog['CatalogItems']['CatalogItem']]
+
+                    # moving each catalog item from the 'catalogItemList' to target catalog created above
+                    for catalogItem in catalogItemList:
+                        logger.debug('Starting to move catalog item.')
+                        # creating payload data to move vapp template/ media
+                        payloadDict = {'catalogItemName': catalogItem['@name'],
+                                       'catalogItemHref': catalogItem['@href']}
+                        payloadData = self.vcdUtils.createPayload(filePath,
+                                                                  payloadDict,
+                                                                  fileType='yaml',
+                                                                  componentName=vcdConstants.COMPONENT_NAME,
+                                                                  templateName=vcdConstants.MOVE_CATALOG_TEMPLATE)
+                        payloadData = json.loads(payloadData)
+                        # url to move the catalog item
+                        vApptemplateMoveUrl = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                                                            vcdConstants.MOVE_CATALOG.format(catalogId))
+
+                        # post api call to move vapp templates/ media
+                        moveVappTemplateResponse = self.restClientObj.post(vApptemplateMoveUrl, self.headers, data=payloadData)
+                        moveVappTemplateResponseDict = xmltodict.parse(moveVappTemplateResponse.content)
+                        if moveVappTemplateResponse.status_code == requests.codes.accepted:
+                            task = moveVappTemplateResponseDict["Task"]
                             taskUrl = task["@href"]
-                        if taskUrl:
-                            # checking the status of powering-off the source vapp task
-                            self._checkTaskStatus(taskUrl, vcdConstants.UNDEPLOY_VAPP_TASK)
-                        logger.debug("Successfully powered-off the source vapp {}".format(vApp['@name']))
-                    else:
-                        # handling the case of empty vapps, since empty vapps(vapps with no vms in it) do not have power-off option
-                        operationString = vcdConstants.CHECK_STRING_FOR_EMPTY_VAPPS.format(vApp['@name'])
-                        if operationString in responseDict['Error']['@message']:
-                            logger.debug("The power-off operation could not be executed on source vApp since vApp '{}' is not running as there are no vms present in it.".format(vApp['@name']))
-                        # handling all the errors other than empty vapp power-off
+                            if taskUrl:
+                                # checking the status of moving catalog item task
+                                self._checkTaskStatus(taskUrl, task["@operationName"])
+                            logger.debug("Catalog Item '{}' moved successfully".format(catalogItem['@name']))
                         else:
-                            raise Exception('Failed to power off source vApp {}'.format(vApp['@name']))
-        except:
+                            raise Exception("Failed to move catalog item '{}' - {}".format(catalogItem['@name'],
+                                                                                           moveVappTemplateResponseDict['Error']['@message']))
+
+                    # deleting the source org vdc catalog
+                    self.deleteSourceCatalog(srcCatalog['@href'], srcCatalog)
+                    # renaming the target org vdc catalog
+                    self.renameTargetCatalog(catalogId, srcCatalog)
+                    # deleting catalog
+        except Exception:
             raise
 
-    @staticmethod
-    def getSourceEdgeGatewayMacAddress(portGroupList, interfacesList):
+    def getSourceEdgeGatewayMacAddress(self, portGroupList, interfacesList):
         """
         Description :   Get source edge gateway mac address for source org vdc network portgroups
         Parameters  :   portGroupList   -   source org vdc networks corresponding portgroup details (LIST)
                         interfacesList  -   Interfaces details of source edge gateway (LIST)
         Returns     :   macAddressList  -   list of mac addresses (LIST)
         """
-        logger.debug("Getting Source Edge Gateway Mac Address")
-        macAddressList = []
-        for portGroup in portGroupList:
-            for nicDetail in interfacesList:
-                # comparing source org vdc network portgroup moref and edge gateway interface details
-                if portGroup['moref'] == nicDetail['value']['backing']['network']:
-                    macAddressList.append(nicDetail['value']['mac_address'])
-        return macAddressList
+        try:
+            logger.debug("Getting Source Edge Gateway Mac Address")
+            macAddressList = []
+            for portGroup in portGroupList:
+                for nicDetail in interfacesList:
+                    # comparing source org vdc network portgroup moref and edge gateway interface details
+                    if portGroup['moref'] == nicDetail['value']['backing']['network']:
+                        macAddressList.append(nicDetail['value']['mac_address'])
+            return macAddressList
+        except Exception:
+            self.DISABLE_PROMISC_MODE = True
+            raise
 
     @staticmethod
     def checkIfSourceVappsExist():
@@ -2725,27 +1886,10 @@ class VCloudDirectorOperations(VCDMigrationValidation):
                 logger.debug("No Vapps in Source Org VDC, hence skipping migrateVapps task.")
                 return
 
-            # create placeholder vapps in target Org VDC
-            logger.info('Creating placeholder vApps in target Org VDC.')
-            self.composevApp()
-            logger.info('Successfully created placeholder vApps in target Org VDC.')
-
-            # create target vApp access control
-            logger.info('Creating Access Control in target vApps.')
-            self.createVappAccessControlInTargetVapp()
-
-            # change target vApp Owner
-            logger.info('Changing target vApps owner.')
-            self.changeVAppOwner()
-
-            # renew target vApp Lease
-            logger.info('Renew target vApp lease settings.')
-            self.renewVappLeaseSettings()
-
             # recompose target vApp by adding source vm
-            logger.info('Recomposing target vApps with source vApp vm.')
-            self.recomposeTargetvApp()
-            logger.info('Recomposed target vApps with source vApp vm.')
+            logger.info('Migrating source vApps.')
+            self.moveVapp()
+            logger.info('Successfully migrated source vApps.')
 
             # configuring Affinity rules
             logger.info('Configuring target Org VDC affinity rules')
@@ -2789,6 +1933,7 @@ class VCloudDirectorOperations(VCDMigrationValidation):
             errorDict = xmltodict.parse(response.content)
             raise Exception("Failed to get edge gateway status. Error - {}".format(errorDict['error']['details']))
         except Exception:
+            self.DISABLE_PROMISC_MODE = True
             raise
 
     def connectUplinkSourceEdgeGateway(self, sourceEdgeGatewayId):
@@ -2833,20 +1978,21 @@ class VCloudDirectorOperations(VCDMigrationValidation):
                 payloadData = json.loads(payloadData)
                 gatewayInterfaces.append(payloadData)
                 responseDict['configuration']['gatewayInterfaces']['gatewayInterface'] = gatewayInterfaces
+                responseDict['edgeGatewayServiceConfiguration'] = None
+                del(responseDict['tasks'])
                 payloadData = json.dumps(responseDict)
                 acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
                 self.headers["Content-Type"] = vcdConstants.XML_UPDATE_EDGE_GATEWAY
                 headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,
                            'Content-Type': vcdConstants.JSON_UPDATE_EDGE_GATEWAY}
                 # updating the details of the edge gateway
-                response = self.restClientObj.put(url, headers, data=payloadData)
+                response = self.restClientObj.put(url+'/action/updateProperties', headers, data=payloadData)
                 responseData = response.json()
                 if response.status_code == requests.codes.accepted:
-                    if responseData["operationName"] == vcdConstants.UPDATE_EDGE_GATEWAY_TASK_NAME:
-                        taskUrl = responseData["href"]
+                    taskUrl = responseData["href"]
                     if taskUrl:
                         # checking the status of renaming target org vdc task
-                        self._checkTaskStatus(taskUrl, vcdConstants.UPDATE_EDGE_GATEWAY_TASK_NAME)
+                        self._checkTaskStatus(taskUrl, responseData["operationName"])
                         logger.debug('Connected dummy uplink to source Edge gateway {} successfully'.format(responseDict['name']))
                         return
                 raise Exception("Failed to connect dummy uplink to source Edge gateway {} with error {}".format(responseDict['name'], responseData['message']))
@@ -2942,3 +2088,324 @@ class VCloudDirectorOperations(VCDMigrationValidation):
                 resultData.append({'startAddress': startAddress, 'endAddress': startAddress})
             total += 1
         return resultData
+
+    def deleteSourceCatalog(self, catalogUrl, srcCatalog):
+        """
+        Description :   Deletes the source org vdc catalog of the specified catalog url
+        Parameters  :   catalogUrl  -   url of the source catalog (STRING)
+                        srcCatalog  -   Details of the source catalog (DICT)
+        """
+        try:
+            # deleting catalog
+            logger.debug("Deleting catalog '{}'".format(srcCatalog['@name']))
+            # url to delete the catalog
+            deleteCatalogUrl = '{}?recursive=true&force=true'.format(catalogUrl)
+            # delete api call to delete the catalog
+            deleteCatalogResponse = self.restClientObj.delete(deleteCatalogUrl, self.headers)
+            deleteCatalogResponseDict = xmltodict.parse(deleteCatalogResponse.content)
+            if deleteCatalogResponse.status_code == requests.codes.accepted:
+                task = deleteCatalogResponseDict["Task"]
+                if task["@operationName"] == vcdConstants.DELETE_CATALOG_TASK:
+                    taskUrl = task["@href"]
+                if taskUrl:
+                    # checking the status of deleting the catalog task
+                    self._checkTaskStatus(taskUrl, vcdConstants.DELETE_CATALOG_TASK)
+                logger.debug("Catalog '{}' deleted successfully".format(srcCatalog['@name']))
+            else:
+                raise Exception("Failed to delete catalog '{}' - {}".format(srcCatalog['@name'],
+                                                                            deleteCatalogResponseDict['Error']['@message']))
+
+        except Exception:
+            raise
+
+    def renameTargetCatalog(self, catalogId, srcCatalog):
+        """
+        Description :   Renames the target org vdc catalog of the specified catalog url
+        Parameters  :   catalogId   -   ID of the source catalog (STRING)
+                        srcCatalog  -   Details of the source catalog (DICT)
+        """
+        try:
+            # renaming catalog
+            logger.debug("Renaming the catalog '{}' to '{}'".format(srcCatalog['@name'] + '-t',
+                                                                    srcCatalog['@name']))
+            # url to rename the catalog
+            renameCatalogUrl = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                                             vcdConstants.RENAME_CATALOG.format(catalogId))
+            # creating the payload
+            payloadDict = {'catalogName': srcCatalog['@name'],
+                           'catalogDescription': srcCatalog['Description'] if srcCatalog.get('Description') else ''}
+
+            filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
+            payloadData = self.vcdUtils.createPayload(filePath,
+                                                      payloadDict,
+                                                      fileType='yaml',
+                                                      componentName=vcdConstants.COMPONENT_NAME,
+                                                      templateName=vcdConstants.RENAME_CATALOG_TEMPLATE)
+            payloadData = json.loads(payloadData)
+            headers = self.headers
+
+            # setting the content-type to rename the catalog
+            headers['Content-Type'] = vcdConstants.RENAME_CATALOG_CONTENT_TYPE
+            # put api call to rename the catalog back to its original name
+            renameCatalogResponse = self.restClientObj.put(renameCatalogUrl, headers, data=payloadData)
+            if renameCatalogResponse.status_code == requests.codes.ok:
+                logger.debug("Catalog '{}' renamed to '{}' successfully".format(srcCatalog['@name'] + '-t',
+                                                                                srcCatalog['@name']))
+            else:
+                raise Exception("Failed to rename catalog '{}' to '{}'".format(srcCatalog['@name'] + '-t',
+                                                                               srcCatalog['@name']))
+        except Exception:
+            raise
+
+    def moveVapp(self):
+        """
+        Description : Move vApp from source Org VDC to Target Org vdc
+        """
+        try:
+            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
+            # reading data from apiOutput.json
+            with open(fileName, 'r') as f:
+                data = json.load(f)
+            # getting list instance of resources in the source org vdc
+            sourceOrgVDCEntityList = data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity']\
+                if isinstance(data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity'], list) else [data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity']]
+            # retrieving target org vdc data
+            targetOrgVDCId = data["targetOrgVDC"]["@id"].split(':')[-1]
+            targetOrgVDCNetworkList = data['targetOrgVDCNetworks'] if data.get('targetOrgVDCNetworks') else []
+            # rettrieving list of source vapps
+            vAppList = [vAppEntity for vAppEntity in sourceOrgVDCEntityList if
+                        vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
+            filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
+            # iterating over the source vapps
+            for vApp in vAppList:
+                logger.info('Moving vApp - {} to target Org VDC - {}'.format(vApp['@name'], data["targetOrgVDC"]["@name"]))
+                networkList = []
+                # retrieving the startup info of the source vapps
+                self.getVappStartupSectionInfo(vApp['@href'], saveResponse=True)
+                response = self.restClientObj.get(vApp['@href'], self.headers)
+                responseDict = xmltodict.parse(response.content)
+                vAppData = responseDict['VApp']
+                # cehcking for the 'NetworkConfig' in 'NetworkConfigSection' of vapp
+                if vAppData['NetworkConfigSection'].get('NetworkConfig'):
+                    vAppNetworkList = vAppData['NetworkConfigSection']['NetworkConfig']\
+                        if isinstance(vAppData['NetworkConfigSection']['NetworkConfig'], list) else [vAppData['NetworkConfigSection']['NetworkConfig']]
+                    # retrieving the network details list of same name networks from source & target
+                    networkList = [(network, vAppNetwork) for network in targetOrgVDCNetworkList for vAppNetwork in
+                                   vAppNetworkList if vAppNetwork['@networkName']+'-v2t' == network['name']]
+                    # retrieving the network details of other networks other than org vdc networks
+                    otherNetworkList = [vAppNetwork for vAppNetwork in vAppNetworkList]
+                # if networks present
+                networkPayloadData = ''
+                if networkList:
+                    # iterating over the network list
+                    for network, vAppNetwork in networkList:
+                        # creating payload dictionary with network details
+                        networkName = "{}network/{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                                                            network["id"].split(':')[-1])
+                        payloadDict = {'networkName': network['name'],
+                                       'networkDescription': vAppNetwork['Description'] if vAppNetwork.get('Description') else '',
+                                       'parentNetwork': networkName,
+                                       'fenceMode': vAppNetwork['Configuration']['FenceMode']}
+                        payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                                                  componentName=vcdConstants.COMPONENT_NAME,
+                                                                  templateName=vcdConstants.MOVE_VAPP_NETWORK_CONFIG_TEMPLATE)
+                        networkPayloadData += payloadData.strip("\"")
+                # creating payload for no network and vapp network
+                if otherNetworkList:
+                    for network in otherNetworkList:
+                        if not network['Configuration'].get('ParentNetwork'):
+                            if network['@networkName'] == 'none':
+                                networkName = network['@networkName']
+                            else:
+                                networkName = network['@networkName'] + '-v2t'
+                            payloadDict = {'networkName': networkName,
+                                           'networkDescription': network['Description'] if network.get('Description') else '',
+                                           'fenceMode': network['Configuration']['FenceMode'],
+                                           'isInherited': network['Configuration']['IpScopes']['IpScope']['IsInherited'],
+                                           'gateway': network['Configuration']['IpScopes']['IpScope']['Gateway'],
+                                           'netmask': network['Configuration']['IpScopes']['IpScope']['Netmask'],
+                                           'subnet': network['Configuration']['IpScopes']['IpScope']['SubnetPrefixLength'] if network['Configuration']['IpScopes']['IpScope'].get('SubnetPrefixLength') else 1,
+                                           'dns1': network['Configuration']['IpScopes']['IpScope']['Dns1'] if network['Configuration']['IpScopes']['IpScope'].get('Dns1') else '',
+                                           'isDeployed': network['IsDeployed']}
+                            payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                                                      componentName=vcdConstants.COMPONENT_NAME,
+                                                                      templateName=vcdConstants.MOVE_VAPP_NO_NETWORK_CONFIG_TEMPLATE)
+                            networkPayloadData += payloadData.strip("\"")
+                # create vApp children vm details
+                vmPayloadData = self.createMoveVappVmPayload(vApp, targetOrgVDCId)
+                if vmPayloadData and networkPayloadData:
+                    payloadDict = {'vAppHref': vApp['@href'],
+                                   'networkConfig': networkPayloadData,
+                                   'vmDetails': vmPayloadData}
+                    # creating payload data
+                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                                              componentName=vcdConstants.COMPONENT_NAME,
+                                                              templateName=vcdConstants.MOVE_VAPP_TEMPLATE)
+                elif vmPayloadData and not networkPayloadData:
+                    payloadDict = {'vAppHref': vApp['@href'],
+                                   'vmDetails': vmPayloadData}
+                    # creating payload data
+                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                                              componentName=vcdConstants.COMPONENT_NAME,
+                                                              templateName=vcdConstants.MOVE_VAPP_NO_NETWORK_VM_TEMPLATE)
+                payloadData = json.loads(payloadData)
+                # url to compose vapp in target org vdc
+                url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                                    vcdConstants.MOVE_VAPP_IN_ORG_VDC.format(targetOrgVDCId))
+                self.headers["Content-Type"] = vcdConstants.XML_MOVE_VAPP
+                # post api call to compose vapps in target org vdc
+                response = self.restClientObj.post(url, self.headers, data=payloadData)
+                if response.status_code == requests.codes.accepted:
+                    responseDict = xmltodict.parse(response.content)
+                    task = responseDict["Task"]
+                    if task["@operationName"] == vcdConstants.MOVE_VAPP_TASK_NAME:
+                        taskUrl = task["@href"]
+                    if taskUrl:
+                        # checking for the status of the composing vapp task
+                        self._checkTaskStatus(taskUrl, vcdConstants.MOVE_VAPP_TASK_NAME)
+                else:
+                    responseDict = xmltodict.parse(response.content)
+                    raise Exception('Failed to move vApp - {} with errors {}'.format(vApp['@name'], responseDict['Error']['@message']))
+                logger.info('Moved vApp - {} successfully to target Org VDC - {}'.format(vApp['@name'], data["targetOrgVDC"]["@name"]))
+        except Exception:
+            raise
+
+    def renameTargetOrgVDCNetworks(self, targetVDCId):
+        """
+        Description :   Renames all the target org vdc networks in the specified target Org VDC as those in source Org VDC
+        Parameters  :   targetVDCId -   id of the target org vdc (STRING)
+        """
+        try:
+            # splitting thr target org vdc id as per the xml api requirements
+            targetVDCId = targetVDCId.split(':')[-1]
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+            # url to get the target org vdc details
+            url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                                vcdConstants.ORG_VDC_BY_ID.format(targetVDCId))
+            # get api call to retrieve the target org vdc details
+            response = self.restClientObj.get(url, headers=headers)
+            getResponseDict = response.json()
+            # getting the list instance of all the target org vdc networks
+            targetOrgVDCNetworks = getResponseDict['availableNetworks']['network'] if isinstance(getResponseDict['availableNetworks']['network'], list) else [getResponseDict['availableNetworks']['network']]
+            # iterating over the target org vdc networks
+            for network in targetOrgVDCNetworks:
+                # open api get url to retrieve the details of target org vdc network
+                url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                    vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(network['id']))
+                # get api call to retrieve the details of target org vdc network
+                networkResponse = self.restClientObj.get(url, headers=self.headers)
+                networkResponseDict = networkResponse.json()
+                # checking if the target org vdc network name endwith '-v2t', if so removing the '-v2t' from the name
+                if networkResponseDict['name'].endswith('-v2t'):
+                    # getting the original name of the
+                    networkResponseDict['name'] = networkResponseDict['name'][0: len(networkResponseDict['name'])-4]
+                    # creating the payload data of the retrieved details of the org vdc network
+                    payloadData = json.dumps(networkResponseDict)
+                    # setting the content-type as per the api requirement
+                    headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+                    # put api call to rename the target org vdc network
+                    putResponse = self.restClientObj.put(url, headers=headers, data=payloadData)
+                    if putResponse.status_code == requests.codes.accepted:
+                        taskUrl = putResponse.headers['Location']
+                        taskResponse = self.restClientObj.get(url=taskUrl, headers=self.headers)
+                        responseDict = xmltodict.parse(taskResponse.content)
+                        taskResponseDict = responseDict["Task"]
+                        self._checkTaskStatus(taskUrl, taskResponseDict['@operationName'])
+                        logger.debug("Target Org VDC Network '{}' renamed successfully".format(networkResponseDict['name']))
+                    else:
+                        errorDict = putResponse.json()
+                        raise Exception("Failed to rename the target org VDC to '{}' : {}".format(networkResponseDict['name'],
+                                                                                                  errorDict['message']))
+
+        except Exception:
+            raise
+
+    def getPromiscModeForgedTransmit(self, orgVDCNetworkList):
+        """
+        Description : Get the Promiscous Mode and Forged transmit information of source org vdc network
+        Parameters: orgVDCNetworkList - List containing source org vdc networks (LIST)
+        """
+        try:
+            # reading the data from apiOutput.json
+            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
+            # reading data from apiOutput.json
+            with open(fileName, 'r') as f:
+                data = json.load(f)
+            # list of the org vdc networks with its promiscuous mode and forged transmit details
+            promiscForgedList = []
+            # iterating over the org vdc network list
+            for orgVdcNetwork in orgVDCNetworkList:
+                # url to get the dvportgroup details of org vdc network
+                url = "{}{}/{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                          vcdConstants.ALL_ORG_VDC_NETWORKS, orgVdcNetwork['id'], vcdConstants.ORG_VDC_NETWORK_PORTGROUP_PROPERTIES_URI)
+                # get api call to retrieve the dvportgroup details of org vdc network
+                response = self.restClientObj.get(url, self.headers)
+                if response.status_code == requests.codes.ok:
+                    responseDict = response.json()
+                    # creating the dictionary of details of the promiscuous mode and forge transmit details
+                    detailsDict = {}
+                    detailsDict["id"] = orgVdcNetwork['id']
+                    detailsDict["name"] = orgVdcNetwork['name']
+                    detailsDict["promiscForge"] = responseDict
+                    # appending the dictionary to the above list
+                    promiscForgedList.append(detailsDict)
+                else:
+                    raise Exception('Failed to get dvportgroup properties of source Org VDC network {}'.format(orgVdcNetwork['name']))
+            # writing promiscForgedList to the apiOutput.json for further use(for disabling the promiscuous mode and forged transmit in case of rollback)
+            data["orgVDCNetworkPromiscModeList"] = promiscForgedList
+            with open(fileName, 'w') as f:
+                json.dump(data, f, indent=3)
+        except Exception:
+            raise
+
+    def enableDisablePromiscModeForgedTransmit(self, orgVDCNetworkList, enable=False):
+        """
+        Description : Enabling/ Disabling Promiscuous Mode and Forged transmit of source org vdc network
+        Parameters  : orgVDCNetworkList - List containing source org vdc networks (LIST)
+                      Note: This parameter in optional(i.e None) when disabling the promiscuous mode and forged transmit
+                            While it is mandatory when enabling the same
+                      Note: Disabling is used only in case of rollback handling
+        """
+        try:
+            string = 'Enabling' if enable else 'Disabling'
+            logger.debug("{} the Promiscuous Mode and Forged Mode".format(string))
+            # if call to disable to promiscuous mode then orgVDCNetworkList will be retrieved from apiOutput.json
+            if not enable:
+                fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
+                with open(fileName, 'r') as f:
+                    data = json.load(f)
+                orgVDCNetworkList = data["orgVDCNetworkPromiscModeList"]
+            # iterating over the orgVDCNetworkList
+            for orgVdcNetwork in orgVDCNetworkList:
+                # url to get the dvportgroup details of org vdc network
+                url = "{}{}/{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                          vcdConstants.ALL_ORG_VDC_NETWORKS,
+                                          orgVdcNetwork['id'],
+                                          vcdConstants.ORG_VDC_NETWORK_PORTGROUP_PROPERTIES_URI)
+                # get api call to retrieve the dvportgroup details of org vdc network
+                response = self.restClientObj.get(url, self.headers)
+                if response.status_code == requests.codes.ok:
+                    responseDict = response.json()
+                    # if enable call then setting the mode True; if disable call then setting the mode to its initial state by retrieving from apiOutput.json
+                    responseDict['dvpgProperties'][0]['promiscuousMode'] = True if enable else orgVdcNetwork['promiscForge']['dvpgProperties'][0]['promiscuousMode']
+                    responseDict['dvpgProperties'][0]['forgedTransmit'] = True if enable else orgVdcNetwork['promiscForge']['dvpgProperties'][0]['forgedTransmit']
+                    payloadData = json.dumps(responseDict)
+                    payloadData = json.loads(payloadData)
+                    payloadData = json.dumps(payloadData)
+                    # updating the org vdc network dvportgroup properties
+                    self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+                    # put api call to update the promiscuous mode and forged mode
+                    apiResponse = self.restClientObj.put(url, self.headers, data=payloadData)
+                    if apiResponse.status_code == requests.codes.accepted:
+                        taskUrl = apiResponse.headers['Location']
+                        # checking the status of the updating dvpgportgroup properties of org vdc network task
+                        self._checkTaskStatus(taskUrl, vcdConstants.ORG_VDC_NETWORK_PORTGROUP_PROPERTIES_TASK_NAME)
+                        logger.debug('Successfully updated source Org VDC Network {} dvportgroup properties.'.format(orgVdcNetwork['name']))
+                    else:
+                        errorResponse = apiResponse.json()
+                        raise Exception('Failed to update dvportgroup properties of source Org VDC network {} - {}'.format(orgVdcNetwork['name'], errorResponse['message']))
+                else:
+                    raise Exception('Failed to get dvportgroup properties of source Org VDC network {}'.format(orgVdcNetwork['name']))
+        except Exception:
+            raise

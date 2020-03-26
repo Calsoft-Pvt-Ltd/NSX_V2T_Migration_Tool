@@ -19,6 +19,8 @@ class VcenterApi():
     """
     Description : VCSAApis class provides methods to perform VCSA specific tasks
     """
+    VCENTER_SESSION_CREATED = False
+    DISABLE_PROMISC_MODE = False
 
     def __init__(self, vcenterDict):
         # Get VCSA Credentials from vcsaDict
@@ -46,6 +48,7 @@ class VcenterApi():
             sessionId = response.json().get("value")
             if not sessionId:
                 raise Exception("Failed to fetch vCenter Session ID ")
+            self.VCENTER_SESSION_CREATED = True
             return sessionId
         raise Exception("Failed to login into Vcenter {} with the given credentials".format(self.ipAddress))
 
@@ -77,19 +80,23 @@ class VcenterApi():
         Parameters : vmId - Edge Gateway VM ID (STRING)
         Returns : interfaceDetails - Edge Gateway VM network interfaces details (LIST)
         """
-        # URL for getting VM details
-        logger.debug('Getting interface details of Edge gateway')
-        url = constants.VCSA_VM_DETAILS_API.format(hostname=self.ipAddress, id=vmId)
-        response = self.restClientObj.get(url=url, headers=self.headers)
-        if response.status_code == requests.codes.ok:
-            # Get the VM NIC details
-            nicDetails = response.json()[constants.VALUE_KEY][constants.NIC_DETAILS_KEY]
-            # Convert the NIC details to List format if in Dict type
-            # as for single NIC entries the details are in Dict format
-            interfaceDetails = [nicDetails] if isinstance(nicDetails, dict) else nicDetails
-            return interfaceDetails
-        errorMessage = response.json()['value']['messages'][0]['default_message']
-        raise Exception("Failed to fetch interface details for Edge VM Id - {}. Error - {}".format(vmId, errorMessage))
+        try:
+            # URL for getting VM details
+            logger.debug('Getting interface details of Edge gateway')
+            url = constants.VCSA_VM_DETAILS_API.format(hostname=self.ipAddress, id=vmId)
+            response = self.restClientObj.get(url=url, headers=self.headers)
+            if response.status_code == requests.codes.ok:
+                # Get the VM NIC details
+                nicDetails = response.json()[constants.VALUE_KEY][constants.NIC_DETAILS_KEY]
+                # Convert the NIC details to List format if in Dict type
+                # as for single NIC entries the details are in Dict format
+                interfaceDetails = [nicDetails] if isinstance(nicDetails, dict) else nicDetails
+                return interfaceDetails
+            errorMessage = response.json()['value']['messages'][0]['default_message']
+            raise Exception("Failed to fetch interface details for Edge VM Id - {}. Error - {}".format(vmId, errorMessage))
+        except Exception:
+            self.DISABLE_PROMISC_MODE = True
+            raise
 
     @setSession
     def getTimezone(self):
@@ -104,3 +111,24 @@ class VcenterApi():
             logger.debug('Successfully retrieved vcenter timezone')
         else:
             raise Exception("Failed to get vcenter timezone. Error - {}".format(response.json()['value']['messages'][0]['default_message']))
+
+    def deleteSession(self):
+        """
+        Description :   Deletes the current VCSA session / log out the current VCSA user
+        """
+        try:
+            logger.debug("Deleting the current user session of vcenter(Log out VCSA current user)")
+            # url to delete the current user session of vcenter server
+            url = constants.VCSA_DELETE_SESSION.format(hostname=self.ipAddress)
+            # delete api call to delete the current user session of vcenter server
+            response = self.restClientObj.delete(url=url, headers=self.headers, auth=(self.username, self.password))
+            if response.status_code == requests.codes.ok:
+                # successful log out of current vcenter user
+                logger.debug("Successfully logged out vcenter user")
+            else:
+                # failure in current vcenter user log out
+                responseDict = response.json()
+                raise Exception("Failed to log out the current vcenter user: {} with error code: {}".format(responseDict['localizableMessages'][0]['defaultMessage'],
+                                                                                                            responseDict['majorErrorCode']))
+        except Exception:
+            raise

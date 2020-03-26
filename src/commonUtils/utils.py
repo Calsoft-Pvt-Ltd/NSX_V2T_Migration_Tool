@@ -10,6 +10,7 @@ import json
 import logging
 import os
 
+import certifi
 import jinja2
 import yaml
 
@@ -104,6 +105,37 @@ class Utilities():
             # payloadData = json.loads(payloadData)
             logger.debug('Successfully created payload.')
             return payloadData
+        except Exception as err:
+            logger.error(err)
+            raise
+
+    @staticmethod
+    def updateRequestsPemCert(certPath):
+        """
+        Description : Update the requests module pem cert
+        Parameters: certPath - Certificate path from where ca certs are present (PATH
+        """
+        try:
+            cafile = certifi.where()
+            # open the certificate Path file which user has provided and read its contents
+            with open(certPath, 'r') as infile:
+                customCA = infile.read()
+            # open the requests module cert path and write certificate path file contents there
+            with open(cafile, 'w') as outfile:
+                outfile.write(customCA)
+        except Exception as err:
+            logger.error(err)
+            raise
+
+    @staticmethod
+    def clearRequestsPemCert():
+        """
+        Description : Clear the requests module pem cert
+        """
+        try:
+            cafile = certifi.where()
+            # open the requests module cert path and empty its contents
+            open(cafile, 'w').close()
         except Exception as err:
             logger.error(err)
             raise

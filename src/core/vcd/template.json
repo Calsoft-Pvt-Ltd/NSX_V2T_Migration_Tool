@@ -149,7 +149,7 @@
     "createIPSecServices": {
       "name": "{{name}}",
       "description": "",
-      "enabled": true,
+      "enabled": "{{enabled}}",
       "localEndpoint": {
         "localId": "{{localId}}",
         "localAddress": "{{externalIp}}"
@@ -166,7 +166,8 @@
     "createDNATServices": {
       "id": "{{ruleId}}",
       "name": "{{ruleTag}}",
-      "enabled": true,
+      "description": "{{ruleDescription}}",
+      "enabled": "{{enabled}}",
       "ruleType": "{{action}}",
       "externalAddresses": "{{originalAddress}}",
       "internalAddresses": "{{translatedAddress}}",
@@ -180,7 +181,8 @@
     "createSNATServices": {
       "id": "{{ruleId}}",
       "name": "{{ruleTag}}",
-      "enabled": true,
+      "description": "{{ruleDescription}}",
+      "enabled": "{{enabled}}",
       "ruleType": "{{action}}",
       "externalAddresses": "{{originalAddress}}",
       "internalAddresses": "{{translatedAddress}}",

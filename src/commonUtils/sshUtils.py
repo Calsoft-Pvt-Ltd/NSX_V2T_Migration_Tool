@@ -76,7 +76,6 @@ class SshUtils():
             pass
         else:
             msg = "Failed to create SSH connection to host {}".format(self.ip)
-            print(msg)
             raise Exception(msg)
         return ssh
 
@@ -110,7 +109,6 @@ class SshUtils():
             return output
         except (paramiko.SSHException, socket.error) as e:
             msg = "Caught exception with type: {}, error: {}".format(type(e), str(e))
-            print(msg)
             raise Exception(msg)
 
     def __checkAlive(self):

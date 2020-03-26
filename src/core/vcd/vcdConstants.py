@@ -17,14 +17,20 @@ XML_ADMIN_API_URL = "https://{}/api/admin/"
 # vm Affinity rule url
 AFFINITY_URL = "https://{}/api/vdc/{}/vmAffinityRules/"
 
-# eject media url
-EJECT_MEDIA_URL = "https://{}/api/vApp/vm-{}/media/action/ejectMedia"
+# enable/disable affinity rules url
+ENABLE_DISABLE_AFFINITY_RULES = "https://{}/api/vmAffinityRule/{}"
 
 # vcd user operations legacy api url
 XML_API_URL = "https://{}/api/"
 
 # vcd open api url
 OPEN_API_URL = "https://{}/cloudapi/1.0.0/"
+
+# current session uri
+CURRENT_SESSION = 'sessions/current'
+
+# delete current session uri
+DELETE_CURRENT_SESSION = 'sessions/{}'
 
 # vcd login url
 LOGIN_URL = "https://{}/api/sessions"
@@ -46,12 +52,6 @@ PROVIDER_VDC = "providerVdcs"
 
 # xml api provider vdc uri
 PROVIDER_VDC_XML = "providervdc"
-
-# provider vdc compute policies uri
-PROVIDER_VDC_PLACEMENT_POLICIES = "pvdcComputePolicies"
-
-# edge gateways URI for specific org vdc uri
-EDGE_GATEWAYS_LIST_FOR_GIVEN_ORG_VDC = "edgeGateways?filter=(orgVdc.id=={})&page=1&pageSize=25"
 
 # org vdc network dhcp uri
 DHCP_ENABLED_FOR_ORG_VDC_NETWORK_BY_ID = "{}/dhcp"
@@ -132,12 +132,6 @@ VDC_COMPUTE_POLICIES_BY_ID = "/{}/vdcs"
 # org vdc metadata uri
 META_DATA_IN_ORG_VDC_BY_ID = "vdc/{}/metadata"
 
-# updating the exiting metadata key in org vdc by id
-UPDATE_METADATA_IN_ORG_VDC_BY_ID_FOR_KEY = "vdc/{}/metadata/{}"
-
-# add storage policy to org vdc by id uri
-ADD_STORAGE_POLICY_TO_ORG_VDC_BY_ID = "vdc/{}/vdcStorageProfiles"
-
 # create edge gateway uri
 CREATE_EDGE_GATEWAY = "vdc/{}/edgeGateways"
 
@@ -157,15 +151,6 @@ CREATE_ORG_VDC_EDGE_GATEWAY_TEMPLATE = 'createEdgeGateway'
 # create org vdc template name used in template.json
 CREATE_ORG_VDC_TEMPLATE = 'createOrgVDC'
 
-# compose vapp template name used in template.yml
-COMPOSE_VAPP_TEMPLATE = 'composeVapp'
-
-# recompose vapp template name used in template.yml
-RECOMPOSE_VAPP_TEMPLATE = 'recomposeVapp'
-
-# undeploy vapp template name used in template.yml
-UNDEPLOY_VAPP_TEMPLATE = 'undeployVapp'
-
 # create ipsec template name used in template.json
 CREATE_IPSEC_TEMPLATE = 'createIPSecServices'
 
@@ -175,29 +160,11 @@ CREATE_DNAT_TEMPLATE = 'createDNATServices'
 # create snat template name used in template.json
 CREATE_SNAT_TEMPLATE = 'createSNATServices'
 
-# create org vdc metadata template name used in template.yml
-CREATE_ORG_VDC_METADATA_TEMPLATE = 'createOrgVDCMetadata'
-
 # create org vdc access control template name used in template.yml
 CREATE_ORG_VDC_ACCESS_CONTROL_TEMPLATE = 'createOrgVDCAccessControl'
 
 # create affinity template name used in template.yml
 CREATE_AFFINITY_RULE_TEMPLATE = 'creatingAffinityRule'
-
-# eject media template name used in template.yml
-EJECT_MEDIA_TEMPLATE = 'mediaInsertOrEject'
-
-# recompose compute policy vapp template name used in template.yml
-RECOMPOSE_COMPUTE_POLICY_VAPP_TEMPLATE = 'recomposeVappWithComputePolicy'
-
-# recompose placement policy vapp template name used in template.yml
-RECOMPOSE_PLACEMENT_POLICY_VAPP_TEMPLATE = 'recomposeVappWithPlacementPolicy'
-
-# recompose sizing policy template name used in template.yml
-RECOMPOSE_SIZING_POLICY_VAPP_TEMPLATE = 'recomposeVappWithSizingPolicy'
-
-# compose vapp network template name used in template.yml
-COMPOSE_VAPP_NETWORK_CONFIG_TEMPLATE = 'composeVappNetworkConfig'
 
 # component name
 COMPONENT_NAME = 'vCloudDirector'
@@ -214,12 +181,6 @@ GENERAL_XML_CONTENT_TYPE = 'application/*+xml;charset=UTF-8'
 # vapp type string
 TYPE_VAPP = 'application/vnd.vmware.vcloud.vApp+xml'
 
-# vapp template type string
-TYPE_VAPP_TEMPLATE = 'application/vnd.vmware.vcloud.vAppTemplate+xml'
-
-# vapp media type string
-TYPE_VAPP_MEDIA = 'application/vnd.vmware.vcloud.media+xml'
-
 # create vdc task name used to check if the task completed successfully
 CREATE_VDC_TASK_NAME = 'vdcCreateVdc'
 
@@ -231,9 +192,6 @@ CREATE_ORG_VDC_NETWORK_TASK_NAME = 'orgVdcNetworkCreate'
 
 # create ipsec vpn tunnel task name used to check if the task completed successfully
 CREATE_IPSEC_VPN_TASK_NAME = 'createIpSecVpnTunnel'
-
-# eject media from vm task name used to check if the task completed successfully
-EJECT_MEDIA_TASK_NAME = 'vappEjectCdFloppy'
 
 # create affinity rule task name used to check if the task completed successfully
 CREATE_AFFINITY_RULE_TASK_NAME = 'affinityRuleUpdate'
@@ -268,23 +226,17 @@ UPDATE_EDGE_GATEWAY_TASK_NAME = 'edgeGatewayUpdate'
 # update edge gateway openapi task name used to check if the task completed successfully
 UPDATE_EDGE_GATEWAY_OPENAPI_TASK_NAME = 'orgVdcGatewayUpdate'
 
-# create new metadata entry(key, value) in org vdc task name used to check if the task completed successfully
-CREATE_METADATA_IN_ORG_VDC_TASK_NAME = 'metadataUpdate'
-
-# compose vapp task name used to check if the task completed successfully
-COMPOSE_VAPP_TASK_NAME = 'vdcComposeVapp'
-
 # xml content type for create org vdc
 XML_CREATE_VDC_CONTENT_TYPE = 'application/vnd.vmware.admin.createVdcParams+xml'
 
 # content type for access control
 CONTROL_ACCESS_CONTENT_TYPE = "application/vnd.vmware.vcloud.controlAccess+json"
 
+# xml content type to rename the catalog
+RENAME_CATALOG_CONTENT_TYPE = 'application/vnd.vmware.admin.catalog+xml;charset=UTF-8'
+
 # delete org vdc network by id uri
 DELETE_ORG_VDC_NETWORK_BY_ID = "orgVdcNetworks/{}"
-
-# delete edge gateway by id uri
-DELETE_EDGE_GATEWAY_BY_ID = "edgeGateways/{}"
 
 # org vdc by id uri
 ORG_VDC_BY_ID = "vdc/{}"
@@ -310,36 +262,6 @@ GET_PORTGROUP_INFO = 'query?type=portgroup'
 # root directory constant which fetches the absolute path of this module i.e D:/vcd-migration/src/core/vcd
 VCD_ROOT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
-# compose vApp in specified org vdc uri
-COMPOSE_VAPP_IN_ORG_VDC = "vdc/{}/action/composeVApp"
-
-# xml content type for compose vApp
-XML_COMPOSE_VAPP = 'application/vnd.vmware.vcloud.composeVAppParams+xml'
-
-# power-off vapp uri
-POWER_OFF_VAPP = 'action/undeploy'
-
-# power of vapp task name used to check if the task completed successfully
-POWER_OFF_VAPP_TASK = 'vappPowerOff'
-
-# recompose vapp uri
-RECOMPOSE_VAPP_API = 'action/recomposeVApp'
-
-# content-type of recompose vapp
-XML_RECOMPOSE_VAPP = 'application/vnd.vmware.vcloud.recomposeVAppParams+xml'
-
-# recompose vapp task name used to check if the task completed successfully
-RECOMPOSE_VAPP_TASK = 'vdcRecomposeVapp'
-
-# xml content-type of indeploy vapp
-XML_UNDEPLOY_VAPP = 'application/vnd.vmware.vcloud.undeployVAppParams+xml'
-
-# undeploy vapp task name used to check if the task completed successfully
-UNDEPLOY_VAPP_TASK = 'vappUndeployPowerOff'
-
-# provider vdc storage profile details by id uri
-PVDC_STORAGE_PROFILE_DETAILS_BY_ID = "pvdcStorageProfile/{}"
-
 # vmware cloud director storage profile by id uri
 VCD_STORAGE_PROFILE_BY_ID = "vdcStorageProfile/{}"
 
@@ -349,71 +271,11 @@ INDEPENDENT_DISKS_EXIST_IN_ORG_VDC_TYPE = 'application/vnd.vmware.vcloud.disk+xm
 # compute policy of org vdc by id uri
 ORG_VDC_COMPUTE_POLICY = "vdc/{}/computePolicies"
 
-# get vsphere resource pool uri
-GET_RESOURCEPOOL_INFO = 'query?type=resourcePool'
-
-# create vm groups by resource pool id uri
-CREATE_VMGROUPS = 'extension/resourcePool/{}/vmGroups'
-
-# xml create vmgroups content-type
-XML_CREATE_VMGROUPS_CONTENT_TYPE = "application/vnd.vmware.admin.vmwVmGroupType+xml"
-
-# create vm group task name used to check if the task completed successfully
-CREATE_VMGROUP_TASK = 'createVmGroup'
-
-# get vsphere vmgroup uri
-GET_VMGROUP_INFO = 'query?type=vmGroups'
-
-# create vm group template name used in template.yml
-CREATE_VMGROUP_TEMPLATE = 'createVMGroup'
-
-# compose vapp nonetwork template used in template.yml
-COMPOSE_VAPP_NONETWORK_TEMPLATE = 'composeVappWithNoNetwork'
-
-# vapp access control get uri
-ACCESS_CONTROL = "/controlAccess"
-
-# vapp access control put/post uri
-VAPP_ACCESS_CONTROL_SETTINGS = "/action/controlAccess"
-
-# change vapp onwer template name used in template.yml
-CHANGE_VAPP_OWNER_TEMPLATE = 'changeVAppOwner'
-
-# vapp owner uri
-VAPP_OWNER = "/owner"
-
-# vapp lease settings uri
-VAPP_LEASE_SETTINGS = "/leaseSettingsSection"
-
-# renew vapp lease settings template name used in template.yml
-RENEW_VAPP_LEASE_SETTINGS_TEMPLATE = 'renewVappLeaseSettings'
-
-# renew vapp lease settings task name used to check if the task completed successfully
-RENEW_VAPP_LEASE_SETTINGS_TASK_NAME = 'vdcUpdateVapp'
-
-# vapp metadata uri
-METADATA_IN_VAPP = "/metadata"
-
-# create vapp metadata template name used in template.yml
-CREATE_VAPP_METADATA_TEMPLATE = 'createMetadataInVapp'
-
-# create vapp metadata task name used to check if the task completed successfully
-CREATE_METADATA_IN_VAPP_TASK_NAME = 'metadataUpdate'
-
-# rename vapp template
-RENAME_VAPP_TEMPLATE = 'renameVapp'
-
-# rename org vdc template
-RENAME_ORG_VDC_TEMPLATE = 'renameOrgVDC'
-
 # rename org vdc task name used to check if the task completed successfully
 RENAME_ORG_VDC = 'vdcUpdateVdc'
 
 # page size for application port profiles
 APPLICATION_PORT_PROFILES_PAGE_SIZE = 75
-
-# page size for edge gateways
-EDGE_GATEWAYS_PAGE_SIZE = 25
 
 # create firewall group uri
 CREATE_FIREWALL_GROUP = 'firewallGroups'
@@ -457,18 +319,6 @@ ENABLE_ORG_VDC = 'vdc/{}/action/enable'
 # create bgp neighbor task name used to check if the task completed successfully
 CREATE_BGP_NEIGHBOR_TASK_NAME = 'bgpNeighborCreate'
 
-# get vapp template info uri
-GET_VAPP_TEMPLATE_INFO = 'query?type=vAppTemplate'
-
-# page size for vapp template
-VAPP_TEMPLATE_PAGE_SIZE = 50
-
-# get media of organization uri
-GET_MEDIA_INFO = 'query?type=media'
-
-# page size for media
-MEDIA_PAGE_SIZE = 50
-
 # create catalog by organization id uri
 CREATE_CATALOG = "org/{}/catalogs"
 
@@ -479,16 +329,19 @@ CREATE_CATALOG_TEMPLATE = 'createCatalog'
 XML_CREATE_CATALOG = 'application/vnd.vmware.admin.catalog+xml'
 
 # move vapp template name used in template.yml
-MOVE_VAPP_TEMPLATE = 'moveCatalogItem'
+MOVE_CATALOG_TEMPLATE = 'moveCatalogItem'
 
 # move vapp by catalog id uri
-MOVE_VAPP = 'catalog/{}/action/move'
+MOVE_CATALOG = 'catalog/{}/action/move'
 
 # move vdc template
 MOVE_VDC_TEMPLATE_TASK = 'vdcCopyTemplate'
 
 # delete catalog task name used to check if the task completed successfully
 DELETE_CATALOG_TASK = 'catalogDelete'
+
+# rename catalog url
+RENAME_CATALOG = 'catalog/{}'
 
 # create application port profile task name
 CREATE_APPLICATION_PORT_PROFILE_TASK_NAME = 'createAppPortProfile'
@@ -529,5 +382,84 @@ UPDATE_EXTERNAL_NETWORK_NAME = 'externalNetworkUpdate'
 # update source external network task name
 UPDATE_SOURCE_EXTERNAL_NETWORK_NAME = 'networkUpdateNetwork'
 
+# rename catalog template
+RENAME_CATALOG_TEMPLATE = 'renameCatalog'
+
 # page size for org vdc compute policy
 ORG_VDC_COMPUTE_POLICY_PAGE_SIZE = 25
+
+# cidr dict constant
+CIDR_DICT = {"1": "32", "2": "31", "4": "30", "8": "29", "16": "28", "32": "27", "64": "26", "128": "25", "256": "24"}
+
+# dns config uri for edge gateway by id
+EDGE_GATEWAY_DNS_CONFIG_BY_ID = "/{}/dns/config"
+
+# create dns  uri for t1 router by id
+CREATE_DNS_CONFIG = "/{}/dns"
+
+# create dns task name used to check if the task completed successfully
+CONFIGURE_DNS_TASK_NAME = 'orgVdcGatewayDnsUpdate'
+
+# org vdc network portgroup properties uri
+ORG_VDC_NETWORK_PORTGROUP_PROPERTIES_URI = 'dvpgProperties'
+
+# org vdc network portgroup properties task name
+ORG_VDC_NETWORK_PORTGROUP_PROPERTIES_TASK_NAME = 'networkUpdateDvpgProperties'
+
+# configure target connection properties for ipsec vpn
+CONNECTION_PROPERTIES_CONFIG = '/{}/connectionProperties'
+
+# ike version dict
+CONNECTION_PROPERTIES_IKE_VERSION = {"ikev1": "IKE_V1", "ikev2": "IKE_V2", "ike-flex": "IKE_FLEX"}
+
+# dh group dict ipsec
+CONNECTION_PROPERTIES_DH_GROUP = {"dh2": "GROUP2", "dh5": "GROUP5", "dh14": "GROUP14", "dh15": "GROUP15", "dh16": "GROUP16", "dh19": "GROUP19", "dh20": "GROUP20", "dh21": "GROUP21"}
+
+# digest algorithm dict ipsec
+CONNECTION_PROPERTIES_DIGEST_ALGORITHM = {"sha1": "SHA1"}
+
+# encryption algorithm ipsec
+CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM = {"aes256": "AES_256"}
+
+# update connecton properties ipsec vpn
+UPDATE_IPSEC_TUNNEL_PROPERTIES = 'updateIpSecVpnTunnelProperties'
+
+# get org vcd network by id
+GET_ORG_VDC_NETWORK_BY_ID = "orgVdcNetworks/{}"
+
+#security_group_types
+SECURITY_GROUP_IPSET = 'IP_SET'
+SECURITY_GROUP = 'SECURITY_GROUP'
+
+# move vapp template
+MOVE_VAPP_TEMPLATE = 'moveVapp'
+
+# move vapp with network config template
+MOVE_VAPP_NETWORK_CONFIG_TEMPLATE = 'moveVappNetworkConfig'
+
+# move vapp with vm template
+MOVE_VAPP_VM_TEMPLATE = 'moveVappVm'
+
+# move vapp with compute policy template i.e both placement and sizing
+MOVE_VAPP_VM_COMPUTE_POLICY_TEMPLATE = 'moveVappVmWithComputePolicy'
+
+# move vapp with vm placement policy
+MOVE_VAPP_VM_PLACEMENT_POLICY_TEMPLATE = 'moveVappVmpWithPlacementPolicy'
+
+# move vapp with vm sizing policy
+MOVE_VAPP_VM_SIZING_POLICY_TEMPLATE = 'moveVappVmWithSizingPolicy'
+
+# move vApp in specified org vdc uri
+MOVE_VAPP_IN_ORG_VDC = "vdc/{}/action/moveVApp"
+
+# move vapp task name used to check if the task completed successfully
+MOVE_VAPP_TASK_NAME = 'vdcMoveVapp'
+
+# xml content type for move vApp
+XML_MOVE_VAPP = 'application/vnd.vmware.vcloud.moveVAppParams+xml'
+
+# move vapp no network but vm template
+MOVE_VAPP_NO_NETWORK_VM_TEMPLATE = 'moveVappNoNetworkVM'
+
+# move vapp with no network or vapp network config template
+MOVE_VAPP_NO_NETWORK_CONFIG_TEMPLATE = 'moveVappNoNetworkConfig'

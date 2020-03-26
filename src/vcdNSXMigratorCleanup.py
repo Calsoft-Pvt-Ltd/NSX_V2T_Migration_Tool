@@ -15,7 +15,6 @@ cwd = os.getcwd()
 parentDir = os.path.abspath(os.path.join(cwd, os.pardir))
 sys.path.append(parentDir)
 
-import src.core.vcd.vcdConstants as vcdConstants
 from src.commonUtils.logConf import Logger
 from src.core.vcd.vcdOperations import VCloudDirectorOperations
 from src.core.nsxt.nsxtOperations import NSXTOperations
@@ -47,12 +46,13 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             sourceExternalNetworkName = self.vcdDetails['NSXVProviderVDC']['ExternalNetwork']
             vcdObj = VCloudDirectorOperations(commonDict['ipAddress'],
                                               commonDict['username'],
-                                              commonDict['password'])
+                                              commonDict['password'],
+                                              commonDict['verify'])
 
             # preparing the nsxt dict for bridging
             nsxtCommonDict = self.nsxtDict['Common']
             nsxtObj = NSXTOperations(nsxtCommonDict['ipAddress'], nsxtCommonDict['username'],
-                                     nsxtCommonDict['password'])
+                                     nsxtCommonDict['password'], nsxtCommonDict['verify'])
 
             # login to the VMware cloud director for getting the bearer token
             self.consoleLogger.info('Login into the VMware Cloud Director {}'.format(commonDict['ipAddress']))
@@ -89,14 +89,6 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             self.consoleLogger.info('Removing bridging from NSX-T')
             nsxtObj.clearBridging(orgVDCNetworkList)
 
-            # power off source vApps
-            self.consoleLogger.info('Powering off source vApps')
-            vcdObj.powerOffSourceVapp(sourceOrgVDCId)
-
-            # delete source vApps
-            self.consoleLogger.info('Deleting source vApps')
-            vcdObj.deleteOrgVDCvApps(sourceOrgVDCId)
-
             # delete the source org vdc networks
             self.consoleLogger.info('Deleting the source Org VDC Networks.')
             vcdObj.deleteOrgVDCNetworks(sourceOrgVDCId)
@@ -109,9 +101,9 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             self.consoleLogger.info('Deleting the source Org VDC.')
             vcdObj.deleteOrgVDC(sourceOrgVDCId)
 
-            # rename target vApps
-            self.consoleLogger.info('Renaming the vApps in target Org VDC')
-            vcdObj.renameTargetOrgVDCVapps(targetOrgVDCId)
+            # renaming the target Org VDC networks
+            self.consoleLogger.info('Renaming the target Org VDC networks')
+            vcdObj.renameTargetOrgVDCNetworks(targetOrgVDCId)
 
             # rename target Org VDC
             self.consoleLogger.info('Renaming target Org VDC.')
@@ -127,5 +119,10 @@ class VMwareCloudDirectorNSXMigratorCleanup():
                     self.consoleLogger.info('Updating the source External network.')
                     vcdObj.updateSourceExternalNetwork(sourceExternalNetworkName, ipRanges)
             self.consoleLogger.info('Successfully cleaned up Source Org VDC.')
+
+            # deleting the current user api session of vmware cloud director
+            self.consoleLogger.debug('Log out the current vmware cloud director user')
+            vcdObj.deleteSession()
+
         except Exception:
             raise

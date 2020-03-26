@@ -3,6 +3,7 @@ VCloudDirector:
   Common:
     ipAddress: cpsbu-tpm-vcd.eng.vmware.com # IP/FQDN of VCD
     username: administrator # VCD login name
+    verify: True
   Organization:
     OrgName: Coke  # Short name of the organization that is already created
   SourceOrgVDC:
@@ -19,6 +20,7 @@ NSXT:
   Common:
     ipAddress: 10.196.235.14 # IP/FQDN of NSXT
     username: admin # NSXT login name
+    verify: True
   EdgeClusterName: Bridge-edge-cluster1 # Name of bridge Edge cluster
   TransportZone: # bridge transport zone
     TransportZoneName: Bridge-TZ
@@ -27,3 +29,7 @@ Vcenter:
   Common:
     ipAddress: cpsbu-tpm-vcsa.eng.vmware.com # IP/FQDN of Vcenter
     username: administrator@vsphere.local # Vcenter login name
+    verify: True
+
+Common:
+  CertificatePath: D:\caCert.pem # ca/self-signed certificate path for validation

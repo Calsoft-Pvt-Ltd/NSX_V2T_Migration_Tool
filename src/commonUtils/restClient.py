@@ -17,15 +17,16 @@ class RestAPIClient():
     Description: Class that performs all REST CRUD Operations
     """
 
-    def __init__(self, username=None, password=None):
+    def __init__(self, username=None, password=None, verify=False):
         """
         Description: Initialization of RestAPIClient class
         Parameters: username - User name to use when connecting to host (STRING)
                     password - Password to use when connecting to host (STRING)
+                    verify - whether to verify the server's TLS certificate (BOOLEAN)
         """
         # setting the basic authentication
         self.auth = HTTPBasicAuth(username, password)
-        self.verify = False
+        self.verify = verify
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     def get(self, url, headers=None, auth=None, **kwargs):

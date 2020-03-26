@@ -17,9 +17,6 @@ NSX_API_RESULTS_KEY = "results"
 # display_name key that exists in the successful response of getComponentData api
 NSX_API_DISPLAY_NAME_KEY = "display_name"
 
-# resource_type key
-NSX_API_RES_TYPE_KEY = "resource_type"
-
 # default header required for nsx-t api
 NSXT_API_HEADER = {'Content-Type': 'application/json'}
 
@@ -82,9 +79,6 @@ GET_BRIDGE_ENDPOINT_PROFILE_BY_ID_API = "api/v1/bridge-endpoint-profiles/{}"
 
 # nsx-t logical switch port by id uri
 DELETE_LOGICAL_SWITCH_PORT_API = "api/v1/logical-ports/{}?detach=True"
-
-# nsx-t edge cluster by id uri
-GET_EDGE_CLUSTER_API = "api/v1/edge-clusters/{}"
 
 # nsx-t host swicth profile by id uri
 DELETE_HOST_SWITCH_PROFILE_API = "api/v1/host-switch-profiles/{}"

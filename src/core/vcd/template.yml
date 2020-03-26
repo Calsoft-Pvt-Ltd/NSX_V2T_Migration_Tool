@@ -48,176 +48,14 @@ vCloudDirector:
     <IsElastic>{{IsElastic}}</IsElastic>
     <IncludeMemoryOverhead>{{IncludeMemoryOverhead}}</IncludeMemoryOverhead>
     </CreateVdcParams>
-  composeVapp:
-    <ComposeVAppParams name="{{vAppName}}" xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1">
-        <Description></Description>
-        <InstantiationParams>
-            <NetworkConfigSection>
-                <ovf:Info>Configuration parameters for logical networks</ovf:Info>
-                {{networkConfig}}
-            </NetworkConfigSection>
-        </InstantiationParams>
-        <AllEULAsAccepted>true</AllEULAsAccepted>
-    </ComposeVAppParams>
-  recomposeVapp:
-    <RecomposeVAppParams xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" powerOn="{{state}}">
-        <SourcedItem sourceDelete="true">
-            <Source href="{{vmHref}}"></Source>
-            <InstantiationParams>
-                  <NetworkConnectionSection>
-                    <ovf:Info>Specifies the available VM network connections</ovf:Info>
-                    <PrimaryNetworkConnectionIndex>0</PrimaryNetworkConnectionIndex>
-                    <NetworkConnection xmlns="http://www.vmware.com/vcloud/v1.5" network="{{networkName}}">
-                      <NetworkConnectionIndex>0</NetworkConnectionIndex>
-                      <IpAddress>{{ipAddress}}</IpAddress>
-                      <IsConnected>{{connected}}</IsConnected>
-                      <MACAddress>{{macAddress}}</MACAddress>
-                      <IpAddressAllocationMode>{{allocationModel}}</IpAddressAllocationMode>
-                      <NetworkAdapterType>{{adapterType}}</NetworkAdapterType>
-                    </NetworkConnection>
-                  </NetworkConnectionSection>
-            </InstantiationParams>
-            <StorageProfile href="{{storageProfileHref}}"/>
-        </SourcedItem>
-        <AllEULAsAccepted>true</AllEULAsAccepted>
-    </RecomposeVAppParams>
-  undeployVapp:
-    <UndeployVAppParams xmlns="http://www.vmware.com/vcloud/v1.5">
-      <UndeployPowerAction>{{action}}</UndeployPowerAction>
-    </UndeployVAppParams>
-  createOrgVDCMetadata:
-    <Metadata xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://www.w3.org/2001/XMLSchema-instance">
-    <MetadataEntry>
-        <Key>{{key}}</Key>
-        <TypedValue ovf:type="MetadataStringValue">
-            <Value>{{value}}</Value>
-        </TypedValue>
-    </MetadataEntry>
-    </Metadata>
   createOrgVDCAccessControl:
     <ControlAccessParams xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1">
       <IsSharedToEveryone>false</IsSharedToEveryone>
       <EveryoneAccessLevel>{{accessControlLevel}}</EveryoneAccessLevel>
     </ControlAccessParams>
-  createVMGroup:
-    <vmext:VMWVmGroup xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:vmext="http://www.vmware.com/vcloud/extension/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" name="{{vmGroupName}}">
-      <vmext:vmCount>0</vmext:vmCount>
-    </vmext:VMWVmGroup>
-  composeVappWithNoNetwork:
-    <ComposeVAppParams name="{{vAppName}}" xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1">
-      <Description></Description>
-      <AllEULAsAccepted>true</AllEULAsAccepted>
-    </ComposeVAppParams>
-  changeVAppOwner:
-    <Owner xmlns="http://www.vmware.com/vcloud/v1.5">
-    <User href="{{userHref}}"/>
-    </Owner>
-  renewVappLeaseSettings:
-    <LeaseSettingsSection xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1">
-      <ovf:Info>Lease settings section</ovf:Info>
-      <DeploymentLeaseInSeconds>{{deploymentLeaseInSeconds}}</DeploymentLeaseInSeconds>
-      <StorageLeaseInSeconds>{{storageLeaseInSeconds}}</StorageLeaseInSeconds>
-    </LeaseSettingsSection>
-  createMetadataInVapp:
-    <Metadata xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://www.w3.org/2001/XMLSchema-instance">
-      <MetadataEntry>
-        <Key>{{metadataKey}}</Key>
-        <TypedValue ovf:type="{{typedValueDatatype}}">
-          <Value>{{metadataValue}}</Value>
-        </TypedValue>
-      </MetadataEntry>
-    </Metadata>
-  renameVapp:
-    <RecomposeVAppParams xmlns="http://www.vmware.com/vcloud/v1.5" name="{{vAppNewName}}" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1">
-    </RecomposeVAppParams>
-  mediaInsertOrEject:
-    <root:MediaInsertOrEjectParams xmlns:root="http://www.vmware.com/vcloud/v1.5"/>
-  recomposeVappWithPlacementPolicy:
-    <RecomposeVAppParams xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" powerOn="{{state}}">
-      <SourcedItem sourceDelete="true">
-        <Source href="{{vmHref}}"></Source>
-          <InstantiationParams>
-            <NetworkConnectionSection>
-              <ovf:Info>Specifies the available VM network connections</ovf:Info>
-              <PrimaryNetworkConnectionIndex>0</PrimaryNetworkConnectionIndex>
-              <NetworkConnection xmlns="http://www.vmware.com/vcloud/v1.5" network="{{networkName}}">
-                <NetworkConnectionIndex>0</NetworkConnectionIndex>
-                <IpAddress>{{ipAddress}}</IpAddress>
-                <IsConnected>{{connected}}</IsConnected>
-                <MACAddress>{{macAddress}}</MACAddress>
-                <IpAddressAllocationMode>{{allocationModel}}</IpAddressAllocationMode>
-                <NetworkAdapterType>{{adapterType}}</NetworkAdapterType>
-              </NetworkConnection>
-            </NetworkConnectionSection>
-          </InstantiationParams>
-        <StorageProfile href="{{storageProfileHref}}"/>
-        <ComputePolicy>
-          <VmPlacementPolicy href="{{vmPlacementPolicyHref}}"/>
-        </ComputePolicy>
-      </SourcedItem>
-      <AllEULAsAccepted>true</AllEULAsAccepted>
-    </RecomposeVAppParams>
-  recomposeVappWithSizingPolicy:
-    <RecomposeVAppParams xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" powerOn="{{state}}">
-      <SourcedItem sourceDelete="true">
-        <Source href="{{vmHref}}"></Source>
-        <InstantiationParams>
-          <NetworkConnectionSection>
-            <ovf:Info>Specifies the available VM network connections</ovf:Info>
-            <PrimaryNetworkConnectionIndex>0</PrimaryNetworkConnectionIndex>
-            <NetworkConnection xmlns="http://www.vmware.com/vcloud/v1.5" network="{{networkName}}">
-              <NetworkConnectionIndex>0</NetworkConnectionIndex>
-              <IpAddress>{{ipAddress}}</IpAddress>
-              <IsConnected>{{connected}}</IsConnected>
-              <MACAddress>{{macAddress}}</MACAddress>
-              <IpAddressAllocationMode>{{allocationModel}}</IpAddressAllocationMode>
-              <NetworkAdapterType>{{adapterType}}</NetworkAdapterType>
-            </NetworkConnection>
-          </NetworkConnectionSection>
-        </InstantiationParams>
-        <StorageProfile href="{{storageProfileHref}}"/>
-        <ComputePolicy>
-          <VmSizingPolicy href="{{sizingPolicyHref}}"/>
-        </ComputePolicy>
-      </SourcedItem>
-      <AllEULAsAccepted>true</AllEULAsAccepted>
-    </RecomposeVAppParams>
-  recomposeVappWithComputePolicy:
-    <RecomposeVAppParams xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" powerOn="{{state}}">
-      <SourcedItem sourceDelete="true">
-        <Source href="{{vmHref}}"></Source>
-        <InstantiationParams>
-          <NetworkConnectionSection>
-            <ovf:Info>Specifies the available VM network connections</ovf:Info>
-            <PrimaryNetworkConnectionIndex>0</PrimaryNetworkConnectionIndex>
-            <NetworkConnection xmlns="http://www.vmware.com/vcloud/v1.5" network="{{networkName}}">
-              <NetworkConnectionIndex>0</NetworkConnectionIndex>
-              <IpAddress>{{ipAddress}}</IpAddress>
-              <IsConnected>{{connected}}</IsConnected>
-              <MACAddress>{{macAddress}}</MACAddress>
-              <IpAddressAllocationMode>{{allocationModel}}</IpAddressAllocationMode>
-              <NetworkAdapterType>{{adapterType}}</NetworkAdapterType>
-            </NetworkConnection>
-          </NetworkConnectionSection>
-        </InstantiationParams>
-        <StorageProfile href="{{storageProfileHref}}"/>
-        <ComputePolicy>
-          <VmPlacementPolicy href="{{vmPlacementPolicyHref}}"/>
-          <VmSizingPolicy href="{{sizingPolicyHref}}"/>
-        </ComputePolicy>
-      </SourcedItem>
-      <AllEULAsAccepted>true</AllEULAsAccepted>
-    </RecomposeVAppParams>
-  composeVappNetworkConfig:
-    <NetworkConfig networkName="{{networkName}}">
-      <Configuration>
-        <ParentNetwork href="{{parentNetwork}}"/>
-        <FenceMode>{{fenceMode}}</FenceMode>
-      </Configuration>
-    </NetworkConfig>
   createCatalog:
     <AdminCatalog xmlns="http://www.vmware.com/vcloud/v1.5" name="{{catalogName}}">
-      <Description/>
+      <Description>{{catalogDescription}}</Description>
       <CatalogStorageProfiles>
         <VdcStorageProfile href="{{storageProfileHref}}"/>
       </CatalogStorageProfiles>
@@ -227,3 +65,155 @@ vCloudDirector:
         <Description> </Description>
         <Source href="{{catalogItemHref}}"/>
     </CopyOrMoveCatalogItemParams>
+  renameCatalog:
+    <AdminCatalog xmlns="http://www.vmware.com/vcloud/v1.5" name="{{catalogName}}">
+    <Description>{{catalogDescription}}</Description>
+    </AdminCatalog>
+  moveVapp:
+    <root:MoveVAppParams xmlns:root="http://www.vmware.com/vcloud/v1.5" xmlns:ns7="http://schemas.dmtf.org/ovf/envelope/1" xmlns:ns8="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData" xmlns:ns9="http://www.vmware.com/schema/ovf">
+      <root:Source href="{{vAppHref}}"/>
+      <root:NetworkConfigSection>
+        <ns7:Info>The configuration parameters for logical networks</ns7:Info>
+        {{networkConfig}}
+      </root:NetworkConfigSection>
+      {{vmDetails}}
+    </root:MoveVAppParams>
+  moveVappNetworkConfig:
+    <root:NetworkConfig networkName="{{networkName}}">
+      <root:Description>{{networkDescription}}</root:Description>
+      <root:Configuration>
+        <root:ParentNetwork href="{{parentNetwork}}"/>
+        <root:FenceMode>{{fenceMode}}</root:FenceMode>
+      </root:Configuration>
+      <root:IsDeployed>true</root:IsDeployed>
+    </root:NetworkConfig>
+  moveVappVm:
+    <root:SourcedItem>
+      <root:Source href="{{vmHref}}"></root:Source>
+      <root:VmGeneralParams>
+        <root:Description>{{vmDescription}}</root:Description>
+      </root:VmGeneralParams>
+      <root:InstantiationParams>
+        <root:NetworkConnectionSection>
+          <ns7:Info>Network Connection Section</ns7:Info>
+          <root:PrimaryNetworkConnectionIndex>0</root:PrimaryNetworkConnectionIndex>
+          <root:NetworkConnection network="{{networkName}}">
+            <root:NetworkConnectionIndex>0</root:NetworkConnectionIndex>
+            <root:IpAddress>{{ipAddress}}</root:IpAddress>
+            <root:IsConnected>{{connected}}</root:IsConnected>
+            <root:MACAddress>{{macAddress}}</root:MACAddress>
+            <root:IpAddressAllocationMode>{{allocationModel}}</root:IpAddressAllocationMode>
+            <root:NetworkAdapterType>{{adapterType}}</root:NetworkAdapterType>
+          </root:NetworkConnection>
+        </root:NetworkConnectionSection>
+      </root:InstantiationParams>
+      <root:StorageProfile href="{{storageProfileHref}}"/>
+    </root:SourcedItem>
+  moveVappVmpWithPlacementPolicy:
+    <root:SourcedItem>
+      <root:Source href="{{vmHref}}"></root:Source>
+      <root:VmGeneralParams>
+        <root:Description>{{vmDescription}}</root:Description>
+      </root:VmGeneralParams>
+      <root:InstantiationParams>
+        <root:NetworkConnectionSection>
+          <ns7:Info>Specifies the available VM network connections</ns7:Info>
+          <root:PrimaryNetworkConnectionIndex>0</root:PrimaryNetworkConnectionIndex>
+          <root:NetworkConnection network="{{networkName}}">
+            <root:NetworkConnectionIndex>0</root:NetworkConnectionIndex>
+            <root:IpAddress>{{ipAddress}}</root:IpAddress>
+            <root:IsConnected>{{connected}}</root:IsConnected>
+            <root:MACAddress>{{macAddress}}</root:MACAddress>
+            <root:IpAddressAllocationMode>{{allocationModel}}</root:IpAddressAllocationMode>
+            <root:NetworkAdapterType>{{adapterType}}</root:NetworkAdapterType>
+          </root:NetworkConnection>
+        </root:NetworkConnectionSection>
+      </root:InstantiationParams>
+      <root:StorageProfile href="{{storageProfileHref}}"/>
+      <root:ComputePolicy>
+        <root:VmPlacementPolicy href="{{vmPlacementPolicyHref}}"/>
+      </root:ComputePolicy>
+    </root:SourcedItem>
+  moveVappVmWithSizingPolicy:
+    <root:SourcedItem>
+      <root:Source href="{{vmHref}}"></root:Source>
+      <root:VmGeneralParams>
+        <root:Description>{{vmDescription}}</root:Description>
+      </root:VmGeneralParams>
+      <root:InstantiationParams>
+        <root:NetworkConnectionSection>
+          <ns7:Info>Specifies the available VM network connections</ns7:Info>
+          <root:PrimaryNetworkConnectionIndex>0</root:PrimaryNetworkConnectionIndex>
+          <root:NetworkConnection network="{{networkName}}">
+            <root:NetworkConnectionIndex>0</root:NetworkConnectionIndex>
+            <root:IpAddress>{{ipAddress}}</root:IpAddress>
+            <root:IsConnected>{{connected}}</root:IsConnected>
+            <root:MACAddress>{{macAddress}}</root:MACAddress>
+            <root:IpAddressAllocationMode>{{allocationModel}}</root:IpAddressAllocationMode>
+            <root:NetworkAdapterType>{{adapterType}}</root:NetworkAdapterType>
+          </root:NetworkConnection>
+        </root:NetworkConnectionSection>
+      </root:InstantiationParams>
+      <root:StorageProfile href="{{storageProfileHref}}"/>
+      <root:ComputePolicy>
+        <root:VmSizingPolicy href="{{sizingPolicyHref}}"/>
+      </root:ComputePolicy>
+    </root:SourcedItem>
+  moveVappVmWithComputePolicy:
+    <root:SourcedItem>
+      <root:Source href="{{vmHref}}"></root:Source>
+      <root:VmGeneralParams>
+        <root:Description>{{vmDescription}}</root:Description>
+      </root:VmGeneralParams>
+      <root:InstantiationParams>
+        <root:NetworkConnectionSection>
+          <ns7:Info>Specifies the available VM network connections</ns7:Info>
+          <root:PrimaryNetworkConnectionIndex>0</root:PrimaryNetworkConnectionIndex>
+          <root:NetworkConnection network="{{networkName}}">
+            <root:NetworkConnectionIndex>0</root:NetworkConnectionIndex>
+            <root:IpAddress>{{ipAddress}}</root:IpAddress>
+            <root:IsConnected>{{connected}}</root:IsConnected>
+            <root:MACAddress>{{macAddress}}</root:MACAddress>
+            <root:IpAddressAllocationMode>{{allocationModel}}</root:IpAddressAllocationMode>
+            <root:NetworkAdapterType>{{adapterType}}</root:NetworkAdapterType>
+          </root:NetworkConnection>
+        </root:NetworkConnectionSection>
+      </root:InstantiationParams>
+      <root:StorageProfile href="{{storageProfileHref}}"/>
+      <root:ComputePolicy>
+        <root:VmPlacementPolicy href="{{vmPlacementPolicyHref}}"/>
+        <root:VmSizingPolicy href="{{sizingPolicyHref}}"/>
+      </root:ComputePolicy>
+    </root:SourcedItem>
+  moveVappNoNetworkVM:
+    <root:MoveVAppParams xmlns:root="http://www.vmware.com/vcloud/v1.5" xmlns:ns7="http://schemas.dmtf.org/ovf/envelope/1" xmlns:ns8="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData" xmlns:ns9="http://www.vmware.com/schema/ovf">
+      <root:Source href="{{vAppHref}}"/>
+      <root:NetworkConfigSection>
+        <ns7:Info>The configuration parameters for logical networks</ns7:Info>
+        <root:NetworkConfig networkName="none">
+          <root:Description/>
+          <root:Configuration>
+           <root:FenceMode>bridged</root:FenceMode>
+          </root:Configuration>
+          <root:IsDeployed>true</root:IsDeployed>
+        </root:NetworkConfig>
+      </root:NetworkConfigSection>
+      {{vmDetails}}
+    </root:MoveVAppParams>
+  moveVappNoNetworkConfig:
+    <root:NetworkConfig networkName="{{networkName}}">
+      <root:Description>{{networkDescription}}</root:Description>
+      <root:Configuration>
+        <root:IpScopes>
+          <root:IpScope>
+            <root:IsInherited>{{isInherited}}</root:IsInherited>
+            <root:Gateway>{{gateway}}</root:Gateway>
+            <root:Netmask>{{netmask}}</root:Netmask>
+            <root:SubnetPrefixLength>{{subnet}}</root:SubnetPrefixLength>
+            <root:Dns1>{{dns1}}</root:Dns1>
+          </root:IpScope>
+          </root:IpScopes>
+        <root:FenceMode>{{fenceMode}}</root:FenceMode>
+      </root:Configuration>
+      <root:IsDeployed>{{isDeployed}}</root:IsDeployed>
+    </root:NetworkConfig>
