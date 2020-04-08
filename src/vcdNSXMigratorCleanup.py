@@ -55,31 +55,55 @@ class VMwareCloudDirectorNSXMigratorCleanup():
                                      nsxtCommonDict['password'], nsxtCommonDict['verify'])
 
             # login to the VMware cloud director for getting the bearer token
-            self.consoleLogger.info('Login into the VMware Cloud Director {}'.format(commonDict['ipAddress']))
+            self.consoleLogger.info('Logging into the VMware Cloud Director {}'.format(commonDict['ipAddress']))
             vcdObj.vcdLogin()
 
             # login to the nsx-t
-            self.consoleLogger.info('Login into the NSX-T - {}'.format(nsxtCommonDict['ipAddress']))
+            self.consoleLogger.info('Logging into the NSX-T - {}'.format(nsxtCommonDict['ipAddress']))
             nsxtObj.getComputeManagers()
 
             # getting the organization details
             self.consoleLogger.info('Getting the Organization {} details.'.format(orgName))
             orgUrl = vcdObj.getOrgUrl(orgName)
 
+            # getting the source provider VDC details and checking if its NSX-V backed
+            self.consoleLogger.info('Getting the source Provider VDC - {} details.'.format(self.vcdDetails['NSXVProviderVDC']['ProviderVDCName']))
+            sourceProviderVDCId, isNSXTbacked = vcdObj.getProviderVDCId(self.vcdDetails['NSXVProviderVDC']['ProviderVDCName'])
+
             # getting the source organization vdc details from the above organization
             self.consoleLogger.info('Getting the source Organization VDC {} details.'.format(sourceOrgVDCName))
             sourceOrgVDCId = vcdObj.getOrgVDCDetails(orgUrl, sourceOrgVDCName, 'sourceOrgVDC', saveResponse=False)
 
+            # validating whether source org vdc is NSX-V backed
+            self.consoleLogger.info('Validating whether source Org VDC is NSX-V backed')
+            vcdObj.validateOrgVDCNSXbacking(sourceOrgVDCId, sourceProviderVDCId, isNSXTbacked)
+
             # getting the source edge gateway details
             edgeGatewayDetails = vcdObj.getOrgVDCEdgeGateway(sourceOrgVDCId)
+
+            #  getting the target provider VDC details and checking if its NSX-T backed
+            self.consoleLogger.info('Getting the target Provider VDC - {} details.'.format(self.vcdDetails['NSXTProviderVDC']['ProviderVDCName']))
+            targetProviderVDCId, isNSXTbacked = vcdObj.getProviderVDCId(self.vcdDetails['NSXTProviderVDC']['ProviderVDCName'])
 
             # getting the target organization vdc details from the above organization
             self.consoleLogger.info('Getting the target Organization VDC {} details.'.format(sourceOrgVDCName + '-t'))
             targetOrgVDCId = vcdObj.getOrgVDCDetails(orgUrl, sourceOrgVDCName + '-t', 'targetOrgVDC', saveResponse=False)
 
+            # validating whether target org vdc is NSX-T backed
+            self.consoleLogger.info('Validating whether target Org VDC is NSX-T backed')
+            vcdObj.validateOrgVDCNSXbacking(targetOrgVDCId, targetProviderVDCId, isNSXTbacked)
+
+            # validating if target org vdc is enabled or disabled
+            self.consoleLogger.info('Validating whether target Org VDC is enabled')
+            vcdObj.validateTargetOrgVDCState(targetOrgVDCId)
+
             # getting the target organization vdc details from the above organization
             self.consoleLogger.info('Getting the target Organization VDC {} network details.'.format(sourceOrgVDCName + '-t'))
             orgVDCNetworkList = vcdObj.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
+
+            # validating media is connected to any of the vms
+            self.consoleLogger.info('Validating whether media is attached to any vApp VMs')
+            vcdObj.validateVappVMsMediaState(targetOrgVDCId, raiseError=True)
 
             # migrating catalog items - vApp Templates and media objects
             self.consoleLogger.info('Migrating catalog items - vApp Templates & media objects.')
@@ -121,7 +145,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             self.consoleLogger.info('Successfully cleaned up Source Org VDC.')
 
             # deleting the current user api session of vmware cloud director
-            self.consoleLogger.debug('Log out the current vmware cloud director user')
+            self.consoleLogger.debug('Logging out the current vmware cloud director user')
             vcdObj.deleteSession()
 
         except Exception:

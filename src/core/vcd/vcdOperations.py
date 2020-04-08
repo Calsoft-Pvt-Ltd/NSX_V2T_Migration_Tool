@@ -1493,6 +1493,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 return
             # retrieving the dhcp rules of the source edge gateway
             dhcpRules = data['sourceEdgeGatewayDHCP']['ipPools']['ipPool'] if isinstance(data['sourceEdgeGatewayDHCP']['ipPools']['ipPool'], list) else [data['sourceEdgeGatewayDHCP']['ipPools']['ipPool']]
+            payloaddict = {}
+            logger.info('DHCP is getting configured')
             # iterating over the source edge gateway dhcp rules
             for iprange in dhcpRules:
                 start = iprange['ipRange'].split('-')[0]
@@ -1513,28 +1515,33 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             if dhcp_check == vdcNetwork_check:
                                 vdcNetworkID = vdcNetwork['id']
                                 # creating payload data
-                                payloaddict = {
-                                    'enabled': data['sourceEdgeGatewayDHCP']['enabled'],
-                                    "dhcpPools": [
-                                        {
-                                            "enabled": "true",
-                                            "ipRange": {
-                                                "startAddress": start,
-                                                "endAddress": end
-                                            },
-                                            "defaultLeaseTime": 0
-                                        }
-                                    ]
-                                }
-                                if iprange['leaseTime'] == "infinite":
-                                    payloaddict['dhcpPools'][0]['maxLeaseTime'] = 2592000
-                                else:
-                                    payloaddict['dhcpPools'][0]['maxLeaseTime'] = iprange['leaseTime']
+                                payloaddict['enabled'] = "true" if data['sourceEdgeGatewayDHCP']['enabled'] == "true" else "false"
+                                payloaddict['dhcpPools'] = [{
+                                    "enabled": "true" if data['sourceEdgeGatewayDHCP']['enabled'] == "true" else "false",
+                                    "ipRange": {
+                                        "startAddress": start,
+                                        "endAddress": end
+                                    },
+                                    "defaultLeaseTime": 0
+                                }]
+                                for pool in payloaddict['dhcpPools']:
+                                    if iprange['leaseTime'] == "infinite":
+                                        pool['maxLeaseTime'] = 2592000
+                                    else:
+                                        pool['maxLeaseTime'] = iprange['leaseTime']
                                 # url to configure dhcp on target org vdc networks
                                 url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                        vcdConstants.ALL_ORG_VDC_NETWORKS,
                                                        vcdConstants.DHCP_ENABLED_FOR_ORG_VDC_NETWORK_BY_ID.format(vdcNetworkID))
-                                payloadData = json.dumps(payloaddict)
+                                response = self.restClientObj.get(url, self.headers)
+                                if response.status_code == requests.codes.ok:
+                                    responseDict = response.json()
+                                    dhcpPools = responseDict['dhcpPools'] + payloaddict['dhcpPools'] if responseDict['dhcpPools'] else payloaddict['dhcpPools']
+                                    payloaddict['dhcpPools'] = dhcpPools
+                                    payloadData = json.dumps(payloaddict)
+                                else:
+                                    errorResponse = response.json()
+                                    raise Exception('Failed to fetch DHCP service - {}'.format(errorResponse['message']))
                                 self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
                                 # put api call to configure dhcp on target org vdc networks
                                 response = self.restClientObj.put(url, self.headers, data=payloadData)
@@ -1544,8 +1551,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                     self._checkTaskStatus(taskUrl, vcdConstants.UPDATE_ORG_VDC_NETWORK_TASK_NAME)
                                     logger.debug('DHCP pool created successfully.')
                                 else:
-                                    response = response.json()
-                                    raise Exception('Failed to create DHCP  - {}'.format(response['message']))
+                                    errorResponse = response.json()
+                                    raise Exception('Failed to create DHCP  - {}'.format(errorResponse['message']))
+            logger.info('Successfully configured DHCP service')
         except:
             raise
 
@@ -1601,7 +1609,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             self.enableDisablePromiscModeForgedTransmit(orgVdcNetworkList, enable=True)
 
             # get the portgroup of source org vdc networks
-            logger.info('Get the portgroup of source org vdc networks.')
+            logger.info('Getting the portgroup of source org vdc networks.')
             portGroupList = self.getPortgroupInfo(orgVdcNetworkList)
 
             logger.info('Retrieved the portgroup of source org vdc networks.')
@@ -1610,21 +1618,23 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception as err:
             # rolling back
             logger.error('Error occured while preparing Target - {}'.format(err))
-            logger.info("RollBack: Enable Source Org VDC")
+            logger.info("RollBack: Enabling Source Org VDC")
             self.enableSourceOrgVdc(sourceOrgVDCId)
-            logger.info("RollBack: Enable Source vApp Affinity Rules")
+            logger.info("RollBack: Enabling Source vApp Affinity Rules")
             self.enableOrDisableSourceAffinityRules(sourceOrgVDCId, enable=True)
             if self.DISABLE_PROMISC_MODE:
-                logger.info("RollBack: Disable Promiscuous Mode and Forge Transmit")
+                logger.info("RollBack: Disabling Promiscuous Mode and Forge Transmit")
                 self.enableDisablePromiscModeForgedTransmit(None, enable=False)
             if self.DELETE_TARGET_ORG_VDC_NETWORKS:
-                logger.info("RollBack: Delete Target Org VDC Networks")
+                logger.info("RollBack: Deleting Target Org VDC Networks")
                 self.deleteOrgVDCNetworks(targetOrgVDCId, source=False)
             if self.DELETE_TARGET_EDGE_GATEWAY:
-                logger.info("RollBack: Delete Target Edge Gateway")
+                logger.info("RollBack: Deleting Target Edge Gateway")
                 self.deleteNsxTBackedOrgVDCEdgeGateways(targetOrgVDCId)
+                logger.info("RollBack: Removing Target External Network's sub-allocated static ip pools added from source edge gateway")
+                self.resetTargetExternalNetwork()
             if self.DELETE_TARGET_ORG_VDC:
-                logger.info("RollBack: Delete Target Org VDC")
+                logger.info("RollBack: Deleting Target Org VDC")
                 self.deleteOrgVDC(targetOrgVDCId)
             raise
 
@@ -1703,7 +1713,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             orgId = orgResponseDict['AdminOrg']['@id'].split(':')[-1]
 
             # orgCatalogs contains list of all catalogs in the organization
+            # each org catalog in orgCatalogs is of type dict which has keys {'@href', '@name', '@type'}
             orgCatalogs = orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"] if isinstance(orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"], list) else [orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"]]
+
+            # if no catalogs exist
+            if not orgResponseDict['AdminOrg'].get("Catalogs"):
+                logger.debug("No Catalogs exist in Organization")
+                return
 
             # sourceOrgVDCCatalogDetails will hold list of only catalogs present in the source org vdc
             sourceOrgVDCCatalogDetails = []
@@ -1718,12 +1734,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         # creating the list of catalogs from source org vdc
                         sourceOrgVDCCatalogDetails.append(catalogResponseDict['AdminCatalog'])
                 else:
-                    # skipping the organization level catalogs(i.e catalogs that doesnot belong to any org vdc)
+                    # skipping the organization level catalogs(i.e catalogs that doesnot belong to any org vdc) while are handled in the for-else loop
                     logger.debug("Skipping the catalog '{}' since catalog doesnot belong to any org vdc".format(catalog['@name']))
-
-            if not sourceOrgVDCCatalogDetails:
-                logger.debug("No source catalogs found to migrate")
-                return
 
             # getting the target storage profile details
             targetOrgVDCId = targetOrgVDCId.split(':')[-1]
@@ -1737,17 +1749,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # retrieving target org vdc storage profiles list
             targetOrgVDCStorageList = targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'] if isinstance(targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'], list) else [targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile']]
 
-            # url to create target catalog
-            catalogUrl = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                       vcdConstants.CREATE_CATALOG.format(orgId))
-            filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
-
             # iterating over the source org vdc catalogs to migrate them to target org vdc
             for srcCatalog in sourceOrgVDCCatalogDetails:
+                logger.debug("Migrating source Org VDC specific Catalogs")
                 storageProfileHref = ''
                 for storageProfile in targetOrgVDCStorageList:
                     srcOrgVDCStorageProfileDetails = self.getOrgVDCStorageProfileDetails(srcCatalog['CatalogStorageProfiles']['VdcStorageProfile']['@id'])
-                    # cheaking for the same name of target org vdc profile name matching with source catalog's storage profile
+                    # checking for the same name of target org vdc profile name matching with source catalog's storage profile
                     if srcOrgVDCStorageProfileDetails['AdminVdcStorageProfile']['@name'] == storageProfile['@name']:
                         storageProfileHref = storageProfile['@href']
                         break
@@ -1756,29 +1764,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 payloadDict = {'catalogName': srcCatalog['@name'] + '-t',
                                'storageProfileHref': storageProfileHref,
                                'catalogDescription': srcCatalog['Description'] if srcCatalog.get('Description') else ''}
-                # creating the payload data
-                payloadData = self.vcdUtils.createPayload(filePath,
-                                                          payloadDict,
-                                                          fileType='yaml',
-                                                          componentName=vcdConstants.COMPONENT_NAME,
-                                                          templateName=vcdConstants.CREATE_CATALOG_TEMPLATE)
-                payloadData = json.loads(payloadData)
-                self.headers["Content-Type"] = vcdConstants.XML_CREATE_CATALOG
-                # post api call to create target catalogs
-                createCatalogResponse = self.restClientObj.post(catalogUrl, self.headers, data=payloadData)
-                if createCatalogResponse.status_code == requests.codes.created:
-                    logger.debug("Catalog '{}' created successfully".format(srcCatalog['@name'] + '-t'))
-                    createCatalogResponseDict = xmltodict.parse(createCatalogResponse.content)
-                    # getting the newly created target catalog id
-                    catalogId = createCatalogResponseDict["AdminCatalog"]["@id"].split(':')[-1]
-                else:
-                    errorDict = xmltodict.parse(createCatalogResponse.content)
-                    raise Exception("Failed to create Catalog '{}' : {}".format(srcCatalog['@name'] + '-t',
-                                                                                errorDict['@message']))
+                catalogId = self.createCatalog(payloadDict, orgId)
 
                 if catalogId:
-                    if self.headers.get("Content-Type"):
-                        del self.headers['Content-Type']
                     # empty catalogs
                     if not srcCatalog.get('CatalogItems'):
                         logger.debug("Migrating empty catalog '{}'".format(srcCatalog['@name']))
@@ -1799,35 +1787,121 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         # creating payload data to move vapp template/ media
                         payloadDict = {'catalogItemName': catalogItem['@name'],
                                        'catalogItemHref': catalogItem['@href']}
-                        payloadData = self.vcdUtils.createPayload(filePath,
-                                                                  payloadDict,
-                                                                  fileType='yaml',
-                                                                  componentName=vcdConstants.COMPONENT_NAME,
-                                                                  templateName=vcdConstants.MOVE_CATALOG_TEMPLATE)
-                        payloadData = json.loads(payloadData)
-                        # url to move the catalog item
-                        vApptemplateMoveUrl = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                                            vcdConstants.MOVE_CATALOG.format(catalogId))
-
-                        # post api call to move vapp templates/ media
-                        moveVappTemplateResponse = self.restClientObj.post(vApptemplateMoveUrl, self.headers, data=payloadData)
-                        moveVappTemplateResponseDict = xmltodict.parse(moveVappTemplateResponse.content)
-                        if moveVappTemplateResponse.status_code == requests.codes.accepted:
-                            task = moveVappTemplateResponseDict["Task"]
-                            taskUrl = task["@href"]
-                            if taskUrl:
-                                # checking the status of moving catalog item task
-                                self._checkTaskStatus(taskUrl, task["@operationName"])
-                            logger.debug("Catalog Item '{}' moved successfully".format(catalogItem['@name']))
-                        else:
-                            raise Exception("Failed to move catalog item '{}' - {}".format(catalogItem['@name'],
-                                                                                           moveVappTemplateResponseDict['Error']['@message']))
+                        self.moveCatalogItem(payloadDict, catalogId)
 
                     # deleting the source org vdc catalog
                     self.deleteSourceCatalog(srcCatalog['@href'], srcCatalog)
                     # renaming the target org vdc catalog
                     self.renameTargetCatalog(catalogId, srcCatalog)
                     # deleting catalog
+            else:
+                # migrating non-specific org vdc  catalogs
+                # in this case catalog uses any storage available in the organization; but while creating media or vapp template it uses our source org vdc's storage profile by default
+                logger.debug("Migrating Non-specific Org VDC Catalogs")
+
+                # case where no catalog items found in source org vdc to migrate non-specific org vdc catalog
+                if sourceOrgVDCResponseDict['AdminVdc']['ResourceEntities'] is None:
+                    # no catalog items found in the source org vdc
+                    logger.debug("No media found in the source org vdc")
+                    return
+
+                # resourceEntitiesList holds the resource entities of source org vdc
+                resourceEntitiesList = sourceOrgVDCResponseDict['AdminVdc']['ResourceEntities']['ResourceEntity'] if isinstance(sourceOrgVDCResponseDict['AdminVdc']['ResourceEntities']['ResourceEntity'], list) else [sourceOrgVDCResponseDict['AdminVdc']['ResourceEntities']['ResourceEntity']]
+
+                # sourceCatalogItemsList holds the list of resource entities of type media or vapp template found in source org vdc
+                # each catalog item in sourceCatalogItemsList after updating will be dictionary with keys { '@href', '@id', '@name', '@type', 'catalogName', 'catalogHref', 'catalogItemHref', 'catalogDescription'}
+                sourceCatalogItemsList = [resourceEntity for resourceEntity in resourceEntitiesList if resourceEntity['@type'] == vcdConstants.TYPE_VAPP_MEDIA or resourceEntity['@type'] == vcdConstants.TYPE_VAPP_TEMPLATE]
+
+                organizationCatalogItemList = []
+                # organizationCatalogItemList holds the resource entities of type vapp template from whole organization
+                organizationCatalogItemList = self.getvAppTemplates(orgId)
+                # now organizationCatalogItemList will also hold resource entities of type media from whole organization
+                organizationCatalogItemList.extend(self.getCatalogMedia(orgId))
+
+                # commonCatalogItemsDetailsList holds the details of catalog common from source org vdc and organization
+                # commonCatalogItemsDetailsList will have many keys, but our interest keys are 'href' - href, 'catalogName' - name of catalog, 'catalog' - catalog href, 'catalogItem' - catalog item href
+                # Note: If the catalog item is of media type then all above keys are present; but if catalog item is of type vapp template then only  'href' and 'catalogName' is present.
+                # So we need to find the values of 'catalog' and 'catalogItem', since those are needed further
+                commonCatalogItemsDetailsList = [orgResource for orgResource in organizationCatalogItemList for srcResource in sourceCatalogItemsList if srcResource['@href'] == orgResource['href']]
+
+                # getting the default storage profile of the target org vdc
+                defaultTargetStorageProfileHref = None
+                # iterating over the target org vdc storage profiles
+                for eachStorageProfile in targetOrgVDCStorageList:
+                    # fetching the details of the storage profile
+                    orgVDCStorageProfileDetails = self.getOrgVDCStorageProfileDetails(eachStorageProfile['@id'])
+                    # checking if the storage profile is the default one
+                    if orgVDCStorageProfileDetails['AdminVdcStorageProfile']['Default'] == "true":
+                        defaultTargetStorageProfileHref = eachStorageProfile['@href']
+                        break
+
+                # catalogItemDetailsList is a list of dictionaries; each dictionary holds the details of each catalog item found in source org vdc
+                # each dictionary finally holds keys {'@href', '@id', '@name', '@type', 'catalogName', 'catalogHref', 'catalogItemHref', 'catalogDescription'}
+                catalogItemDetailsList = []
+                # catalogNameList is a temporary list used to get the single occurence of catalog in catalogDetailsList list
+                catalogNameList = []
+                # catalogDetailsList is a list of dictionaries; each dictionary holds the details of each catalog
+                # each dictionary finally holds keys {'catalogName', 'catalogHref', 'catalogDescription'}
+                catalogDetailsList = []
+                # iterating over the source catalog items
+                for eachResource in sourceCatalogItemsList:
+                    # iterating over the catalogs items found in both source org vdc and organization
+                    for resource in commonCatalogItemsDetailsList:
+                        if eachResource['@href'] == resource['href']:
+                            # catalogItem is a dict to hold the catalog item details
+                            catalogItem = eachResource
+                            catalogItem['catalogName'] = resource['catalogName']
+
+                            for orgCatalog in orgCatalogs:
+                                if orgCatalog['@name'] == resource['catalogName']:
+                                    catalogItem['catalogHref'] = orgCatalog['@href']
+                                    catalogResponseDict = self.getCatalogDetails(orgCatalog['@href'])
+                                    if catalogResponseDict.get('catalogItems'):
+                                        catalogItemsList = catalogResponseDict['catalogItems']['catalogItem'] if isinstance(catalogResponseDict['catalogItems']['catalogItem'], list) else [catalogResponseDict['catalogItems']['catalogItem']]
+                                        for item in catalogItemsList:
+                                            if item['name'] == eachResource['@name']:
+                                                catalogItem['catalogItemHref'] = item['href']
+                                                break
+
+                            catalogResponseDict = self.getCatalogDetails(catalogItem['catalogHref'])
+                            catalogItem['catalogDescription'] = catalogResponseDict['description'] if catalogResponseDict.get('description') else ''
+                            catalogItemDetailsList.append(catalogItem)
+                            if resource['catalogName'] not in catalogNameList:
+                                catalogNameList.append(resource['catalogName'])
+                                catalog = {'catalogName': resource['catalogName'],
+                                           'catalogHref': catalogItem['catalogHref'],
+                                           'catalogDescription': catalogResponseDict['description'] if catalogResponseDict.get('description') else ''}
+                                catalogDetailsList.append(catalog)
+                # deleting the temporary list since no more needed
+                del catalogNameList
+
+                # iterating over catalogs in catalogDetailsList
+                for catalog in catalogDetailsList:
+                    # creating the payload dict to create a place holder target catalog
+                    payloadDict = {'catalogName': catalog['catalogName'] + '-t',
+                                   'storageProfileHref': defaultTargetStorageProfileHref,
+                                   'catalogDescription': catalog['catalogDescription']}
+                    # create api call to create a new place holder catalog
+                    catalogId = self.createCatalog(payloadDict, orgId)
+                    if catalogId:
+                        # iterating over the catalog items in catalogItemDetailsList
+                        for catalogItem in catalogItemDetailsList:
+                            # checking if the catalogItem belongs to the above created catalog; if so migrating that catalogItem to the newly created target catalog
+                            if catalogItem['catalogName'] == catalog['catalogName']:
+                                # migrating this catalog item
+                                payloadDict = {'catalogItemName': catalogItem['@name'],
+                                               'catalogItemHref': catalogItem['catalogItemHref']}
+                                # move api call to migrate the catalog item
+                                self.moveCatalogItem(payloadDict, catalogId)
+
+                        catalogData = {'@name': catalog['catalogName'],
+                                       '@href': catalog['catalogHref'],
+                                       'Description': catalog['catalogDescription']}
+                        # deleting the source org vdc catalog
+                        self.deleteSourceCatalog(catalogData['@href'], catalogData)
+                        # renaming the target org vdc catalog
+                        self.renameTargetCatalog(catalogId, catalogData)
+
         except Exception:
             raise
 
@@ -1979,7 +2053,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 gatewayInterfaces.append(payloadData)
                 responseDict['configuration']['gatewayInterfaces']['gatewayInterface'] = gatewayInterfaces
                 responseDict['edgeGatewayServiceConfiguration'] = None
-                del(responseDict['tasks'])
+                del responseDict['tasks']
                 payloadData = json.dumps(responseDict)
                 acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
                 self.headers["Content-Type"] = vcdConstants.XML_UPDATE_EDGE_GATEWAY
@@ -2359,6 +2433,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
+    @_isSessionExpired
     def enableDisablePromiscModeForgedTransmit(self, orgVDCNetworkList, enable=False):
         """
         Description : Enabling/ Disabling Promiscuous Mode and Forged transmit of source org vdc network
@@ -2407,5 +2482,166 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         raise Exception('Failed to update dvportgroup properties of source Org VDC network {} - {}'.format(orgVdcNetwork['name'], errorResponse['message']))
                 else:
                     raise Exception('Failed to get dvportgroup properties of source Org VDC network {}'.format(orgVdcNetwork['name']))
+        except Exception:
+            if enable:
+                self.DELETE_TARGET_ORG_VDC = True
+                self.DELETE_TARGET_EDGE_GATEWAY = True
+                self.DELETE_TARGET_ORG_VDC_NETWORKS = True
+            raise
+
+    @_isSessionExpired
+    def resetTargetExternalNetwork(self):
+        """
+        Description :   Resets the target external network(i.e updating the target external network to its initial state)
+        """
+        try:
+            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
+            # reading the data from apiOutput.json
+            with open(fileName, 'r') as f:
+                data = json.load(f)
+            # getting the target external network's subnet ip range from apiOutput.json
+            targetExternalRange = data['targetExternalNetwork']['subnets']['values'][0]['ipRanges']['values']
+            targetExternalRangeList = []
+            # creating range of source external network pool range
+            for externalRange in targetExternalRange:
+                # breaking the iprange into list of ips covering all the ip address lying in the range
+                targetExternalRangeList.extend(self.createIpRange(externalRange['startAddress'], externalRange['endAddress']))
+
+            # getting the source edge gateway's static subnet ip pool
+            sourceEdgeGatewaySubIpPools = data['sourceEdgeGateway']['edgeGatewayUplinks'][0]['subnets']['values'][0]['ipRanges']['values']
+            sourceEdgeGatewaySubIpRangeList = []
+            for ipRange in sourceEdgeGatewaySubIpPools:
+                # breaking the iprange into list of ips covering all the ip address lying in the range
+                sourceEdgeGatewaySubIpRangeList.extend(self.createIpRange(ipRange['startAddress'], ipRange['endAddress']))
+
+            # removing the source edge gateway's static ips from target external ip list
+            for subIp in sourceEdgeGatewaySubIpRangeList:
+                targetExternalRangeList.remove(subIp)
+
+            # creating the range of each single ip in target external network's ips
+            targetExternalNetworkStaticIpPoolList = self.createExternalNetworkSubPoolRangePayload(targetExternalRangeList)
+
+            # reading the data of target external network from apiOutput.json to create payload
+            payloadDict = data['targetExternalNetwork']
+            # assigning the targetExternalNetworkStaticIpPoolList to the ipRanges of target external network to reset it to its initial state
+            payloadDict['subnets']['values'][0]['ipRanges']['values'] = targetExternalNetworkStaticIpPoolList
+            payloadData = json.dumps(payloadDict)
+
+            # url to update the target external networks
+            url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                   vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                   data['targetExternalNetwork']['id'])
+
+            # setting the content type to json
+            self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+            # put api call to update the target external networks
+            apiResponse = self.restClientObj.put(url, self.headers, data=payloadData)
+            if apiResponse.status_code == requests.codes.accepted:
+                taskUrl = apiResponse.headers['Location']
+                # get api call to get the task details of updating the target external networks
+                taskResponse = self.restClientObj.get(url=taskUrl, headers=self.headers)
+                if taskResponse.status_code == requests.codes.ok:
+                    taskResponseDict = xmltodict.parse(taskResponse.content)
+                    taskResponseDict = taskResponseDict["Task"]
+                    # checking the status of the updating the target external networks
+                    self._checkTaskStatus(taskUrl, taskResponseDict['@operationName'])
+                logger.debug("Successfully reset the target external network '{}' to its initial state".format(data['targetExternalNetwork']['name']))
+            else:
+                errorDict = apiResponse.json()
+                raise Exception("Failed to reset the target external network '{}' to its initial state: {}".format(data['targetExternalNetwork']['name'],
+                                                                                                                   errorDict['message']))
+        except Exception:
+            raise
+
+    def getCatalogDetails(self, catalogHref):
+        """
+        Description :   Returns the details of the catalog
+        Parameters: catalogHref - href of catalog for which details required (STRING)
+        """
+        try:
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+            catalogResponse = self.restClientObj.get(catalogHref, headers)
+            if catalogResponse.status_code == requests.codes.ok:
+                catalogResponseDict = catalogResponse.json()
+                return catalogResponseDict
+            else:
+                errorDict = catalogResponse.json()
+                raise Exception("Failed to retrieve the catalog details: {}".format(errorDict['message']))
+        except Exception:
+            raise
+
+    def createCatalog(self, catalog, orgId):
+        """
+        Description :   Creates an empty placeholder catalog
+        Parameters: catalog - payload dict for creating catalog (DICT)
+                    orgId - Organization Id where catalog is to be created (STRING)
+        """
+        try:
+            # create catalog url
+            catalogUrl = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                                       vcdConstants.CREATE_CATALOG.format(orgId))
+            filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
+
+            # creating the payload data
+            payloadData = self.vcdUtils.createPayload(filePath,
+                                                      catalog,
+                                                      fileType='yaml',
+                                                      componentName=vcdConstants.COMPONENT_NAME,
+                                                      templateName=vcdConstants.CREATE_CATALOG_TEMPLATE)
+            payloadData = json.loads(payloadData)
+            # setting the content-type to create a catalog
+            headers = self.headers
+            headers['Content-Type'] = vcdConstants.XML_CREATE_CATALOG
+            # post api call to create target catalogs
+            createCatalogResponse = self.restClientObj.post(catalogUrl, headers, data=payloadData)
+            if createCatalogResponse.status_code == requests.codes.created:
+                logger.debug("Catalog '{}' created successfully".format(catalog['catalogName']))
+                createCatalogResponseDict = xmltodict.parse(createCatalogResponse.content)
+                # getting the newly created target catalog id
+                catalogId = createCatalogResponseDict["AdminCatalog"]["@id"].split(':')[-1]
+                return catalogId
+            else:
+                errorDict = xmltodict.parse(createCatalogResponse.content)
+                raise Exception("Failed to create Catalog '{}' : {}".format(catalog['catalogName'],
+                                                                            errorDict['Error']['@message']))
+
+        except Exception:
+            raise
+
+    def moveCatalogItem(self, catalogItem, catalogId):
+        """
+        Description :   Moves the catalog Item
+        Parameters : catalogItem - catalog item payload (DICT)
+                     catalogId - catalog Id where this catalogitem to be moved (STRING)
+        """
+        try:
+            filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
+            # move catalog item url
+            moveCatalogItemUrl = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                                               vcdConstants.MOVE_CATALOG.format(catalogId))
+            # creating the payload data to move the catalog item
+            payloadData = self.vcdUtils.createPayload(filePath,
+                                                      catalogItem,
+                                                      fileType='yaml',
+                                                      componentName=vcdConstants.COMPONENT_NAME,
+                                                      templateName=vcdConstants.MOVE_CATALOG_TEMPLATE)
+            payloadData = json.loads(payloadData)
+
+            headers = self.headers
+            headers['Content-Type'] = vcdConstants.GENERAL_XML_CONTENT_TYPE
+            # post api call to move catalog items
+            response = self.restClientObj.post(moveCatalogItemUrl, self.headers, data=payloadData)
+            responseDict = xmltodict.parse(response.content)
+            if response.status_code == requests.codes.accepted:
+                task = responseDict["Task"]
+                taskUrl = task["@href"]
+                if taskUrl:
+                    # checking the status of moving catalog item task
+                    self._checkTaskStatus(taskUrl, task["@operationName"])
+                logger.debug("Catalog Item '{}' moved successfully".format(catalogItem['catalogItemName']))
+            else:
+                raise Exception('Failed to move catalog item - {}'.format(responseDict['Error']['@message']))
+
         except Exception:
             raise

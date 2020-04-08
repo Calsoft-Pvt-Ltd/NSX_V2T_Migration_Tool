@@ -32,4 +32,4 @@ Vcenter:
     verify: True
 
 Common:
-  CertificatePath: D:\caCert.pem # ca/self-signed certificate path for validation
+  CertificatePath: /root/vcdNSXMigrator/caCert.pem # ca/self-signed certificate path for validation

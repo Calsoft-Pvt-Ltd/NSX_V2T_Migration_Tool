@@ -463,3 +463,21 @@ MOVE_VAPP_NO_NETWORK_VM_TEMPLATE = 'moveVappNoNetworkVM'
 
 # move vapp with no network or vapp network config template
 MOVE_VAPP_NO_NETWORK_CONFIG_TEMPLATE = 'moveVappNoNetworkConfig'
+
+# vapp template type string
+TYPE_VAPP_TEMPLATE = 'application/vnd.vmware.vcloud.vAppTemplate+xml'
+
+# vapp media type string
+TYPE_VAPP_MEDIA = 'application/vnd.vmware.vcloud.media+xml'
+
+# get vapp template info uri
+GET_VAPP_TEMPLATE_INFO = 'query?type=vAppTemplate'
+
+# page size for vapp template
+VAPP_TEMPLATE_PAGE_SIZE = 50
+
+# get media of organization uri
+GET_MEDIA_INFO = 'query?type=media'
+
+# page size for media
+MEDIA_PAGE_SIZE = 50

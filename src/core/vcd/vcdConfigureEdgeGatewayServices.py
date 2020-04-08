@@ -120,15 +120,18 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 data = json.load(f)
             # retrieving list instance of firewall rules from source edge gateway
             sourceFirewallRules = data['sourceEdgeGatewayFirewall'] if isinstance(data['sourceEdgeGatewayFirewall'], list) else [data['sourceEdgeGatewayFirewall']]
+            # url to configure firewall rules on target edge gateway
+            firewallUrl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                          vcdConstants.ALL_EDGE_GATEWAYS,
+                                          vcdConstants.T1_ROUTER_FIREWALL_CONFIG.format(edgeGatewayId))
             # if firewall rules are configured on source edge gateway
             if sourceFirewallRules:
-                logger.info('Firewall is getting configured')
-                # url to configure firewall rules on target edge gateway
-                firewallUrl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                              vcdConstants.ALL_EDGE_GATEWAYS,
-                                              vcdConstants.T1_ROUTER_FIREWALL_CONFIG.format(edgeGatewayId))
-                # retrieving the application port profiles
-                applicationPortProfilesList = self.getApplicationPortProfiles()
+                if not networktype:
+                    logger.info('Firewall is getting configured')
+                    # retrieving the application port profiles
+                    applicationPortProfilesList = self.getApplicationPortProfiles()
+                # firstTime variable is to check whether security groups are getting configured for the first time
+                firstTime = True
                 # iterating over the source edge gateway firewall rules
                 for firewallRule in sourceFirewallRules:
                     data = {}
@@ -149,46 +152,52 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             groups = firewallRule['source']['groupingObjectId'] if isinstance(firewallRule['source']['groupingObjectId'], list) else [firewallRule['source']['groupingObjectId']]
                             ipsetgroups = [group for group in groups if "ipset" in group]
                             networkgroups = [group for group in groups if "network" in group]
-                        # checking if ipaddress or ipset exist and the networktype should be false
-                        if ipsetgroups or ipAddressList and networktype is not True:
-                            description = ''
-                            # iterating over the ipset group list
-                            for ipsetgroup in ipsetgroups:
-                                # url to retrieve the info of ipset group by id
-                                ipseturl = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
-                                                         vcdConstants.GET_IPSET_GROUP_BY_ID.format(ipsetgroup))
-                                # get api call to retrieve the ipset group info
-                                ipsetresponse = self.restClientObj.get(ipseturl, self.headers)
-                                if ipsetresponse.status_code == requests.codes.ok:
-                                    # successful retrieval of ipset group info
-                                    ipsetresponseDict = xmltodict.parse(ipsetresponse.content)
-                                    ipsetipaddress = ipsetresponseDict['ipset']['value']
-                                    description = ipsetresponseDict['ipset']['description'] if ipsetresponseDict['ipset'].get('description') else ''
-                                    if "," in ipsetipaddress:
-                                        ipsetipaddresslist = ipsetipaddress.split(',')
-                                        ipAddressList.extend(ipsetipaddresslist)
-                                    else:
-                                        ipAddressList.append(ipsetipaddress)
-                            # creating payload data to create firewall group
-                            firewallGroupDict = {'name': firewallRule['name'] + '-' + str(random.randint(1, 1000))}
-                            firewallGroupDict['description'] = description
-                            firewallGroupDict['edgeGatewayRef'] = {'id': edgeGatewayId}
-                            firewallGroupDict['ipAddresses'] = ipAddressList
-                            firewallGroupDict = json.dumps(firewallGroupDict)
-                            # url to create firewall group
-                            firewallGroupUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                vcdConstants.CREATE_FIREWALL_GROUP)
-                            self.headers['Content-Type'] = 'application/json'
-                            # post api call to create firewall group
-                            response = self.restClientObj.post(firewallGroupUrl, self.headers,
-                                                               data=firewallGroupDict)
-                            if response.status_code == requests.codes.accepted:
-                                # successful creation of firewall group
-                                taskUrl = response.headers['Location']
-                                firewallGroupId = self._checkTaskStatus(taskUrl, vcdConstants.CREATE_FIREWALL_GROUP_TASK_NAME, returnOutput=True)
-                                sourcefirewallGroupId.append({'id': 'urn:vcloud:firewallGroup:{}'.format(firewallGroupId)})
+                        # checking if the networktype is false
+                        if not networktype:
+                            if ipsetgroups or ipAddressList:
+                                description = ''
+                                # iterating over the ipset group list
+                                for ipsetgroup in ipsetgroups:
+                                    # url to retrieve the info of ipset group by id
+                                    ipseturl = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                                             vcdConstants.GET_IPSET_GROUP_BY_ID.format(ipsetgroup))
+                                    # get api call to retrieve the ipset group info
+                                    ipsetresponse = self.restClientObj.get(ipseturl, self.headers)
+                                    if ipsetresponse.status_code == requests.codes.ok:
+                                        # successful retrieval of ipset group info
+                                        ipsetresponseDict = xmltodict.parse(ipsetresponse.content)
+                                        ipsetipaddress = ipsetresponseDict['ipset']['value']
+                                        description = ipsetresponseDict['ipset']['description'] if ipsetresponseDict['ipset'].get('description') else ''
+                                        if "," in ipsetipaddress:
+                                            ipsetipaddresslist = ipsetipaddress.split(',')
+                                            ipAddressList.extend(ipsetipaddresslist)
+                                        else:
+                                            ipAddressList.append(ipsetipaddress)
+                                # creating payload data to create firewall group
+                                firewallGroupDict = {'name': firewallRule['name'] + '-' + 'source-' +str(random.randint(1, 1000))}
+                                firewallGroupDict['description'] = description
+                                firewallGroupDict['edgeGatewayRef'] = {'id': edgeGatewayId}
+                                firewallGroupDict['ipAddresses'] = ipAddressList
+                                firewallGroupDict = json.dumps(firewallGroupDict)
+                                # url to create firewall group
+                                firewallGroupUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                                 vcdConstants.CREATE_FIREWALL_GROUP)
+                                self.headers['Content-Type'] = 'application/json'
+                                # post api call to create firewall group
+                                response = self.restClientObj.post(firewallGroupUrl, self.headers,
+                                                                   data=firewallGroupDict)
+                                if response.status_code == requests.codes.accepted:
+                                    # successful creation of firewall group
+                                    taskUrl = response.headers['Location']
+                                    firewallGroupId = self._checkTaskStatus(taskUrl, vcdConstants.CREATE_FIREWALL_GROUP_TASK_NAME, returnOutput=True)
+                                    sourcefirewallGroupId.append({'id': 'urn:vcloud:firewallGroup:{}'.format(firewallGroupId)})
                         # checking if any routed org vdc networks added in the firewall rule and networktype should be true
-                        if networkgroups and networktype is not False:
+                        if networkgroups and networktype:
+                            # checking if there are any network present in the fire wall rule
+                            if len(networkgroups) != 0 and firstTime:
+                                logger.info('Configuring security groups in the firewall')
+                                #Changing it into False because only want to log first time
+                                firstTime = False
                             # get api call to retrieve firewall info of target edge gateway
                             response = self.restClientObj.get(firewallUrl, self.headers)
                             if response.status_code == requests.codes.ok:
@@ -234,50 +243,56 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         if firewallRule['destination'].get("groupingObjectId", None):
                             groups = firewallRule['destination']['groupingObjectId'] if isinstance(firewallRule['destination']['groupingObjectId'], list) else [firewallRule['destination']['groupingObjectId']]
                             ipsetgroups = [group for group in groups if "ipset" in group]
-                            networkgroups =[group for group in groups if "network" in group]
-                        # checking if ipaddress or ipset exist and the networktype should be false
-                        if ipsetgroups or ipAddressList and networktype is not True:
-                            description = ''
-                            # iterating over the ipset group list
-                            for ipsetgroup in ipsetgroups:
-                                # url to retrieve the info of ipset group by id
-                                ipseturl = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
-                                                         vcdConstants.GET_IPSET_GROUP_BY_ID.format(ipsetgroup))
-                                # get api call to retrieve the ipset group info
-                                ipsetresponse = self.restClientObj.get(ipseturl, self.headers)
-                                if ipsetresponse.status_code == requests.codes.ok:
-                                    # successful retrieval of ipset group info
-                                    ipsetresponseDict = xmltodict.parse(ipsetresponse.content)
-                                    ipsetipaddress = ipsetresponseDict['ipset']['value']
-                                    description = ipsetresponseDict['ipset']['description'] if ipsetresponseDict['ipset'].get('description') else ''
-                                    if "," in ipsetipaddress:
-                                        ipsetipaddresslist = ipsetipaddress.split(',')
-                                        ipAddressList.extend(ipsetipaddresslist)
-                                    else:
-                                        ipAddressList.append(ipsetipaddress)
-                            # creating payload data to create firewall group
-                            firewallGroupDict = {'name': firewallRule['name'] + '-' + str(random.randint(1, 1000))}
-                            firewallGroupDict['description'] = description
-                            firewallGroupDict['edgeGatewayRef'] = {'id': edgeGatewayId}
-                            firewallGroupDict['ipAddresses'] = ipAddressList
-                            firewallGroupDict = json.dumps(firewallGroupDict)
-                            # url to create firewall group
-                            firewallGroupUrl = "{}{}".format(
-                                vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                vcdConstants.CREATE_FIREWALL_GROUP)
-                            self.headers['Content-Type'] = 'application/json'
-                            # post api call to create firewall group
-                            response = self.restClientObj.post(firewallGroupUrl, self.headers,
-                                                               data=firewallGroupDict)
-                            if response.status_code == requests.codes.accepted:
-                                # successful creation of firewall group
-                                taskUrl = response.headers['Location']
-                                firewallGroupId = self._checkTaskStatus(taskUrl,
-                                                                        vcdConstants.CREATE_FIREWALL_GROUP_TASK_NAME,
-                                                                        returnOutput=True)
-                                destinationfirewallGroupId.append({'id': 'urn:vcloud:firewallGroup:{}'.format(firewallGroupId)})
+                            networkgroups = [group for group in groups if "network" in group]
+                        # checking if networktype is false
+                        if not networktype:
+                            if ipsetgroups or ipAddressList:
+                                description = ''
+                                # iterating over the ipset group list
+                                for ipsetgroup in ipsetgroups:
+                                    # url to retrieve the info of ipset group by id
+                                    ipseturl = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                                             vcdConstants.GET_IPSET_GROUP_BY_ID.format(ipsetgroup))
+                                    # get api call to retrieve the ipset group info
+                                    ipsetresponse = self.restClientObj.get(ipseturl, self.headers)
+                                    if ipsetresponse.status_code == requests.codes.ok:
+                                        # successful retrieval of ipset group info
+                                        ipsetresponseDict = xmltodict.parse(ipsetresponse.content)
+                                        ipsetipaddress = ipsetresponseDict['ipset']['value']
+                                        description = ipsetresponseDict['ipset']['description'] if ipsetresponseDict['ipset'].get('description') else ''
+                                        if "," in ipsetipaddress:
+                                            ipsetipaddresslist = ipsetipaddress.split(',')
+                                            ipAddressList.extend(ipsetipaddresslist)
+                                        else:
+                                            ipAddressList.append(ipsetipaddress)
+                                # creating payload data to create firewall group
+                                firewallGroupDict = {'name': firewallRule['name'] + '-' + 'destination-' +str(random.randint(1, 1000))}
+                                firewallGroupDict['description'] = description
+                                firewallGroupDict['edgeGatewayRef'] = {'id': edgeGatewayId}
+                                firewallGroupDict['ipAddresses'] = ipAddressList
+                                firewallGroupDict = json.dumps(firewallGroupDict)
+                                # url to create firewall group
+                                firewallGroupUrl = "{}{}".format(
+                                    vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                    vcdConstants.CREATE_FIREWALL_GROUP)
+                                self.headers['Content-Type'] = 'application/json'
+                                # post api call to create firewall group
+                                response = self.restClientObj.post(firewallGroupUrl, self.headers,
+                                                                   data=firewallGroupDict)
+                                if response.status_code == requests.codes.accepted:
+                                    # successful creation of firewall group
+                                    taskUrl = response.headers['Location']
+                                    firewallGroupId = self._checkTaskStatus(taskUrl,
+                                                                            vcdConstants.CREATE_FIREWALL_GROUP_TASK_NAME,
+                                                                            returnOutput=True)
+                                    destinationfirewallGroupId.append({'id': 'urn:vcloud:firewallGroup:{}'.format(firewallGroupId)})
                         # checking if any routed org vdc networks added in the firewall rule and networktype should be true
-                        if networkgroups and networktype is not False:
+                        if networkgroups and networktype:
+                            # checking if there are any network present in the fire wall rule
+                            if len(networkgroups) != 0 and firstTime:
+                                logger.info('Configuring security groups in the firewall')
+                                # Changing it into False because only want to log first time
+                                firstTime = False
                             # get api call to retrieve firewall info of target edge gateway
                             response = self.restClientObj.get(firewallUrl, self.headers)
                             if response.status_code == requests.codes.ok:
@@ -312,47 +327,47 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                             # failure in configuration of firewall rules on target edge gateway
                                             response = response.json()
                                             raise Exception('Failed to update Firewall rule - {}'.format(response['message']))
-                    userDefinedRulesList = []
-                    # get api call to retrieve firewall info of target edge gateway
-                    response = self.restClientObj.get(firewallUrl, self.headers)
-                    if response.status_code == requests.codes.ok:
-                        # successful retrieval of firewall info
-                        responseDict = response.json()
-                        userDefinedRulesList = responseDict['userDefinedRules']
-                    # updating the payload with source firewall groups, destination firewall groups, user defined firewall rules, application port profiles
-                    action = 'ALLOW' if firewallRule['action'] == 'accept' else 'DROP'
-                    payloadDict.update({'name': firewallRule['name'] +"-"+firewallRule['id'], 'enabled': firewallRule['enabled'], 'action': action})
-                    payloadDict['sourceFirewallGroups'] = sourcefirewallGroupId if firewallRule.get('source', None) else []
-                    payloadDict['destinationFirewallGroups'] = destinationfirewallGroupId if firewallRule.get('destination', None) else []
-                    payloadDict['logging'] = "true" if firewallRule['loggingEnabled'] == "true" else "false"
-                    data['userDefinedRules'] = userDefinedRulesList + [payloadDict] if userDefinedRulesList else [payloadDict]
-                    # checking for the application key in firewallRule
-                    if firewallRule.get('application'):
-                        if firewallRule['application'].get('service'):
-                            # list instance of application services
-                            firewallRules = firewallRule['application']['service'] if isinstance(firewallRule['application']['service'], list) else [firewallRule['application']['service']]
-                            # iterating over the application services
-                            for applicationService in firewallRules:
-                                # if protocol is not icmp
-                                if applicationService['protocol'] != "icmp":
-                                    protocol_name, port_id = self._searchApplicationPortProfile(applicationPortProfilesList,
-                                                                                                applicationService['protocol'],
-                                                                                                applicationService['port'])
-                                    applicationServicesList.append({'name': protocol_name, 'id': port_id})
-                                    payloadDict['applicationPortProfiles'] = applicationServicesList
-                                else:
-                                    # if protocol is icmp
-                                    # iterating over the application port profiles
-                                    for value in applicationPortProfilesList:
-                                        if value['name'] == vcdConstants.ICMP_ALL:
-                                            protocol_name, port_id = value['name'], value['id']
-                                            applicationServicesList.append({'name': protocol_name, 'id': port_id})
-                                            payloadDict["applicationPortProfiles"] = applicationServicesList
-                    else:
-                        payloadDict['applicationPortProfiles'] = applicationServicesList
-                    payloadData = json.dumps(data)
-                    self.headers['Content-Type'] = 'application/json'
-                    if networktype is not True:
+                    if not networktype:
+                        userDefinedRulesList = []
+                        # get api call to retrieve firewall info of target edge gateway
+                        response = self.restClientObj.get(firewallUrl, self.headers)
+                        if response.status_code == requests.codes.ok:
+                            # successful retrieval of firewall info
+                            responseDict = response.json()
+                            userDefinedRulesList = responseDict['userDefinedRules']
+                        # updating the payload with source firewall groups, destination firewall groups, user defined firewall rules, application port profiles
+                        action = 'ALLOW' if firewallRule['action'] == 'accept' else 'DROP'
+                        payloadDict.update({'name': firewallRule['name'] +"-"+firewallRule['id'], 'enabled': firewallRule['enabled'], 'action': action})
+                        payloadDict['sourceFirewallGroups'] = sourcefirewallGroupId if firewallRule.get('source', None) else []
+                        payloadDict['destinationFirewallGroups'] = destinationfirewallGroupId if firewallRule.get('destination', None) else []
+                        payloadDict['logging'] = "true" if firewallRule['loggingEnabled'] == "true" else "false"
+                        # checking for the application key in firewallRule
+                        if firewallRule.get('application'):
+                            if firewallRule['application'].get('service'):
+                                # list instance of application services
+                                firewallRules = firewallRule['application']['service'] if isinstance(firewallRule['application']['service'], list) else [firewallRule['application']['service']]
+                                # iterating over the application services
+                                for applicationService in firewallRules:
+                                    # if protocol is not icmp
+                                    if applicationService['protocol'] != "icmp":
+                                        protocol_name, port_id = self._searchApplicationPortProfile(applicationPortProfilesList,
+                                                                                                    applicationService['protocol'],
+                                                                                                    applicationService['port'])
+                                        applicationServicesList.append({'name': protocol_name, 'id': port_id})
+                                        payloadDict['applicationPortProfiles'] = applicationServicesList
+                                    else:
+                                        # if protocol is icmp
+                                        # iterating over the application port profiles
+                                        for value in applicationPortProfilesList:
+                                            if value['name'] == vcdConstants.ICMP_ALL:
+                                                protocol_name, port_id = value['name'], value['id']
+                                                applicationServicesList.append({'name': protocol_name, 'id': port_id})
+                                                payloadDict["applicationPortProfiles"] = applicationServicesList
+                        else:
+                            payloadDict['applicationPortProfiles'] = applicationServicesList
+                        data['userDefinedRules'] = userDefinedRulesList + [payloadDict] if userDefinedRulesList else [payloadDict]
+                        payloadData = json.dumps(data)
+                        self.headers['Content-Type'] = 'application/json'
                         # put api call to configure firewall rules on target edge gateway
                         response = self.restClientObj.put(firewallUrl, self.headers, data=payloadData)
                         if response.status_code == requests.codes.accepted:
@@ -364,9 +379,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             # failure in configuration of firewall rules on target edge gateway
                             response = response.json()
                             raise Exception('Failed to create Firewall rule - {}'.format(response['message']))
-                logger.info('Firewall rules configured succesfully on target Edge gateway')
-            else:
-                logger.info('No Firewall rules configured in the Source gateway')
+                if not networktype:
+                    logger.info('Firewall rules configured succesfully on target Edge gateway')
+                if not firstTime:
+                    logger.info('Successfully configured security groups')
         except Exception:
             raise
 
@@ -388,8 +404,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 return
             # if enabled then retrieveing the list instance of source  ipsec
             sourceIPsecSite = ipsecConfigDict['sites']['site'] if isinstance(ipsecConfigDict['sites']['site'], list) else [ipsecConfigDict['sites']['site']]
-            # retrieving the local address from apiOutput.json of target edge gateway
-            localAddress = data['targetEdgeGateway']['edgeGatewayUplinks'][0]['subnets']['values'][0]['primaryIp']
             # url to configure the ipsec rules on target edge gateway
             url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
                                   vcdConstants.T1_ROUTER_IPSEC_CONFIG.format(t1gatewayId))
@@ -404,7 +418,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     payloadDict = {"name": sourceIPsecSite['name'],
                                    "enabled": "true" if sourceIPsecSite['enabled'] == "true" else "false",
                                    "localId": sourceIPsecSite['localId'],
-                                   "externalIp": localAddress,
+                                   "externalIp": sourceIPsecSite['localIp'],
                                    "peerIp": sourceIPsecSite['peerId'],
                                    "RemoteIp": sourceIPsecSite['peerIp'],
                                    "psk": sourceIPsecSite['psk'],
@@ -715,7 +729,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 logger.debug('BGP service is disabled or configured in Source')
                 return
             logger.info('BGP is getting configured')
-            ecmp = data['sourceEdgeGatewayRouting']['routingGlobalConfig']['ecmp']
+            ecmp = "true" if data['sourceEdgeGatewayRouting']['routingGlobalConfig']['ecmp'] == "true" else "false"
             # url to get the details of the bgp configuration on T1 router i.e target edge gateway
             bgpurl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
                                      vcdConstants.T1_ROUTER_BGP_CONFIG.format(edgeGatewayID))
@@ -760,6 +774,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 return
             # iterating over the source edge gateway's bgp neighbours
             for bgpNeighbour in bgpNeighbours:
+                inFilterpayloadDict = {}
+                outFilterpayloadDict = {}
                 # creating payload to configure same bgp neighbours in target edge gateway as those in source edge gateway
                 bgpNeighbourpayloadDict = {
                     "neighborAddress": bgpNeighbour['ipAddress'],
@@ -773,104 +789,87 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 if bgpNeighbour.get("bgpFilters"):
                     # retrieving the list instance of bgp filters of source edge gateway
                     bgpFilters = bgpNeighbour['bgpFilters']['bgpFilter'] if isinstance(bgpNeighbour['bgpFilters']['bgpFilter'], list) else [bgpNeighbour['bgpFilters']['bgpFilter']]
+                    inFilterpayloadDict['prefixes'] = []
+                    outFilterpayloadDict['prefixes'] = []
                     # iterating over the bgp filters
                     for bgpFilter in bgpFilters:
-                        if bgpFilter:
-                            # in direction bgp filters
-                            if bgpFilter['direction'] == "in":
-                                inFilterpayloadDict = {
-                                    "name": bgpNeighbour['ipAddress'] + "-" + "IN-" +str(random.randint(1, 1000)),
-                                    "prefixes": [
-                                        {
-                                            "network": bgpFilter['network'],
-                                            "action": bgpFilter['action'].upper(),
-                                            "greaterThanEqualTo": " ",
-                                            "lessThanEqualTo": " "
-                                        }
-                                    ]
-                                }
-                                if len(bgpFilter) > 3:
-                                    inFilterpayloadDict['prefixes'][0]['greaterThanEqualTo'] = int(bgpFilter['ipPrefixGe'])
-                                    inFilterpayloadDict['prefixes'][0]['lessThanEqualTo'] = int(bgpFilter['ipPrefixLe'])
-                                inFilterpayloadDict = json.dumps(inFilterpayloadDict)
-                                # url to configure in direction filtered bgp services
-                                infilterurl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                              vcdConstants.ALL_EDGE_GATEWAYS,
-                                                              vcdConstants.CREATE_PREFIX_LISTS_BGP.format(edgeGatewayID))
-                                self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
-                                # post api call to configure in direction filtered bgp services
-                                infilterresponse = self.restClientObj.post(infilterurl, headers=self.headers,
-                                                                           data=inFilterpayloadDict)
-                                if infilterresponse.status_code == requests.codes.accepted:
-                                    # successful configuration of in direction filtered bgp services
-                                    taskUrl = response.headers['Location']
-                                    self._checkTaskStatus(taskUrl, vcdConstants.CREATE_PREFIX_LISTS_TASK_NAME,
-                                                          returnOutput=True)
-                                    inFilterpayloadDict = json.loads(inFilterpayloadDict)
-                                    # get api call to retrieve
-                                    inprefixListResponse = self.restClientObj.get(infilterurl, self.headers)
-                                    inprefixList = inprefixListResponse.json()
-                                    values = inprefixList['values']
-                                    for value in values:
-                                        if inFilterpayloadDict['name'] == value['name']:
-                                            bgpNeighbourpayloadDict['inRoutesFilterRef'] = {"id": value['id'],
-                                                                                            "name": value['name']}
-                            # out direction bgp filters
-                            if bgpFilter['direction'] == "out":
-                                outFilterpayloadDict = {
-                                    "name": bgpNeighbour['ipAddress'] + "-" + "OUT-" +str(random.randint(1, 1000)),
-                                    "prefixes": [
-                                        {
-                                            "network": bgpFilter['network'],
-                                            "action": bgpFilter['action'].upper(),
-                                            "greaterThanEqualTo": " ",
-                                            "lessThanEqualTo": " "
-                                        }
-                                    ]
-                                }
-                                if len(bgpFilter) > 3:
-                                    outFilterpayloadDict['prefixes'][0]['greaterThanEqualTo'] = int(bgpFilter['ipPrefixGe'])
-                                    outFilterpayloadDict['prefixes'][0]['lessThanEqualTo'] = int(bgpFilter['ipPrefixLe'])
-                                outFilterpayloadDict = json.dumps(outFilterpayloadDict)
-                                # url to configure out direction filtered bgp services
-                                outfilterurl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                               vcdConstants.ALL_EDGE_GATEWAYS,
-                                                               vcdConstants.CREATE_PREFIX_LISTS_BGP.format(edgeGatewayID))
-                                self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
-                                # post api call to configure out direction filtered bgp services
-                                outfilterresponse = self.restClientObj.post(outfilterurl, headers=self.headers,
-                                                                            data=outFilterpayloadDict)
-                                outFilterpayloadDict = json.loads(outFilterpayloadDict)
-                                if outfilterresponse.status_code == requests.codes.accepted:
-                                    # successful configuration of in direction filtered bgp services
-                                    taskUrl = response.headers['Location']
-                                    self._checkTaskStatus(taskUrl, vcdConstants.CREATE_PREFIX_LISTS_TASK_NAME,
-                                                          returnOutput=True)
-                                    outprefixListResponse = self.restClientObj.get(outfilterurl, self.headers)
-                                    outprefixList = outprefixListResponse.json()
-                                    values = outprefixList['values']
-                                    for value in values:
-                                        if outFilterpayloadDict['name'] == value['name']:
-                                            bgpNeighbourpayloadDict['outRoutesFilterRef'] = {"id": value['id'],
-                                                                                             "name": value['name']}
-                    bgpNeighbourpayloadData = json.dumps(bgpNeighbourpayloadDict)
-                    # url to configure bgp neighbours
-                    bgpNeighboururl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                      vcdConstants.ALL_EDGE_GATEWAYS,
-                                                      vcdConstants.CREATE_BGP_NEIGHBOR_CONFIG.format(edgeGatewayID))
+                        # in direction bgp filters
+                        if bgpFilter['direction'] == "in":
+                            inFilterpayloadDict['prefixes'].append({
+                                "network": bgpFilter['network'], "action": bgpFilter['action'].upper(),
+                                "greaterThanEqualTo": bgpFilter['ipPrefixGe'] if 'ipPrefixGe' in bgpFilter.keys() else "",
+                                "lessThanEqualTo": bgpFilter['ipPrefixLe'] if 'ipPrefixLe' in bgpFilter.keys() else ""})
+                    inFilterpayloadDict['name'] = bgpNeighbour['ipAddress'] + "-" + "IN-" +str(random.randint(1, 1000))
+                    inFilterpayloadDict = json.dumps(inFilterpayloadDict)
+                    # url to configure in direction filtered bgp services
+                    infilterurl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                  vcdConstants.ALL_EDGE_GATEWAYS,
+                                                  vcdConstants.CREATE_PREFIX_LISTS_BGP.format(edgeGatewayID))
                     self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
-                    # post api call to configure bgp neighbours
-                    bgpNeighbourresponse = self.restClientObj.post(bgpNeighboururl, headers=self.headers,
-                                                                   data=bgpNeighbourpayloadData)
-                    if bgpNeighbourresponse.status_code == requests.codes.accepted:
-                        # successful configuration of bgp neighbours
-                        task_url = bgpNeighbourresponse.headers['Location']
-                        self._checkTaskStatus(task_url, vcdConstants.CREATE_BGP_NEIGHBOR_TASK_NAME)
-                        logger.debug('BGP neighbor created successfully')
-                    else:
-                        # failure in configuring bgp neighbours
-                        bgpNeighbourresponse = bgpNeighbourresponse.json()
-                        raise Exception('Failed to create neighbors {} '.format(bgpNeighbourresponse['message']))
+                    # post api call to configure in direction filtered bgp services
+                    infilterresponse = self.restClientObj.post(infilterurl, headers=self.headers,
+                                                               data=inFilterpayloadDict)
+                    if infilterresponse.status_code == requests.codes.accepted:
+                        # successful configuration of in direction filtered bgp services
+                        taskUrl = response.headers['Location']
+                        self._checkTaskStatus(taskUrl, vcdConstants.CREATE_PREFIX_LISTS_TASK_NAME)
+                        inFilterpayloadDict = json.loads(inFilterpayloadDict)
+                        # get api call to retrieve
+                        inprefixListResponse = self.restClientObj.get(infilterurl, self.headers)
+                        inprefixList = inprefixListResponse.json()
+                        values = inprefixList['values']
+                        for value in values:
+                            if inFilterpayloadDict['name'] == value['name']:
+                                bgpNeighbourpayloadDict['inRoutesFilterRef'] = {"id": value['id'],
+                                                                                "name": value['name']}
+                    for bgpFilter in bgpFilters:
+                        # out direction bgp filters
+                        if bgpFilter['direction'] == "out":
+                            outFilterpayloadDict['prefixes'].append({
+                                "network": bgpFilter['network'], "action": bgpFilter['action'].upper(),
+                                "greaterThanEqualTo": bgpFilter['ipPrefixGe'] if 'ipPrefixGe' in bgpFilter.keys() else "",
+                                "lessThanEqualTo": bgpFilter['ipPrefixLe'] if 'ipPrefixLe' in bgpFilter.keys() else ""})
+                    outFilterpayloadDict['name'] = bgpNeighbour['ipAddress'] + "-" + "OUT-" +str(random.randint(1, 1000))
+                    outFilterpayloadDict = json.dumps(outFilterpayloadDict)
+                    # url to configure out direction filtered bgp services
+                    outfilterurl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                   vcdConstants.ALL_EDGE_GATEWAYS,
+                                                   vcdConstants.CREATE_PREFIX_LISTS_BGP.format(edgeGatewayID))
+                    self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+                    # post api call to configure out direction filtered bgp services
+                    outfilterresponse = self.restClientObj.post(outfilterurl, headers=self.headers,
+                                                                data=outFilterpayloadDict)
+                    outFilterpayloadDict = json.loads(outFilterpayloadDict)
+                    if outfilterresponse.status_code == requests.codes.accepted:
+                        # successful configuration of in direction filtered bgp services
+                        taskUrl = response.headers['Location']
+                        self._checkTaskStatus(taskUrl, vcdConstants.CREATE_PREFIX_LISTS_TASK_NAME)
+                        outprefixListResponse = self.restClientObj.get(outfilterurl, self.headers)
+                        outprefixList = outprefixListResponse.json()
+                        values = outprefixList['values']
+                        for value in values:
+                            if outFilterpayloadDict['name'] == value['name']:
+                                bgpNeighbourpayloadDict['outRoutesFilterRef'] = {"id": value['id'], "name": value['name']}
+                # time.sleep put bcoz prefix list still takes time after creation and the api response is success
+                time.sleep(5)
+                bgpNeighbourpayloadData = json.dumps(bgpNeighbourpayloadDict)
+                # url to configure bgp neighbours
+                bgpNeighboururl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                  vcdConstants.ALL_EDGE_GATEWAYS,
+                                                  vcdConstants.CREATE_BGP_NEIGHBOR_CONFIG.format(edgeGatewayID))
+                self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+                # post api call to configure bgp neighbours
+                bgpNeighbourresponse = self.restClientObj.post(bgpNeighboururl, headers=self.headers,
+                                                               data=bgpNeighbourpayloadData)
+                if bgpNeighbourresponse.status_code == requests.codes.accepted:
+                    # successful configuration of bgp neighbours
+                    task_url = bgpNeighbourresponse.headers['Location']
+                    self._checkTaskStatus(task_url, vcdConstants.CREATE_BGP_NEIGHBOR_TASK_NAME)
+                    logger.debug('BGP neighbor created successfully')
+                else:
+                    # failure in configuring bgp neighbours
+                    bgpNeighbourresponse = bgpNeighbourresponse.json()
+                    raise Exception('Failed to create neighbors {} '.format(bgpNeighbourresponse['message']))
             logger.info('BGP neighbors configured successfully')
         except Exception:
             raise
@@ -954,20 +953,20 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             propertyUrl = "{}{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
                                                             vcdConstants.T1_ROUTER_IPSEC_CONFIG.format(edgeGatewayID), vcdConstants.CONNECTION_PROPERTIES_CONFIG.format(ruleid))
                             payloadDict = {
-                                    "securityType": "CUSTOM",
-                                    "ikeConfiguration": {
-                                        "ikeVersion": vcdConstants.CONNECTION_PROPERTIES_IKE_VERSION.get(sourceIPsecSite['ikeOption']),
-                                        "dhGroups": [vcdConstants.CONNECTION_PROPERTIES_DH_GROUP.get(sourceIPsecSite['dhGroup'])],
-                                        "digestAlgorithms": [vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(sourceIPsecSite['digestAlgorithm'])],
-                                        "encryptionAlgorithms": [vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get(sourceIPsecSite['encryptionAlgorithm'])],
-                                    },
-                                    "tunnelConfiguration": {
-                                        "perfectForwardSecrecyEnabled": "true" if sourceIPsecSite['enablePfs'] == "true" else "false",
-                                        "dhGroups": [vcdConstants.CONNECTION_PROPERTIES_DH_GROUP.get(sourceIPsecSite['dhGroup'])],
-                                        "encryptionAlgorithms": [vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get(sourceIPsecSite['encryptionAlgorithm'])],
-                                        "digestAlgorithms": [vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(sourceIPsecSite['digestAlgorithm'])]
-                                    }
+                                "securityType": "CUSTOM",
+                                "ikeConfiguration": {
+                                    "ikeVersion": vcdConstants.CONNECTION_PROPERTIES_IKE_VERSION.get(sourceIPsecSite['ikeOption']),
+                                    "dhGroups": [vcdConstants.CONNECTION_PROPERTIES_DH_GROUP.get(sourceIPsecSite['dhGroup'])],
+                                    "digestAlgorithms": [vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(sourceIPsecSite['digestAlgorithm'])],
+                                    "encryptionAlgorithms": [vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get(sourceIPsecSite['encryptionAlgorithm'])],
+                                },
+                                "tunnelConfiguration": {
+                                    "perfectForwardSecrecyEnabled": "true" if sourceIPsecSite['enablePfs'] == "true" else "false",
+                                    "dhGroups": [vcdConstants.CONNECTION_PROPERTIES_DH_GROUP.get(sourceIPsecSite['dhGroup'])],
+                                    "encryptionAlgorithms": [vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get(sourceIPsecSite['encryptionAlgorithm'])],
+                                    "digestAlgorithms": [vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(sourceIPsecSite['digestAlgorithm'])]
                                 }
+                            }
                             payloadData = json.dumps(payloadDict)
                             self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
                             # put api call to configure dns

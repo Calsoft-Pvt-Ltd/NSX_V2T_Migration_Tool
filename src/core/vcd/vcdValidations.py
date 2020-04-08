@@ -301,32 +301,47 @@ class VCDMigrationValidation():
                 # writing specified provider vdc's data to apiOutput.json
                 with open(fileName, 'w') as f:
                     json.dump(data, f, indent=3)
-                logger.debug(
-                    "Provider VDC {} details retrieved successfully".format(responseDict['ProviderVdc']['@name']))
+                logger.debug("Provider VDC {} details retrieved successfully".format(responseDict['ProviderVdc']['@name']))
                 return
             raise Exception('Failed to get Provider VDC details')
         except Exception:
             raise
 
-    @staticmethod
-    def validateOrgVDCNSXVbacked(sourceProviderVDCId, isNSXTbacked):
+    def validateOrgVDCNSXbacking(self, orgVDCId, providerVDCId, isNSXTbacked):
         """
-        Description : Validate whether source Org VDC is NSX-V backed
-        Parameters : sourceProviderVDCId    - source ProviderVDC id (STRING)
-                     isNSXTbacked           - True if provider VDC is NSX-T backed else False (BOOL)
+        Description : Validate whether Org VDC is NSX-V or NSX-T backed
+        Parameters : orgVDCId         - Org VDC id (STRING)
+                     providerVDCId    - ProviderVDC id (STRING)
+                     isNSXTbacked     - True if provider VDC is NSX-T backed else False (BOOL)
         """
         try:
-            # api output file
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading data from apiOutput.jaon
-            with open(fileName, 'r') as f:
-                data = json.load(f)
-            providerVDCId = data['sourceOrgVDC']['ProviderVdcReference']['@id']
-            # checking if source provider vdc is nsx-v backed, if not then raising exception
-            if providerVDCId == sourceProviderVDCId and not isNSXTbacked:
-                logger.debug("Validated successfully source Org VDC {} is NSX-V backed.".format(data['sourceOrgVDC']['@name']))
-                return
-            raise Exception("Source Org VDC {} is not NSX-V backed.".format(data['sourceOrgVDC']['@name']))
+            # splitting the source org vdc id as per the requirements of xml api
+            orgVdcId = orgVDCId.split(':')[-1]
+            # url to retrieve the specified provider vdc details
+            url = '{}{}'.format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                                vcdConstants.ORG_VDC_BY_ID.format(orgVdcId))
+            # get api call retrieve the specified provider vdc details
+            response = self.restClientObj.get(url, self.headers)
+            responseDict = xmltodict.parse(response.content)
+            if response.status_code == requests.codes.ok:
+                responseProviderVDCId = responseDict['AdminVdc']['ProviderVdcReference']['@id']
+                # if NSXTbacked is false
+                if not isNSXTbacked:
+                    # checking if source provider vdc is nsx-v backed, if not then raising exception
+                    if responseProviderVDCId == providerVDCId:
+                        logger.debug("Validated successfully source Org VDC {} is NSX-V backed.".format(responseDict['AdminVdc']['@name']))
+                        return
+                    else:
+                        raise Exception("Source Org VDC {} is not NSX-V backed.".format(responseDict['AdminVdc']['@name']))
+                else:
+                    # checking if target provider vdc is nsx-t backed, if not then raising exception
+                    if responseProviderVDCId == providerVDCId:
+                        logger.debug("Validated successfully target Org VDC {} is NSX-T backed.".format(responseDict['AdminVdc']['@name']))
+                        return
+                    else:
+                        raise Exception("Target Org VDC {} is not NSX-T backed.".format(responseDict['AdminVdc']['@name']))
+            else:
+                raise Exception('Failed to validate Org VDC NSX backing type.')
         except Exception:
             raise
 
@@ -592,7 +607,7 @@ class VCDMigrationValidation():
                     if enable:
                         isEnabled.text = "true" if sourceAffinityRule['IsEnabled'] == "true" else "false"
                     isMandatory = ET.SubElement(vmAffinityRule, 'IsMandatory')
-                    isMandatory.text = sourceAffinityRule['IsMandatory']
+                    isMandatory.text = "true" if sourceAffinityRule['IsMandatory'] == "true" else "false"
                     polarity = ET.SubElement(vmAffinityRule, 'Polarity')
                     polarity.text = sourceAffinityRule['Polarity']
                     vmReferences = ET.SubElement(vmAffinityRule, 'VmReferences')
@@ -602,6 +617,7 @@ class VCDMigrationValidation():
                                       type=eachVmReference['@type'])
 
                     payloadData = ET.tostring(vmAffinityRule, encoding='utf-8', method='xml')
+                    self.headers['Content-Type'] = vcdConstants.GENERAL_XML_CONTENT_TYPE
                     # put api call to enable / disable affinity rules
                     response = self.restClientObj.put(url, self.headers, data=str(payloadData, 'utf-8'))
                     responseDict = xmltodict.parse(response.content)
@@ -1385,19 +1401,19 @@ class VCDMigrationValidation():
             sourceOrgVDCId = self.getOrgVDCDetails(orgUrl, vcdDict['SourceOrgVDC']['OrgVDCName'], 'sourceOrgVDC')
 
             # validating whether target org vdc with same name as that of source org vdc exists
-            logger.info("Validate whether target Org VDC already exists")
+            logger.info("Validating whether target Org VDC doesnot already exist")
             self.validateNoTargetOrgVDCExists(vcdDict['SourceOrgVDC']['OrgVDCName'])
 
             # validating whether there are empty vapps in source org vdc
-            logger.info("Validate no empty vapps exist in source org VDC")
+            logger.info("Validating no empty vapps exist in source org VDC")
             self.validateNoEmptyVappsExistInSourceOrgVDC()
 
             # validating the source org vdc doesnot have any suspended state vms in any of the vapps
-            logger.info('Validate suspended state VMs doesnot exist in any of the Source vApps')
+            logger.info('Validating suspended state vm doesnot exist in any of the Source vApps')
             self.validateSourceSuspendedVMsInVapp()
 
             # validating that No vApps have its own vApp Networks
-            logger.info('Validate vApps have no vApp Networks')
+            logger.info('Validating vApps have no vApp Networks')
             self.validateNoVappNetworksExist()
 
             # validate org vdc fast provisioned
@@ -1426,12 +1442,12 @@ class VCDMigrationValidation():
             self.getProviderVDCDetails(sourceProviderVDCId, isNSXTbacked)
 
             # validating the source network pool is VXLAN backed
-            logger.info("Validate Source Network Pool is VXLAN backed")
+            logger.info("Validating Source Org VDC Network Pool is VXLAN backed")
             self.validateSourceNetworkPools()
 
             # validating whether source org vdc is NSX-V backed
-            logger.info('Validate whether source Org VDC is NSX-V backed')
-            self.validateOrgVDCNSXVbacked(sourceProviderVDCId, isNSXTbacked)
+            logger.info('Validating whether source Org VDC is NSX-V backed')
+            self.validateOrgVDCNSXbacking(sourceOrgVDCId, sourceProviderVDCId, isNSXTbacked)
 
             #  getting the target provider VDC details and checking if its NSX-T backed
             logger.info('Getting the target Provider VDC - {} details.'.format(vcdDict['NSXTProviderVDC']['ProviderVDCName']))
@@ -1447,7 +1463,7 @@ class VCDMigrationValidation():
             self.validateTargetProviderVdc()
 
             # disable the source Org VDC so that operations cant be performed on it
-            logger.info('Disable the source Org VDC - {}'.format(vcdDict['SourceOrgVDC']['OrgVDCName']))
+            logger.info('Disabling the source Org VDC - {}'.format(vcdDict['SourceOrgVDC']['OrgVDCName']))
             self.disableOrgVDC(sourceOrgVDCId)
 
             # validating the source org vdc placement policies exist in target PVDC also
@@ -1467,11 +1483,11 @@ class VCDMigrationValidation():
             self.getOrgVDCAffinityRules(sourceOrgVDCId)
 
             # disabling Affinity rules
-            logger.info('Disabling source Org VDC affinity rules if its already enabled.')
+            logger.info('Disabling source Org VDC affinity rules if its enabled.')
             self.enableOrDisableSourceAffinityRules(sourceOrgVDCId, enable=False)
 
             # validate single Edge gateway exist in source Org VDC
-            logger.info('Validate whether single Edge gateway exist in source Org VDC {}.'.format(vcdDict['SourceOrgVDC']['OrgVDCName']))
+            logger.info('Validating whether single Edge gateway exists in source Org VDC {}.'.format(vcdDict['SourceOrgVDC']['OrgVDCName']))
             sourceEdgeGatewayId = self.validateSingleEdgeGatewayExistForOrgVDC(sourceOrgVDCId)
 
             # getting the source Org VDC networks
@@ -1479,15 +1495,15 @@ class VCDMigrationValidation():
             orgVdcNetworkList = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks')
 
             # validate whether DHCP is enabled on source Isolated Org VDC network
-            logger.info('Validate whether DHCP is enabled on source Isolated Org VDC network')
+            logger.info('Validating whether DHCP is enabled on source Isolated Org VDC network')
             self.validateDHCPEnabledonIsolatedVdcNetworks(orgVdcNetworkList)
 
             # validate whether any org vdc network is shared or not
-            logger.info('Validate whether Org VDC networks are shared')
+            logger.info('Validating whether Org VDC networks are shared')
             self.validateOrgVDCNetworkShared(orgVdcNetworkList)
 
             # validate whether any source org vdc network is not direct network
-            logger.info('Validate whether Org VDC have Direct networks.')
+            logger.info('Validating whether Org VDC has Direct networks.')
             self.validateOrgVDCNetworkDirect(orgVdcNetworkList)
 
             # get the list of services configured on source Edge Gateway
@@ -1497,7 +1513,10 @@ class VCDMigrationValidation():
             logger.info("Validating if Independent Disks exist in Source Org VDC")
             self.validateIndependentDisksDoesNotExistsInOrgVDC(sourceOrgVDCId)
 
-            return sourceOrgVDCId, orgVdcNetworkList, sourceEdgeGatewayId, bgpConfigDict, ipsecConfigDict
+            logger.info('Validating whether media is attached to any vApp VMs')
+            self.validateVappVMsMediaState(sourceOrgVDCId)
+
+            return sourceOrgVDCId, orgVdcNetworkList, sourceEdgeGatewayId, bgpConfigDict, ipsecConfigDict, orgUrl
         except Exception as err:
             # rolling back
             logger.error('Error occured while performing source validation - {}'.format(err))
@@ -1657,11 +1676,167 @@ class VCDMigrationValidation():
                     highestTargetVersion = int(currentVersion)
                 highestTargetVersionName = '-'.join([name, str(highestTargetVersion)])
             if highestSourceVersion > highestTargetVersion:
-                raise (
+                raise Exception(
                     'Hardware version on both Source Provider VDC and Target Provider VDC are not compatible, either both should be same or target PVDC hardware version'
                     ' should be greater than source PVDC hardware version. Source Provider VDC: {} and Target Provider VDC is: {}'.format(
                         highestSourceVersionName, highestTargetVersionName))
             else:
                 logger.info('Hardware version on both Source Provider VDC and Target Provider VDC are compatible')
+        except Exception:
+            raise
+
+    def validateTargetOrgVDCState(self, targetOrgVDCId):
+        """
+        Description:    Validates that target Org VDC state is enabled or not
+        Parameters:     targetOrgVDCId      - target Org VDC Id (STRING)
+        """
+        try:
+            logger.debug('Getting target Org VDC details - {}'.format(targetOrgVDCId))
+            # splitting the target org vdc id as per the requirements of xml api
+            targetOrgVdcId = targetOrgVDCId.split(':')[-1]
+            # url to retrieve the specified provider vdc details
+            url = '{}{}'.format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                                vcdConstants.ORG_VDC_BY_ID.format(targetOrgVdcId))
+            # get api call retrieve the specified provider vdc details
+            response = self.restClientObj.get(url, self.headers)
+            responseDict = xmltodict.parse(response.content)
+            if response.status_code == requests.codes.ok:
+                if responseDict['AdminVdc']['@id'] == targetOrgVDCId and responseDict['AdminVdc']['IsEnabled'] == "true":
+                    logger.debug('Target Org VDC is enabled')
+                    return
+                else:
+                    raise Exception("Target Org VDC is not enabled. Please enable it.")
+        except Exception:
+            raise
+
+    def validateVappVMsMediaState(self, OrgVDCID, raiseError=False):
+        """
+        Description :   Validates state of media attached to vApp VM's
+        """
+        try:
+            exceptionList = []
+            # split the orgvdc urn to get id
+            orgvdcId = OrgVDCID.split(':')[-1]
+            url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress), vcdConstants.ORG_VDC_BY_ID.format(orgvdcId))
+            response = self.restClientObj.get(url, self.headers)
+            if response.status_code == requests.codes.ok:
+                responseDict = xmltodict.parse(response.content)
+            else:
+                raise Exception('Error occurred while retrieving Org VDC - {} details'.format(OrgVDCID))
+            if not responseDict['AdminVdc']['ResourceEntities']:
+                return
+            sourceOrgVDCEntityList = responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'] if isinstance(
+                responseDict["AdminVdc"]['ResourceEntities']['ResourceEntity'], list) else [responseDict["AdminVdc"]['ResourceEntities']['ResourceEntity']]
+            # creating source vapp list
+            sourceVappList = [vAppEntity for vAppEntity in sourceOrgVDCEntityList if vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
+            # iterating over the source vapps
+            for sourceVapp in sourceVappList:
+                hrefVapp = sourceVapp['@href']
+                # get api call to retrieve vapp details
+                response = self.restClientObj.get(hrefVapp, self.headers)
+                if response.status_code == requests.codes.ok:
+                    responseDict = xmltodict.parse(response.content)
+                    # checking if vapp has vms in it
+                    if responseDict['VApp'].get('Children'):
+                        vmList = responseDict['VApp']['Children']['Vm'] if isinstance(
+                            responseDict['VApp']['Children']['Vm'], list) else [responseDict['VApp']['Children']['Vm']]
+                        # iterating over vms in the vapp
+                        for vm in vmList:
+                            mediaSettings = vm['VmSpecSection']['MediaSection']['MediaSettings']
+                            # iterating over the list of media settings of vm
+                            for mediaSetting in mediaSettings:
+                                # checking for the ISO media type that should be disconnected, else raising exception
+                                if mediaSetting['MediaType'] == "ISO":
+                                    if mediaSetting['MediaState'] != "DISCONNECTED":
+                                        exceptionList.append(sourceVapp['@name'] + ' : ' + vm['@name'])
+                                    else:
+                                        logger.debug("Validated successfully VM {} has no media attached".format(vm['@name']))
+            if exceptionList:
+                # converting exceptionList to string
+                resVms = ", ".join(exceptionList)
+                errorMessage = 'The following vApp with VMs have media attached to it. ' \
+                               'Please remove the media from the VMs before running cleanup script.\n{}'.format(resVms)
+                if raiseError:
+                    raise Exception(errorMessage)
+                else:
+                    logger.warning(errorMessage)
+        except Exception:
+            raise
+
+    def getvAppTemplates(self, orgId):
+        """
+        Description : Get all vApp Templates of specific Organization
+        Parameters  : orgId - Organization Id (STRING)
+        """
+        try:
+            # url to get vapp template info
+            url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                                vcdConstants.GET_VAPP_TEMPLATE_INFO)
+            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+            headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader, 'X-VMWARE-VCLOUD-TENANT-CONTEXT': orgId}
+            # get api call to retrieve the vapp template details
+            response = self.restClientObj.get(url, headers)
+            if response.status_code == requests.codes.ok:
+                responseDict = response.json()
+                resultTotal = responseDict['total']
+            pageNo = 1
+            pageSizeCount = 0
+            resultList = []
+            logger.debug('Getting vapp template details')
+            while resultTotal > 0 and pageSizeCount < resultTotal:
+                # url to get the vapp template info with page number and page size count
+                url = "{}{}&page={}&pageSize={}&format=records".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                                                                       vcdConstants.GET_VAPP_TEMPLATE_INFO, pageNo,
+                                                                       vcdConstants.VAPP_TEMPLATE_PAGE_SIZE)
+                # get api call to retrieve the vapp template details with page number and page size count
+                response = self.restClientObj.get(url, headers)
+                if response.status_code == requests.codes.ok:
+                    responseDict = response.json()
+                    resultList.extend(responseDict['record'])
+                    pageSizeCount += len(responseDict['record'])
+                    logger.debug('vApp Template details result pageSize = {}'.format(pageSizeCount))
+                    pageNo += 1
+            logger.debug('Total vApp Template details result count = {}'.format(len(resultList)))
+            logger.debug('vApp Template details successfully retrieved')
+            return resultList
+        except Exception:
+            raise
+
+    def getCatalogMedia(self, orgId):
+        """
+        Description : Get all media objects of specific Organization
+        Parameters  : orgId - Organization Id (STRING)
+        """
+        try:
+            # url to get the media info of specified organization
+            url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                                vcdConstants.GET_MEDIA_INFO)
+            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+            headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader, 'X-VMWARE-VCLOUD-TENANT-CONTEXT': orgId}
+            # get api call to retrieve the media details of organization
+            response = self.restClientObj.get(url, headers)
+            if response.status_code == requests.codes.ok:
+                responseDict = response.json()
+                resultTotal = responseDict['total']
+            pageNo = 1
+            pageSizeCount = 0
+            resultList = []
+            logger.debug('Getting media details')
+            while resultTotal > 0 and pageSizeCount < resultTotal:
+                # url to get the media info of specified organization with page number and page size count
+                url = "{}{}&page={}&pageSize={}&format=records".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                                                                       vcdConstants.GET_MEDIA_INFO, pageNo,
+                                                                       vcdConstants.MEDIA_PAGE_SIZE)
+                # get api call to retrieve the media details of organization with page number and page size count
+                response = self.restClientObj.get(url, headers)
+                if response.status_code == requests.codes.ok:
+                    responseDict = response.json()
+                    resultList.extend(responseDict['record'])
+                    pageSizeCount += len(responseDict['record'])
+                    logger.debug('Media details result pageSize = {}'.format(pageSizeCount))
+                    pageNo += 1
+            logger.debug('Total media details result count = {}'.format(len(resultList)))
+            logger.debug('Media details successfully retrieved')
+            return resultList
         except Exception:
             raise

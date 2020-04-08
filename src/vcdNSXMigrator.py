@@ -206,15 +206,15 @@ class VMwareCloudDirectorNSXMigrator():
                 vcenterObj = VcenterApi(vcenterDict['Common'])
 
                 # login to the vmware cloud director for getting the bearer token
-                self.consoleLogger.info('Login into the VMware Cloud Director - {}'.format(vcdCommonDict['ipAddress']))
+                self.consoleLogger.info('Logging into the VMware Cloud Director - {}'.format(vcdCommonDict['ipAddress']))
                 vcdObj.vcdLogin()
 
                 # login to the nsx-t
-                self.consoleLogger.info('Login into the NSX-T - {}'.format(nsxtCommonDict['ipAddress']))
+                self.consoleLogger.info('Logging into the NSX-T - {}'.format(nsxtCommonDict['ipAddress']))
                 nsxtObj.getComputeManagers()
 
                 # login to vcenter
-                self.consoleLogger.info('Login into the Vcenter - {}'.format(vcenterDict['Common']['ipAddress']))
+                self.consoleLogger.info('Logging into the Vcenter - {}'.format(vcenterDict['Common']['ipAddress']))
                 vcenterObj.getTimezone()
 
                 self.consoleLogger.info('Starting with PreMigration validation tasks')
@@ -226,7 +226,7 @@ class VMwareCloudDirectorNSXMigrator():
                 nsxtObj.validateEdgeNodesNotInUse(nsxtDict['EdgeClusterName'])
                 self.consoleLogger.info('Successfully validated Edge Transport Nodes are not in use')
 
-                sourceOrgVDCId, orgVdcNetworkList, sourceEdgeGatewayId, bgpConfigDict, ipsecConfigDict = vcdValidationObj.preMigrationValidation(vcdDict)
+                sourceOrgVDCId, orgVdcNetworkList, sourceEdgeGatewayId, bgpConfigDict, ipsecConfigDict, orgUrl = vcdValidationObj.preMigrationValidation(vcdDict)
 
                 # writing the promiscuous mode and forged mode details to apiOutput.json
                 vcdObj.getPromiscModeForgedTransmit(orgVdcNetworkList)
@@ -258,7 +258,7 @@ class VMwareCloudDirectorNSXMigrator():
                 else:
                     self.consoleLogger.warning('Skipping the NSXT Bridging configuration and verifying connectivity check as no source Org VDC network exist')
 
-                self.consoleLogger.info('Configure Target Edge gateway services.')
+                self.consoleLogger.info('Configuring Target Edge gateway services.')
                 configureEdgeGatewayServiceObj.configureServices(bgpConfigDict, ipsecConfigDict)
                 self.consoleLogger.info('Target Edge gateway services got configured successfully.')
 
@@ -272,12 +272,15 @@ class VMwareCloudDirectorNSXMigrator():
                 vcdObj.disableOrgVDC(targetOrgVdcId, isSourceDisable=False)
                 self.consoleLogger.info('Successfully migrated NSX-V backed Org VDC to NSX-T backed.')
 
+                # updating the target org vdc details in apiOutput.json file after migrating the vapps, so that the data can be used in inventory logs
+                vcdObj.getOrgVDCDetails(orgUrl, vcdDict['SourceOrgVDC']['OrgVDCName'] + '-t', 'targetOrgVDC')
+
                 # deleting the current user api session of vmware cloud director
-                self.consoleLogger.debug('Log out the current vmware cloud director user')
+                self.consoleLogger.debug('Logging out the current vmware cloud director user')
                 vcdObj.deleteSession()
 
                 # deleting the current user api session of vcenter server
-                self.consoleLogger.debug('Log out the current vmware vcenter server user')
+                self.consoleLogger.debug('Logging out the current vmware vcenter server user')
                 vcenterObj.deleteSession()
         except requests.exceptions.SSLError as e:
             # catching the exception for ssl error.
@@ -297,26 +300,28 @@ class VMwareCloudDirectorNSXMigrator():
                 if nsxtObj:
                     if not vcdObj.PROMISCUCOUS_MODE_ALREADY_DISABLED:
                         if nsxtObj.DISABLE_PROMISC_MODE or vcenterObj.DISABLE_PROMISC_MODE or vcdObj.DISABLE_PROMISC_MODE:
-                            self.consoleLogger.info("RollBack: Disable Promiscuous Mode and Forged Mode")
+                            self.consoleLogger.info("RollBack: Disabling Promiscuous Mode and Forged Mode")
                             vcdObj.enableDisablePromiscModeForgedTransmit(None, enable=False)
                     if nsxtObj.CLEAR_NSX_T_BRIDGING:
                         orgVDCNetworkList = vcdObj.getOrgVDCNetworks(targetOrgVdcId, 'targetOrgVDCNetworks', saveResponse=False)
-                        self.consoleLogger.info("RollBack: Clear NSX-T Bridging")
+                        self.consoleLogger.info("RollBack: Clearing NSX-T Bridging")
                         nsxtObj.clearBridging(orgVDCNetworkList)
-                        self.consoleLogger.info("RollBack: Enable Source Org VDC")
+                        self.consoleLogger.info("RollBack: Enabling Source Org VDC")
                         vcdObj.enableSourceOrgVdc(sourceOrgVDCId)
-                        self.consoleLogger.info("RollBack: Enable Source vApp Affinity Rules")
+                        self.consoleLogger.info("RollBack: Enabling Source vApp Affinity Rules")
                         vcdObj.enableOrDisableSourceAffinityRules(sourceOrgVDCId, enable=True)
-                        self.consoleLogger.info("RollBack: Delete Target Org VDC Networks")
+                        self.consoleLogger.info("RollBack: Deleting Target Org VDC Networks")
                         vcdObj.deleteOrgVDCNetworks(targetOrgVdcId, source=False)
-                        self.consoleLogger.info("RollBack: Delete Target Edge Gateway")
+                        self.consoleLogger.info("RollBack: Deleting Target Edge Gateway")
                         vcdObj.deleteNsxTBackedOrgVDCEdgeGateways(targetOrgVdcId)
-                        self.consoleLogger.info("RollBack: Delete Target Org VDC")
+                        self.consoleLogger.info("RollBack: Removing Target External Network's sub-allocated static ip pools added from source edge gateway")
+                        vcdObj.resetTargetExternalNetwork()
+                        self.consoleLogger.info("RollBack: Deleting Target Org VDC")
                         vcdObj.deleteOrgVDC(targetOrgVdcId)
                     elif nsxtObj.ENABLE_SOURCE_ORG_VDC_AFFINITY_RULES:
-                        self.consoleLogger.info("RollBack: Enable Source Org VDC")
+                        self.consoleLogger.info("RollBack: Enabling Source Org VDC")
                         vcdObj.enableSourceOrgVdc(sourceOrgVDCId)
-                        self.consoleLogger.info("RollBack: Enable Source vApp Affinity Rules")
+                        self.consoleLogger.info("RollBack: Enabling Source vApp Affinity Rules")
                         vcdObj.enableOrDisableSourceAffinityRules(sourceOrgVDCId, enable=True)
                 if vcdObj and vcdObj.VCD_SESSION_CREATED:
                     # deleting the current user api session of vmware cloud director

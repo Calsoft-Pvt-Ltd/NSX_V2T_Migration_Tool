@@ -534,22 +534,22 @@ class NSXTOperations():
         try:
             transportZoneName = nsxtDict['TransportZone']['TransportZoneName']
             # create bridge endpoint profile
-            logger.info('Create Bridge Endpoint Profile.')
+            logger.info('Creating Bridge Endpoint Profile.')
             self.createBridgeEndpointProfile(nsxtDict['EdgeClusterName'], portGroupList)
             logger.info('Successfully created Bridge Endpoint Profile.')
 
             # create host uplink profile for bridge n-vds
-            logger.info('Create Bridge Uplink Host Profile.')
+            logger.info('Creating Bridge Uplink Host Profile.')
             self.createUplinkProfile()
             logger.info('Successfully created Bridge Uplink Host Profile.')
 
             # add bridge transport to bridge edge transport nodes
-            logger.info('Add Bridge Transport Zone to Bridge Edge Transport Nodes.')
+            logger.info('Adding Bridge Transport Zone to Bridge Edge Transport Nodes.')
             self.updateEdgeTransportNodes(nsxtDict['EdgeClusterName'], portGroupList, transportZoneName)
             logger.info('Successfully added Bridge Transport Zone to Bridge Edge Transport Nodes.')
 
             # attach bridge endpoint profile to logical switch
-            logger.info('Attach bridge endpoint profile to Logical Switch.')
+            logger.info('Attaching bridge endpoint profile to Logical Switch.')
             edgeNodeList = self.attachBridgeEndpointSegment(nsxtDict['EdgeClusterName'], portGroupList, transportZoneName)
             logger.info('Successfully attached bridge endpoint profile to Logical Switch.')
             return edgeNodeList
