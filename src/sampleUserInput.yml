@@ -33,3 +33,5 @@ Vcenter:
 
 Common:
   CertificatePath: /root/vcdNSXMigrator/caCert.pem # ca/self-signed certificate path for validation
+  MaxThreadCount: 75 # Number of threads to be used for parallel processing
+  TimeoutForVappMigration: 3600 # Timeout to be used for vapp migration task in seconds (Default value - 3600 seconds)

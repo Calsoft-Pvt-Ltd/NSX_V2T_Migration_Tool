@@ -20,29 +20,44 @@ class VcenterApi():
     Description : VCSAApis class provides methods to perform VCSA specific tasks
     """
     VCENTER_SESSION_CREATED = False
-    DISABLE_PROMISC_MODE = False
 
-    def __init__(self, vcenterDict):
+    def __init__(self, ipAddress, username, password, verify):
+        """
+        Description :   Initializer method of vcenter Operations
+        Parameters  :   ipAddress   -   ipaddress of the vcenter (STRING)
+                        username    -   Username of the vcenter (STRING)
+                        password    -   Password of the vcenter (STRING)
+                        verify      -   whether to verify the server's TLS certificate (BOOLEAN)
+        """
         # Get VCSA Credentials from vcsaDict
-        self.ipAddress = vcenterDict["ipAddress"]
-        self.username = vcenterDict["username"]
-        self.password = vcenterDict["password"]
+        self.ipAddress = ipAddress
+        self.username = username
+        self.password = password
+        self.verify = verify
         # Default header to be used for VCSA API calls
         self.headers = dict()
         self.headers.update({"Accept": constants.DEFAULT_ACCEPT_VALUE,
                              "Content-Type": constants.DEFAULT_ACCEPT_VALUE})
         self.headers.update({constants.SESSION_ID_KEY: ""})
+        self._getRestClientObj()
+
+    def _getRestClientObj(self):
+        """
+            Description :  Getting the rest client object
+        """
         # Rest client API calls
-        self.restClientObj = RestAPIClient()
+        self.restClientObj = RestAPIClient(self.username, self.password, self.verify)
 
     def login(self):
         """
         Description : Method to log-in session for VCSA.
         Returns : sessionId - Session ID for the current VCSA session (STRING)
         """
+        # Getting REST client object
+        self._getRestClientObj()
         # URL for VCSA login
         url = constants.VCSA_LOGIN_API.format(hostname=self.ipAddress)
-        response = self.restClientObj.get(url=url, headers=self.headers, auth=(self.username, self.password))
+        response = self.restClientObj.get(url=url, headers=self.headers, auth=self.restClientObj.auth)
         if response.status_code == requests.codes.ok:
             # Check for session ID in response
             sessionId = response.json().get("value")
@@ -95,7 +110,6 @@ class VcenterApi():
             errorMessage = response.json()['value']['messages'][0]['default_message']
             raise Exception("Failed to fetch interface details for Edge VM Id - {}. Error - {}".format(vmId, errorMessage))
         except Exception:
-            self.DISABLE_PROMISC_MODE = True
             raise
 
     @setSession
@@ -105,6 +119,7 @@ class VcenterApi():
         """
         # URL for getting timezone details
         logger.debug('Getting vcenter timezone')
+        self._getRestClientObj()
         url = constants.VCSA_TIMEZONE_API.format(hostname=self.ipAddress)
         response = self.restClientObj.get(url=url, headers=self.headers)
         if response.status_code == requests.codes.ok:

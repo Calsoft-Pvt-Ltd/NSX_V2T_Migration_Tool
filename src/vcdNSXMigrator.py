@@ -7,14 +7,14 @@ Description: Module which is a run file that does the migration of VMware Cloud 
 """
 
 import argparse
+import copy
 import getpass
-import json
 import os
 import re
 import signal
 import sys
 import logging
-import time
+from collections import namedtuple
 
 import requests
 import colorlog
@@ -25,19 +25,18 @@ cwd = os.getcwd()
 parentDir = os.path.abspath(os.path.join(cwd, os.pardir))
 sys.path.append(parentDir)
 
-from prettytable import PrettyTable
-
 import src.constants as mainConstants
-import src.core.vcd.vcdConstants as vcdConstants
 
+from src.rollback import Rollback
 from src.commonUtils.logConf import Logger
 from src.commonUtils.utils import Utilities
+from src.commonUtils.passwordUtils import PasswordUtilities
 from src.core.nsxt.nsxtOperations import NSXTOperations
-from src.core.vcd.vcdConfigureEdgeGatewayServices import ConfigureEdgeGatewayServices
 from src.core.vcd.vcdOperations import VCloudDirectorOperations
 from src.core.vcd.vcdValidations import VCDMigrationValidation
 from src.core.vcenter.vcenterApis import VcenterApi
 from src.vcdNSXMigratorCleanup import VMwareCloudDirectorNSXMigratorCleanup
+from src.vcdNSXMigratorAssessmentMode import VMwareCloudDirectorNSXMigratorAssessmentMode
 
 
 class VMwareCloudDirectorNSXMigrator():
@@ -50,48 +49,162 @@ class VMwareCloudDirectorNSXMigrator():
         """
         Description : This method initializes the basic logging configuration ans migration related stuff
         """
+        self.sourceOrgVDCId = None
+        self.passwordUtils = PasswordUtilities()
         self.utils = Utilities()
-        self.loggerObj = Logger()
-        self.consoleLogger = logging.getLogger("consoleLogger")
-        self.mainLogfile = logging.getLogger('mainLogger').handlers[0].baseFilename
+        self.executionMode = None
         self.cleanup = None
+        self.assessmentMode = None
         self.userInputFilePath = None
+        self.loginErrorDict = {
+            self._loginToVcd.__name__: False,
+            self._loginToNsxt.__name__: False,
+            self._loginToVcenter.__name__: False
+        }
+        self.defaultPassFileName = 'passfile'
 
         parser = argparse.ArgumentParser(description='Arguments supported by V2T migration tool')
-        parser.add_argument("--filepath", dest='filePath', help="Path of the userInput spec file to run VMware VCD NSX Migrator/Cleanup workflow (REQUIRED ARGUMENT)")
-        parser.add_argument("--cleanup", dest="cleanupValue", action="store_const", help='Cleanup workflow (OPTIONAL ARGUMENT)',
+        parser.add_argument("--filepath", dest='filePath',
+                            help="Path of the userInput spec file to run VMware VCD NSX Migrator/Cleanup workflow (REQUIRED ARGUMENT)")
+        parser.add_argument("--cleanup", dest="cleanupValue", action="store_const",
+                            help='Cleanup workflow (OPTIONAL ARGUMENT)',
                             const=True, default=False, required=False)
 
+        parser.add_argument("--preCheck", dest='preCheck', help='PreCheck workflow (OPTIONAL ARGUMENT)', \
+                            action="store_true", default=False, required=False)
+        parser.add_argument("--passwordFile", dest="passwordFilePath",
+                            help="Run migration tool with generated password File", required=False)
+        parser.add_argument("--rollback", dest='rollback', help='retry rollback (OPTIONAL ARGUMENT)', \
+                            action="store_true", default=False, required=False)
+
         args = parser.parse_args()
+        # Set the execution mode flag based in the input arguments passed
         if args.cleanupValue:
             self.cleanup = args.cleanupValue
+            self.executionMode = 'cleanup'
+        elif args.preCheck:
+            self.executionMode = 'preCheck'
+            self.assessmentMode = args.preCheck
+        else:
+            self.executionMode = 'Main'
         if args.filePath:
             self.userInputFilePath = args.filePath
-        if (not args.cleanupValue and not args.filePath) or (not args.filePath and args.cleanupValue):
+        # if retry argument is provided then previously saved password will be used
+        self.passFile = args.passwordFilePath
+        # if rollback argument is provided then rollback is retried from its last failed state
+        self.retryRollback = args.rollback
+
+        #Initialize logger object with the migrator execution mode
+        self.loggerObj = Logger(self.executionMode)
+        self.consoleLogger = logging.getLogger("consoleLogger")
+        self.rollback = Rollback(self.consoleLogger)
+        self.rollback.retryRollback = self.retryRollback
+        self.mainLogfile = logging.getLogger('mainLogger').handlers[0].baseFilename
+        self.rollback.mainLogfile = self.mainLogfile
+        #Check if invalid arguements are passed
+        if (not args.cleanupValue and not args.filePath) or \
+            (not args.filePath and args.cleanupValue) or \
+            (args.cleanupValue and args.preCheck) or \
+            (not args.filePath and args.preCheck) or \
+            (args.cleanupValue and args.rollback) or \
+                (args.preCheck and args.rollback):
             parser.print_help()
             raise Exception("Invalid Input Arguments")
         # handling the CNTRL+C  i.e keyboard interrupt
         signal.signal(signal.SIGINT, self.signalHandler)
 
-    def _getPasswordFromUser(self):
+    def releaseVersion(self):
         """
-        Description : this method prompts user for password
+        Description : Read and write migration tool release version
+        """
+        # reading the release yaml file
+        releaseFile = os.path.join(mainConstants.rootDir, "release.yml")
+        with open(releaseFile) as f:
+            releaseData = yaml.safe_load(f)
+        self.consoleLogger.info("Build Version: {}".format(releaseData['Build']))
+        self.consoleLogger.info("Build Release Date: {}".format(releaseData['ReleaseDate']))
+
+    def _getVcloudDirectorPassword(self):
+        """
+        Description :   getting VMware Cloud Director password from user
         """
         self.vCloudDirectorPassword = getpass.getpass(prompt="Please enter VMware Cloud Director Password: ")
         if not self.vCloudDirectorPassword:
             raise ValueError("VMware Cloud Director password must be provided")
+
+    def _getNsxtPassword(self):
+        """
+        Description :   getting NSX-T password from user
+        """
         self.nsxtPassword = getpass.getpass(prompt="Please enter NSX-T Password: ")
         if not self.nsxtPassword:
-            raise ValueError("NSXT password must be provided")
-        self.vcenterPassword = getpass.getpass(prompt="Please enter Vcenter Password: ")
+            raise ValueError("NSX-T password must be provided")
+
+    def _getVcenterPassword(self):
+        """
+        Description :   getting vCenter password from user
+        """
+        self.vcenterPassword = getpass.getpass(prompt="Please enter vCenter Password: ")
         if not self.vcenterPassword:
-            raise ValueError("Vcenter password must be provided")
+            raise ValueError("vCenter password must be provided")
+
+    def _encryptAndSavePasswords(self):
+        """
+        Description :   Encrypt the passwords and write passwords and master key to the file
+        """
+        # generating the master key
+        masterKey = self.passwordUtils.generateMasterKey()
+        # generating the encryption key
+        encryptionKey = self.passwordUtils.generateKey(masterKey)
+        # creating a list to store passwords
+        passList = list()
+        # Encrypting passwords and appending the passwords to a list
+        passList.append(masterKey)
+        passList.append(self.passwordUtils.encrpyt(encryptionKey, self.vCloudDirectorPassword).decode())
+        passList.append(self.passwordUtils.encrpyt(encryptionKey, self.nsxtPassword).decode())
+        passList.append(self.passwordUtils.encrpyt(encryptionKey, self.vcenterPassword).decode())
+        # Writing the list to file
+        if self.passFile:
+            self.passwordUtils.writePassFile('\n'.join(passList), self.passFile)
+        else:
+            self.passwordUtils.writePassFile('\n'.join(passList), self.defaultPassFileName)
+
+    def _getPasswordFromUser(self):
+        """
+        Description : this method prompts user for password
+        """
+        try:
+            #If password file path is provided
+            if self.passFile:
+                # Reading master key and passwords from file
+                if os.path.exists(self.passFile):
+                    masterKey, vCloudDirectorPassword, nsxtPassword, vcenterPassword = self.passwordUtils.readPassFile(self.passFile)
+                    # generating the decryption key
+                    decryptionKey = self.passwordUtils.generateKey(masterKey)
+                    # Decrypting passwords using the decrypting key
+                    self.vCloudDirectorPassword = self.passwordUtils.decrypt(decryptionKey, vCloudDirectorPassword.encode())
+                    self.nsxtPassword = self.passwordUtils.decrypt(decryptionKey, nsxtPassword.encode())
+                    self.vcenterPassword = self.passwordUtils.decrypt(decryptionKey, vcenterPassword.encode())
+                else:
+                    self.consoleLogger.error("Incorrect password file path")
+                    os._exit(0)
+            # if password file path id not provided
+            else:
+                if self.loginErrorDict[self._loginToVcd.__name__] is False:
+                    self._getVcloudDirectorPassword()
+                if self.loginErrorDict[self._loginToNsxt.__name__] is False:
+                    self._getNsxtPassword()
+                if self.loginErrorDict[self._loginToVcenter.__name__] is False:
+                    self._getVcenterPassword()
+        except:
+            raise
 
     def inputValidation(self):
         """
-        Description - Validation of user input values
+        Description - Validation of user input values and convert nested user spec dict to simple dict
         """
-        errorInputDict = {}
+        errorInputDict = dict()
+        newInputDict = dict()
         for componentName, componentValues in self.inputDict.items():
             for componentKey, componentValue in componentValues.items():
                 if isinstance(componentValue, dict):
@@ -109,7 +222,8 @@ class VMwareCloudDirectorNSXMigrator():
                             # validate fqdn
                             if isFqdn:
                                 if len(str(value)) > 255:
-                                    errorInputDict[dictKey] = "Input IP/FQDN value is empty or has more than 255 characters"
+                                    errorInputDict[
+                                        dictKey] = "Input IP/FQDN value is empty or has more than 255 characters"
                                 else:
                                     if "." in value:
                                         allowed = re.compile(mainConstants.FQDN_REGEX, re.IGNORECASE)
@@ -120,6 +234,26 @@ class VMwareCloudDirectorNSXMigrator():
                                 validIp = re.search(mainConstants.VALID_IP_REGEX, value) if value else None
                                 if not validIp:
                                     errorInputDict[dictKey] = "Input IP value is not in proper ip format"
+                        inputKey = ''
+                        if componentKey == 'Common':
+                            inputKey = componentName + item.capitalize()
+                            newInputDict[inputKey] = value
+                        elif componentKey == 'NSXVProviderVDC':
+                            if item == 'ProviderVDCName':
+                                inputKey = 'NSXV' + item
+                                newInputDict[inputKey] = value
+                            else:
+                                inputKey = componentKey + item
+                                newInputDict[inputKey] = value
+                        elif componentKey == 'NSXTProviderVDC':
+                            if item == 'ProviderVDCName':
+                                inputKey = 'NSXT' + item
+                                newInputDict[inputKey] = value
+                            else:
+                                inputKey = componentKey + item
+                                newInputDict[inputKey] = value
+                        else:
+                            newInputDict[item] = value
                 if isinstance(componentValue, type(None)):
                     # do not check for certificate validation here it should be checked based on verify parameter
                     if componentKey != 'CertificatePath':
@@ -127,48 +261,192 @@ class VMwareCloudDirectorNSXMigrator():
                 if isinstance(componentValue, str):
                     if not componentValue:
                         errorInputDict[componentKey] = 'Please enter proper Value for key - {}'.format(componentKey)
-
+                if not isinstance(componentValue, dict):
+                    newInputDict[componentKey] = componentValue
         if bool(errorInputDict):
             raise Exception('Input Validation Error - {}'.format(errorInputDict))
+        self.inputDict = newInputDict
+
+        # converting user spec to tuple
+        self.inputDict = namedtuple('InputDict', self.inputDict.keys())(**self.inputDict)
+
+        # Validating thread count in user input yaml file
+        try:
+            self.threadCount = self.inputDict.MaxThreadCount
+        except AttributeError:
+            self.threadCount = None
+
+        # Validating timeout for vapp migration task
+        try:
+            self.timeoutForVappMigration = int(self.inputDict.TimeoutForVappMigration)
+        except (AttributeError, ValueError):
+            # Setting default value for vapp migration i.e. 3600 seconds if not provided in user input file
+            self.timeoutForVappMigration = 3600
+
+    def _loginToVcd(self):
+        """
+        Description :   Login to VMware Cloud Director
+        """
+        self.consoleLogger.info('Login into the VMware Cloud Director - {}'.format(self.vcdObj.ipAddress))
+        try:
+            self.vcdValidationObj.password = self.vCloudDirectorPassword
+            self.vcdObj.password = self.vCloudDirectorPassword
+            self.vcdObj.vcdLogin()
+            self.loginErrorDict[self._loginToVcd.__name__] = True
+        except Exception as err:
+            logging.error(str(err))
+            if re.search(r'Failed to login .* with the given credentials', str(err)):
+                self.loginErrorDict[self._loginToVcd.__name__] = False
+            else:
+                raise
+
+    def _loginToNsxt(self):
+        """
+        Description :   Login to VMware NSX-T
+        """
+        self.consoleLogger.info('Login into the NSX-T - {}'.format(self.nsxtObj.ipAddress))
+        try:
+            self.nsxtObj.password = self.nsxtPassword
+            self.nsxtObj.getComputeManagers()
+            self.loginErrorDict[self._loginToNsxt.__name__] = True
+        except Exception as err:
+            logging.error(str(err))
+            if re.search(r'Failed to login .* with the given credentials', str(err)):
+                self.loginErrorDict[self._loginToNsxt.__name__] = False
+            else:
+                raise
+
+    def _loginToVcenter(self):
+        """
+        Description :   Login to vCenter
+        Parameters  :   vcenterObj   -   Object of vcenter operations class (object)
+                        ipAdress     -   IP of  vCenter (STRING)
+        """
+        self.consoleLogger.info('Login into the vCenter - {}'.format(self.vcenterObj.ipAddress))
+        try:
+            self.vcenterObj.password = self.vcenterPassword
+            self.vcenterObj.getTimezone()
+            self.loginErrorDict[self._loginToVcenter.__name__] = True
+        except Exception as err:
+            logging.error(str(err))
+            if re.search(r'Failed to login .* with the given credentials', str(err)):
+                self.loginErrorDict[self._loginToVcenter.__name__] = False
+            else:
+                raise
+
+    def loginToAllComponents(self):
+        """
+        Description : This method login to 3 VMware components i.e VMware vCloud Director, NSX and vCenter server
+        """
+        try:
+            # login to the vmware cloud director for getting the bearer token
+            if self.loginErrorDict[self._loginToVcd.__name__] is False:
+                self._loginToVcd()
+            # login to the nsx-t
+            if self.loginErrorDict[self._loginToNsxt.__name__] is False:
+                self._loginToNsxt()
+            # login to vcenter
+            if self.loginErrorDict[self._loginToVcenter.__name__] is False:
+                self._loginToVcenter()
+        except Exception:
+            raise
+
+    def validateLogin(self):
+        """
+        Description : Validate for any login related errors
+        """
+        try:
+            # Retry login if password read from file are incorrect
+            # If login has failed and password file is provided
+            if False in self.loginErrorDict.values() and self.passFile:
+                self.consoleLogger.error('Unable to proceed due to incorrect credentials in password File')
+                tempPassPath = self.passFile
+                self.passFile = None
+                self._getPasswordFromUser()
+                self.loginToAllComponents()
+                self.passFile = tempPassPath
+                self._encryptAndSavePasswords()
+                if False in self.loginErrorDict.values():
+                    self.consoleLogger.error(
+                        'Unable to proceed due to incorrect credentials. Please enter valid credentials')
+                    os._exit(0)
+            # If login has failed and password file is not provided
+            elif False in self.loginErrorDict.values() and not self.passFile:
+                self.consoleLogger.error(
+                    'Unable to proceed due to incorrect credentials. Please enter valid credentials')
+                os._exit(0)
+            else:
+                if not self.passFile:
+                    self._encryptAndSavePasswords()
+                    self.consoleLogger.info(
+                        'Password file is saved at location: {}'.format(os.path.join(os.path.dirname(os.path.abspath('passFile')), 'passFile')))
+        except Exception:
+            raise
+
+    def fetchMetadataFromOrgVDC(self):
+        """
+            Description: Fetching metadata from source Org VDC and performing all metadata related operations
+        """
+        # Fetching source Org VDC Id
+        orgUrl = self.vcdObj.getOrgUrl(self.inputDict.OrgName)
+        self.sourceOrgVDCId = self.vcdObj.getOrgVDCDetails(orgUrl, self.inputDict.OrgVDCName, 'sourceOrgVDC')
+
+        # Fetching metadata from source orgVDC
+        metadata = self.vcdObj.getOrgVDCMetadata(self.sourceOrgVDCId, domain='system')
+
+        self.rollback.metadata = copy.deepcopy(metadata)
+
+        # Fetching apiData from metadata and send apiData to every class
+        if metadata:
+            self.rollback.apiData.update(self.vcdObj.getOrgVDCMetadata(self.sourceOrgVDCId, domain='general'))
+
+        # Fetching rollback key from metadata
+        if metadata.get('rollbackKey'):
+            self.rollback.key = metadata.get('rollbackKey')
+
+        # Performing rollback if rollback parameter is provided
+        if self.retryRollback:
+            if self.rollback.key:
+                self.rollback.perform(self.vcdObj, self.vcdValidationObj, self.nsxtObj,
+                                      rollbackTasks=metadata.get('rollbackTasks'))
+            else:
+                self.consoleLogger.warning("No rollback task exist, exiting the migration tool execution.")
+                raise KeyboardInterrupt
+
+        return metadata
 
     def run(self):
         """
         Description : This method runs the migration process of VMware Cloud Director from V2T
         """
         try:
-            vcdObj, nsxtObj, configureEdgeGatewayServiceObj, vcenterObj = None, None, None, None
             if not os.path.exists(self.userInputFilePath):
                 raise Exception("User Input File: '{}' does not Exist".format(self.userInputFilePath))
-            # deleting the api output json file
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            if os.path.exists(fileName):
-                os.remove(fileName)
-            # reading the release yaml file
-            releaseFile = os.path.join(mainConstants.rootDir, "release.yml")
-            with open(releaseFile) as f:
-                releaseData = yaml.safe_load(f)
-            self.consoleLogger.info("Build Version: {}".format(releaseData['Build']))
-            self.consoleLogger.info("Build Release Date: {}".format(releaseData['ReleaseDate']))
+
+            # read release version
+            self.releaseVersion()
+
             # password prompt from user
             self._getPasswordFromUser()
+
             # reading the input yaml file
             with open(self.userInputFilePath) as f:
                 self.inputDict = yaml.safe_load(f)
-            # validating user input
-            self.inputValidation()
+
             # updating the password in the input dict
             self.inputDict['VCloudDirector']['Common']['password'] = self.vCloudDirectorPassword
             self.inputDict['NSXT']['Common']['password'] = self.nsxtPassword
             self.inputDict['Vcenter']['Common']['password'] = self.vcenterPassword
-            # getting vcd related information from user input
-            vcdDict = self.inputDict['VCloudDirector']
-            # getting nsxt related information from userinput
-            nsxtDict = self.inputDict['NSXT']
-            # getting the vcenter related information from userinput
-            vcenterDict = self.inputDict['Vcenter']
+
+            # validating user input
+            self.inputValidation()
+
+            # Saving vcdDict in Rollback class
+            self.rollback.vcdDict = self.inputDict
+
             # if verify is set to True on any one component then we have to update certificates in requests
-            if vcdDict['Common']['verify'] or nsxtDict['Common']['verify'] or vcenterDict['Common']['verify']:
-                certPath = self.inputDict['Common']['CertificatePath']
+            if self.inputDict.VCloudDirectorVerify or self.inputDict.NSXTVerify or self.inputDict.VcenterVerify:
+                certPath = self.inputDict.CertificatePath
                 # checking for certificate path is present in user input
                 if not certPath:
                     self.consoleLogger.error("Please enter the certificate path in user Input file.")
@@ -179,109 +457,98 @@ class VMwareCloudDirectorNSXMigrator():
                     os._exit(0)
                 # update certificate path in requests
                 self.utils.updateRequestsPemCert(certPath)
+
+            # initializing vmware cloud director pre migration validation class
+            self.vcdValidationObj = VCDMigrationValidation(self.inputDict.VCloudDirectorIpaddress, self.inputDict.VCloudDirectorUsername,
+                                                           self.inputDict.VCloudDirectorPassword, self.inputDict.VCloudDirectorVerify,
+                                                           self.rollback, self.threadCount)
+            # initializing vmware cloud director Operations class
+            self.vcdObj = VCloudDirectorOperations(self.inputDict.VCloudDirectorIpaddress, self.inputDict.VCloudDirectorUsername,
+                                                   self.inputDict.VCloudDirectorPassword, self.inputDict.VCloudDirectorVerify,
+                                                   self.rollback, self.threadCount)
+
+            # preparing the nsxt dict for bridging
+            self.nsxtObj = NSXTOperations(self.inputDict.NSXTIpaddress, self.inputDict.NSXTUsername,
+                                          self.inputDict.NSXTPassword, self.rollback, self.vcdObj, self.inputDict.NSXTVerify)
+
+            # initializing vcenter Api class
+            self.vcenterObj = VcenterApi(self.inputDict.VcenterIpaddress, self.inputDict.VcenterUsername,
+                                         self.inputDict.VcenterPassword, self.inputDict.VcenterVerify)
+
+            # Initiate login
+            self.loginToAllComponents()
+
+            # validate login
+            self.validateLogin()
+
+            # Running cleanup script if cleanup parameter is provided
             if self.cleanup:
                 self.CLEAN_UP_SCRIPT_RUN = True
-                VMwareCloudDirectorNSXMigratorCleanup(vcdDict, nsxtDict).run()
-            else:
+                VMwareCloudDirectorNSXMigratorCleanup(self.inputDict, self.vcdObj, self.nsxtObj).run()
+                os._exit(0)
+
+            # Running migration script in assessment Mode
+            if self.assessmentMode:
+                assessmentModeObj = VMwareCloudDirectorNSXMigratorAssessmentMode\
+                    (self.inputDict, self.vcdValidationObj, self.nsxtObj)
+                assessmentModeObj.run()
+                assessmentModeObj.updateInventoryLogs()
+                os._exit(0)
+
+            if not self.retryRollback:
                 self.consoleLogger.info('Started migration of NSX-V backed Org VDC to NSX-T backed.')
 
-                # getting the common info from vcd related dict
-                vcdCommonDict = vcdDict['Common']
-                # initializing vmware cloud director pre migration validation class
-                vcdValidationObj = VCDMigrationValidation(vcdCommonDict['ipAddress'], vcdCommonDict['username'],
-                                                          vcdCommonDict['password'], vcdCommonDict['verify'])
-                # initializing vmware cloud director Operations class
-                vcdObj = VCloudDirectorOperations(vcdCommonDict['ipAddress'], vcdCommonDict['username'],
-                                                  vcdCommonDict['password'], vcdCommonDict['verify'])
-                # initializing vmware cloud director target edge gateway services configuration class
-                configureEdgeGatewayServiceObj = ConfigureEdgeGatewayServices(vcdCommonDict['ipAddress'], vcdCommonDict['username'],
-                                                                              vcdCommonDict['password'], vcdCommonDict['verify'])
+            # Fetching metadata and performing all metadata related operation required for migration
+            metadata = self.fetchMetadataFromOrgVDC()
 
-                # preparing the nsxt dict for bridging
-                nsxtCommonDict = nsxtDict['Common']
-                nsxtObj = NSXTOperations(nsxtCommonDict['ipAddress'], nsxtCommonDict['username'],
-                                         nsxtCommonDict['password'], nsxtCommonDict['verify'])
+            # Performing premigration validations
+            self.vcdObj.preMigrationValidation(self.inputDict, self.sourceOrgVDCId, self.nsxtObj)
 
-                # initializing vcenter Api class
-                vcenterObj = VcenterApi(vcenterDict['Common'])
+            # writing the promiscuous mode and forged mode details to apiData dict
+            self.vcdObj.getPromiscModeForgedTransmit(self.sourceOrgVDCId)
 
-                # login to the vmware cloud director for getting the bearer token
-                self.consoleLogger.info('Logging into the VMware Cloud Director - {}'.format(vcdCommonDict['ipAddress']))
-                vcdObj.vcdLogin()
+            # Preparing Target VDC
+            self.vcdObj.prepareTargetVDC(self.sourceOrgVDCId)
 
-                # login to the nsx-t
-                self.consoleLogger.info('Logging into the NSX-T - {}'.format(nsxtCommonDict['ipAddress']))
-                nsxtObj.getComputeManagers()
+            # Getting source org vdc network list
+            orgVdcNetworkList = self.vcdObj.retrieveNetworkListFromMetadata(self.sourceOrgVDCId, orgVDCType='source')
+            # only if org vdc networks exist bridging will be configured
+            if orgVdcNetworkList:
+                # Fetching target VDC Id
+                targetOrgVdcId = self.rollback.apiData['targetOrgVDC']['@id']
+                # Getting target org vdc network list
+                targetOrgVdcNetworkList = self.vcdObj.retrieveNetworkListFromMetadata(targetOrgVdcId, orgVDCType='target')
 
-                # login to vcenter
-                self.consoleLogger.info('Logging into the Vcenter - {}'.format(vcenterDict['Common']['ipAddress']))
-                vcenterObj.getTimezone()
+                # Configuring Bridging
+                self.nsxtObj.configureNSXTBridging(self.inputDict.EdgeClusterName, self.inputDict.TransportZoneName,
+                                                   targetOrgVdcNetworkList)
 
-                self.consoleLogger.info('Starting with PreMigration validation tasks')
+                # verify bridge connectivity
+                self.nsxtObj.verifyBridgeConnectivity(self.vcdObj, self.vcenterObj)
+            else:
+                self.consoleLogger.warning('Skipping the NSXT Bridging configuration and verifying connectivity check as no source Org VDC network exist')
 
-                self.consoleLogger.info('Validating NSX-T Bridge Uplink Profile doesnot exist')
-                nsxtObj.validateBridgeUplinkProfile()
+            # Configuring services
+            self.vcdObj.configureServices(metadata)
 
-                self.consoleLogger.info('Validating Edge Transport Nodes are not in use')
-                nsxtObj.validateEdgeNodesNotInUse(nsxtDict['EdgeClusterName'])
-                self.consoleLogger.info('Successfully validated Edge Transport Nodes are not in use')
+            # configuring target vdc i.e reconnecting target vdc networks and edge gateway
+            self.vcdObj.configureTargetVDC()
 
-                sourceOrgVDCId, orgVdcNetworkList, sourceEdgeGatewayId, bgpConfigDict, ipsecConfigDict, orgUrl = vcdValidationObj.preMigrationValidation(vcdDict)
+            try:
+                self.vcdObj.migrateVapps(self.inputDict.OrgVDCName, metadata, self.timeoutForVappMigration)
+            except:
+                # We are not supporting rollback in case in vApp migration failure so exiting code here
+                self.vcdObj.deleteSession()
+                self.utils.clearRequestsPemCert()
+                self.consoleLogger.critical(
+                    "VCD V2T Migration Tool failed due to errors. For more details, please refer "
+                    "main log file {}".format(self.mainLogfile))
+                os._exit(0)
 
-                # writing the promiscuous mode and forged mode details to apiOutput.json
-                vcdObj.getPromiscModeForgedTransmit(orgVdcNetworkList)
+            # disabling target vdc only if source org vdc is disabled
+            self.vcdObj.disableTargetOrgVDC()
+            self.consoleLogger.info('Successfully migrated NSX-V backed Org VDC to NSX-T backed.')
 
-                nsxtObj.validateOrgVdcNetworksAndEdgeTransportNodes(nsxtDict['EdgeClusterName'], orgVdcNetworkList)
-                self.consoleLogger.info('Successfully completed PreMigration validation tasks')
-
-                self.consoleLogger.info('Preparing Target VDC.')
-                targetOrgVdcId, portGroupList = vcdObj.prepareTargetVDC(orgVdcNetworkList, bgpConfigDict)
-                self.consoleLogger.info('Successfully prepared Target VDC.')
-
-                # only if org vdc networks exist bridging will be configured
-                if orgVdcNetworkList:
-                    self.consoleLogger.info('Configuring NSXT Bridging.')
-                    edgeNodeList = nsxtObj.configureNSXTBridging(nsxtDict, portGroupList)
-                    self.consoleLogger.info('Successfully configured NSXT Bridging.')
-
-                    self.consoleLogger.info('Verifying bridging connectivity')
-                    time.sleep(180)
-                    # get source edge gateway vm id
-                    edgeVMId = vcdObj.getEdgeVmId(sourceEdgeGatewayId)
-                    # get routed network interface details of the nsx-v edge vm using vcenter api's
-                    interfaceDetails = vcenterObj.getEdgeVmNetworkDetails(edgeVMId)
-                    # get the source edge gateway mac address for routed networks
-                    macAddressList = vcdObj.getSourceEdgeGatewayMacAddress(portGroupList, interfaceDetails)
-                    # verify bridge connectivity
-                    nsxtObj.verifyBridgeConnectivity(edgeNodeList, macAddressList)
-                    self.consoleLogger.info('Successfully verified bridging connectivity')
-                else:
-                    self.consoleLogger.warning('Skipping the NSXT Bridging configuration and verifying connectivity check as no source Org VDC network exist')
-
-                self.consoleLogger.info('Configuring Target Edge gateway services.')
-                configureEdgeGatewayServiceObj.configureServices(bgpConfigDict, ipsecConfigDict)
-                self.consoleLogger.info('Target Edge gateway services got configured successfully.')
-
-                # configuring target vdc i.e reconnecting target vdc networks and edge gateway
-                vcdObj.configureTargetVDC(orgVdcNetworkList, sourceEdgeGatewayId)
-
-                # migrate source vapps
-                vcdObj.migrateVapps()
-
-                # disabling target vdc only if source org vdc is disabled
-                vcdObj.disableOrgVDC(targetOrgVdcId, isSourceDisable=False)
-                self.consoleLogger.info('Successfully migrated NSX-V backed Org VDC to NSX-T backed.')
-
-                # updating the target org vdc details in apiOutput.json file after migrating the vapps, so that the data can be used in inventory logs
-                vcdObj.getOrgVDCDetails(orgUrl, vcdDict['SourceOrgVDC']['OrgVDCName'] + '-t', 'targetOrgVDC')
-
-                # deleting the current user api session of vmware cloud director
-                self.consoleLogger.debug('Logging out the current vmware cloud director user')
-                vcdObj.deleteSession()
-
-                # deleting the current user api session of vcenter server
-                self.consoleLogger.debug('Logging out the current vmware vcenter server user')
-                vcenterObj.deleteSession()
         except requests.exceptions.SSLError as e:
             # catching the exception for ssl error.
             # exception of HTTPSConnectionPool(host={hostname}, port=443)
@@ -294,196 +561,21 @@ class VMwareCloudDirectorNSXMigrator():
             # using regex getting the first match of string within '()' to get host ip
             host = re.findall(r'\'(.*?)\'', str(e))
             self.consoleLogger.error('Connection Failed. Unable to connect to remote server - {}.'.format(host[0]))
+        except KeyboardInterrupt:
+            self.consoleLogger.error('Aborting the VCD NSX Migrator tool execution')
         except Exception as err:
             self.consoleLogger.exception(err)
-            if not self.CLEAN_UP_SCRIPT_RUN:
-                if nsxtObj:
-                    if not vcdObj.PROMISCUCOUS_MODE_ALREADY_DISABLED:
-                        if nsxtObj.DISABLE_PROMISC_MODE or vcenterObj.DISABLE_PROMISC_MODE or vcdObj.DISABLE_PROMISC_MODE:
-                            self.consoleLogger.info("RollBack: Disabling Promiscuous Mode and Forged Mode")
-                            vcdObj.enableDisablePromiscModeForgedTransmit(None, enable=False)
-                    if nsxtObj.CLEAR_NSX_T_BRIDGING:
-                        orgVDCNetworkList = vcdObj.getOrgVDCNetworks(targetOrgVdcId, 'targetOrgVDCNetworks', saveResponse=False)
-                        self.consoleLogger.info("RollBack: Clearing NSX-T Bridging")
-                        nsxtObj.clearBridging(orgVDCNetworkList)
-                        self.consoleLogger.info("RollBack: Enabling Source Org VDC")
-                        vcdObj.enableSourceOrgVdc(sourceOrgVDCId)
-                        self.consoleLogger.info("RollBack: Enabling Source vApp Affinity Rules")
-                        vcdObj.enableOrDisableSourceAffinityRules(sourceOrgVDCId, enable=True)
-                        self.consoleLogger.info("RollBack: Deleting Target Org VDC Networks")
-                        vcdObj.deleteOrgVDCNetworks(targetOrgVdcId, source=False)
-                        self.consoleLogger.info("RollBack: Deleting Target Edge Gateway")
-                        vcdObj.deleteNsxTBackedOrgVDCEdgeGateways(targetOrgVdcId)
-                        self.consoleLogger.info("RollBack: Removing Target External Network's sub-allocated static ip pools added from source edge gateway")
-                        vcdObj.resetTargetExternalNetwork()
-                        self.consoleLogger.info("RollBack: Deleting Target Org VDC")
-                        vcdObj.deleteOrgVDC(targetOrgVdcId)
-                    elif nsxtObj.ENABLE_SOURCE_ORG_VDC_AFFINITY_RULES:
-                        self.consoleLogger.info("RollBack: Enabling Source Org VDC")
-                        vcdObj.enableSourceOrgVdc(sourceOrgVDCId)
-                        self.consoleLogger.info("RollBack: Enabling Source vApp Affinity Rules")
-                        vcdObj.enableOrDisableSourceAffinityRules(sourceOrgVDCId, enable=True)
-                if vcdObj and vcdObj.VCD_SESSION_CREATED:
-                    # deleting the current user api session of vmware cloud director
-                    self.consoleLogger.debug('Log out the current vmware cloud director user')
-                    vcdObj.deleteSession()
-                if vcenterObj and vcenterObj.VCENTER_SESSION_CREATED:
-                    # deleting the current user api session of vcenter server
-                    self.consoleLogger.debug('Log out the current vmware vcenter server user')
-                    vcenterObj.deleteSession()
             self.consoleLogger.critical("VCD V2T Migration Tool failed due to errors. For more details, please refer "
                                         "main log file {}".format(self.mainLogfile))
         finally:
+            # logging out vcd user
+            if self.vcdObj and self.vcdObj.VCD_SESSION_CREATED:
+                self.vcdObj.deleteSession()
+            # logging out the vcenter user
+            if self.vcenterObj and self.vcenterObj.VCENTER_SESSION_CREATED:
+                self.vcenterObj.deleteSession()
             # clear the requests certificates entries
             self.utils.clearRequestsPemCert()
-
-    @staticmethod
-    def updateInventoryLogs():
-        """
-        Description : This method creates deatiled inventory logs of the components in VMware vCloud Director
-        """
-        try:
-            # creating source org vdc information table
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            if os.path.exists(fileName):
-                # reading data from apiOutput.json
-                with open(fileName, 'r') as f:
-                    data = json.load(f)
-            else:
-                return
-            # getting the table logger object
-            tableLogger = logging.getLogger("tableLogger")
-            # source org vdc pretty-table object
-            sourceTableObj = PrettyTable()
-            sourceTableObj.field_names = ['Source Org VDC Details', '']
-            # getting source org vdc name
-            if data.get('sourceOrgVDC'):
-                sourceTableObj.add_row(['Name', data['sourceOrgVDC']['@name']])
-            else:
-                return
-            sourceTableObj.add_row(['', ''])
-            # getting source provider vdc
-            if data.get('sourceProviderVDC'):
-                sourceTableObj.add_row(['Provider VDC', data['sourceProviderVDC']['@name']])
-            else:
-                return
-            sourceTableObj.add_row(['', ''])
-            # getting source org vdc external networks
-            if data.get('sourceExternalNetwork'):
-                sourceExternalNetworks = data['sourceExternalNetwork'] if isinstance(data['sourceExternalNetwork'], list) else [data['sourceExternalNetwork']]
-                index = 0
-                for externalNetwork in sourceExternalNetworks:
-                    index += 1
-                    if index == 1:
-                        sourceTableObj.add_row(['External Networks', externalNetwork['name']])
-                    else:
-                        sourceTableObj.add_row(['', externalNetwork['name']])
-            else:
-                sourceTableObj.add_row(['External Networks', ' - '])
-            sourceTableObj.add_row(['', ''])
-            # getting source org vdc networks
-            if data.get('sourceOrgVDCNetworks'):
-                sourceOrgVdcNetworks = data['sourceOrgVDCNetworks'] if isinstance(data['sourceOrgVDCNetworks'], list) else [data['sourceOrgVDCNetworks']]
-                index = 0
-                for orgVdcNetwork in sourceOrgVdcNetworks:
-                    index += 1
-                    if index == 1:
-                        sourceTableObj.add_row(['Org VDC Networks', orgVdcNetwork['name']])
-                    else:
-                        sourceTableObj.add_row(['', orgVdcNetwork['name']])
-            else:
-                sourceTableObj.add_row(['Org VDC Networks', ' - '])
-            sourceTableObj.add_row(['', ''])
-            # getting source edge gateway
-            if data.get('sourceEdgeGateway'):
-                sourceTableObj.add_row(['Edge Gateway', data['sourceEdgeGateway']['name']])
-            else:
-                sourceTableObj.add_row(['Edge Gateway', ' - '])
-            sourceTableObj.add_row(['', ''])
-            # getting source org vdc vapps
-            if data['sourceOrgVDC'].get('ResourceEntities'):
-                sourceResourceEntities = data['sourceOrgVDC']['ResourceEntities']['ResourceEntity'] if isinstance(data['sourceOrgVDC']['ResourceEntities']['ResourceEntity'], list) else [data['sourceOrgVDC']['ResourceEntities']['ResourceEntity']]
-                index = 0
-                for resourceEntity in sourceResourceEntities:
-                    if resourceEntity['@type'] == 'application/vnd.vmware.vcloud.vApp+xml':
-                        index += 1
-                        if index == 1:
-                            sourceTableObj.add_row(['vApps', resourceEntity['@name']])
-                        else:
-                            sourceTableObj.add_row(['', resourceEntity['@name']])
-            else:
-                sourceTableObj.add_row(['vApps', ' - '])
-            sourceTableObj.add_row(['', ''])
-            sourceTableObj.align = 'l'
-            tableLogger.info(sourceTableObj)
-
-            if not data.get('targetOrgVDC'):
-                return
-            # target org vdc pretty-table object
-            targetTableObj = PrettyTable()
-            targetTableObj.field_names = ['Target Org VDC Details', '']
-            # getting target org vdc name
-            if data.get('targetOrgVDC'):
-                targetTableObj.add_row(['Name', data['targetOrgVDC']['@name']])
-            else:
-                targetTableObj.add_row(['Name', ' - '])
-            targetTableObj.add_row(['', ''])
-            # getting target provider vdc
-            if data.get('targetProviderVDC'):
-                targetTableObj.add_row(['Provider VDC', data['targetProviderVDC']['@name']])
-            else:
-                targetTableObj.add_row(['Provider VDC', ' - '])
-            targetTableObj.add_row(['', ''])
-            # getting target org vdc external networks
-            if data.get('targetExternalNetwork'):
-                targetExternalNetworks = data['targetExternalNetwork'] if isinstance(data['targetExternalNetwork'], list) else [data['targetExternalNetwork']]
-                index = 0
-                for externalNetwork in targetExternalNetworks:
-                    index += 1
-                    if index == 1:
-                        targetTableObj.add_row(['External Networks', externalNetwork['name']])
-                    else:
-                        targetTableObj.add_row(['', externalNetwork['name']])
-            else:
-                targetTableObj.add_row(['External Networks', ' - '])
-            targetTableObj.add_row(['', ''])
-            # getting target org vdc networks
-            if data.get('targetOrgVDCNetworks'):
-                targetOrgVdcNetworks = data['targetOrgVDCNetworks'] if isinstance(data['targetOrgVDCNetworks'], list) else [data['targetOrgVDCNetworks']]
-                index = 0
-                for orgVdcNetwork in targetOrgVdcNetworks:
-                    index += 1
-                    if index == 1:
-                        targetTableObj.add_row(['Org VDC Networks', orgVdcNetwork['name']])
-                    else:
-                        targetTableObj.add_row(['', orgVdcNetwork['name']])
-            else:
-                targetTableObj.add_row(['Org VDC Networks', ' - '])
-            targetTableObj.add_row(['', ''])
-            # getting target edge gateway
-            if data.get('targetEdgeGateway'):
-                targetTableObj.add_row(['Edge Gateway', data['targetEdgeGateway']['name']])
-            else:
-                targetTableObj.add_row(['Edge Gateway', ' - '])
-            targetTableObj.add_row(['', ''])
-            # getting target org vdc vapps
-            if data['targetOrgVDC'].get('ResourceEntities'):
-                targetResourceEntities = data['targetOrgVDC']['ResourceEntities']['ResourceEntity'] if isinstance(data['targetOrgVDC']['ResourceEntities']['ResourceEntity'], list) else [data['targetOrgVDC']['ResourceEntities']['ResourceEntity']]
-                index = 0
-                for resourceEntity in targetResourceEntities:
-                    if resourceEntity['@type'] == 'application/vnd.vmware.vcloud.vApp+xml':
-                        index += 1
-                        if index == 1:
-                            targetTableObj.add_row(['vApps', resourceEntity['@name']])
-                        else:
-                            targetTableObj.add_row(['', resourceEntity['@name']])
-            else:
-                targetTableObj.add_row(['vApps', ' - '])
-            targetTableObj.add_row(['', ''])
-            targetTableObj.align = 'l'
-            tableLogger.info(targetTableObj)
-        except Exception:
-            raise
 
     def signalHandler(self, sig, frame):
         """
@@ -494,8 +586,7 @@ class VMwareCloudDirectorNSXMigrator():
         self.utils.clearRequestsPemCert()
         os._exit(0)
 
-if __name__ == '__main__':
 
+if __name__ == '__main__':
     vcdMigrateObj = VMwareCloudDirectorNSXMigrator()
     vcdMigrateObj.run()
-    vcdMigrateObj.updateInventoryLogs()

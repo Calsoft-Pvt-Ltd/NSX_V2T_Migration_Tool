@@ -15,123 +15,99 @@ cwd = os.getcwd()
 parentDir = os.path.abspath(os.path.join(cwd, os.pardir))
 sys.path.append(parentDir)
 
-from src.commonUtils.logConf import Logger
-from src.core.vcd.vcdOperations import VCloudDirectorOperations
-from src.core.nsxt.nsxtOperations import NSXTOperations
-
-
 class VMwareCloudDirectorNSXMigratorCleanup():
     """
     Description :   The class has methods which do all the clean-up tasks(like deleting, resetting, etc) after migrating the VMware vCloud Director from NSX-V to NSX-T
     """
-    def __init__(self, vcdDict, nsxtDict):
+    def __init__(self, inputDict, vcdObj, nsxtObj):
         """
         Description :   Initializer method of all clean-up tasks
         """
-        self.loggerObj = Logger()
         self.consoleLogger = logging.getLogger("consoleLogger")
         self.mainLogfile = logging.getLogger('mainLogger').handlers[0].baseFilename
-        self.vcdDetails = vcdDict
-        self.nsxtDict = nsxtDict
+        self.inputDict = inputDict
+        self.nsxtObj = nsxtObj
+        self.vcdObj = vcdObj
 
     def run(self):
         """
-        Description :   Deletes the Organization VDC
+        Description :   Deletes the source Organization VDC and renames target
         """
         try:
-            # targetOrgVDCName = input("Please enter Target Org VDC Name: ")
-            commonDict = self.vcdDetails['Common']
-            orgName = self.vcdDetails['Organization']['OrgName']
-            sourceOrgVDCName = self.vcdDetails['SourceOrgVDC']['OrgVDCName']
-            sourceExternalNetworkName = self.vcdDetails['NSXVProviderVDC']['ExternalNetwork']
-            vcdObj = VCloudDirectorOperations(commonDict['ipAddress'],
-                                              commonDict['username'],
-                                              commonDict['password'],
-                                              commonDict['verify'])
-
-            # preparing the nsxt dict for bridging
-            nsxtCommonDict = self.nsxtDict['Common']
-            nsxtObj = NSXTOperations(nsxtCommonDict['ipAddress'], nsxtCommonDict['username'],
-                                     nsxtCommonDict['password'], nsxtCommonDict['verify'])
-
-            # login to the VMware cloud director for getting the bearer token
-            self.consoleLogger.info('Logging into the VMware Cloud Director {}'.format(commonDict['ipAddress']))
-            vcdObj.vcdLogin()
-
-            # login to the nsx-t
-            self.consoleLogger.info('Logging into the NSX-T - {}'.format(nsxtCommonDict['ipAddress']))
-            nsxtObj.getComputeManagers()
+            orgName = self.inputDict.OrgName
+            sourceOrgVDCName = self.inputDict.OrgVDCName
+            sourceExternalNetworkName = self.inputDict.NSXVProviderVDCExternalNetwork
 
             # getting the organization details
             self.consoleLogger.info('Getting the Organization {} details.'.format(orgName))
-            orgUrl = vcdObj.getOrgUrl(orgName)
+            orgUrl = self.vcdObj.getOrgUrl(orgName)
 
             # getting the source provider VDC details and checking if its NSX-V backed
-            self.consoleLogger.info('Getting the source Provider VDC - {} details.'.format(self.vcdDetails['NSXVProviderVDC']['ProviderVDCName']))
-            sourceProviderVDCId, isNSXTbacked = vcdObj.getProviderVDCId(self.vcdDetails['NSXVProviderVDC']['ProviderVDCName'])
+            self.consoleLogger.info('Getting the source Provider VDC - {} details.'.format(self.inputDict.NSXVProviderVDCName))
+            sourceProviderVDCId, isNSXTbacked = self.vcdObj.getProviderVDCId(self.inputDict.NSXVProviderVDCName)
 
             # getting the source organization vdc details from the above organization
             self.consoleLogger.info('Getting the source Organization VDC {} details.'.format(sourceOrgVDCName))
-            sourceOrgVDCId = vcdObj.getOrgVDCDetails(orgUrl, sourceOrgVDCName, 'sourceOrgVDC', saveResponse=False)
+            sourceOrgVDCId = self.vcdObj.getOrgVDCDetails(orgUrl, sourceOrgVDCName, 'sourceOrgVDC', saveResponse=False)
 
             # validating whether source org vdc is NSX-V backed
             self.consoleLogger.info('Validating whether source Org VDC is NSX-V backed')
-            vcdObj.validateOrgVDCNSXbacking(sourceOrgVDCId, sourceProviderVDCId, isNSXTbacked)
+            self.vcdObj.validateOrgVDCNSXbacking(sourceOrgVDCId, sourceProviderVDCId, isNSXTbacked)
 
             # getting the source edge gateway details
-            edgeGatewayDetails = vcdObj.getOrgVDCEdgeGateway(sourceOrgVDCId)
+            edgeGatewayDetails = self.vcdObj.getOrgVDCEdgeGateway(sourceOrgVDCId)
 
             #  getting the target provider VDC details and checking if its NSX-T backed
-            self.consoleLogger.info('Getting the target Provider VDC - {} details.'.format(self.vcdDetails['NSXTProviderVDC']['ProviderVDCName']))
-            targetProviderVDCId, isNSXTbacked = vcdObj.getProviderVDCId(self.vcdDetails['NSXTProviderVDC']['ProviderVDCName'])
+            self.consoleLogger.info('Getting the target Provider VDC - {} details.'.format(self.inputDict.NSXTProviderVDCName))
+            targetProviderVDCId, isNSXTbacked = self.vcdObj.getProviderVDCId(self.inputDict.NSXTProviderVDCName)
 
             # getting the target organization vdc details from the above organization
             self.consoleLogger.info('Getting the target Organization VDC {} details.'.format(sourceOrgVDCName + '-t'))
-            targetOrgVDCId = vcdObj.getOrgVDCDetails(orgUrl, sourceOrgVDCName + '-t', 'targetOrgVDC', saveResponse=False)
+            targetOrgVDCId = self.vcdObj.getOrgVDCDetails(orgUrl, sourceOrgVDCName + '-t', 'targetOrgVDC', saveResponse=False)
 
             # validating whether target org vdc is NSX-T backed
             self.consoleLogger.info('Validating whether target Org VDC is NSX-T backed')
-            vcdObj.validateOrgVDCNSXbacking(targetOrgVDCId, targetProviderVDCId, isNSXTbacked)
+            self.vcdObj.validateOrgVDCNSXbacking(targetOrgVDCId, targetProviderVDCId, isNSXTbacked)
 
             # validating if target org vdc is enabled or disabled
             self.consoleLogger.info('Validating whether target Org VDC is enabled')
-            vcdObj.validateTargetOrgVDCState(targetOrgVDCId)
+            self.vcdObj.validateTargetOrgVDCState(targetOrgVDCId)
 
             # getting the target organization vdc details from the above organization
             self.consoleLogger.info('Getting the target Organization VDC {} network details.'.format(sourceOrgVDCName + '-t'))
-            orgVDCNetworkList = vcdObj.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
+            orgVDCNetworkList = self.vcdObj.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
 
             # validating media is connected to any of the vms
             self.consoleLogger.info('Validating whether media is attached to any vApp VMs')
-            vcdObj.validateVappVMsMediaState(targetOrgVDCId, raiseError=True)
+            self.vcdObj.validateVappVMsMediaNotConnected(targetOrgVDCId, raiseError=True)
 
             # migrating catalog items - vApp Templates and media objects
             self.consoleLogger.info('Migrating catalog items - vApp Templates & media objects.')
-            vcdObj.migrateCatalogItems(sourceOrgVDCId, targetOrgVDCId, orgUrl)
+            self.vcdObj.migrateCatalogItems(sourceOrgVDCId, targetOrgVDCId, orgUrl)
 
             # clearing nsx-t bridging
             self.consoleLogger.info('Removing bridging from NSX-T')
-            nsxtObj.clearBridging(orgVDCNetworkList)
+            self.nsxtObj.clearBridging(orgVDCNetworkList)
 
             # delete the source org vdc networks
             self.consoleLogger.info('Deleting the source Org VDC Networks.')
-            vcdObj.deleteOrgVDCNetworks(sourceOrgVDCId)
+            self.vcdObj.deleteOrgVDCNetworks(sourceOrgVDCId)
 
             # delete the source edge gateway
             self.consoleLogger.info('Deleting the source Org VDC Edge Gateway.')
-            vcdObj.deleteNsxVBackedOrgVDCEdgeGateways(sourceOrgVDCId)
+            self.vcdObj.deleteNsxVBackedOrgVDCEdgeGateways(sourceOrgVDCId)
 
             # delete the source Org VDC
             self.consoleLogger.info('Deleting the source Org VDC.')
-            vcdObj.deleteOrgVDC(sourceOrgVDCId)
+            self.vcdObj.deleteOrgVDC(sourceOrgVDCId)
 
             # renaming the target Org VDC networks
             self.consoleLogger.info('Renaming the target Org VDC networks')
-            vcdObj.renameTargetOrgVDCNetworks(targetOrgVDCId)
+            self.vcdObj.renameTargetNetworks(targetOrgVDCId)
 
             # rename target Org VDC
             self.consoleLogger.info('Renaming target Org VDC.')
-            vcdObj.renameOrgVDC(sourceOrgVDCName, targetOrgVDCId)
+            self.vcdObj.renameOrgVDC(sourceOrgVDCName, targetOrgVDCId)
 
             # getting the source external network details from source edge gateway
             sourceExternalNetwork = [uplink for uplink in edgeGatewayDetails['values'][0]['edgeGatewayUplinks'] if uplink['uplinkName'] == sourceExternalNetworkName]
@@ -141,12 +117,12 @@ class VMwareCloudDirectorNSXMigratorCleanup():
 
                     # update the source external network ip pools
                     self.consoleLogger.info('Updating the source External network.')
-                    vcdObj.updateSourceExternalNetwork(sourceExternalNetworkName, ipRanges)
+                    self.vcdObj.updateSourceExternalNetwork(sourceExternalNetworkName, ipRanges)
             self.consoleLogger.info('Successfully cleaned up Source Org VDC.')
 
             # deleting the current user api session of vmware cloud director
-            self.consoleLogger.debug('Logging out the current vmware cloud director user')
-            vcdObj.deleteSession()
+            self.consoleLogger.debug('Logging out the current VMware Cloud Director user')
+            self.vcdObj.deleteSession()
 
         except Exception:
             raise

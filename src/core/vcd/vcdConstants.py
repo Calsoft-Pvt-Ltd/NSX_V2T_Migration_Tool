@@ -23,6 +23,18 @@ ENABLE_DISABLE_AFFINITY_RULES = "https://{}/api/vmAffinityRule/{}"
 # vcd user operations legacy api url
 XML_API_URL = "https://{}/api/"
 
+# org vdc metadata uri
+META_DATA_IN_ORG_VDC_BY_ID = "vdc/{}/metadata"
+
+# create org vdc metadata entry template name used in template.yml
+CREATE_ORG_VDC_METADATA_TEMPLATE = 'createOrgVDCMetadata'
+
+# create org vdc metadata template name used in template.yml
+CREATE_ORG_VDC_METADATA_ENTRY_TEMPLATE = 'createOrgVDCMetadataEntry'
+
+# create new metadata entry(key, value) in org vdc task name used to check if the task completed successfully
+CREATE_METADATA_IN_ORG_VDC_TASK_NAME = 'metadataUpdate'
+
 # vcd open api url
 OPEN_API_URL = "https://{}/cloudapi/1.0.0/"
 
@@ -135,6 +147,9 @@ META_DATA_IN_ORG_VDC_BY_ID = "vdc/{}/metadata"
 # create edge gateway uri
 CREATE_EDGE_GATEWAY = "vdc/{}/edgeGateways"
 
+# get vApp network configuration
+VAPP_NETWORK_CONFIGURATION = "vApp/vapp-{}/networkConfigSection"
+
 # vcd task operations timeout
 VCD_CREATION_TIMEOUT = 360.0
 
@@ -147,9 +162,6 @@ CREATE_ORG_VDC_NETWORK_TEMPLATE = 'createOrgVDCNetwork'
 
 # create org vdc edge gateway template name used in template.json
 CREATE_ORG_VDC_EDGE_GATEWAY_TEMPLATE = 'createEdgeGateway'
-
-# create org vdc template name used in template.json
-CREATE_ORG_VDC_TEMPLATE = 'createOrgVDC'
 
 # create ipsec template name used in template.json
 CREATE_IPSEC_TEMPLATE = 'createIPSecServices'
@@ -287,7 +299,7 @@ GET_IPSET_GROUP_BY_ID = 'services/ipset/{}'
 CREATE_FIREWALL_GROUP_TASK_NAME = 'createFirewallGroup'
 
 # create prefix list task name used to check if the task completed successfully
-CREATE_PREFIX_LISTS_TASK_NAME = 'bgpConfigUpdate'
+CREATE_PREFIX_LISTS_TASK_NAME = 'prefixListCreate'
 
 # update firewall rules task name used to check if the task completed successfully
 UPDATE_FIREWALL_RULES_TASK_NAME = 'updateFirewallRules'
@@ -358,8 +370,11 @@ GET_ICMP_PORT_PROFILES_FILTER = '?filter=(applicationPorts.protocol==ICMPv4)'
 # check string for vapps having no vms in it
 CHECK_STRING_FOR_EMPTY_VAPPS = 'The requested operation could not be executed since vApp "{}" is not running.'
 
-# source network pool type
+# source network pool type VXLAN
 VXLAN_NETWORK_POOL_TYPE = 'vmext:VxlanPoolType'
+
+# source network pool type VLAN
+VLAN_NETWORK_POOL_TYPE =  'vmext:VlanPoolType'
 
 # target network pool type
 GENEVE_NETWORK_POOL_TYPE = 'vmext:GenevePoolType'
@@ -481,3 +496,45 @@ GET_MEDIA_INFO = 'query?type=media'
 
 # page size for media
 MEDIA_PAGE_SIZE = 50
+
+# vm references from the affinity rules template names
+VM_REFERENCES_TEMPLATE_NAME = 'vmReferenceAffinityRules'
+
+# enable or disable affinity rules template name
+ENABLE_DISABLE_AFFINITY_RULES_TEMPLATE_NAME = 'enableDisableAffinityRules'
+
+# default compute policy template for creating target org vdc
+COMPUTE_POLICY_TEMPLATE_NAME = 'defaultComputePolicyTargetOvdc'
+
+# storage profile template name for creating target org vdc
+STORAGE_PROFILE_TEMPLATE_NAME = 'vdcStorageProfileTargetOvdc'
+
+# create org vdc template name
+CREATE_ORG_VDC_TEMPLATE_NAME = 'createTargetOrgVDC'
+
+# template for vApp startup section
+TARGET_VAPP_STARTUP_SECTION = 'vAppStartupSection'
+
+#template for vApp Items
+VAPP_ITEM_LIST = 'vAppItems'
+
+# changed vcd login url
+OPEN_LOGIN_URL = "sessions/provider"
+
+#ipset scope url
+IPSET_SCOPE_URL = 'scope/{}'
+
+# firewall groups summary
+FIREWALL_GROUPS_SUMMARY = "firewallGroups/summaries"
+
+# specific firewall group
+FIREWALL_GROUP = "firewallGroups/{}"
+
+# vapp vm network connection template
+VAPP_VM_NETWORK_CONNECTION_SECTION_TEMPLATE = 'vAppVMNetworkConnectionDetails'
+
+#url for nsx jobs
+NSX_JOBS = '/jobs/{}'
+
+# content type to update the vapp network
+VAPP_NETWORK_CONTENT_TYPE = 'application/vnd.vmware.vcloud.vAppNetwork+json'

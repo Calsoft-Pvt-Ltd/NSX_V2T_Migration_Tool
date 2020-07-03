@@ -8,14 +8,17 @@ Description: Module which performs the VMware Cloud Director NSX-V to NSX-T Migr
 
 import logging
 import json
+import re
 import os
+import copy
 
-import xml.etree.ElementTree as ET
 import requests
 import xmltodict
 
+from src.commonUtils.utils import Utilities
 import src.core.vcd.vcdConstants as vcdConstants
 
+from src.core.vcd.vcdValidations import isSessionExpired, description, remediate
 from src.core.vcd.vcdConfigureEdgeGatewayServices import ConfigureEdgeGatewayServices
 logger = logging.getLogger('mainLogger')
 
@@ -31,197 +34,18 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
     DISABLE_PROMISC_MODE = False
     PROMISCUCOUS_MODE_ALREADY_DISABLED = False
 
-    def _isSessionExpired(func):
-        """
-        Description : Validates whether session expired or not,if expired then reconnects api session
-        """
-        def inner(self, *args, **kwargs):
-            url = '{}session'.format(vcdConstants.XML_API_URL.format(self.ipAddress))
-            response = self.restClientObj.get(url, headers=self.headers)
-            if response.status_code != requests.codes.ok:
-                logger.debug('Session expired!. Re-login to the vCloud Director')
-                self.vcdLogin()
-            return func(self, *args, **kwargs)
-        return inner
-
-    @_isSessionExpired
-    def createOrgVDC(self):
-        """
-        Description :   Creates an Organization VDC
-        """
-        try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
-            # organization id
-            orgCompleteId = data['Organization']['@id']
-            orgId = orgCompleteId.split(':')[-1]
-            # retrieving organization url
-            orgUrl = data['Organization']['@href']
-            # retrieving source org vdc and target provider vdc data
-            sourceOrgVDCPayloadDict = data["sourceOrgVDC"]
-            targetPVDCPayloadDict = data['targetProviderVDC']
-
-            # Creating a XML Tree to create payload
-            createVdcParams = ET.Element('CreateVdcParams',
-                                         {"xmlns":'http://www.vmware.com/vcloud/v1.5',
-                                          "xmlns:extension_v1.5":'http://www.vmware.com/vcloud/extension/v1.5',
-                                          "name":data["sourceOrgVDC"]["@name"]+'-t'})
-            if data['sourceOrgVDC'].get('Description'):
-                description = ET.SubElement(createVdcParams, 'Description')
-                description.text = data['sourceOrgVDC']['Description']
-            allocModel = ET.SubElement(createVdcParams, 'AllocationModel')
-            allocModel.text = data['sourceOrgVDC']['AllocationModel']
-            compCapacity = ET.SubElement(createVdcParams, 'ComputeCapacity')
-            cpu = ET.SubElement(compCapacity, 'Cpu')
-            units = ET.SubElement(cpu, 'Units')
-            units.text = data['sourceOrgVDC']['ComputeCapacity']['Cpu']['Units']
-            allocated = ET.SubElement(cpu, 'Allocated')
-            allocated.text = data['sourceOrgVDC']['ComputeCapacity']['Cpu']['Allocated']
-            limit = ET.SubElement(cpu, 'Limit')
-            limit.text = data['sourceOrgVDC']['ComputeCapacity']['Cpu']['Limit']
-            reserved = ET.SubElement(cpu, 'Reserved')
-            reserved.text = data['sourceOrgVDC']['ComputeCapacity']['Cpu']['Reserved']
-            used = ET.SubElement(cpu, 'Used')
-            used.text = data['sourceOrgVDC']['ComputeCapacity']['Cpu']['Used']
-            memory = ET.SubElement(compCapacity, 'Memory')
-            mUnits = ET.SubElement(memory, 'Units')
-            mUnits.text = data['sourceOrgVDC']['ComputeCapacity']['Memory']['Units']
-            mAllocated = ET.SubElement(memory, 'Allocated')
-            mAllocated.text = data['sourceOrgVDC']['ComputeCapacity']['Memory']['Allocated']
-            mLimit = ET.SubElement(memory, 'Limit')
-            mLimit.text = data['sourceOrgVDC']['ComputeCapacity']['Memory']['Limit']
-            mReserved = ET.SubElement(memory, 'Reserved')
-            mReserved.text = data['sourceOrgVDC']['ComputeCapacity']['Memory']['Reserved']
-            mUsed = ET.SubElement(memory, 'Used')
-            mUsed.text = data['sourceOrgVDC']['ComputeCapacity']['Memory']['Used']
-            nicQuota = ET.SubElement(createVdcParams, 'NicQuota')
-            nicQuota.text = data['sourceOrgVDC']['NicQuota']
-            networkQuota = ET.SubElement(createVdcParams, 'NetworkQuota')
-            networkQuota.text = data['sourceOrgVDC']['NetworkQuota']
-            vmQuota = ET.SubElement(createVdcParams, 'VmQuota')
-            vmQuota.text = data['sourceOrgVDC']['VmQuota']
-            isEnabled = ET.SubElement(createVdcParams, 'IsEnabled')
-            isEnabled.text = "true"
-            targetPVDCPayloadList = [targetPVDCPayloadDict['StorageProfiles']['ProviderVdcStorageProfile']] if isinstance(targetPVDCPayloadDict['StorageProfiles']['ProviderVdcStorageProfile'], dict) else targetPVDCPayloadDict['StorageProfiles']['ProviderVdcStorageProfile']
-            sourceOrgVDCPayloadList = [sourceOrgVDCPayloadDict['VdcStorageProfiles']['VdcStorageProfile']] if isinstance(sourceOrgVDCPayloadDict['VdcStorageProfiles']['VdcStorageProfile'], dict) else sourceOrgVDCPayloadDict['VdcStorageProfiles']['VdcStorageProfile']
-            # iterating over the source org vdc storage profiles
-            for eachStorageProfile in sourceOrgVDCPayloadList:
-                vdcStorageProfile = ET.SubElement(createVdcParams, 'VdcStorageProfile')
-                orgVDCStorageProfileDetails = self.getOrgVDCStorageProfileDetails(eachStorageProfile['@id'])
-                vspEnabled = ET.SubElement(vdcStorageProfile, 'Enabled')
-                vspEnabled.text = "true" if orgVDCStorageProfileDetails['AdminVdcStorageProfile']['Enabled'] == "true" else "false"
-                vspUnits = ET.SubElement(vdcStorageProfile, 'Units')
-                vspUnits.text = 'MB'
-                vspLimit = ET.SubElement(vdcStorageProfile, 'Limit')
-                vspLimit.text = str(orgVDCStorageProfileDetails['AdminVdcStorageProfile']['Limit'])
-                vspDefault = ET.SubElement(vdcStorageProfile, 'Default')
-                vspDefault.text = "true" if orgVDCStorageProfileDetails['AdminVdcStorageProfile']['Default'] == "true" else "false"
-                for eachSP in targetPVDCPayloadList:
-                    if eachStorageProfile['@name'] == eachSP['@name']:
-                        ET.SubElement(vdcStorageProfile, 'ProviderVdcStorageProfile',
-                                      href=eachSP['@href'], name=eachSP['@name'])
-                        break
-            resourceGuaranteedMemory = ET.SubElement(createVdcParams, 'ResourceGuaranteedMemory')
-            resourceGuaranteedMemory.text = data['sourceOrgVDC']['ResourceGuaranteedMemory']
-            resourceGuaranteedCpu = ET.SubElement(createVdcParams, 'ResourceGuaranteedCpu')
-            resourceGuaranteedCpu.text = data['sourceOrgVDC']['ResourceGuaranteedCpu']
-            vCpuInMhz = ET.SubElement(createVdcParams, 'VCpuInMhz')
-            vCpuInMhz.text = data['sourceOrgVDC']['VCpuInMhz']
-            isThinProvision = ET.SubElement(createVdcParams, 'IsThinProvision')
-            isThinProvision.text = data['sourceOrgVDC']['IsThinProvision']
-            ET.SubElement(createVdcParams,
-                          'NetworkPoolReference',
-                          href=targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@href'],
-                          id=targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@id'],
-                          type=targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@type'],
-                          name=targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@name'])
-
-            ET.SubElement(createVdcParams,
-                          'ProviderVdcReference',
-                          href=targetPVDCPayloadDict['@href'],
-                          id=targetPVDCPayloadDict['@id'],
-                          type=targetPVDCPayloadDict['@type'],
-                          name=targetPVDCPayloadDict['@name'])
-            usesFastProvisioning = ET.SubElement(createVdcParams, 'UsesFastProvisioning')
-            usesFastProvisioning.text = data['sourceOrgVDC']['UsesFastProvisioning']
-            # retrieving org vdc compute policies
-            allOrgVDCComputePolicesList = self.getOrgVDCComputePolicies()
-            isSizingPolicy = False
-            # getting the vm sizing policy of source org vdc
-            sourceSizingPoliciesList = self.getVmSizingPoliciesOfOrgVDC(data['sourceOrgVDC']['@id'])
-            if isinstance(sourceSizingPoliciesList, dict):
-                sourceSizingPoliciesList = [sourceSizingPoliciesList]
-            # iterating over the source org vdc vm sizing policies and check the default compute policy is sizing policy
-            for eachPolicy in sourceSizingPoliciesList:
-                if eachPolicy['id'] == data['sourceOrgVDC']['DefaultComputePolicy']['@id'] and eachPolicy['name'] != 'System Default':
-                    # set sizing policy to true if default compute policy is sizing
-                    isSizingPolicy = True
-            if data['sourceOrgVDC']['DefaultComputePolicy']['@name'] != 'System Default' and not isSizingPolicy:
-                # Getting the href of the compute policy if not 'System Default' as default compute policy
-                orgVDCComputePolicesList = [allOrgVDCComputePolicesList] if isinstance(allOrgVDCComputePolicesList, dict) else allOrgVDCComputePolicesList
-                # iterating over the org vdc compute policies
-                for eachComputPolicy in orgVDCComputePolicesList:
-                    if eachComputPolicy["name"] == data['sourceOrgVDC']['DefaultComputePolicy']['@name'] and \
-                            eachComputPolicy["pvdcId"] == data['targetProviderVDC']['@id']:
-                        href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                vcdConstants.VDC_COMPUTE_POLICIES,
-                                                eachComputPolicy["id"])
-                        ET.SubElement(createVdcParams, 'DefaultComputePolicy',
-                                      {"href": href, "id": eachComputPolicy["id"],
-                                       "name": data['sourceOrgVDC']['DefaultComputePolicy']['@name']})
-                        break
-                else:  # for else (loop else)
-                    raise Exception("No Target Compute Policy found with same name as Source Org VDC default Compute Policy and belonging to the target Provider VDC.")
-            # if sizing policy is set, default compute policy is vm sizing polciy
-            if isSizingPolicy:
-                ET.SubElement(createVdcParams, 'DefaultComputePolicy',
-                              {"href": data['sourceOrgVDC']['DefaultComputePolicy']['@href'],
-                               "id": data['sourceOrgVDC']['DefaultComputePolicy']['@id'],
-                               "name": data['sourceOrgVDC']['DefaultComputePolicy']['@name']})
-            isElastic = ET.SubElement(createVdcParams, 'IsElastic')
-            isElastic.text = data['sourceOrgVDC']['IsElastic']
-            includeMemoryOverhead = ET.SubElement(createVdcParams, 'IncludeMemoryOverhead')
-            includeMemoryOverhead.text = data['sourceOrgVDC']['IncludeMemoryOverhead']
-
-            # ET.dump(createVdcParams)
-            payloadData = ET.tostring(createVdcParams, encoding='utf-8', method='xml')
-
-            # url to create org vdc
-            url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                vcdConstants.CREATE_ORG_VDC.format(orgId))
-            self.headers["Content-Type"] = vcdConstants.XML_CREATE_VDC_CONTENT_TYPE
-            # post api to create org vdc
-            response = self.restClientObj.post(url, self.headers, data=str(payloadData, 'utf-8'))
-            responseDict = xmltodict.parse(response.content)
-            if response.status_code == requests.codes.created:
-                taskId = responseDict["AdminVdc"]["Tasks"]["Task"]
-                if isinstance(taskId, dict):
-                    taskId = [taskId]
-                for task in taskId:
-                    if task["@operationName"] == vcdConstants.CREATE_VDC_TASK_NAME:
-                        taskUrl = task["@href"]
-                if taskUrl:
-                    # checking the status of the task of creating the org vdc
-                    self._checkTaskStatus(taskUrl, vcdConstants.CREATE_VDC_TASK_NAME)
-                logger.info('Target Org VDC {} created successfully'.format(data["sourceOrgVDC"]["@name"]+'-t'))
-                # returning the id of the created org vdc
-                return self.getOrgVDCDetails(orgUrl, responseDict['AdminVdc']['@name'], 'targetOrgVDC')
-            raise Exception('Failed to create target Org VDC. Errors {}.'.format(responseDict['Error']['@message']))
-        except Exception:
-            raise
-
-    @_isSessionExpired
-    def createEdgeGateway(self, bgpConfigDict):
+    @description("creation of target Org VDC Edge Gateway")
+    @remediate
+    def createEdgeGateway(self):
         """
         Description :   Creates an Edge Gateway in the specified Organization VDC
         """
         try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
+            logger.info('Creating target Org VDC Edge Gateway')
             # reading data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
+            sourceEdgeGatewayId = self.rollback.apiData['sourceEdgeGatewayId'].split(':')[-1]
+            bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
+            data = self.rollback.apiData
             externalDict = data['targetExternalNetwork']
             sourceExternalDict = data['sourceExternalNetwork']
             sourceEdgeGatewayDict = data['sourceEdgeGateway']
@@ -239,7 +63,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             ipAddressRangeList.append(ipPoolDict)
             if ipAddressRangeList:
                 externalDict['subnets']['values'][0]['ipRanges']['values'].extend(ipAddressRangeList)
-                url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EXTERNAL_NETWORKS, external_network_id)
+                url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                       vcdConstants.ALL_EXTERNAL_NETWORKS, external_network_id)
                 # put api call to get all the external networks
                 self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
                 payloadData = json.dumps(externalDict)
@@ -248,17 +73,20 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     taskUrl = response.headers['Location']
                     # checking the status of the creating org vdc network task
                     self._checkTaskStatus(taskUrl, vcdConstants.UPDATE_EXTERNAL_NETWORK_NAME)
-                    logger.debug('Target External network {} updated successfully with sub allocated ip pools.'.format(externalDict['name']))
+                    logger.debug('Target External network {} updated successfully with sub allocated ip pools.'.format(
+                        externalDict['name']))
                     self.isExternalNetworkUpdated = True
                 else:
                     errorResponse = response.json()
-                    raise Exception('Failed to update External network {} with sub allocated ip pools - {}'.format(externalDict['name'], errorResponse['message']))
+                    raise Exception('Failed to update External network {} with sub allocated ip pools - {}'.format(
+                        externalDict['name'], errorResponse['message']))
             # edge gateway create URL
             url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS)
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
             # creating payload dictionary
             payloadDict = {'edgeGatewayName': data['sourceEdgeGateway']['name'],
-                           'edgeGatewayDescription': data['sourceEdgeGateway']['description'] if data['sourceEdgeGateway'].get('description') else '',
+                           'edgeGatewayDescription': data['sourceEdgeGateway']['description'] if data[
+                               'sourceEdgeGateway'].get('description') else '',
                            'orgVDCName': data['targetOrgVDC']['@name'],
                            'orgVDCId': data['targetOrgVDC']['@id'],
                            'orgName': data['Organization']['@name'],
@@ -272,7 +100,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                            'nsxtManagerName': externalDict['networkBackings']['values'][0]['networkProvider']['name'],
                            'nsxtManagerId': externalDict['networkBackings']['values'][0]['networkProvider']['id']
                            }
-            if bgpConfigDict is None or bgpConfigDict['enabled'] != "true":
+            if not bgpConfigDict or bgpConfigDict['enabled'] != "true":
                 payloadDict['dedicated'] = False
             else:
                 payloadDict['dedicated'] = True
@@ -304,27 +132,23 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # getting the edge gateway details of the target org vdc
                 responseDict = self.getOrgVDCEdgeGateway(data['targetOrgVDC']['@id'])
                 data['targetEdgeGateway'] = responseDict['values'][0]
-                with open(fileName, 'w') as f:
-                    json.dump(data, f, indent=3)
+
+                logger.info('Successfully created target Org VDC Edge Gateway')
                 return responseDict['values'][0]['id']
             errorResponse = response.json()
             raise Exception('Failed to create target Org VDC Edge Gateway - {}'.format(errorResponse['message']))
         except Exception:
-            # setting delete target org vdc flag if any exception occured
-            self.DELETE_TARGET_ORG_VDC = True
             raise
 
-    @_isSessionExpired
-    def createOrgVDCNetwork(self):
+    @description("creation of target Org VDC Networks")
+    @remediate
+    def createOrgVDCNetwork(self, sourceOrgVDCNetworks):
         """
         Description : Create Org VDC Networks in the specified Organization VDC
         """
         try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading the data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
-            sourceOrgVDCNetworks = data['sourceOrgVDCNetworks']
+            logger.info('Creating target Org VDC Networks')
+            data = self.rollback.apiData
             targetOrgVDC = data['targetOrgVDC']
             targetEdgeGateway = data['targetEdgeGateway']
             # org vdc network create URL
@@ -333,7 +157,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             for sourceOrgVDCNetwork in sourceOrgVDCNetworks:
                 # creating payload dictionary
                 payloadDict = {'orgVDCNetworkName': sourceOrgVDCNetwork['name'] + '-v2t',
-                               'orgVDCNetworkDescription': sourceOrgVDCNetwork['description'] if sourceOrgVDCNetwork.get('description') else '',
+                               'orgVDCNetworkDescription': sourceOrgVDCNetwork[
+                                   'description'] if sourceOrgVDCNetwork.get('description') else '',
                                'orgVDCNetworkGateway': sourceOrgVDCNetwork['subnets']['values'][0]['gateway'],
                                'orgVDCNetworkPrefixLength': sourceOrgVDCNetwork['subnets']['values'][0]['prefixLength'],
                                'orgVDCNetworkDNSSuffix': sourceOrgVDCNetwork['subnets']['values'][0]['dnsSuffix'],
@@ -382,21 +207,22 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     self.getOrgVDCNetworks(targetOrgVDC['@id'], 'targetOrgVDCNetworks', saveResponse=True)
                 else:
                     errorResponse = response.json()
-                    raise Exception('Failed to create target Org VDC Network {} - {}'.format(sourceOrgVDCNetwork['name'],
-                                                                                             errorResponse['message']))
+                    raise Exception(
+                        'Failed to create target Org VDC Network {} - {}'.format(sourceOrgVDCNetwork['name'],
+                                                                                 errorResponse['message']))
+            logger.info('Successfully created target Org VDC Networks.')
         except:
-            # setting delete target org vdc & delete target edge gateway flag
-            self.DELETE_TARGET_ORG_VDC = True
-            self.DELETE_TARGET_EDGE_GATEWAY = True
             raise
 
-    @_isSessionExpired
-    def deleteOrgVDC(self, orgVDCId):
+    @isSessionExpired
+    def deleteOrgVDC(self, orgVDCId, rollback=False):
         """
         Description :   Deletes the specified Organization VDC
         Parameters  :   orgVDCId  -   Id of the Organization VDC that is to be deleted (STRING)
         """
         try:
+            if rollback:
+                logger.info("RollBack: Deleting Target Org-Vdc")
             # splitting the org vdc id as per the requirement of the xml api
             orgVDCId = orgVDCId.split(':')[-1]
             # url to delete the org vdc
@@ -419,8 +245,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
-    @_isSessionExpired
-    def deleteOrgVDCNetworks(self, orgVDCId, source=True):
+    @isSessionExpired
+    def deleteOrgVDCNetworks(self, orgVDCId, source=True, rollback=False):
         """
         Description :   Deletes all Organization VDC Networks from the specified OrgVDC
         Parameters  :   orgVDCId  -   Id of the Organization VDC (STRING)
@@ -428,6 +254,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                       If set to False meaning delete the NSX-t backed Org VDC Networks (BOOL)
         """
         try:
+            if rollback:
+                logger.info("RollBack: Deleting Target Org VDC Networks")
             orgVDCNetworksErrorList = []
             orgVDCNetworksList = self.getOrgVDCNetworks(orgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
             # iterating over the org vdc network list
@@ -459,7 +287,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
-    @_isSessionExpired
+    @isSessionExpired
     def deleteNsxVBackedOrgVDCEdgeGateways(self, orgVDCId):
         """
         Description :   Deletes all the Edge Gateways in the specified NSX-V Backed OrgVDC
@@ -500,13 +328,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
-    @_isSessionExpired
+    @isSessionExpired
     def deleteNsxTBackedOrgVDCEdgeGateways(self, orgVDCId):
         """
         Description :   Deletes all the Edge Gateways in the specified NSX-t Backed OrgVDC
         Parameters  :   orgVDCId  -   Id of the Organization VDC (STRING)
         """
         try:
+            logger.info("RollBack: Deleting Target Edge Gateway")
             # retrieving the details of the org vdc edge gateway
             responseDict = self.getOrgVDCEdgeGateway(orgVDCId)
             if responseDict['values']:
@@ -529,14 +358,21 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
-    @_isSessionExpired
-    def disconnectSourceOrgVDCNetwork(self, orgVDCNetworkList):
+    @description("disconnection of source routed Org VDC Networks from source Edge gateway")
+    @remediate
+    def disconnectSourceOrgVDCNetwork(self, orgVDCNetworkList, rollback=False):
         """
         Description : Disconnect source Org VDC network from edge gateway
         Parameters  : orgVdcNetworkList - Org VDC's network list for a specific Org VDC (LIST)
+                      rollback - key that decides whether to perform rollback or not (BOOLEAN)
         """
         try:
-            logger.debug("Disconnecting Source Org VDC Network from Edge Gateway")
+            if not rollback:
+                logger.info('Disconnecting source routed Org VDC Networks from source Edge gateway.')
+            else:
+                logger.info('Rollback: Reconnecting Source Org VDC Network to Edge Gateway')
+            # list of networks disconnected successfully
+            networkDisconnectedList = []
             orgVDCNetworksErrorList = []
             # iterating over the org vdc network list
             for orgVdcNetwork in orgVDCNetworkList:
@@ -558,6 +394,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     del responseDict['crossVdcNetworkLocationId']
                     del responseDict['totalIpCount']
                     del responseDict['usedIpCount']
+                    if rollback:
+                        responseDict['connection'] = orgVdcNetwork['connection']
+                        responseDict['networkType'] = 'NAT_ROUTED'
                     payloadDict = json.dumps(responseDict)
                     self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
                     # put api to disconnect the org vdc networks
@@ -566,16 +405,28 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         taskUrl = apiResponse.headers['Location']
                         # checking the status of the disconnecting org vdc network task
                         self._checkTaskStatus(taskUrl, vcdConstants.UPDATE_ORG_VDC_NETWORK_TASK_NAME)
-                        logger.debug('Org VDC Network {} disconnected successfully.'.format(orgVdcNetwork['name']))
+                        if not rollback:
+                            logger.debug('Source Org VDC Network {} disconnected successfully.'.format(orgVdcNetwork['name']))
+                            # saving network on successful disconnection to list
+                            networkDisconnectedList.append(orgVdcNetwork)
+                        else:
+                            logger.debug('Source Org VDC Network {} reconnected successfully.'.format(orgVdcNetwork['name']))
                     else:
-                        logger.debug('Failed to disconnect Org VDC Network {}.'.format(orgVdcNetwork['name']))
+                        if rollback:
+                            logger.debug('Rollback: Failed to reconnect Source Org VDC Network {}.'.format(orgVdcNetwork['name']))
+                        else:
+                            logger.debug('Failed to disconnect Source Org VDC Network {}.'.format(orgVdcNetwork['name']))
                         orgVDCNetworksErrorList.append(orgVdcNetwork['name'])
                 if orgVDCNetworksErrorList:
                     raise Exception('Failed to disconnect Org VDC Networks {}'.format(orgVDCNetworksErrorList))
-        except Exception:
-            raise
+        except Exception as exception:
+            # reconnecting the networks in case of disconnection failure
+            if networkDisconnectedList:
+                self.disconnectSourceOrgVDCNetwork(networkDisconnectedList, rollback=True)
+            raise exception
 
-    @_isSessionExpired
+    @description("disconnection of source Edge gateway from external network")
+    @remediate
     def reconnectOrDisconnectSourceEdgeGateway(self, sourceEdgeGatewayId, connect=True):
         """
         Description :  Disconnect source Edge Gateways from the specified OrgVDC
@@ -584,6 +435,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                             -   if set False meaning disconnects the source edge gateway (BOOL)
         """
         try:
+            if not connect:
+                logger.info('Disconnecting source Edge gateway from external network.')
+            else:
+                logger.info('Rollback: Reconnecting source Edge gateway to external network.')
             orgVDCEdgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
             # url to disconnect/reconnect the source edge gateway
             url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
@@ -594,7 +449,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             response = self.restClientObj.get(url, headers)
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
-                if not responseDict['configuration']['gatewayInterfaces']['gatewayInterface'][0]['connected']:
+                if not responseDict['configuration']['gatewayInterfaces']['gatewayInterface'][0]['connected'] and not connect:
                     logger.warning('Source Edge Gateway external network uplink - {} is already in disconnected state.'.format(responseDict['name']))
                     return
                 # establishing/disconnecting the edge gateway as per the connect flag
@@ -623,16 +478,15 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except:
             raise
 
-    @_isSessionExpired
+    @description("Reconnection of target Edge gateway to T0 router")
+    @remediate
     def reconnectTargetEdgeGateway(self):
         """
         Description : Reconnect Target Edge Gateway to T0 router
         """
         try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading the data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
+            logger.info('Reconnecting target Edge gateway to T0 router.')
+            data = self.rollback.apiData
             targetEdgeGateway = data['targetEdgeGateway']
             payloadDict = targetEdgeGateway
             del payloadDict['status']
@@ -649,19 +503,23 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # checking the status of the reconnecting target edge gateway task
                 self._checkTaskStatus(taskUrl, vcdConstants.UPDATE_EDGE_GATEWAY_OPENAPI_TASK_NAME)
                 logger.debug('Target Org VDC Edge Gateway {} reconnected successfully.'.format(targetEdgeGateway['name']))
+                logger.info('Successfully reconnected target Edge gateway to T0 router.')
                 return
             raise Exception('Failed to reconnect target Org VDC Edge Gateway {} {}'.format(targetEdgeGateway['name'],
                                                                                            response.json()['message']))
         except:
             raise
 
-    @_isSessionExpired
+    @description("getting the portgroup of source org vdc networks")
+    @remediate
     def getPortgroupInfo(self, orgVdcNetworkList):
         """
         Description : Get Portgroup Info
         Parameters  : orgVdcNetworkList - List of source org vdc networks (LIST)
         """
         try:
+            logger.info('Getting the portgroup of source org vdc networks.')
+            data = self.rollback.apiData
             # url to get the port group details
             url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
                                 vcdConstants.GET_PORTGROUP_INFO)
@@ -694,17 +552,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             updatedNetworkList = [response for response in networkList if response['scopeType'] not in ['-1', '1']]
             portGroupList = [elem for elem in updatedNetworkList if
                              elem['networkName'] in list(value['name'] for value in orgVdcNetworkList)]
-            return portGroupList
+            data['portGroupList'] = portGroupList
+            logger.info('Retrieved the portgroup of source org vdc networks.')
+            return
         except:
-            # setting the delete target org vdc, delete target edge gateway, delete target org vdc network flags required for roll back
-            self.DISABLE_PROMISC_MODE = True
-            self.PROMISCUCOUS_MODE_ALREADY_DISABLED = True
-            self.DELETE_TARGET_ORG_VDC = True
-            self.DELETE_TARGET_EDGE_GATEWAY = True
-            self.DELETE_TARGET_ORG_VDC_NETWORKS = True
             raise
 
-    @_isSessionExpired
+    @isSessionExpired
     def createMoveVappVmPayload(self, vApp, targetOrgVDCId):
         """
         Description : Create vApp vm payload for move vApp api
@@ -713,10 +567,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         try:
             xmlPayloadData = ''
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
+            data = self.rollback.apiData
             targetStorageProfileList = [data["targetOrgVDC"]['VdcStorageProfiles']['VdcStorageProfile']] if isinstance(data["targetOrgVDC"]['VdcStorageProfiles']['VdcStorageProfile'], dict) else data["targetOrgVDC"]['VdcStorageProfiles']['VdcStorageProfile']
             vmInVappList = []
             # get api call to retrieve the info of source vapp
@@ -724,47 +575,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             responseDict = xmltodict.parse(response.content)
             if not responseDict['VApp'].get('Children'):
                 return
-            # retrieving the list of vms in this vapp
-            vmList = responseDict['VApp']['Children']['Vm']
             targetSizingPolicyOrgVDCUrn = 'urn:vcloud:vdc:{}'.format(targetOrgVDCId)
-            if isinstance(vmList, list):
-                # iterating over the vms in vapp more than one vms
-                for vm in vmList:
-                    # retrieving the compute policy of vm
-                    computePolicyName = vm['ComputePolicy']['VmPlacementPolicy']['@name'] if vm['ComputePolicy'].get('VmPlacementPolicy') else None
-                    # retrieving the sizing policy of vm
-                    if vm['ComputePolicy'].get('VmSizingPolicy'):
-                        if vm['ComputePolicy']['VmSizingPolicy']['@name'] != 'System Default':
-                            sizingPolicyHref = vm['ComputePolicy']['VmSizingPolicy']['@href']
-                        else:
-                            # get the target System Default policy id
-                            defaultSizingPolicy = self.getVmSizingPoliciesOfOrgVDC(targetSizingPolicyOrgVDCUrn, isTarget=True)
-                            if defaultSizingPolicy:
-                                defaultSizingPolicyId = defaultSizingPolicy[0]['id']
-                                sizingPolicyHref = "{}{}/{}".format(
-                                    vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                    vcdConstants.VDC_COMPUTE_POLICIES, defaultSizingPolicyId)
-                            else:
-                                sizingPolicyHref = None
-                    else:
-                        sizingPolicyHref = None
-                    storageProfileList = [storageProfile for storageProfile in targetStorageProfileList if storageProfile['@name'] == vm['StorageProfile']['@name']]
-                    if storageProfileList:
-                        storageProfileHref = storageProfileList[0]['@href']
-                    else:
-                        storageProfileHref = ''
-                    if vm['NetworkConnectionSection']['NetworkConnection']['@network'] == 'none':
-                        networkName = 'none'
-                    else:
-                        networkName = vm['NetworkConnectionSection']['NetworkConnection']['@network'] + '-v2t'
-                    # gathering the vm's data required to create payload data and appending the dict to the 'vmInVappList' list
-                    vmInVappList.append({'name': vm['@name'], 'description': vm['Description'] if vm.get('Description') else '', 'network': networkName,
-                                         'href': vm['@href'], 'networkConnectionSection': vm['NetworkConnectionSection'],
-                                         'storageProfileHref': storageProfileHref, 'state': responseDict['VApp']['@status'],
-                                         'computePolicyName': computePolicyName, 'sizingPolicyHref': sizingPolicyHref})
+            # checking whether the vapp children vm are single/multiple
+            if isinstance(responseDict['VApp']['Children']['Vm'], list):
+                vmList = responseDict['VApp']['Children']['Vm']
             else:
-                # if single vm in the vapp
-                vm = vmList
+                vmList = [responseDict['VApp']['Children']['Vm']]
+            # iterating over the vms in vapp
+            for vm in vmList:
                 # retrieving the compute policy of vm
                 computePolicyName = vm['ComputePolicy']['VmPlacementPolicy']['@name'] if vm['ComputePolicy'].get('VmPlacementPolicy') else None
                 # retrieving the sizing policy of vm
@@ -783,46 +601,60 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             sizingPolicyHref = None
                 else:
                     sizingPolicyHref = None
-                storageProfileList = [storageProfile for storageProfile in targetStorageProfileList if
-                                      storageProfile['@name'] == vm['StorageProfile']['@name']]
+                storageProfileList = [storageProfile for storageProfile in targetStorageProfileList if storageProfile['@name'] == vm['StorageProfile']['@name']]
                 if storageProfileList:
                     storageProfileHref = storageProfileList[0]['@href']
                 else:
                     storageProfileHref = ''
-                if vm['NetworkConnectionSection']['NetworkConnection']['@network'] == 'none':
-                    networkName = 'none'
-                else:
-                    networkName = vm['NetworkConnectionSection']['NetworkConnection']['@network'] + '-v2t'
                 # gathering the vm's data required to create payload data and appending the dict to the 'vmInVappList' list
-                vmInVappList.append({'name': vm['@name'], 'description': vm['Description'] if vm.get('Description') else '', 'network': networkName,
+                vmInVappList.append({'name': vm['@name'], 'description': vm['Description'] if vm.get('Description') else '',
                                      'href': vm['@href'], 'networkConnectionSection': vm['NetworkConnectionSection'],
                                      'storageProfileHref': storageProfileHref, 'state': responseDict['VApp']['@status'],
-                                     'computePolicyName': computePolicyName, 'sizingPolicyHref': sizingPolicyHref})
-            # saving the 'vmInVappList' into vApp['vm'] which contain list of vms
-            vApp['vm'] = vmInVappList
+                                     'computePolicyName': computePolicyName, 'sizingPolicyHref': sizingPolicyHref,
+                                     'primaryNetworkConnectionIndex': vm['NetworkConnectionSection']['PrimaryNetworkConnectionIndex']})
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
             # iterating over the above saved vms list of source vapp
-            for vm in vApp['vm']:
+            for vm in vmInVappList:
                 logger.debug('Getting VM - {} details'.format(vm['name']))
-                # checking for the 'IpAddress' attribute if present
-                if vm['networkConnectionSection']['NetworkConnection'].get('IpAddress'):
-                    ipAddress = vm['networkConnectionSection']['NetworkConnection']['IpAddress']
-                else:
-                    ipAddress = ""
                 # check whether the vapp state is powered on i.e 4 then poweron else poweroff
                 if vm['state'] != "4":
                     state = "false"
                 else:
                     state = "true"
+                # checking multiple network connection details inside vm are single/multiple
+                if isinstance(vm['networkConnectionSection']['NetworkConnection'], list):
+                    networkConnectionList = vm['networkConnectionSection']['NetworkConnection']
+                else:
+                    networkConnectionList = [vm['networkConnectionSection']['NetworkConnection']]
+                networkConnectionPayloadData = ''
+                # creating payload for mutiple/single network connections in a vm
+                for networkConnection in networkConnectionList:
+                    if networkConnection['@network'] == 'none':
+                        networkName = 'none'
+                    else:
+                        networkName = networkConnection['@network'] + '-v2t'
+                    # checking for the 'IpAddress' attribute if present
+                    if networkConnection.get('IpAddress'):
+                        ipAddress = networkConnection['IpAddress']
+                    else:
+                        ipAddress = ""
+                    payloadDict = {'networkName': networkName, 'ipAddress': ipAddress,
+                                   'connected': networkConnection['IsConnected'],
+                                   'macAddress': networkConnection['MACAddress'],
+                                   'allocationModel': networkConnection['IpAddressAllocationMode'],
+                                   'adapterType': networkConnection['NetworkAdapterType'],
+                                   'networkConnectionIndex': networkConnection['NetworkConnectionIndex']
+                                   }
+                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                                              componentName=vcdConstants.COMPONENT_NAME,
+                                                              templateName=vcdConstants.VAPP_VM_NETWORK_CONNECTION_SECTION_TEMPLATE)
+                    networkConnectionPayloadData += payloadData.strip("\"")
                 # handling the case:- if both compute policy & sizing policy are absent
                 if not vm["computePolicyName"] and not vm['sizingPolicyHref']:
-                    payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'networkName': vm['network'],
-                                   'ipAddress': ipAddress, 'state': state,
-                                   'connected': vm['networkConnectionSection']['NetworkConnection']['IsConnected'],
-                                   'macAddress': vm['networkConnectionSection']['NetworkConnection']['MACAddress'],
-                                   'allocationModel': vm['networkConnectionSection']['NetworkConnection']['IpAddressAllocationMode'],
-                                   'adapterType': vm['networkConnectionSection']['NetworkConnection']['NetworkAdapterType'],
-                                   'storageProfileHref': vm['storageProfileHref']}
+                    payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
+                                   'storageProfileHref': vm['storageProfileHref'],
+                                   'vmNetworkConnectionDetails': networkConnectionPayloadData,
+                                   'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
                     payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                               componentName=vcdConstants.COMPONENT_NAME,
                                                               templateName=vcdConstants.MOVE_VAPP_VM_TEMPLATE)
@@ -848,14 +680,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         if not href:
                             raise Exception('Could not find placement policy {} in target Org VDC.'.format(vm["computePolicyName"]))
                         # creating the payload dictionary
-                        payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'networkName': vm['network'],
-                                       'ipAddress': ipAddress, 'state': state,
-                                       'connected': vm['networkConnectionSection']['NetworkConnection']['IsConnected'],
-                                       'macAddress': vm['networkConnectionSection']['NetworkConnection']['MACAddress'],
-                                       'allocationModel': vm['networkConnectionSection']['NetworkConnection']['IpAddressAllocationMode'],
-                                       'adapterType': vm['networkConnectionSection']['NetworkConnection']['NetworkAdapterType'],
+                        payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
                                        'storageProfileHref': vm['storageProfileHref'],
-                                       'vmPlacementPolicyHref': href}
+                                       'vmPlacementPolicyHref': href,
+                                       'vmNetworkConnectionDetails': networkConnectionPayloadData,
+                                       'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
                         # creating the payload data
                         payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                                   componentName=vcdConstants.COMPONENT_NAME,
@@ -863,14 +692,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     # handling the case:- if sizing policy is present and compute policy is absent
                     elif vm['sizingPolicyHref'] and not vm["computePolicyName"]:
                         # creating the payload dictionary
-                        payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'networkName': vm['network'],
-                                       'ipAddress': ipAddress, 'state': state,
-                                       'connected': vm['networkConnectionSection']['NetworkConnection']['IsConnected'],
-                                       'macAddress': vm['networkConnectionSection']['NetworkConnection']['MACAddress'],
-                                       'allocationModel': vm['networkConnectionSection']['NetworkConnection']['IpAddressAllocationMode'],
-                                       'adapterType': vm['networkConnectionSection']['NetworkConnection']['NetworkAdapterType'],
+                        payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
                                        'storageProfileHref': vm['storageProfileHref'],
-                                       'sizingPolicyHref': vm['sizingPolicyHref']}
+                                       'sizingPolicyHref': vm['sizingPolicyHref'],
+                                       'vmNetworkConnectionDetails': networkConnectionPayloadData,
+                                       'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
                         # creating the pauload data
                         payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                                   componentName=vcdConstants.COMPONENT_NAME,
@@ -895,16 +721,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         if not href:
                             raise Exception('Could not find placement policy {} in target Org VDC.'.format(vm["computePolicyName"]))
                         # creating the payload dictionary
-                        payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'networkName': vm['network'],
-                                       'ipAddress': ipAddress, 'state': state,
-                                       'connected': vm['networkConnectionSection']['NetworkConnection']['IsConnected'],
-                                       'macAddress': vm['networkConnectionSection']['NetworkConnection']['MACAddress'],
-                                       'allocationModel': vm['networkConnectionSection']['NetworkConnection'][
-                                           'IpAddressAllocationMode'],
-                                       'adapterType': vm['networkConnectionSection']['NetworkConnection'][
-                                           'NetworkAdapterType'],
+                        payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
                                        'storageProfileHref': vm['storageProfileHref'],
-                                       'vmPlacementPolicyHref': href, 'sizingPolicyHref': vm['sizingPolicyHref']}
+                                       'vmPlacementPolicyHref': href, 'sizingPolicyHref': vm['sizingPolicyHref'],
+                                       'vmNetworkConnectionDetails': networkConnectionPayloadData,
+                                       'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
                         # creating the pauload data
                         payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                                   componentName=vcdConstants.COMPONENT_NAME,
@@ -914,6 +735,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
+    @isSessionExpired
     def getOrgVDCStorageProfileDetails(self, orgVDCStorageProfileId):
         """
         Description :   Gets the details of the specified Org VDC Storage Profile ID
@@ -933,15 +755,16 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
+    @description("Checking ACL on target Org vdc")
+    @remediate
     def createACL(self):
         """
         Description : Create ACL on Org VDC
         """
         try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading the data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
+            logger.info('Checking ACL on target Org vdc')
+
+            data = self.rollback.apiData
             # retrieving the source org vdc id & target org vdc is
             sourceOrgVDCId = data["sourceOrgVDC"]['@id'].split(':')[-1]
             targetOrgVDCId = data["targetOrgVDC"]['@id'].split(':')[-1]
@@ -973,7 +796,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             accessSettingsList = []
             # iterating over the access settings of source org vdc
             for subjectData in data['accessSettings']['accessSetting']:
-                userData = {"subject": {"href": subjectData['subject']['href']}, "accessLevel": subjectData['accessLevel']}
+                userData = {"subject": {"href": subjectData['subject']['href']},
+                            "accessLevel": subjectData['accessLevel']}
                 accessSettingsList.append(userData)
             jsonData = json.loads(payloadData)
             # attaching the access settings to the payload data
@@ -983,22 +807,22 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             response = self.restClientObj.put(url, headers, data=payloadData)
             if response.status_code != requests.codes.ok:
                 responseDict = xmltodict.parse(response.content)
-                raise Exception('Failed to create target ACL on target Org VDC {}'.format(responseDict['Error']['@message']))
+                raise Exception(
+                    'Failed to create target ACL on target Org VDC {}'.format(responseDict['Error']['@message']))
             logger.info('Successfully created ACL on target Org vdc')
         except Exception:
-            self.DELETE_TARGET_ORG_VDC = True
             raise
 
+    @description("application of vm placement policy on target Org vdc")
+    @remediate
     def applyVDCPlacementPolicy(self):
         """
         Description : Applying VM placement policy on vdc
         """
         try:
-            # api output file
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
+            logger.info('Applying vm placement policy on target Org vdc')
+
+            data = self.rollback.apiData
             computePolicyHrefList = []
             # retrieving the target org vdc id, target provider vdc id & compute policy list of source from apiOutput.json
             targetOrgVDCId = data['targetOrgVDC']['@id'].split(':')[-1]
@@ -1046,7 +870,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             payloadData = json.dumps(payloadDict)
             response = self.restClientObj.put(url, headers, data=payloadData)
             if response.status_code == requests.codes.ok:
-                logger.debug('Successfully applied vm placement policy on target VDC')
+                # there exists atleast single placement policy in source org vdc, so checking the computPolicyHrefList
+                if computePolicyHrefList:
+                    logger.debug('Successfully applied vm placement policy on target VDC')
             else:
                 raise Exception('Failed to apply vm placement policy on target VDC {}'.format(response.json()['message']))
         except Exception:
@@ -1054,108 +880,68 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             self.DELETE_TARGET_ORG_VDC = True
             raise
 
-    @staticmethod
-    def getSourceOrgVDCvAppsList():
-        """
-        Description :   Retrieves the list of vApps in the Source Org VDC
-        Returns     :   Returns Source vapps list (LIST)
-        """
-        try:
-            logger.debug("Getting Source Org VDC vApps List")
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading the data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
-            # getting list instance of resource entities of source org vdc
-            sourceOrgVDCEntityList = [data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity']] if isinstance(data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity'], dict) else data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity']
-            # getting list of source vapps
-            sourceVappList = [vAppEntity for vAppEntity in sourceOrgVDCEntityList if
-                              vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
-            return sourceVappList
-        except Exception:
-            raise
-
-    def getTargetOrgVDCvAppsList(self):
-        """
-        Description :   Retrieves the list of vApps in the Target Org VDC
-        Returns     :   Returns target vapps list (LIST)
-        """
-        try:
-            logger.debug("Getting Target Org VDC vApps List")
-            targetVappList = []
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
-            # retrieving the target org vdc details from apiOutput.json
-            targetOrgVDCDict = data["targetOrgVDC"]
-            # get api call to retrieve the target org vdc details
-            response = self.restClientObj.get(targetOrgVDCDict['@href'], self.headers)
-            responseDict = xmltodict.parse(response.content)
-            if response.status_code == requests.codes.ok:
-                if not responseDict['AdminVdc']['ResourceEntities']:
-                    raise Exception("Failed to get source vApp details.")
-                # getting resource entity list of target org vdc
-                targetOrgVDCEntityList = responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'] if isinstance(responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'], list) else [responseDict['AdminVdc']['ResourceEntities']['ResourceEntity']]
-                # getting vapp list of target org vdc
-                targetVappList = [vAppEntity for vAppEntity in targetOrgVDCEntityList if
-                                  vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
-                return targetVappList
-            raise Exception("Failed to retrieve Target Org VDC vApp List {}".format(responseDict['Error']['@message']))
-        except Exception:
-            raise
-
-    @_isSessionExpired
+    @isSessionExpired
     def enableTargetAffinityRules(self):
         """
         Description :   Enable Affinity Rules in Target VDC
         """
         try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            with open(fileName, 'r') as f:
-                data = json.load(f)
+            data = self.rollback.apiData
             # reading the data from the apiOutput.json
             targetOrgVdcId = data['targetOrgVDC']['@id']
             targetvdcid = targetOrgVdcId.split(':')[-1]
             # checking if affinity rules present in source
             if data['sourceVMAffinityRules']:
                 sourceAffinityRules = data['sourceVMAffinityRules'] if isinstance(data['sourceVMAffinityRules'], list) else [data['sourceVMAffinityRules']]
-                # iterating over the source affinity rules
+                # iterating over the affinity rules
                 for sourceAffinityRule in sourceAffinityRules:
                     affinityID = sourceAffinityRule['@id']
-                    # url to update the affinity rules in the target
+                    # url to enable/disable the affinity rules
+                    # url = vcdConstants.ENABLE_DISABLE_AFFINITY_RULES.format(self.ipAddress, affinityID)
                     url = "{}{}".format(vcdConstants.AFFINITY_URL.format(self.ipAddress, targetvdcid), affinityID)
-                    # creating the paylaod data using xml tree
-                    vmAffinityRule = ET.Element('VmAffinityRule',
-                                                {"xmlns": 'http://www.vmware.com/vcloud/v1.5'})
-                    name = ET.SubElement(vmAffinityRule, 'Name')
-                    name.text = sourceAffinityRule['Name']
-                    isEnabled = ET.SubElement(vmAffinityRule, 'IsEnabled')
-                    isEnabled.text = "true" if sourceAffinityRule['IsEnabled'] == "true" else "false"
-                    isMandatory = ET.SubElement(vmAffinityRule, 'IsMandatory')
-                    isMandatory.text = sourceAffinityRule['IsMandatory']
-                    polarity = ET.SubElement(vmAffinityRule, 'Polarity')
-                    polarity.text = sourceAffinityRule['Polarity']
-                    vmReferences = ET.SubElement(vmAffinityRule, 'VmReferences')
+                    filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
+                    vmReferencesPayloadData = ''
                     for eachVmReference in sourceAffinityRule['VmReferences']['VmReference']:
-                        ET.SubElement(vmReferences, 'VmReference',
-                                      href=eachVmReference['@href'], id=eachVmReference['@id'],
-                                      name=eachVmReference['@name'], type=eachVmReference['@type'])
-
-                    payloadData = ET.tostring(vmAffinityRule, encoding='utf-8', method='xml')
-                    # put api call to update the affinity rules in the target
-                    response = self.restClientObj.put(url, self.headers, data=str(payloadData, 'utf-8'))
+                        payloadDict = {'vmHref': eachVmReference['@href'],
+                                       'vmId': eachVmReference['@id'],
+                                       'vmName': eachVmReference['@name'],
+                                       'vmType': eachVmReference['@type']}
+                        payloadData = self.vcdUtils.createPayload(filePath,
+                                                                  payloadDict,
+                                                                  fileType='yaml',
+                                                                  componentName=vcdConstants.COMPONENT_NAME,
+                                                                  templateName=vcdConstants.VM_REFERENCES_TEMPLATE_NAME)
+                        vmReferencesPayloadData += payloadData.strip("\"")
+                    isEnabled = "true" if sourceAffinityRule['IsEnabled'] == "true" else "false"
+                    payloadDict = {'affinityRuleName': sourceAffinityRule['Name'],
+                                   'isEnabled': isEnabled,
+                                   'isMandatory': "true" if sourceAffinityRule['IsMandatory'] == "true" else "false",
+                                   'polarity': sourceAffinityRule['Polarity'],
+                                   'vmReferences': vmReferencesPayloadData}
+                    payloadData = self.vcdUtils.createPayload(filePath,
+                                                              payloadDict,
+                                                              fileType='yaml',
+                                                              componentName=vcdConstants.COMPONENT_NAME,
+                                                              templateName=vcdConstants.ENABLE_DISABLE_AFFINITY_RULES_TEMPLATE_NAME)
+                    payloadData = json.loads(payloadData)
+                    self.headers['Content-Type'] = vcdConstants.GENERAL_XML_CONTENT_TYPE
+                    # put api call to enable / disable affinity rules
+                    response = self.restClientObj.put(url, self.headers, data=payloadData)
                     responseDict = xmltodict.parse(response.content)
                     if response.status_code == requests.codes.accepted:
                         task_url = response.headers['Location']
-                        # checking the status of updating affinity rules in the target task
+                        # checking the status of the enabling/disabling affinity rules task
                         self._checkTaskStatus(task_url, vcdConstants.CREATE_AFFINITY_RULE_TASK_NAME)
                         logger.debug('Affinity Rules got updated successfully in Target')
                     else:
                         raise Exception('Failed to update Affinity Rules in Target {}'.format(responseDict['Error']['@message']))
         except Exception:
             raise
+        else:
+            self.rollback.executionResult['enableTargetAffinityRules'] = True
 
+
+    @isSessionExpired
     def renameOrgVDC(self, sourceOrgVDCName, targetVDCId):
         """
         Description :   Renames the target Org VDC
@@ -1192,107 +978,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
-    def getVappStartupSectionInfo(self, vAppHref, saveResponse=False):
-        """
-        Description :   Gets the startup information of the specified Virtual Application
-        Parameters  :   vAppHref        -   href of the vapp (STRING)
-                        saveResponse    -   True if response is to be saved in json file (BOOL)
-                                            False otherwise (BOOL)
-        """
-        try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading the data from apiOutput.json
-            if os.path.exists(fileName):
-                with open(fileName, 'r') as f:
-                    data = json.load(f)
-            # url to get the startup section of the vapp
-            url = "{}{}".format(vAppHref,
-                                vcdConstants.VAPP_STARTUP_SECTION)
-            # get api call to retrieve the vapp startup section details
-            response = self.restClientObj.get(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
-            if response.status_code == requests.codes.ok:
-                if saveResponse:
-                    # cehcking if the startup section exists in the vapp
-                    if data.get('StartupSection'):
-                        data['StartupSection'].append({vAppHref: responseDict['ovf:StartupSection']})
-                    else:
-                        data['StartupSection'] = [{vAppHref: responseDict['ovf:StartupSection']}]
-                    # writing the startup section details of the vapp to the apiOutput.json
-                    with open(fileName, 'w') as f:
-                        json.dump(data, f, indent=3)
-                return responseDict['ovf:StartupSection']
-        except Exception:
-            raise
-
-    def createVappStartupSection(self):
-        """
-        Description :   Replicates the startup section from the source vApp into target vApp
-        """
-        try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading the data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
-            # getting the source vapp list
-            sourceVappList = self.getSourceOrgVDCvAppsList()
-            # getting the target vapp list
-            targetVappList = self.getTargetOrgVDCvAppsList()
-            # getting list of vapps with same name in source & target
-            vAppList = [(sourceVapp, targetVapp) for sourceVapp in sourceVappList for targetVapp in targetVappList if
-                        sourceVapp['@name'] + '-t' == targetVapp['@name']]
-            startupSectionList = data['StartupSection']
-            # iterating over the vapps in source & target
-            for (srcVapp, tgtVapp) in vAppList:
-                # iterating over the startup section list of source vapps
-                for startupSectionDict in startupSectionList:
-                    # iterating over key, values of startup section dict of source vaps
-                    for vAppHref, startupSection in startupSectionDict.items():
-                        # checking if same source vapp & target vapp
-                        if vAppHref == srcVapp['@href']:
-                            # skipping the vapp if no startup section in source vapp
-                            if not startupSection.get('ovf:Item'):
-                                logger.warning('Start and stop order is not configured for source vApp - {}'.format(srcVapp['@name']))
-                                return
-                            # creating the payload data using the xml tree
-                            logger.debug('Creating Start and stop order for target vApp {}'.format(tgtVapp['@name']))
-                            ovfStartup = ET.Element("ovf:StartupSection",
-                                                    {"xmlns:ovf": startupSection['@xmlns:ovf'],
-                                                     "xmlns:vssd": startupSection['@xmlns:vssd'],
-                                                     "xmlns:common": startupSection['@xmlns:common'],
-                                                     "xmlns:rasd": startupSection['@xmlns:rasd'],
-                                                     "xmlns:vmw": startupSection['@xmlns:vmw'],
-                                                     "xmlns:vmext": startupSection['@xmlns:vmext'],
-                                                     "xmlns:ovfenv": startupSection['@xmlns:ovfenv']})
-                            ovfInfo = ET.SubElement(ovfStartup, "ovf:Info")
-                            ovfInfo.text = startupSection["ovf:Info"]
-                            if isinstance(startupSection['ovf:Item'], dict):
-                                startupSection['ovf:Item'] = [startupSection['ovf:Item']]
-                            for eachItem in startupSection['ovf:Item']:
-                                ET.SubElement(ovfStartup, "ovf:Item",
-                                              {"ovf:id": eachItem['@ovf:id'],
-                                               "ovf:order": eachItem['@ovf:order'],
-                                               "ovf:startAction": eachItem['@ovf:startAction'],
-                                               "ovf:startDelay": eachItem['@ovf:startDelay'],
-                                               "ovf:stopAction": eachItem['@ovf:stopAction'],
-                                               "ovf:stopDelay": eachItem['@ovf:stopDelay']})
-                            payloadData = ET.tostring(ovfStartup, encoding='utf-8', method='xml')
-                            # url to update the startup section in target vapps
-                            url = "{}{}".format(tgtVapp['@href'], vcdConstants.VAPP_STARTUP_SECTION)
-                            # put api call to update the startup section in the target vapps
-                            response = self.restClientObj.put(url, self.headers, data=str(payloadData, 'utf-8'))
-                            if response.status_code == requests.codes.accepted:
-                                taskUrl = response.headers['Location']
-                                # checking the status of the updating startup section of target vapp task
-                                self._checkTaskStatus(taskUrl, vcdConstants.VAPP_STARTUP_TASK_NAME)
-                                logger.debug('Created Startup Section in vApp {} successfully'.format(tgtVapp['@name']))
-                            else:
-                                errorMessage = xmltodict.parse(response.content)
-                                raise Exception("Failed to create Startup Section in vApp {} - {}".format(tgtVapp['@name'],
-                                                                                                          errorMessage['Error']['@message']))
-        except Exception:
-            raise
-
+    @isSessionExpired
     def getVmSizingPoliciesOfOrgVDC(self, orgVdcId, isTarget=False):
         """
         Description :   Fetches the list of vm sizing policies assigned to the specified Org VDC
@@ -1321,16 +1007,16 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
+    @description("application of vm sizing policy on target Org vdc")
+    @remediate
     def applyVDCSizingPolicy(self):
         """
         Description :   Assigns the VM Sizing Policy to the specified OrgVDC
         """
         try:
-            # api output file
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading the data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
+            logger.info('Applying vm sizing policy on target Org vdc')
+
+            data = self.rollback.apiData
             # retrieving the target org vdc name & id
             targetOrgVdcName = data['targetOrgVDC']['@name']
             targetOrgVdcId = data['targetOrgVDC']['@id']
@@ -1358,22 +1044,23 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 else:
                     raise Exception("Failed to assign VM Sizing Policy {} to Org VDC {} {}".format(eachPolicy['name'],
                                                                                                    targetOrgVdcName,
-                                                                                                   response.json()['message']))
+                                                                                                   response.json()[
+                                                                                                       'message']))
         except Exception:
             self.DELETE_TARGET_ORG_VDC = True
             raise
 
+    @description("disconnection of target Org VDC Networks")
+    @remediate
     def disconnectTargetOrgVDCNetwork(self):
         """
         Description : Disconnect target Org VDC networks
         """
         try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # rading the data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
+            logger.info('Disconnecting target Org VDC Networks.')
+            targetOrgVDCId = self.rollback.apiData['targetOrgVDC']['@id']
+            targetOrgVDCNetworkList = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
             # retrieving the target org vdc network list
-            targetOrgVDCNetworkList = data['targetOrgVDCNetworks']
             for vdcNetwork in targetOrgVDCNetworkList:
                 # handling only the routed networks
                 if vdcNetwork['networkType'] == "NAT_ROUTED":
@@ -1393,34 +1080,33 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         taskUrl = response.headers['Location']
                         # checking the status of disconnecting the target org vdc network task
                         self._checkTaskStatus(taskUrl, vcdConstants.UPDATE_ORG_VDC_NETWORK_TASK_NAME)
-                        logger.debug('Disconnected target Org VDC network - {} successfully.'.format(vdcNetwork['name']))
+                        logger.debug(
+                            'Disconnected target Org VDC network - {} successfully.'.format(vdcNetwork['name']))
                     else:
                         response = response.json()
                         raise Exception('Failed to disconnect target Org VDC network {} - {}'.format(vdcNetwork['name'],
-                                                                                                     response['message']))
+                                                                                                     response[
+                                                                                    'message']))
+            logger.info('Successfully disconnected target Org VDC Networks.')
         except Exception:
-            # setting delete target org vdc, delete target edge gateway & delete target org vdc networks required for rollback
-            self.DELETE_TARGET_ORG_VDC = True
-            self.DELETE_TARGET_EDGE_GATEWAY = True
-            self.DELETE_TARGET_ORG_VDC_NETWORKS = True
             raise
 
-    def reconnectOrgVDCNetworks(self, source=True):
+    @description("Reconnection of target Org VDC Networks")
+    @remediate
+    def reconnectOrgVDCNetworks(self, sourceOrgVDCId, targetOrgVDCId, source=True):
         """
         Description :   Reconnects the Org VDC networks of source/ target Org VDC
         Parameters  :   source  -   Defaults to True meaning reconnect the Source Org VDC Networks (BOOL)
                                 -   if False meaning reconnect the Target Org VDC Networks (BOOL)
         """
         try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading the data from the apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
+            logger.info('Reconnecting target Org VDC Networks.')
+            data = self.rollback.apiData
             # checking whether to reconnect the org vdc  networks of source or target, and getting the org vdc networks as per the source flag
             if source:
-                OrgVDCNetworkList = data['sourceOrgVDCNetworks'] if isinstance(data['sourceOrgVDCNetworks'], list) else [data['sourceOrgVDCNetworks']]
+                OrgVDCNetworkList = self.retrieveNetworkListFromMetadata(sourceOrgVDCId, orgVDCType='source')
             else:
-                OrgVDCNetworkList = data['targetOrgVDCNetworks'] if isinstance(data['targetOrgVDCNetworks'], list) else [data['targetOrgVDCNetworks']]
+                OrgVDCNetworkList = self.retrieveNetworkListFromMetadata(targetOrgVDCId, orgVDCType='target')
             # iterating over the org vdc networks
             for vdcNetwork in OrgVDCNetworkList:
                 # handling only routed networks
@@ -1448,6 +1134,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
+    @isSessionExpired
     def disableDistributedRoutingOnOrgVdcEdgeGateway(self, orgVDCEdgeGatewayId):
         """
         Description :   Disables the Distributed Routing on the specified edge gateway
@@ -1476,31 +1163,33 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
-    @_isSessionExpired
-    def configureDHCP(self):
+    @description("Configuration of DHCP on Target Org VDC Networks")
+    @remediate
+    def configureDHCP(self, targetOrgVDCId):
         """
         Description : Configure DHCP on Target Org VDC networks
+        Parameters  : targetOrgVDCId    -   Id of the target organization VDC (STRING)
         """
         try:
             logger.debug("Configuring DHCP on Target Org VDC Networks")
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading the data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
+            data = self.rollback.apiData
             # checking if dhcp is enabled on source edge gateway
-            if data['sourceEdgeGatewayDHCP']['enabled'] != "true":
+            if not data['sourceEdgeGatewayDHCP']['enabled']:
                 logger.debug('DHCP service is not enabled or configured in Source')
                 return
             # retrieving the dhcp rules of the source edge gateway
-            dhcpRules = data['sourceEdgeGatewayDHCP']['ipPools']['ipPool'] if isinstance(data['sourceEdgeGatewayDHCP']['ipPools']['ipPool'], list) else [data['sourceEdgeGatewayDHCP']['ipPools']['ipPool']]
+            dhcpRules = data['sourceEdgeGatewayDHCP']['ipPools']['ipPools'] if isinstance(data['sourceEdgeGatewayDHCP']['ipPools']['ipPools'], list) else [data['sourceEdgeGatewayDHCP']['ipPools']['ipPools']]
             payloaddict = {}
             logger.info('DHCP is getting configured')
             # iterating over the source edge gateway dhcp rules
             for iprange in dhcpRules:
+                # if configStatus flag is already set means that the dhcp rule is already configured, if so then skipping the configuring of same rule and moving to the next dhcp rule
+                if iprange.get('configStatus'):
+                    continue
                 start = iprange['ipRange'].split('-')[0]
                 end = iprange['ipRange'].split('-')[-1]
                 # iterating over the target org vdc networks
-                for vdcNetwork in data['targetOrgVDCNetworks']:
+                for vdcNetwork in self.retrieveNetworkListFromMetadata(targetOrgVDCId, orgVDCType='target'):
                     # handling only the routed networks
                     if vdcNetwork['networkType'] == "NAT_ROUTED":
                         # checking the first three octets of source ip range with first three octets of target networks,
@@ -1515,9 +1204,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             if dhcp_check == vdcNetwork_check:
                                 vdcNetworkID = vdcNetwork['id']
                                 # creating payload data
-                                payloaddict['enabled'] = "true" if data['sourceEdgeGatewayDHCP']['enabled'] == "true" else "false"
+                                payloaddict['enabled'] = "true" if data['sourceEdgeGatewayDHCP']['enabled'] else "false"
                                 payloaddict['dhcpPools'] = [{
-                                    "enabled": "true" if data['sourceEdgeGatewayDHCP']['enabled'] == "true" else "false",
+                                    "enabled": "true" if data['sourceEdgeGatewayDHCP']['enabled'] else "false",
                                     "ipRange": {
                                         "startAddress": start,
                                         "endAddress": end
@@ -1549,6 +1238,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                     taskUrl = response.headers['Location']
                                     # checking the status of configuring the dhcp on target org vdc networks task
                                     self._checkTaskStatus(taskUrl, vcdConstants.UPDATE_ORG_VDC_NETWORK_TASK_NAME)
+                                    # setting the configStatus flag meaning the particular DHCP rule is configured successfully in order to skip its reconfiguration
+                                    iprange['configStatus'] = True
                                     logger.debug('DHCP pool created successfully.')
                                 else:
                                     errorResponse = response.json()
@@ -1557,127 +1248,94 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except:
             raise
 
-    def prepareTargetVDC(self, orgVdcNetworkList, bgpConfigDict):
+    def prepareTargetVDC(self, sourceOrgVDCId):
         """
         Description :   Preparing Target VDC
-        Parameters  :   orgVdcNetworkList   -   list of org vdc networks (LIST)
+        Parameters  :   metadata   -   metadata from source Org VDC (LIST)
         """
         try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            with open(fileName, 'r') as f:
-                data = json.load(f)
-            sourceOrgVDCId = data['sourceOrgVDC']['@id']
+            orgVdcNetworkList = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
 
             # creating target Org VDC
-            logger.info('Creating target Org VDC')
-            targetOrgVDCId = self.createOrgVDC()
-            logger.info('Successfully created target Org VDC')
+            self.createOrgVDC()
 
             # applying the vm placement policy on target org vdc
-            logger.info('Applying vm placement policy on target Org vdc')
             self.applyVDCPlacementPolicy()
 
             # applying the vm sizing policy on target org vdc
-            logger.info('Applying vm sizing policy on target Org vdc')
             self.applyVDCSizingPolicy()
 
             # checking the acl on target org vdc
-            logger.info('Checking ACL on target Org vdc')
             self.createACL()
 
             # creating target Org VDC Edge Gateway
-            logger.info('Creating target Org VDC Edge Gateway.')
-            self.createEdgeGateway(bgpConfigDict)
-            logger.info('Successfully created target Org VDC Edge Gateway.')
+            self.createEdgeGateway()
 
             # only if source org vdc networks exist
             if orgVdcNetworkList:
                 # creating target Org VDC networks
-                logger.info('Creating target Org VDC Networks')
-                self.createOrgVDCNetwork()
-                logger.info('Successfully created target Org VDC Networks.')
-
+                self.createOrgVDCNetwork(orgVdcNetworkList)
                 # disconnecting target Org VDC networks
-                logger.info('Disconnecting target Org VDC Networks.')
                 self.disconnectTargetOrgVDCNetwork()
-                logger.info('Successfully disconnected target Org VDC Networks.')
             else:
                 logger.debug('Skipping Target Org VDC Network creation as no source Org VDC network exist.')
+                # If not source Org VDC networks are not present target Org VDC networks will also be empty
+                self.rollback.apiData['targetOrgVDCNetworks'] = {}
 
             # enable the promiscous mode and forged transmit of source org vdc networks
-            logger.info('Enabling the promiscuous mode and forged transmit of source Org VDC networks.')
-            self.enableDisablePromiscModeForgedTransmit(orgVdcNetworkList, enable=True)
+            self.enablePromiscModeForgedTransmit(orgVdcNetworkList)
 
             # get the portgroup of source org vdc networks
-            logger.info('Getting the portgroup of source org vdc networks.')
-            portGroupList = self.getPortgroupInfo(orgVdcNetworkList)
+            self.getPortgroupInfo(orgVdcNetworkList)
 
-            logger.info('Retrieved the portgroup of source org vdc networks.')
-            return targetOrgVDCId, portGroupList
-
+            # Migrating metadata from source org vdc to target org vdc
+            self.migrateMetadata()
         except Exception as err:
-            # rolling back
-            logger.error('Error occured while preparing Target - {}'.format(err))
-            logger.info("RollBack: Enabling Source Org VDC")
-            self.enableSourceOrgVdc(sourceOrgVDCId)
-            logger.info("RollBack: Enabling Source vApp Affinity Rules")
-            self.enableOrDisableSourceAffinityRules(sourceOrgVDCId, enable=True)
-            if self.DISABLE_PROMISC_MODE:
-                logger.info("RollBack: Disabling Promiscuous Mode and Forge Transmit")
-                self.enableDisablePromiscModeForgedTransmit(None, enable=False)
-            if self.DELETE_TARGET_ORG_VDC_NETWORKS:
-                logger.info("RollBack: Deleting Target Org VDC Networks")
-                self.deleteOrgVDCNetworks(targetOrgVDCId, source=False)
-            if self.DELETE_TARGET_EDGE_GATEWAY:
-                logger.info("RollBack: Deleting Target Edge Gateway")
-                self.deleteNsxTBackedOrgVDCEdgeGateways(targetOrgVDCId)
-                logger.info("RollBack: Removing Target External Network's sub-allocated static ip pools added from source edge gateway")
-                self.resetTargetExternalNetwork()
-            if self.DELETE_TARGET_ORG_VDC:
-                logger.info("RollBack: Deleting Target Org VDC")
-                self.deleteOrgVDC(targetOrgVDCId)
             raise
 
-    def configureTargetVDC(self, orgVdcNetworkList, sourceEdgeGatewayId):
+    def configureTargetVDC(self):
         """
         Description :   Configuring Target VDC
-        Parameters  :   orgVdcNetworkList   -   list of org vdc networks (LIST)
-                        sourceEdgeGatewayId -   id of the source edge gateway (STRING)
+        Parameters  :   metadata - status of tasks performed under configuration of target vdc (DICT)
         """
         try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            with open(fileName, 'r') as f:
-                data = json.load(f)
+            # Fetching data from metadata
+            data = self.rollback.apiData
+            sourceEdgeGatewayId = data['sourceEdgeGatewayId']
+
+            sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
+            targetOrgVDCId = self.rollback.apiData['targetOrgVDC']['@id']
+            orgVdcNetworkList = self.retrieveNetworkListFromMetadata(sourceOrgVDCId, orgVDCType='source')
+            targetOrgVDCNetworkList = self.retrieveNetworkListFromMetadata(targetOrgVDCId, orgVDCType='target')
+
             # taking target edge gateway id from apioutput jsin file
-            edgeGatewayId = data['targetEdgeGateway']['id']
+            edgeGatewayId = copy.deepcopy(data['targetEdgeGateway']['id'])
             if orgVdcNetworkList:
                 # disconnecting source org vdc networks from edge gateway
-                logger.info('Disconnecting source routed Org VDC Networks from source Edge gateway.')
                 self.disconnectSourceOrgVDCNetwork(orgVdcNetworkList)
-                logger.info('Successfully disconnected routed source Org VDC Networks from source Edge gateway.')
 
             # connecting dummy uplink to edge gateway
-            logger.info('Connecting dummy uplink to source Edge gateway.')
             self.connectUplinkSourceEdgeGateway(sourceEdgeGatewayId)
-            logger.info('Successfully connected dummy uplink to source Edge gateway.')
 
             # disconnecting source org vdc edge gateway from external
-            logger.info('Disconnecting source Edge gateway from external network.')
             self.reconnectOrDisconnectSourceEdgeGateway(sourceEdgeGatewayId, connect=False)
 
-            if orgVdcNetworkList:
+            if targetOrgVDCNetworkList:
                 # reconnecting target Org VDC networks
-                logger.info('Reconnecting target Org VDC Networks.')
-                self.reconnectOrgVDCNetworks(source=False)
-                logger.info('Successfully reconnected target Org VDC Networks.')
+                self.reconnectOrgVDCNetworks(sourceOrgVDCId, targetOrgVDCId, source=False)
+
             # configuring dhcp service target Org VDC networks
-            self.configureDHCP()
+            self.configureDHCP(targetOrgVDCId)
+            # Restoring rollback key
+            self.rollback.key = 'reconnectOrgVDCNetworks'
+
             # configuring firewall security groups
-            self.configureFirewall(edgeGatewayId=edgeGatewayId, networktype=True)
+            self.configureFirewall(edgeGatewayId, targetOrgVDCId, networktype=True)
+            # Restoring rollback key
+            self.rollback.key = 'reconnectOrgVDCNetworks'
+
             # reconnecting target org vdc edge gateway from T0
-            logger.info('Reconnecting target Edge gateway to T0 router.')
             self.reconnectTargetEdgeGateway()
-            logger.info('Successfully reconnected target Edge gateway to T0 router.')
         except Exception:
             raise
 
@@ -1712,14 +1370,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # retrieving the organization ID
             orgId = orgResponseDict['AdminOrg']['@id'].split(':')[-1]
 
-            # orgCatalogs contains list of all catalogs in the organization
-            # each org catalog in orgCatalogs is of type dict which has keys {'@href', '@name', '@type'}
-            orgCatalogs = orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"] if isinstance(orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"], list) else [orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"]]
-
             # if no catalogs exist
             if not orgResponseDict['AdminOrg'].get("Catalogs"):
                 logger.debug("No Catalogs exist in Organization")
                 return
+
+            # orgCatalogs contains list of all catalogs in the organization
+            # each org catalog in orgCatalogs is of type dict which has keys {'@href', '@name', '@type'}
+            orgCatalogs = orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"] if isinstance(orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"], list) else [orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"]]
 
             # sourceOrgVDCCatalogDetails will hold list of only catalogs present in the source org vdc
             sourceOrgVDCCatalogDetails = []
@@ -1781,10 +1439,33 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     # retrieving the catalog items of the catalog
                     catalogItemList = srcCatalog['CatalogItems']['CatalogItem'] if isinstance(srcCatalog['CatalogItems']['CatalogItem'], list) else [srcCatalog['CatalogItems']['CatalogItem']]
 
-                    # moving each catalog item from the 'catalogItemList' to target catalog created above
+                    vAppTemplateCatalogItemList = []
+                    mediaCatalogItemList = []
+                    # creating seperate lists for catalog items - 1. One for media catalog items 2. One for vApp template catalog items
                     for catalogItem in catalogItemList:
-                        logger.debug('Starting to move catalog item.')
-                        # creating payload data to move vapp template/ media
+                        catalogItemResponse = self.restClientObj.get(catalogItem['@href'], headers=self.headers)
+                        catalogItemResponseDict = xmltodict.parse(catalogItemResponse.content)
+                        if catalogItemResponseDict['CatalogItem']['Entity']['@type'] == vcdConstants.TYPE_VAPP_TEMPLATE:
+                            vAppTemplateCatalogItemList.append(catalogItem)
+                        elif catalogItemResponseDict['CatalogItem']['Entity']['@type'] == vcdConstants.TYPE_VAPP_MEDIA:
+                            mediaCatalogItemList.append(catalogItem)
+                        else:
+                            raise Exception("Catalog Item '{}' of type '{}' is not supported".format(catalogItem['@name'], catalogItemResponseDict['CatalogItem']['Entity']['@type']))
+
+                    logger.debug('Starting to move source org VDC catalog items: ')
+                    # Note: First migrating the media then migrating the vapp templates to target catalog(because if migrating of media fails(it fails if the same media is used by other org vdc as well) then no need of remigrating back the vapp templates to source catalogs)
+                    # moving each catalog item from the 'mediaCatalogItemList' to target catalog created above
+                    for catalogItem in mediaCatalogItemList:
+                        logger.debug("Migrating Media catalog item: '{}'".format(catalogItem['@name']))
+                        # creating payload data to move media
+                        payloadDict = {'catalogItemName': catalogItem['@name'],
+                                       'catalogItemHref': catalogItem['@href']}
+                        self.moveCatalogItem(payloadDict, catalogId)
+
+                    # moving each catalog item from the 'vAppTemplateCatalogItemList' to target catalog created above
+                    for catalogItem in vAppTemplateCatalogItemList:
+                        logger.debug("Migrating vApp Template catalog item: '{}'".format(catalogItem['@name']))
+                        # creating payload data to move vapp template
                         payloadDict = {'catalogItemName': catalogItem['@name'],
                                        'catalogItemHref': catalogItem['@href']}
                         self.moveCatalogItem(payloadDict, catalogId)
@@ -1793,7 +1474,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     self.deleteSourceCatalog(srcCatalog['@href'], srcCatalog)
                     # renaming the target org vdc catalog
                     self.renameTargetCatalog(catalogId, srcCatalog)
-                    # deleting catalog
+
+                    # deleting the temporary lists
+                    del vAppTemplateCatalogItemList
+                    del mediaCatalogItemList
             else:
                 # migrating non-specific org vdc  catalogs
                 # in this case catalog uses any storage available in the organization; but while creating media or vapp template it uses our source org vdc's storage profile by default
@@ -1802,7 +1486,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # case where no catalog items found in source org vdc to migrate non-specific org vdc catalog
                 if sourceOrgVDCResponseDict['AdminVdc']['ResourceEntities'] is None:
                     # no catalog items found in the source org vdc
-                    logger.debug("No media found in the source org vdc")
+                    logger.debug("No catalogs items found in the source org vdc")
                     return
 
                 # resourceEntitiesList holds the resource entities of source org vdc
@@ -1884,10 +1568,35 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     # create api call to create a new place holder catalog
                     catalogId = self.createCatalog(payloadDict, orgId)
                     if catalogId:
-                        # iterating over the catalog items in catalogItemDetailsList
+
+                        vAppTemplateCatalogItemList = []
+                        mediaCatalogItemList = []
+                        # creating seperate lists for catalog items - 1. One for media catalog items 2. One for vApp template catalog items
                         for catalogItem in catalogItemDetailsList:
+                            if catalogItem['@type'] == vcdConstants.TYPE_VAPP_TEMPLATE:
+                                vAppTemplateCatalogItemList.append(catalogItem)
+                            elif catalogItem['@type'] == vcdConstants.TYPE_VAPP_MEDIA:
+                                mediaCatalogItemList.append(catalogItem)
+                            else:
+                                raise Exception("Catalog Item '{}' of type '{}' is not supported".format(catalogItem['@name'], catalogItem['@type']))
+
+                        logger.debug('Starting to move non-specific org VDC catalog items: ')
+                        # iterating over the catalog items in mediaCatalogItemList
+                        for catalogItem in mediaCatalogItemList:
                             # checking if the catalogItem belongs to the above created catalog; if so migrating that catalogItem to the newly created target catalog
                             if catalogItem['catalogName'] == catalog['catalogName']:
+                                logger.debug("Migrating Media catalog item: '{}'".format(catalogItem['@name']))
+                                # migrating this catalog item
+                                payloadDict = {'catalogItemName': catalogItem['@name'],
+                                               'catalogItemHref': catalogItem['catalogItemHref']}
+                                # move api call to migrate the catalog item
+                                self.moveCatalogItem(payloadDict, catalogId)
+
+                        # iterating over the catalog items in mediaCatalogItemList
+                        for catalogItem in vAppTemplateCatalogItemList:
+                            # checking if the catalogItem belongs to the above created catalog; if so migrating that catalogItem to the newly created target catalog
+                            if catalogItem['catalogName'] == catalog['catalogName']:
+                                logger.debug("Migrating vApp Template catalog item: '{}'".format(catalogItem['@name']))
                                 # migrating this catalog item
                                 payloadDict = {'catalogItemName': catalogItem['@name'],
                                                'catalogItemHref': catalogItem['catalogItemHref']}
@@ -1897,15 +1606,21 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         catalogData = {'@name': catalog['catalogName'],
                                        '@href': catalog['catalogHref'],
                                        'Description': catalog['catalogDescription']}
+
                         # deleting the source org vdc catalog
                         self.deleteSourceCatalog(catalogData['@href'], catalogData)
                         # renaming the target org vdc catalog
                         self.renameTargetCatalog(catalogId, catalogData)
 
+                        # deleting the temporary lists
+                        del vAppTemplateCatalogItemList
+                        del mediaCatalogItemList
+
         except Exception:
             raise
 
-    def getSourceEdgeGatewayMacAddress(self, portGroupList, interfacesList):
+    @isSessionExpired
+    def getSourceEdgeGatewayMacAddress(self, interfacesList):
         """
         Description :   Get source edge gateway mac address for source org vdc network portgroups
         Parameters  :   portGroupList   -   source org vdc networks corresponding portgroup details (LIST)
@@ -1913,6 +1628,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Returns     :   macAddressList  -   list of mac addresses (LIST)
         """
         try:
+            data = self.rollback.apiData
+            portGroupList = data.get('portGroupList')
             logger.debug("Getting Source Edge Gateway Mac Address")
             macAddressList = []
             for portGroup in portGroupList:
@@ -1922,26 +1639,30 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         macAddressList.append(nicDetail['value']['mac_address'])
             return macAddressList
         except Exception:
-            self.DISABLE_PROMISC_MODE = True
             raise
 
-    @staticmethod
-    def checkIfSourceVappsExist():
+    def checkIfSourceVappsExist(self, orgVDCId):
         """
         Description :   Checks if there exist atleast a single vapp in source org vdc
         Returns     :   True    -   if found atleast single vapp (BOOL)
                         False   -   if not a single vapp found in source org vdc (BOOL)
         """
         try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
-            if not data["sourceOrgVDC"].get('ResourceEntities'):
+            orgvdcId = orgVDCId.split(':')[-1]
+            url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                                vcdConstants.ORG_VDC_BY_ID.format(orgvdcId))
+            response = self.restClientObj.get(url, self.headers)
+            if response.status_code == requests.codes.ok:
+                responseDict = xmltodict.parse(response.content)
+            else:
+                raise Exception('Error occurred while retrieving Org VDC - {} details'.format(orgVDCId))
+            if not responseDict['AdminVdc'].get('ResourceEntities'):
                 logger.debug('No resource entities found in source Org VDC')
                 return False
             # getting list instance of resources in the source org vdc
-            sourceOrgVDCEntityList = data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity'] if isinstance(data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity'], list) else [data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity']]
+            sourceOrgVDCEntityList = responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'] if isinstance(
+                responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'], list) else [
+                responseDict['AdminVdc']['ResourceEntities']['ResourceEntity']]
             vAppList = [vAppEntity for vAppEntity in sourceOrgVDCEntityList if vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
             if len(vAppList) >= 1:
                 return True
@@ -1949,33 +1670,49 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
-    def migrateVapps(self):
+    def migrateVapps(self, sourceOrgVDCName, metadata, timeout=None):
         """
         Description : Migrating vApps i.e composing target placeholder vapps and recomposing target vapps
+        Parameters  : sourceOrgVDCName  -   Name of source Org VDC name (STRING)
+                      metadata  -  metadata to check status of move vapp  (DICT)
+                      timeout  -  timeout to be used for vapp migration task (INT)
         """
         try:
+            self.sourceOrgVDCName = sourceOrgVDCName
+            sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
+            targetOrgVDCId = self.rollback.apiData['targetOrgVDC']['@id']
+            orgVDCNetworkList = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
             # handling the case if there exist no vapps in source org vdc
             # if no source vapps are present then skipping all the below steps as those are not required
-            if not self.checkIfSourceVappsExist():
+            if not self.checkIfSourceVappsExist(sourceOrgVDCId):
                 logger.debug("No Vapps in Source Org VDC, hence skipping migrateVapps task.")
+                self.rollback.executionResult['moveVapp'] = True
+                self.rollback.executionResult['enableTargetAffinityRules'] = True
                 return
 
-            # recompose target vApp by adding source vm
-            logger.info('Migrating source vApps.')
-            self.moveVapp()
-            logger.info('Successfully migrated source vApps.')
+            # Logging continuation message
+            if self.rollback.metadata and not hasattr(self.rollback, 'retry'):
+                logger.info(
+                    'Continuing migration of NSX-V backed Org VDC to NSX-T backed from {}.'.format(
+                        "Migration of vApps"))
+                self.rollback.retry = True
 
-            # configuring Affinity rules
-            logger.info('Configuring target Org VDC affinity rules')
-            self.enableTargetAffinityRules()
+            if not metadata.get('moveVapp'):
+                # recompose target vApp by adding source vm
+                logger.info('Migrating source vApps.')
+                self.moveVapp(sourceOrgVDCId, targetOrgVDCId, orgVDCNetworkList, timeout)
+                logger.info('Successfully migrated source vApps.')
 
-            # creating the startup section for target vapps
-            logger.info('Creating the Startup Section for target vApps')
-            self.createVappStartupSection()
+            if not metadata.get('enableTargetAffinityRules'):
+                # configuring Affinity rules
+                logger.info('Configuring target Org VDC affinity rules')
+                self.enableTargetAffinityRules()
+                logger.info('Successfully configured target Org VDC affinity rules')
         except Exception:
             raise
 
-    def getEdgeVmId(self, edgeGatewayId):
+    @isSessionExpired
+    def getEdgeVmId(self):
         """
         Description : Method to get edge VM ID
         Parameters : edgeGatewayId - Edge gateway ID (STRING)
@@ -1983,6 +1720,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         try:
             logger.debug("Getting Edge VM ID")
+            edgeGatewayId = self.rollback.apiData['sourceEdgeGatewayId']
             orgVDCEdgeGatewayId = edgeGatewayId.split(':')[-1]
             # url to retrieve the firewall config details of edge gateway
             url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
@@ -2007,15 +1745,21 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             errorDict = xmltodict.parse(response.content)
             raise Exception("Failed to get edge gateway status. Error - {}".format(errorDict['error']['details']))
         except Exception:
-            self.DISABLE_PROMISC_MODE = True
             raise
 
-    def connectUplinkSourceEdgeGateway(self, sourceEdgeGatewayId):
+    @description("connection of dummy uplink to source Edge gateway")
+    @remediate
+    def connectUplinkSourceEdgeGateway(self, sourceEdgeGatewayId, rollback=False):
         """
         Description :  Connect another uplink to source Edge Gateways from the specified OrgVDC
         Parameters  :   sourceEdgeGatewayId -   Id of the Organization VDC Edge gateway (STRING)
+                        rollback - key that decides whether to perform rollback or not (BOOLEAN)
         """
         try:
+            if rollback:
+                logger.info('Rollback: Disconnecting dummy-uplink from source Edge Gateway')
+            else:
+                logger.info('Connecting dummy uplink to source Edge gateway.')
             logger.debug("Connecting another uplink to source Edge Gateway")
             orgVDCEdgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
             # url to connect uplink the source edge gateway
@@ -2028,29 +1772,31 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
                 gatewayInterfaces = responseDict['configuration']['gatewayInterfaces']['gatewayInterface']
-                if len(gatewayInterfaces) == 9:
+                if len(gatewayInterfaces) >= 9:
                     raise Exception('No more uplinks present on source Edge Gateway to connect dummy External Uplink.')
-                # get the dummy external network details
-                fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-                # reading data from apiOutput.json
-                with open(fileName, 'r') as f:
-                    data = json.load(f)
-                dummyExternalNetwork = data['dummyExternalNetwork']
-                filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
-                # creating the dummy external network link
-                networkId = dummyExternalNetwork['id'].split(':')[-1]
-                networkHref = "{}network/{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress), networkId)
-                # creating the payload data for adding dummy external network
-                payloadDict = {'edgeGatewayUplinkName': dummyExternalNetwork['name'],
-                               'networkHref': networkHref,
-                               'uplinkGateway': dummyExternalNetwork['subnets']['values'][0]['gateway'],
-                               'prefixLength': dummyExternalNetwork['subnets']['values'][0]['prefixLength'],
-                               'uplinkIpAddress': dummyExternalNetwork['subnets']['values'][0]['ipRanges']['values'][0]['startAddress']}
-                payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='json',
-                                                          componentName=vcdConstants.COMPONENT_NAME,
-                                                          templateName=vcdConstants.CONNECT_ADDITIONAL_UPLINK_EDGE_GATEWAY_TEMPLATE)
-                payloadData = json.loads(payloadData)
-                gatewayInterfaces.append(payloadData)
+                data = self.rollback.apiData
+                dummyExternalNetwork = self.getExternalNetwork(data['dummyExternalNetwork']['name'], isDummyNetwork=True)
+                if not rollback:
+                    filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
+                    # creating the dummy external network link
+                    networkId = dummyExternalNetwork['id'].split(':')[-1]
+                    networkHref = "{}network/{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress), networkId)
+                    # creating the payload data for adding dummy external network
+                    payloadDict = {'edgeGatewayUplinkName': dummyExternalNetwork['name'],
+                                   'networkHref': networkHref,
+                                   'uplinkGateway': dummyExternalNetwork['subnets']['values'][0]['gateway'],
+                                   'prefixLength': dummyExternalNetwork['subnets']['values'][0]['prefixLength'],
+                                   'uplinkIpAddress': ""}
+                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='json',
+                                                              componentName=vcdConstants.COMPONENT_NAME,
+                                                              templateName=vcdConstants.CONNECT_ADDITIONAL_UPLINK_EDGE_GATEWAY_TEMPLATE)
+                    payloadData = json.loads(payloadData)
+                    gatewayInterfaces.append(payloadData)
+                else:
+                    # Computation to remove dummy external network key from API payload
+                    for index, value in enumerate(gatewayInterfaces):
+                        if value['name'] == dummyExternalNetwork['name']:
+                            gatewayInterfaces.pop(index)
                 responseDict['configuration']['gatewayInterfaces']['gatewayInterface'] = gatewayInterfaces
                 responseDict['edgeGatewayServiceConfiguration'] = None
                 del responseDict['tasks']
@@ -2068,11 +1814,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         # checking the status of renaming target org vdc task
                         self._checkTaskStatus(taskUrl, responseData["operationName"])
                         logger.debug('Connected dummy uplink to source Edge gateway {} successfully'.format(responseDict['name']))
+                        if not rollback:
+                            logger.info('Successfully connected dummy uplink to source Edge gateway.')
                         return
                 raise Exception("Failed to connect dummy uplink to source Edge gateway {} with error {}".format(responseDict['name'], responseData['message']))
         except Exception:
             raise
 
+    @isSessionExpired
     def updateSourceExternalNetwork(self, networkName, subIpPools):
         """
         Description : Update Source External Network sub allocated ip pools
@@ -2123,24 +1872,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @staticmethod
-    def createIpRange(startAddress, endAddress):
-        """
-        Description : Create an ip range
-        Parameters : startAddress - Start address ip (IP)
-                     endAddress -  End address ip (IP)
-        """
-        start = list(map(int, startAddress.split('.')))
-        end = list(map(int, endAddress.split('.')))
-        temp = start
-        ipRange = []
-        ipRange.append(startAddress)
-        while temp != end:
-            # incrementing the last octect by 1
-            start[3] += 1
-            ipRange.append(".".join(map(str, temp)))
-        return ipRange
-
-    @staticmethod
     def createExternalNetworkSubPoolRangePayload(externalNetworkPoolRangeList):
         """
         Description : Create external network sub ip pool range payload
@@ -2163,6 +1894,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             total += 1
         return resultData
 
+    @isSessionExpired
     def deleteSourceCatalog(self, catalogUrl, srcCatalog):
         """
         Description :   Deletes the source org vdc catalog of the specified catalog url
@@ -2192,6 +1924,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
+    @isSessionExpired
     def renameTargetCatalog(self, catalogId, srcCatalog):
         """
         Description :   Renames the target org vdc catalog of the specified catalog url
@@ -2216,10 +1949,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                       componentName=vcdConstants.COMPONENT_NAME,
                                                       templateName=vcdConstants.RENAME_CATALOG_TEMPLATE)
             payloadData = json.loads(payloadData)
-            headers = self.headers
-
             # setting the content-type to rename the catalog
-            headers['Content-Type'] = vcdConstants.RENAME_CATALOG_CONTENT_TYPE
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.VCD_API_HEADER,
+                       'Content-Type': vcdConstants.RENAME_CATALOG_CONTENT_TYPE}
             # put api call to rename the catalog back to its original name
             renameCatalogResponse = self.restClientObj.put(renameCatalogUrl, headers, data=payloadData)
             if renameCatalogResponse.status_code == requests.codes.ok:
@@ -2231,120 +1964,145 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
-    def moveVapp(self):
+    @isSessionExpired
+    def moveVappApiCall(self, vApp, targetOrgVDCNetworkList, targetOrgVDCId, filePath, timeout):
+        """
+            Description :   Prepares the payload for moving the vApp and sends post api call for it
+            Parameters  :   vApp  -   Information related to a specific vApp (DICT)
+                            targetOrgVDCNetworkList - All the target org vdc networks (LIST)
+                            targetOrgVDCId - ID of target org vdc (STRING)
+                            filePath - file path of template.yml which holds all the templates (STRING)
+                            timeout  -  timeout to be used for vapp migration task (INT)
+        """
+        logger.info('Moving vApp - {} to target Org VDC - {}'.format(vApp['@name'], self.sourceOrgVDCName+'-t'))
+        networkList = []
+        response = self.restClientObj.get(vApp['@href'], self.headers)
+        responseDict = xmltodict.parse(response.content)
+        vAppData = responseDict['VApp']
+        # checking for the 'NetworkConfig' in 'NetworkConfigSection' of vapp
+        if vAppData['NetworkConfigSection'].get('NetworkConfig'):
+            vAppNetworkList = vAppData['NetworkConfigSection']['NetworkConfig'] \
+                if isinstance(vAppData['NetworkConfigSection']['NetworkConfig'], list) else [
+                vAppData['NetworkConfigSection']['NetworkConfig']]
+            # retrieving the network details list of same name networks from source & target
+            networkList = [(network, vAppNetwork) for network in targetOrgVDCNetworkList for vAppNetwork in
+                           vAppNetworkList if vAppNetwork['@networkName'] + '-v2t' == network['name']]
+            # retrieving the network details of other networks other than org vdc networks
+            otherNetworkList = [vAppNetwork for vAppNetwork in vAppNetworkList]
+        # if networks present
+        networkPayloadData = ''
+        if networkList:
+            # iterating over the network list
+            for network, vAppNetwork in networkList:
+                # creating payload dictionary with network details
+                networkName = "{}network/{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                                                    network["id"].split(':')[-1])
+                payloadDict = {'networkName': network['name'],
+                               'networkDescription': vAppNetwork['Description'] if vAppNetwork.get('Description') else '',
+                               'parentNetwork': networkName,
+                               'fenceMode': vAppNetwork['Configuration']['FenceMode']}
+                payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                                          componentName=vcdConstants.COMPONENT_NAME,
+                                                          templateName=vcdConstants.MOVE_VAPP_NETWORK_CONFIG_TEMPLATE)
+                networkPayloadData += payloadData.strip("\"")
+        # creating payload for no network and vapp network
+        if otherNetworkList:
+            for network in otherNetworkList:
+                if not network['Configuration'].get('ParentNetwork'):
+                    if network['@networkName'] == 'none':
+                        networkName = network['@networkName']
+                    else:
+                        networkName = network['@networkName'] + '-v2t'
+                    payloadDict = {'networkName': networkName,
+                                   'networkDescription': network['Description'] if network.get('Description') else '',
+                                   'fenceMode': network['Configuration']['FenceMode'],
+                                   'isInherited': network['Configuration']['IpScopes']['IpScope']['IsInherited'],
+                                   'gateway': network['Configuration']['IpScopes']['IpScope']['Gateway'],
+                                   'netmask': network['Configuration']['IpScopes']['IpScope']['Netmask'],
+                                   'subnet': network['Configuration']['IpScopes']['IpScope']['SubnetPrefixLength'] if
+                                   network['Configuration']['IpScopes']['IpScope'].get('SubnetPrefixLength') else 1,
+                                   'dns1': network['Configuration']['IpScopes']['IpScope']['Dns1'] if
+                                   network['Configuration']['IpScopes']['IpScope'].get('Dns1') else '',
+                                   'isDeployed': network['IsDeployed']}
+                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                                              componentName=vcdConstants.COMPONENT_NAME,
+                                                              templateName=vcdConstants.MOVE_VAPP_NO_NETWORK_CONFIG_TEMPLATE)
+                    networkPayloadData += payloadData.strip("\"")
+        # create vApp children vm's payload
+        vmPayloadData = self.createMoveVappVmPayload(vApp, targetOrgVDCId)
+        if vmPayloadData and networkPayloadData:
+            payloadDict = {'vAppHref': vApp['@href'],
+                           'networkConfig': networkPayloadData,
+                           'vmDetails': vmPayloadData}
+            # creating payload data
+            payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                                      componentName=vcdConstants.COMPONENT_NAME,
+                                                      templateName=vcdConstants.MOVE_VAPP_TEMPLATE)
+        elif vmPayloadData and not networkPayloadData:
+            payloadDict = {'vAppHref': vApp['@href'],
+                           'vmDetails': vmPayloadData}
+            # creating payload data
+            payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                                      componentName=vcdConstants.COMPONENT_NAME,
+                                                      templateName=vcdConstants.MOVE_VAPP_NO_NETWORK_VM_TEMPLATE)
+        payloadData = json.loads(payloadData)
+        # url to compose vapp in target org vdc
+        url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                            vcdConstants.MOVE_VAPP_IN_ORG_VDC.format(targetOrgVDCId))
+        self.headers["Content-Type"] = vcdConstants.XML_MOVE_VAPP
+        # post api call to compose vapps in target org vdc
+        response = self.restClientObj.post(url, self.headers, data=payloadData)
+        if response.status_code == requests.codes.accepted:
+            responseDict = xmltodict.parse(response.content)
+            task = responseDict["Task"]
+            taskUrl = task["@href"]
+            if taskUrl:
+                # checking for the status of the composing vapp task
+                self._checkTaskStatus(taskUrl, task["@operationName"], timeoutForTask=timeout)
+        else:
+            responseDict = xmltodict.parse(response.content)
+            raise Exception(
+                'Failed to move vApp - {} with errors {}'.format(vApp['@name'], responseDict['Error']['@message']))
+        # Saving rollback key
+        self.rollback.key = 'moveVapp'
+        logger.info(
+            'Moved vApp - {} successfully to target Org VDC - {}'.format(vApp['@name'], self.sourceOrgVDCName+'-t'))
+
+    @isSessionExpired
+    def moveVapp(self, sourceOrgVDCId, targetOrgVDCId, targetOrgVDCNetworkList, timeout):
         """
         Description : Move vApp from source Org VDC to Target Org vdc
+        Parameters  : sourceOrgVDCId    -   Id of the source organization VDC (STRING)
+                      targetOrgVDCId    -   Id of the target organization VDC (STRING)
+                      targetOrgVDCNetworkList - List of target Org VDC networks (LIST)
+                      timeout  -  timeout to be used for vapp migration task (INT)
         """
         try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
-            # getting list instance of resources in the source org vdc
-            sourceOrgVDCEntityList = data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity']\
-                if isinstance(data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity'], list) else [data["sourceOrgVDC"]['ResourceEntities']['ResourceEntity']]
-            # retrieving target org vdc data
-            targetOrgVDCId = data["targetOrgVDC"]["@id"].split(':')[-1]
-            targetOrgVDCNetworkList = data['targetOrgVDCNetworks'] if data.get('targetOrgVDCNetworks') else []
-            # rettrieving list of source vapps
-            vAppList = [vAppEntity for vAppEntity in sourceOrgVDCEntityList if
-                        vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
+            sourceOrgVDCId = sourceOrgVDCId.split(':')[-1]
+            # retrieving target org vdc id
+            targetOrgVDCId = targetOrgVDCId.split(':')[-1]
+            vAppList = self.getSourceOrgVDCvAppsList(sourceOrgVDCId)
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
             # iterating over the source vapps
             for vApp in vAppList:
-                logger.info('Moving vApp - {} to target Org VDC - {}'.format(vApp['@name'], data["targetOrgVDC"]["@name"]))
-                networkList = []
-                # retrieving the startup info of the source vapps
-                self.getVappStartupSectionInfo(vApp['@href'], saveResponse=True)
-                response = self.restClientObj.get(vApp['@href'], self.headers)
-                responseDict = xmltodict.parse(response.content)
-                vAppData = responseDict['VApp']
-                # cehcking for the 'NetworkConfig' in 'NetworkConfigSection' of vapp
-                if vAppData['NetworkConfigSection'].get('NetworkConfig'):
-                    vAppNetworkList = vAppData['NetworkConfigSection']['NetworkConfig']\
-                        if isinstance(vAppData['NetworkConfigSection']['NetworkConfig'], list) else [vAppData['NetworkConfigSection']['NetworkConfig']]
-                    # retrieving the network details list of same name networks from source & target
-                    networkList = [(network, vAppNetwork) for network in targetOrgVDCNetworkList for vAppNetwork in
-                                   vAppNetworkList if vAppNetwork['@networkName']+'-v2t' == network['name']]
-                    # retrieving the network details of other networks other than org vdc networks
-                    otherNetworkList = [vAppNetwork for vAppNetwork in vAppNetworkList]
-                # if networks present
-                networkPayloadData = ''
-                if networkList:
-                    # iterating over the network list
-                    for network, vAppNetwork in networkList:
-                        # creating payload dictionary with network details
-                        networkName = "{}network/{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                                            network["id"].split(':')[-1])
-                        payloadDict = {'networkName': network['name'],
-                                       'networkDescription': vAppNetwork['Description'] if vAppNetwork.get('Description') else '',
-                                       'parentNetwork': networkName,
-                                       'fenceMode': vAppNetwork['Configuration']['FenceMode']}
-                        payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                                  componentName=vcdConstants.COMPONENT_NAME,
-                                                                  templateName=vcdConstants.MOVE_VAPP_NETWORK_CONFIG_TEMPLATE)
-                        networkPayloadData += payloadData.strip("\"")
-                # creating payload for no network and vapp network
-                if otherNetworkList:
-                    for network in otherNetworkList:
-                        if not network['Configuration'].get('ParentNetwork'):
-                            if network['@networkName'] == 'none':
-                                networkName = network['@networkName']
-                            else:
-                                networkName = network['@networkName'] + '-v2t'
-                            payloadDict = {'networkName': networkName,
-                                           'networkDescription': network['Description'] if network.get('Description') else '',
-                                           'fenceMode': network['Configuration']['FenceMode'],
-                                           'isInherited': network['Configuration']['IpScopes']['IpScope']['IsInherited'],
-                                           'gateway': network['Configuration']['IpScopes']['IpScope']['Gateway'],
-                                           'netmask': network['Configuration']['IpScopes']['IpScope']['Netmask'],
-                                           'subnet': network['Configuration']['IpScopes']['IpScope']['SubnetPrefixLength'] if network['Configuration']['IpScopes']['IpScope'].get('SubnetPrefixLength') else 1,
-                                           'dns1': network['Configuration']['IpScopes']['IpScope']['Dns1'] if network['Configuration']['IpScopes']['IpScope'].get('Dns1') else '',
-                                           'isDeployed': network['IsDeployed']}
-                            payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                                      componentName=vcdConstants.COMPONENT_NAME,
-                                                                      templateName=vcdConstants.MOVE_VAPP_NO_NETWORK_CONFIG_TEMPLATE)
-                            networkPayloadData += payloadData.strip("\"")
-                # create vApp children vm details
-                vmPayloadData = self.createMoveVappVmPayload(vApp, targetOrgVDCId)
-                if vmPayloadData and networkPayloadData:
-                    payloadDict = {'vAppHref': vApp['@href'],
-                                   'networkConfig': networkPayloadData,
-                                   'vmDetails': vmPayloadData}
-                    # creating payload data
-                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                              componentName=vcdConstants.COMPONENT_NAME,
-                                                              templateName=vcdConstants.MOVE_VAPP_TEMPLATE)
-                elif vmPayloadData and not networkPayloadData:
-                    payloadDict = {'vAppHref': vApp['@href'],
-                                   'vmDetails': vmPayloadData}
-                    # creating payload data
-                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                              componentName=vcdConstants.COMPONENT_NAME,
-                                                              templateName=vcdConstants.MOVE_VAPP_NO_NETWORK_VM_TEMPLATE)
-                payloadData = json.loads(payloadData)
-                # url to compose vapp in target org vdc
-                url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                    vcdConstants.MOVE_VAPP_IN_ORG_VDC.format(targetOrgVDCId))
-                self.headers["Content-Type"] = vcdConstants.XML_MOVE_VAPP
-                # post api call to compose vapps in target org vdc
-                response = self.restClientObj.post(url, self.headers, data=payloadData)
-                if response.status_code == requests.codes.accepted:
-                    responseDict = xmltodict.parse(response.content)
-                    task = responseDict["Task"]
-                    if task["@operationName"] == vcdConstants.MOVE_VAPP_TASK_NAME:
-                        taskUrl = task["@href"]
-                    if taskUrl:
-                        # checking for the status of the composing vapp task
-                        self._checkTaskStatus(taskUrl, vcdConstants.MOVE_VAPP_TASK_NAME)
-                else:
-                    responseDict = xmltodict.parse(response.content)
-                    raise Exception('Failed to move vApp - {} with errors {}'.format(vApp['@name'], responseDict['Error']['@message']))
-                logger.info('Moved vApp - {} successfully to target Org VDC - {}'.format(vApp['@name'], data["targetOrgVDC"]["@name"]))
+                # Spawning threads for move vApp call
+                self.thread.spawnThread(self.moveVappApiCall, vApp, targetOrgVDCNetworkList, targetOrgVDCId, filePath, timeout)
+                # Blocking the main thread until all the threads complete execution
+            self.thread.joinThreads()
+            # Checking if any thread's execution failed
+            if self.thread.stop():
+                raise Exception('Failed to move vApp/s')
         except Exception:
             raise
+        else:
+            self.rollback.executionResult['moveVapp'] = True
+        finally:
+            # Saving rollback key in metadata
+            self.createMetaDataInOrgVDC(sourceOrgVDCId,
+                                        metadataDict={'rollbackKey': self.rollback.key}, domain='system')
 
-    def renameTargetOrgVDCNetworks(self, targetVDCId):
+    @isSessionExpired
+    def renameTargetNetworks(self, targetVDCId):
         """
         Description :   Renames all the target org vdc networks in the specified target Org VDC as those in source Org VDC
         Parameters  :   targetVDCId -   id of the target org vdc (STRING)
@@ -2360,52 +2118,32 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # get api call to retrieve the target org vdc details
             response = self.restClientObj.get(url, headers=headers)
             getResponseDict = response.json()
+
+            # Case 1: Handling the case of renaming target org vdc networks
             # getting the list instance of all the target org vdc networks
             targetOrgVDCNetworks = getResponseDict['availableNetworks']['network'] if isinstance(getResponseDict['availableNetworks']['network'], list) else [getResponseDict['availableNetworks']['network']]
             # iterating over the target org vdc networks
             for network in targetOrgVDCNetworks:
-                # open api get url to retrieve the details of target org vdc network
-                url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                    vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(network['id']))
-                # get api call to retrieve the details of target org vdc network
-                networkResponse = self.restClientObj.get(url, headers=self.headers)
-                networkResponseDict = networkResponse.json()
-                # checking if the target org vdc network name endwith '-v2t', if so removing the '-v2t' from the name
-                if networkResponseDict['name'].endswith('-v2t'):
-                    # getting the original name of the
-                    networkResponseDict['name'] = networkResponseDict['name'][0: len(networkResponseDict['name'])-4]
-                    # creating the payload data of the retrieved details of the org vdc network
-                    payloadData = json.dumps(networkResponseDict)
-                    # setting the content-type as per the api requirement
-                    headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
-                    # put api call to rename the target org vdc network
-                    putResponse = self.restClientObj.put(url, headers=headers, data=payloadData)
-                    if putResponse.status_code == requests.codes.accepted:
-                        taskUrl = putResponse.headers['Location']
-                        taskResponse = self.restClientObj.get(url=taskUrl, headers=self.headers)
-                        responseDict = xmltodict.parse(taskResponse.content)
-                        taskResponseDict = responseDict["Task"]
-                        self._checkTaskStatus(taskUrl, taskResponseDict['@operationName'])
-                        logger.debug("Target Org VDC Network '{}' renamed successfully".format(networkResponseDict['name']))
-                    else:
-                        errorDict = putResponse.json()
-                        raise Exception("Failed to rename the target org VDC to '{}' : {}".format(networkResponseDict['name'],
-                                                                                                  errorDict['message']))
+                self.renameTargetOrgVDCNetworks(network)
 
+            # Case 2: Handling the case renaming target vapp isolated networks
+            # to get the target vapp networks, getting the target vapps
+            if getResponseDict.get('resourceEntities'):
+                targetOrgVDCEntityList = getResponseDict['resourceEntities']['resourceEntity'] if isinstance(getResponseDict['resourceEntities']['resourceEntity'], list) else [getResponseDict['resourceEntities']['resourceEntity']]
+                vAppList = [vAppEntity for vAppEntity in targetOrgVDCEntityList if vAppEntity['type'] == vcdConstants.TYPE_VAPP]
+                if vAppList:
+                    self.renameTargetVappIsolatedNetworks(vAppList)
         except Exception:
             raise
 
-    def getPromiscModeForgedTransmit(self, orgVDCNetworkList):
+    @isSessionExpired
+    def getPromiscModeForgedTransmit(self, sourceOrgVDCId):
         """
         Description : Get the Promiscous Mode and Forged transmit information of source org vdc network
-        Parameters: orgVDCNetworkList - List containing source org vdc networks (LIST)
         """
         try:
-            # reading the data from apiOutput.json
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
+            orgVDCNetworkList = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
+            data = self.rollback.apiData
             # list of the org vdc networks with its promiscuous mode and forged transmit details
             promiscForgedList = []
             # iterating over the org vdc network list
@@ -2428,87 +2166,38 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     raise Exception('Failed to get dvportgroup properties of source Org VDC network {}'.format(orgVdcNetwork['name']))
             # writing promiscForgedList to the apiOutput.json for further use(for disabling the promiscuous mode and forged transmit in case of rollback)
             data["orgVDCNetworkPromiscModeList"] = promiscForgedList
-            with open(fileName, 'w') as f:
-                json.dump(data, f, indent=3)
         except Exception:
             raise
 
-    @_isSessionExpired
-    def enableDisablePromiscModeForgedTransmit(self, orgVDCNetworkList, enable=False):
-        """
-        Description : Enabling/ Disabling Promiscuous Mode and Forged transmit of source org vdc network
-        Parameters  : orgVDCNetworkList - List containing source org vdc networks (LIST)
-                      Note: This parameter in optional(i.e None) when disabling the promiscuous mode and forged transmit
-                            While it is mandatory when enabling the same
-                      Note: Disabling is used only in case of rollback handling
-        """
-        try:
-            string = 'Enabling' if enable else 'Disabling'
-            logger.debug("{} the Promiscuous Mode and Forged Mode".format(string))
-            # if call to disable to promiscuous mode then orgVDCNetworkList will be retrieved from apiOutput.json
-            if not enable:
-                fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-                with open(fileName, 'r') as f:
-                    data = json.load(f)
-                orgVDCNetworkList = data["orgVDCNetworkPromiscModeList"]
-            # iterating over the orgVDCNetworkList
-            for orgVdcNetwork in orgVDCNetworkList:
-                # url to get the dvportgroup details of org vdc network
-                url = "{}{}/{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                          vcdConstants.ALL_ORG_VDC_NETWORKS,
-                                          orgVdcNetwork['id'],
-                                          vcdConstants.ORG_VDC_NETWORK_PORTGROUP_PROPERTIES_URI)
-                # get api call to retrieve the dvportgroup details of org vdc network
-                response = self.restClientObj.get(url, self.headers)
-                if response.status_code == requests.codes.ok:
-                    responseDict = response.json()
-                    # if enable call then setting the mode True; if disable call then setting the mode to its initial state by retrieving from apiOutput.json
-                    responseDict['dvpgProperties'][0]['promiscuousMode'] = True if enable else orgVdcNetwork['promiscForge']['dvpgProperties'][0]['promiscuousMode']
-                    responseDict['dvpgProperties'][0]['forgedTransmit'] = True if enable else orgVdcNetwork['promiscForge']['dvpgProperties'][0]['forgedTransmit']
-                    payloadData = json.dumps(responseDict)
-                    payloadData = json.loads(payloadData)
-                    payloadData = json.dumps(payloadData)
-                    # updating the org vdc network dvportgroup properties
-                    self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-                    # put api call to update the promiscuous mode and forged mode
-                    apiResponse = self.restClientObj.put(url, self.headers, data=payloadData)
-                    if apiResponse.status_code == requests.codes.accepted:
-                        taskUrl = apiResponse.headers['Location']
-                        # checking the status of the updating dvpgportgroup properties of org vdc network task
-                        self._checkTaskStatus(taskUrl, vcdConstants.ORG_VDC_NETWORK_PORTGROUP_PROPERTIES_TASK_NAME)
-                        logger.debug('Successfully updated source Org VDC Network {} dvportgroup properties.'.format(orgVdcNetwork['name']))
-                    else:
-                        errorResponse = apiResponse.json()
-                        raise Exception('Failed to update dvportgroup properties of source Org VDC network {} - {}'.format(orgVdcNetwork['name'], errorResponse['message']))
-                else:
-                    raise Exception('Failed to get dvportgroup properties of source Org VDC network {}'.format(orgVdcNetwork['name']))
-        except Exception:
-            if enable:
-                self.DELETE_TARGET_ORG_VDC = True
-                self.DELETE_TARGET_EDGE_GATEWAY = True
-                self.DELETE_TARGET_ORG_VDC_NETWORKS = True
-            raise
-
-    @_isSessionExpired
-    def resetTargetExternalNetwork(self):
+    @isSessionExpired
+    def resetTargetExternalNetwork(self, uplinkName):
         """
         Description :   Resets the target external network(i.e updating the target external network to its initial state)
+        Parameters  :   uplinkName  -   name of the source external network
         """
         try:
-            fileName = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'apiOutput.json')
-            # reading the data from apiOutput.json
-            with open(fileName, 'r') as f:
-                data = json.load(f)
+            logger.info('Rollback: Reset the target external network')
+            data = self.rollback.apiData
             # getting the target external network's subnet ip range from apiOutput.json
             targetExternalRange = data['targetExternalNetwork']['subnets']['values'][0]['ipRanges']['values']
+
             targetExternalRangeList = []
             # creating range of source external network pool range
             for externalRange in targetExternalRange:
                 # breaking the iprange into list of ips covering all the ip address lying in the range
                 targetExternalRangeList.extend(self.createIpRange(externalRange['startAddress'], externalRange['endAddress']))
 
-            # getting the source edge gateway's static subnet ip pool
-            sourceEdgeGatewaySubIpPools = data['sourceEdgeGateway']['edgeGatewayUplinks'][0]['subnets']['values'][0]['ipRanges']['values']
+            # retrieving the source edge gateway uplinks before migration tool run
+            edgeGatewayLinks = data['sourceEdgeGateway']['edgeGatewayUplinks'] if isinstance(data['sourceEdgeGateway']['edgeGatewayUplinks'], list) else [data['sourceEdgeGateway']['edgeGatewayUplinks']]
+            sourceEdgeGatewaySubIpPools = None
+
+            # iterating over the edge gateway links to find the matching uplink with source external network
+            for edgeGatewayLink in edgeGatewayLinks:
+                if edgeGatewayLink['uplinkName'] == uplinkName:
+                    # getting the source edge gateway's static subnet ip pool
+                    sourceEdgeGatewaySubIpPools = edgeGatewayLink['subnets']['values'][0]['ipRanges']['values']
+                    break
+
             sourceEdgeGatewaySubIpRangeList = []
             for ipRange in sourceEdgeGatewaySubIpPools:
                 # breaking the iprange into list of ips covering all the ip address lying in the range
@@ -2553,6 +2242,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
+    @isSessionExpired
     def getCatalogDetails(self, catalogHref):
         """
         Description :   Returns the details of the catalog
@@ -2571,6 +2261,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
+    @isSessionExpired
     def createCatalog(self, catalog, orgId):
         """
         Description :   Creates an empty placeholder catalog
@@ -2582,7 +2273,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             catalogUrl = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
                                        vcdConstants.CREATE_CATALOG.format(orgId))
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
-
             # creating the payload data
             payloadData = self.vcdUtils.createPayload(filePath,
                                                       catalog,
@@ -2591,8 +2281,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                       templateName=vcdConstants.CREATE_CATALOG_TEMPLATE)
             payloadData = json.loads(payloadData)
             # setting the content-type to create a catalog
-            headers = self.headers
-            headers['Content-Type'] = vcdConstants.XML_CREATE_CATALOG
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.VCD_API_HEADER,
+                       'Content-Type': vcdConstants.XML_CREATE_CATALOG}
             # post api call to create target catalogs
             createCatalogResponse = self.restClientObj.post(catalogUrl, headers, data=payloadData)
             if createCatalogResponse.status_code == requests.codes.created:
@@ -2609,6 +2300,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
+    @isSessionExpired
     def moveCatalogItem(self, catalogItem, catalogId):
         """
         Description :   Moves the catalog Item
@@ -2627,9 +2319,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                       componentName=vcdConstants.COMPONENT_NAME,
                                                       templateName=vcdConstants.MOVE_CATALOG_TEMPLATE)
             payloadData = json.loads(payloadData)
-
-            headers = self.headers
-            headers['Content-Type'] = vcdConstants.GENERAL_XML_CONTENT_TYPE
             # post api call to move catalog items
             response = self.restClientObj.post(moveCatalogItemUrl, self.headers, data=payloadData)
             responseDict = xmltodict.parse(response.content)
@@ -2642,6 +2331,388 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 logger.debug("Catalog Item '{}' moved successfully".format(catalogItem['catalogItemName']))
             else:
                 raise Exception('Failed to move catalog item - {}'.format(responseDict['Error']['@message']))
+
+        except Exception:
+            raise
+
+    @description("creation of target Org VDC")
+    @remediate
+    def createOrgVDC(self):
+        """
+        Description :   Creates an Organization VDC
+        """
+        try:
+            logger.info('Preparing Target VDC.')
+            logger.info('Creating target Org VDC')
+            filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
+            data = self.rollback.apiData
+            targetOrgVDCId = ''
+            # organization id
+            orgCompleteId = data['Organization']['@id']
+            orgId = orgCompleteId.split(':')[-1]
+            # retrieving organization url
+            orgUrl = data['Organization']['@href']
+            # retrieving source org vdc and target provider vdc data
+            sourceOrgVDCPayloadDict = data["sourceOrgVDC"]
+            targetPVDCPayloadDict = data['targetProviderVDC']
+            targetPVDCPayloadList = [
+                targetPVDCPayloadDict['StorageProfiles']['ProviderVdcStorageProfile']] if isinstance(
+                targetPVDCPayloadDict['StorageProfiles']['ProviderVdcStorageProfile'], dict) else \
+            targetPVDCPayloadDict['StorageProfiles']['ProviderVdcStorageProfile']
+            sourceOrgVDCPayloadList = [
+                sourceOrgVDCPayloadDict['VdcStorageProfiles']['VdcStorageProfile']] if isinstance(
+                sourceOrgVDCPayloadDict['VdcStorageProfiles']['VdcStorageProfile'], dict) else \
+            sourceOrgVDCPayloadDict['VdcStorageProfiles']['VdcStorageProfile']
+
+            vdcStorageProfilePayloadData = ''
+            # iterating over the source org vdc storage profiles
+            for eachStorageProfile in sourceOrgVDCPayloadList:
+                orgVDCStorageProfileDetails = self.getOrgVDCStorageProfileDetails(eachStorageProfile['@id'])
+                vdcStorageProfileDict = {'vspEnabled': "true" if orgVDCStorageProfileDetails['AdminVdcStorageProfile'][
+                                                                     'Enabled'] == "true" else "false",
+                                         'vspUnits': 'MB',
+                                         'vspLimit': str(
+                                             orgVDCStorageProfileDetails['AdminVdcStorageProfile']['Limit']),
+                                         'vspDefault': "true" if orgVDCStorageProfileDetails['AdminVdcStorageProfile'][
+                                                                     'Default'] == "true" else "false"}
+                for eachSP in targetPVDCPayloadList:
+                    if eachStorageProfile['@name'] == eachSP['@name']:
+                        vdcStorageProfileDict['vspHref'] = eachSP['@href']
+                        vdcStorageProfileDict['vspName'] = eachSP['@name']
+                        break
+                eachStorageProfilePayloadData = self.vcdUtils.createPayload(filePath,
+                                                                            vdcStorageProfileDict,
+                                                                            fileType='yaml',
+                                                                            componentName=vcdConstants.COMPONENT_NAME,
+                                                                            templateName=vcdConstants.STORAGE_PROFILE_TEMPLATE_NAME)
+                vdcStorageProfilePayloadData += eachStorageProfilePayloadData.strip("\"")
+            # creating the payload dict
+            orgVdcPayloadDict = {'orgVDCName': data["sourceOrgVDC"]["@name"] + '-t',
+                                 'vdcDescription': data['sourceOrgVDC']['Description'] if data['sourceOrgVDC'].get(
+                                     'Description') else '',
+                                 'allocationModel': data['sourceOrgVDC']['AllocationModel'],
+                                 'cpuUnits': data['sourceOrgVDC']['ComputeCapacity']['Cpu']['Units'],
+                                 'cpuAllocated': data['sourceOrgVDC']['ComputeCapacity']['Cpu']['Allocated'],
+                                 'cpuLimit': data['sourceOrgVDC']['ComputeCapacity']['Cpu']['Limit'],
+                                 'cpuReserved': data['sourceOrgVDC']['ComputeCapacity']['Cpu']['Reserved'],
+                                 'cpuUsed': data['sourceOrgVDC']['ComputeCapacity']['Cpu']['Used'],
+                                 'memoryUnits': data['sourceOrgVDC']['ComputeCapacity']['Memory']['Units'],
+                                 'memoryAllocated': data['sourceOrgVDC']['ComputeCapacity']['Memory']['Allocated'],
+                                 'memoryLimit': data['sourceOrgVDC']['ComputeCapacity']['Memory']['Limit'],
+                                 'memoryReserved': data['sourceOrgVDC']['ComputeCapacity']['Memory']['Reserved'],
+                                 'memoryUsed': data['sourceOrgVDC']['ComputeCapacity']['Memory']['Used'],
+                                 'nicQuota': data['sourceOrgVDC']['NicQuota'],
+                                 'networkQuota': data['sourceOrgVDC']['NetworkQuota'],
+                                 'vmQuota': data['sourceOrgVDC']['VmQuota'],
+                                 'isEnabled': "true",
+                                 'vdcStorageProfile': vdcStorageProfilePayloadData,
+                                 'resourceGuaranteedMemory': data['sourceOrgVDC']['ResourceGuaranteedMemory'],
+                                 'resourceGuaranteedCpu': data['sourceOrgVDC']['ResourceGuaranteedCpu'],
+                                 'vCpuInMhz': data['sourceOrgVDC']['VCpuInMhz'],
+                                 'isThinProvision': data['sourceOrgVDC']['IsThinProvision'],
+                                 'networkPoolHref':
+                                     targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@href'],
+                                 'networkPoolId':
+                                     targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@id'],
+                                 'networkPoolName':
+                                     targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@name'],
+                                 'networkPoolType':
+                                     targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@type'],
+                                 'providerVdcHref': targetPVDCPayloadDict['@href'],
+                                 'providerVdcId': targetPVDCPayloadDict['@id'],
+                                 'providerVdcName': targetPVDCPayloadDict['@name'],
+                                 'providerVdcType': targetPVDCPayloadDict['@type'],
+                                 'usesFastProvisioning': data['sourceOrgVDC']['UsesFastProvisioning'],
+                                 'defaultComputePolicy': '',
+                                 'isElastic': data['sourceOrgVDC']['IsElastic'],
+                                 'includeMemoryOverhead': data['sourceOrgVDC']['IncludeMemoryOverhead']}
+
+            # retrieving org vdc compute policies
+            allOrgVDCComputePolicesList = self.getOrgVDCComputePolicies()
+            isSizingPolicy = False
+            # getting the vm sizing policy of source org vdc
+            sourceSizingPoliciesList = self.getVmSizingPoliciesOfOrgVDC(data['sourceOrgVDC']['@id'])
+            if isinstance(sourceSizingPoliciesList, dict):
+                sourceSizingPoliciesList = [sourceSizingPoliciesList]
+            # iterating over the source org vdc vm sizing policies and check the default compute policy is sizing policy
+            for eachPolicy in sourceSizingPoliciesList:
+                if eachPolicy['id'] == data['sourceOrgVDC']['DefaultComputePolicy']['@id'] and eachPolicy[
+                    'name'] != 'System Default':
+                    # set sizing policy to true if default compute policy is sizing
+                    isSizingPolicy = True
+            if data['sourceOrgVDC']['DefaultComputePolicy']['@name'] != 'System Default' and not isSizingPolicy:
+                # Getting the href of the compute policy if not 'System Default' as default compute policy
+                orgVDCComputePolicesList = [allOrgVDCComputePolicesList] if isinstance(allOrgVDCComputePolicesList,
+                                                                                       dict) else allOrgVDCComputePolicesList
+                # iterating over the org vdc compute policies
+                for eachComputPolicy in orgVDCComputePolicesList:
+                    if eachComputPolicy["name"] == data['sourceOrgVDC']['DefaultComputePolicy']['@name'] and \
+                            eachComputPolicy["pvdcId"] == data['targetProviderVDC']['@id']:
+                        href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                vcdConstants.VDC_COMPUTE_POLICIES,
+                                                eachComputPolicy["id"])
+                        computePolicyDict = {'defaultComputePolicyHref': href,
+                                             'defaultComputePolicyId': eachComputPolicy["id"],
+                                             'defaultComputePolicyName': data['sourceOrgVDC']['DefaultComputePolicy'][
+                                                 '@name']}
+                        computePolicyPayloadData = self.vcdUtils.createPayload(filePath,
+                                                                               computePolicyDict,
+                                                                               fileType='yaml',
+                                                                               componentName=vcdConstants.COMPONENT_NAME,
+                                                                               templateName=vcdConstants.COMPUTE_POLICY_TEMPLATE_NAME)
+                        orgVdcPayloadDict['defaultComputePolicy'] = computePolicyPayloadData.strip("\"")
+                        break
+                else:  # for else (loop else)
+                    raise Exception(
+                        "No Target Compute Policy found with same name as Source Org VDC default Compute Policy and belonging to the target Provider VDC.")
+            # if sizing policy is set, default compute policy is vm sizing polciy
+            if isSizingPolicy:
+                computePolicyDict = {'defaultComputePolicyHref': data['sourceOrgVDC']['DefaultComputePolicy']['@href'],
+                                     'defaultComputePolicyId': data['sourceOrgVDC']['DefaultComputePolicy']['@id'],
+                                     'defaultComputePolicyName': data['sourceOrgVDC']['DefaultComputePolicy']['@name']}
+                computePolicyPayloadData = self.vcdUtils.createPayload(filePath,
+                                                                       computePolicyDict,
+                                                                       fileType='yaml',
+                                                                       componentName=vcdConstants.COMPONENT_NAME,
+                                                                       templateName=vcdConstants.COMPUTE_POLICY_TEMPLATE_NAME)
+                orgVdcPayloadDict['defaultComputePolicy'] = computePolicyPayloadData.strip("\"")
+            orgVdcPayloadData = self.vcdUtils.createPayload(filePath,
+                                                            orgVdcPayloadDict,
+                                                            fileType='yaml',
+                                                            componentName=vcdConstants.COMPONENT_NAME,
+                                                            templateName=vcdConstants.CREATE_ORG_VDC_TEMPLATE_NAME)
+
+            payloadData = json.loads(orgVdcPayloadData)
+
+            # url to create org vdc
+            url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                                vcdConstants.CREATE_ORG_VDC.format(orgId))
+            self.headers["Content-Type"] = vcdConstants.XML_CREATE_VDC_CONTENT_TYPE
+            # post api to create org vdc
+
+            response = self.restClientObj.post(url, self.headers, data=payloadData)
+            responseDict = xmltodict.parse(response.content)
+            if response.status_code == requests.codes.created:
+                taskId = responseDict["AdminVdc"]["Tasks"]["Task"]
+                if isinstance(taskId, dict):
+                    taskId = [taskId]
+                for task in taskId:
+                    if task["@operationName"] == vcdConstants.CREATE_VDC_TASK_NAME:
+                        taskUrl = task["@href"]
+                        # Fetching target org vdc id for deleting target vdc in case of failure
+                        targetOrgVDCId = re.search(r'\((.*)\)', task['@operation']).group(1)
+                if taskUrl:
+                    # checking the status of the task of creating the org vdc
+                    self._checkTaskStatus(taskUrl, vcdConstants.CREATE_VDC_TASK_NAME)
+                logger.info('Target Org VDC {} created successfully'.format(data["sourceOrgVDC"]["@name"] + '-t'))
+                # returning the id of the created org vdc
+                return self.getOrgVDCDetails(orgUrl, responseDict['AdminVdc']['@name'], 'targetOrgVDC')
+            raise Exception('Failed to create target Org VDC. Errors {}.'.format(responseDict['Error']['@message']))
+        except Exception as exception:
+            if targetOrgVDCId:
+                logger.debug("Creation of target vdc failed, so removing that entity from vCD")
+                try:
+                    self.deleteOrgVDC(targetOrgVDCId)
+                except Exception as e:
+                    errorMessage = f'No access to entity "com.vmware.vcloud.entity.vdc:{targetOrgVDCId}'
+                    if errorMessage in str(e):
+                        pass
+                    else:
+                        raise Exception('Failed to delete target org vdc during rollback')
+            raise exception
+
+    @description(desc="enabling the promiscuous mode and forged transmit on source Org VDC networks")
+    @remediate
+    def enablePromiscModeForgedTransmit(self, orgVDCNetworkList):
+        """
+        Description : Enabling Promiscuous Mode and Forged transmit of source org vdc network
+        Parameters  : orgVDCNetworkList - List containing source org vdc networks (LIST)
+        """
+        try:
+            logger.info('Enabling the promiscuous mode and forged transmit on source Org VDC networks.')
+            # if call to disable to promiscuous mode then orgVDCNetworkList will be retrieved from apiOutput.json
+            # iterating over the orgVDCNetworkList
+            for orgVdcNetwork in orgVDCNetworkList:
+                # url to get the dvportgroup details of org vdc network
+                url = "{}{}/{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                          vcdConstants.ALL_ORG_VDC_NETWORKS,
+                                          orgVdcNetwork['id'],
+                                          vcdConstants.ORG_VDC_NETWORK_PORTGROUP_PROPERTIES_URI)
+                # get api call to retrieve the dvportgroup details of org vdc network
+                response = self.restClientObj.get(url, self.headers)
+                if response.status_code == requests.codes.ok:
+                    responseDict = response.json()
+                    # if enable call then setting the mode True
+                    responseDict['dvpgProperties'][0]['promiscuousMode'] = True
+                    responseDict['dvpgProperties'][0]['forgedTransmit'] = True
+                    payloadData = json.dumps(responseDict)
+                    payloadData = json.loads(payloadData)
+                    payloadData = json.dumps(payloadData)
+                    # updating the org vdc network dvportgroup properties
+                    self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+                    # put api call to update the promiscuous mode and forged mode
+                    apiResponse = self.restClientObj.put(url, self.headers, data=payloadData)
+                    if apiResponse.status_code == requests.codes.accepted:
+                        taskUrl = apiResponse.headers['Location']
+                        # checking the status of the updating dvpgportgroup properties of org vdc network task
+                        self._checkTaskStatus(taskUrl, vcdConstants.ORG_VDC_NETWORK_PORTGROUP_PROPERTIES_TASK_NAME)
+                        logger.debug('Successfully enabled source Org VDC Network {} dvportgroup properties.'.format(orgVdcNetwork['name']))
+                    else:
+                        errorResponse = apiResponse.json()
+                        raise Exception('Failed to enable dvportgroup properties of source Org VDC network {} - {}'.format(orgVdcNetwork['name'], errorResponse['message']))
+                else:
+                    raise Exception('Failed to get dvportgroup properties of source Org VDC network {}'.format(orgVdcNetwork['name']))
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def disablePromiscModeForgedTransmit(self):
+        """
+        Description : Disabling Promiscuous Mode and Forged transmit of source org vdc network
+        """
+        try:
+            logger.info("RollBack: Disabling the Promiscuous Mode and Forged Mode")
+            data = self.rollback.apiData
+            orgVDCNetworkList = data["orgVDCNetworkPromiscModeList"]
+            # iterating over the orgVDCNetworkList
+            for orgVdcNetwork in orgVDCNetworkList:
+                # url to get the dvportgroup details of org vdc network
+                url = "{}{}/{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                          vcdConstants.ALL_ORG_VDC_NETWORKS,
+                                          orgVdcNetwork['id'],
+                                          vcdConstants.ORG_VDC_NETWORK_PORTGROUP_PROPERTIES_URI)
+                # get api call to retrieve the dvportgroup details of org vdc network
+                response = self.restClientObj.get(url, self.headers)
+                if response.status_code == requests.codes.ok:
+                    responseDict = response.json()
+                    # disable call then setting the mode to its initial state by retrieving from apiOutput.json
+                    responseDict['dvpgProperties'][0]['promiscuousMode'] = False #orgVdcNetwork['promiscForge']['dvpgProperties'][0]['promiscuousMode']
+                    responseDict['dvpgProperties'][0]['forgedTransmit'] = False #orgVdcNetwork['promiscForge']['dvpgProperties'][0]['forgedTransmit']
+                    payloadData = json.dumps(responseDict)
+                    payloadData = json.loads(payloadData)
+                    payloadData = json.dumps(payloadData)
+                    # updating the org vdc network dvportgroup properties
+                    self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+                    # put api call to update the promiscuous mode and forged mode
+                    apiResponse = self.restClientObj.put(url, self.headers, data=payloadData)
+                    if apiResponse.status_code == requests.codes.accepted:
+                        taskUrl = apiResponse.headers['Location']
+                        # checking the status of the updating dvpgportgroup properties of org vdc network task
+                        self._checkTaskStatus(taskUrl, vcdConstants.ORG_VDC_NETWORK_PORTGROUP_PROPERTIES_TASK_NAME)
+                        logger.debug('Successfully disabled source Org VDC Network {} dvportgroup properties.'.format(orgVdcNetwork['name']))
+                    else:
+                        errorResponse = apiResponse.json()
+                        raise Exception('Failed to disabled dvportgroup properties of source Org VDC network {} - {}'.format(orgVdcNetwork['name'], errorResponse['message']))
+                else:
+                    raise Exception('Failed to get dvportgroup properties of source Org VDC network {}'.format(orgVdcNetwork['name']))
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def renameVappNetworks(self, vAppNetworkHref):
+        """
+        Description :   Renames the vApp isolated network back to its original name
+                        (i.e removes the trailing -v2t string of the vapp network name)
+        Parameters  :   vAppNetworkHref -   href of the vapp network (STRING)
+        """
+        try:
+            # setting the headers required for the api
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+            # get api call to retrieve the vapp isolated networks' details
+            vAppNetworkResponse = self.restClientObj.get(vAppNetworkHref, headers)
+            vAppNetworkResponseDict = vAppNetworkResponse.json()
+            # changing the name of the vapp isolated network
+            vAppNetworkResponseDict['name'] = vAppNetworkResponseDict['name'][0: len(vAppNetworkResponseDict['name']) - 4]
+            # creating the payload data
+            payloadData = json.dumps(vAppNetworkResponseDict)
+            # setting the content-type required for the api
+            headers['Content-Type'] = vcdConstants.VAPP_NETWORK_CONTENT_TYPE
+            # put api call to update rename the target vapp isolated network
+            putResponse = self.restClientObj.put(vAppNetworkHref, headers=headers, data=payloadData)
+            if putResponse.status_code == requests.codes.ok:
+                logger.debug("Target vApp Isolated Network successfully renamed to '{}'".format(vAppNetworkResponseDict['name']))
+            else:
+                putResponseDict = putResponse.json()
+                raise Exception("Failed to rename the target vApp Isolated Network '{}' : {}".format(vAppNetworkResponseDict['name'] + '-v2t',
+                                                                                                     putResponseDict['message']))
+
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def renameTargetVappIsolatedNetworks(self, vAppList):
+        """
+        Description :   Renames all the vApp isolated networks for each vApp in the specified vApps list
+        Parameters  :   vAppList    -   list of details of target vApps (LIST)
+        """
+        try:
+            # iterating over the target vapps
+            for vApp in vAppList:
+                # get api call to retrieve the details of target vapp
+                vAppResponse = self.restClientObj.get(vApp['href'], self.headers)
+                vAppResponseDict = xmltodict.parse(vAppResponse.content)
+                vAppData = vAppResponseDict['VApp']
+                # checking for the networks in the vapp
+                if vAppData['NetworkConfigSection'].get('NetworkConfig'):
+                    vAppNetworkList = vAppData['NetworkConfigSection']['NetworkConfig'] if isinstance(vAppData['NetworkConfigSection']['NetworkConfig'], list) else [vAppData['NetworkConfigSection']['NetworkConfig']]
+                    if vAppNetworkList:
+                        # iterating over the networks in vapp
+                        for vAppNetwork in vAppNetworkList:
+                            # handling only vapp isolated networks whose name ends with -v2t
+                            if vAppNetwork['Configuration']['FenceMode'] == "isolated" and vAppNetwork['@networkName'].endswith('-v2t'):
+                                vAppLinksList = vAppData['Link'] if isinstance(vAppData['Link'], list) else [vAppData['Link']]
+                                # iterating over the vAppLinksList to get the vapp isolated networks' href
+                                for link in vAppLinksList:
+                                    if link.get('@name'):
+                                        if link['@name'] == vAppNetwork['@networkName'] and 'admin' not in link['@href']:
+                                            vAppNetworkHref = link['@href']
+                                            break
+                                else:
+                                    logger.debug("Failed to rename the target isolated network '{}', since failed to get href".format(vAppNetwork['@networkName']))
+                                    continue
+                                self.renameVappNetworks(vAppNetworkHref)
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def renameTargetOrgVDCNetworks(self, network):
+        """
+        Description :   Renames the target org VDC networks back to its original name
+                        (i.e removes the trailing -v2t from the target org VDC network name)
+        Parameters  :   network -   details of the network that is to be renamed (DICT)
+        """
+        try:
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+            # open api get url to retrieve the details of target org vdc network
+            url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(network['id']))
+            # get api call to retrieve the details of target org vdc network
+            networkResponse = self.restClientObj.get(url, headers=self.headers)
+            networkResponseDict = networkResponse.json()
+
+            # checking if the target org vdc network name endwith '-v2t', if so removing the '-v2t' from the name
+            if networkResponseDict['name'].endswith('-v2t'):
+                # getting the original name of the
+                networkResponseDict['name'] = networkResponseDict['name'][0: len(networkResponseDict['name']) - 4]
+                # creating the payload data of the retrieved details of the org vdc network
+                payloadData = json.dumps(networkResponseDict)
+                # setting the content-type as per the api requirement
+                headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+                # put api call to rename the target org vdc network
+                putResponse = self.restClientObj.put(url, headers=headers, data=payloadData)
+                if putResponse.status_code == requests.codes.accepted:
+                    taskUrl = putResponse.headers['Location']
+                    taskResponse = self.restClientObj.get(url=taskUrl, headers=self.headers)
+                    responseDict = xmltodict.parse(taskResponse.content)
+                    taskResponseDict = responseDict["Task"]
+                    self._checkTaskStatus(taskUrl, taskResponseDict['@operationName'])
+                    logger.debug("Target Org VDC Network '{}' renamed successfully".format(networkResponseDict['name']))
+                else:
+                    errorDict = putResponse.json()
+                    raise Exception("Failed to rename the target org VDC to '{}' : {}".format(networkResponseDict['name'],
+                                                                                              errorDict['message']))
 
         except Exception:
             raise

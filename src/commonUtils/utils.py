@@ -63,6 +63,32 @@ class Utilities():
             raise Exception(jsonNotPresentMessage)
         return jsonData
 
+    def readFile(self, fileName):
+        """
+        Description : Read a file with given filename
+        Parameters  : fileName   - Name of the file along with the path to be read (STRING)
+        """
+        try:
+            if os.path.exists(fileName):
+                with open(fileName, 'r') as f:
+                    data = json.load(f)
+                    return data
+            else:
+                logging.debug(f"File Not Found - '{fileName}'")
+        except Exception as exception:
+            raise exception
+
+    def writeToFile(self, fileName, data):
+        """
+        Description : Write to a file with given filename
+        Parameters  : fileName   - Name of the file along with the path (STRING)
+        """
+        try:
+            with open(fileName, 'w') as f:
+                json.dump(data, f, indent=3)
+        except Exception as exception:
+            raise exception
+
     @staticmethod
     def getTemplate(templateData):
         """
