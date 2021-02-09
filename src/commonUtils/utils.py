@@ -9,6 +9,7 @@ Description: Module which contains all the utilities required for VMware Cloud D
 import json
 import logging
 import os
+import re
 
 import certifi
 import jinja2
@@ -63,6 +64,32 @@ class Utilities():
             raise Exception(jsonNotPresentMessage)
         return jsonData
 
+    def readFile(self, fileName):
+        """
+        Description : Read a file with given filename
+        Parameters  : fileName   - Name of the file along with the path to be read (STRING)
+        """
+        try:
+            if os.path.exists(fileName):
+                with open(fileName, 'r') as f:
+                    data = json.load(f)
+                    return data
+            else:
+                logging.debug(f"File Not Found - '{fileName}'")
+        except Exception as exception:
+            raise exception
+
+    def writeToFile(self, fileName, data):
+        """
+        Description : Write to a file with given filename
+        Parameters  : fileName   - Name of the file along with the path (STRING)
+        """
+        try:
+            with open(fileName, 'w') as f:
+                json.dump(data, f, indent=3)
+        except Exception as exception:
+            raise exception
+
     @staticmethod
     def getTemplate(templateData):
         """
@@ -75,7 +102,30 @@ class Utilities():
         template = env.get_template(env.from_string(templateData))
         return template
 
-    def createPayload(self, filePath, payloadDict, fileType='yaml', componentName=None, templateName=None):
+    def fetchJSON(self, templateData, apiVersion):
+        """
+            Description: Cleanup of metadata after its generation to reduce overall size of metadata
+            Parameters: metadata that needs cleanup for size reduction - (DICT)
+        """
+        if isinstance(templateData, dict):
+            for key in list(templateData.keys()):
+                # If key present in list of keys to be removed then delete its key value pair from metadata
+                if re.match(r'APIVERSION-\d+\.\d+', key) and apiVersion not in key:
+                    # Delete key from metadata dictionary
+                    del templateData[key]
+                elif re.match(r'APIVERSION-\d+\.\d+', key) and apiVersion in key:
+                    data = templateData[key]
+                    del templateData[key]
+                    templateData[list(data.keys())[0]] = data[list(data.keys())[0]]
+                else:
+                    self.fetchJSON(templateData[key], apiVersion)
+        elif isinstance(templateData, list):
+            for index in reversed(range(len(templateData))):
+                if isinstance(templateData[index], dict):
+                    self.fetchJSON(templateData[index], apiVersion)
+
+
+    def createPayload(self, filePath, payloadDict, fileType='yaml', componentName=None, templateName=None, apiVersion='34.0'):
         """
         Description : This function creates payload for particular template which can be used in Rest API for vmware component.
         Parameters  : filePath      - Path of the file (STRING)
@@ -97,7 +147,18 @@ class Utilities():
             if componentName and templateName:
                 templateData = json.loads(templateData)
                 if templateData[componentName][templateName]:
-                    templateData = json.dumps(templateData[componentName][templateName])
+                    templateData = templateData[componentName][templateName]
+                    if apiVersion and fileType.lower() == 'yaml':
+                        apiVersionMatches = re.findall(r'<APIVERSION-\d+\.\d+>.*?</APIVERSION-\d+\.\d+>', templateData)
+                        for match in apiVersionMatches:
+                            if not re.search(f'APIVERSION-{apiVersion}', match):
+                                templateData = templateData.replace(match, '')
+                        if re.search(r'</?APIVERSION-\d+\.\d+>', templateData):
+                            templateData = re.sub(r'</?APIVERSION-\d+\.\d+>', '', templateData)
+
+                    if apiVersion and fileType.lower() == 'json':
+                        self.fetchJSON(templateData, apiVersion)
+                    templateData = json.dumps(templateData)
             # get the template with data which needs to be updated
             template = self.getTemplate(templateData)
             # render the template with the desired payloadDict

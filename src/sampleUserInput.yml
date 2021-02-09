@@ -5,25 +5,36 @@ VCloudDirector:
     username: administrator # VCD login name
     verify: True
   Organization:
-    OrgName: Coke  # Short name of the organization that is already created
+    OrgName: Coke   # Short name of the organization that is already created
   SourceOrgVDC:
-    OrgVDCName: v-CokeOVDC # # Name of the source organization VDC which will be migrated
+    OrgVDCName: OrgVdc  # # Name of the source organization VDC which will be migrated
   NSXTProviderVDC:
     ProviderVDCName: t-pvdc # Name of NSX-T BACKED Provider VDC
     ExternalNetwork: tpm-externalnetwork # Name of the external network to which this Provider VDC is connected.
+    NoSnatDestinationSubnet: 10.100.0.0/16 # Optional parameter if destination subnet is not required
   NSXVProviderVDC:
     ProviderVDCName: v-pvdc # Name of NSX-T BACKED Provider VDC
-    ExternalNetwork: v-edgenetwork # Name of the external network to which this Provider VDC is connected.
     DummyExternalNetwork: Dummy-ext-net # Name of the dummy external network which will be attached to source edge gateway
+  ServiceEngineGroupName: Tenant1 # Service engine group name to be used for load balancer configuration
+  LoadBalancerVIPSubnet: 192.168.255.128/28 # Network to be used for Virtual IP configuration of virtual service in load balancer (Default value - 192.168.255.128/28)
 
 NSXT:
   Common:
     ipAddress: 10.196.235.14 # IP/FQDN of NSXT
     username: admin # NSXT login name
     verify: True
-  EdgeClusterName: Bridge-edge-cluster1 # Name of bridge Edge cluster
+  EdgeClusterName:
+    - Bridge-edge-cluster1 # Name of bridge Edge cluster
+    - Bridge-edge-cluster2
   TransportZone: # bridge transport zone
     TransportZoneName: Bridge-TZ
+  EdgeGatewayDeploymentEdgeCluster: Bridge-edge-cluster3 # Edge cluster to be used for edge gateway deployment
+
+NSXV:
+  Common:
+    ipAddress: 10.196.235.7 # IP/FQDN of NSXV
+    username: admin # NSXV login name
+    verify: True
 
 Vcenter:
   Common:
@@ -33,3 +44,5 @@ Vcenter:
 
 Common:
   CertificatePath: /root/vcdNSXMigrator/caCert.pem # ca/self-signed certificate path for validation
+  MaxThreadCount: 75 # Number of threads to be used for parallel processing
+  TimeoutForVappMigration: 3600 # Timeout to be used for vapp migration task in seconds (Default value - 3600 seconds)

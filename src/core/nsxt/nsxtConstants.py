@@ -23,6 +23,9 @@ NSXT_API_HEADER = {'Content-Type': 'application/json'}
 # nsx-t edge cluster uri
 CREATE_EDGE_CLUSTER_API = "api/v1/edge-clusters"
 
+# nsx-t logical routers uri
+LOGICAL_ROUTER_API = "api/v1/logical-routers"
+
 # nsx-t bridge endpoint profile uri
 CREATE_BRIDGE_ENDPOINT_PROFILE = "api/v1/bridge-endpoint-profiles"
 
@@ -85,3 +88,9 @@ DELETE_HOST_SWITCH_PROFILE_API = "api/v1/host-switch-profiles/{}"
 
 # nsx-t uri to retrieve the list of compute-managers
 LIST_COMPUTE_MANAGERS = "api/v1/fabric/compute-managers"
+
+# BGP ROUTING CONFIG uri
+BGP_ROUTING_CONFIG_API = "policy/api/v1/infra/tier-0s/{}/locale-services/{}/bgp"
+
+# Tier0 locale serivces uri
+GET_LOCALE_SERVICES_API = 'policy/api/v1/infra/tier-0s/{}/locale-services'

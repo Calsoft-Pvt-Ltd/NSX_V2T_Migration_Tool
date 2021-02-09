@@ -23,12 +23,12 @@ handlers:
     class: logging.FileHandler
     level: DEBUG
     formatter: simple
-    filename: VCD-NSX-Migrator-Main.log
+    filename: VCD-NSX-Migrator-{}.log
 
-  tabular:
+  pre-assessment:
     class: logging.FileHandler
     level: INFO
-    filename: VCD-NSX-Migrator-Details.log
+    filename: VCD-NSX-Migrator-preCheck-Summary.log
 
 loggers:
   consoleLogger:
@@ -45,12 +45,12 @@ loggers:
     - console
     propagate: no
 
-  tableLogger:
+  precheckLogger:
     level: INFO
     handlers:
-    - tabular
-    propagate:
-      no
+    - pre-assessment
+    - console
+    propagate: no
 
 root:
   level: DEBUG

@@ -3,3 +3,6 @@
 *.diff
 *.idea
 *apiOutput.json
+*passFile
+*venv
+*__pycache__
