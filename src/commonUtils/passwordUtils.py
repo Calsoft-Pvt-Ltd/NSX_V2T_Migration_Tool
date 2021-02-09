@@ -7,7 +7,7 @@ Description: Module which holds all the methods for encrypting and decrypting pa
 """
 
 import base64
-import random
+import secrets
 import string
 import cryptography
 
@@ -24,7 +24,8 @@ class PasswordUtilities():
             Parameters  :   length    -   Length of the master key to be generated (INTEGER)
             Returns     :   Master key
         """
-        masterKey = ''.join(random.choices(string.digits + string.ascii_letters + string.punctuation, k=length))
+        randomGenerator = secrets.SystemRandom()
+        masterKey = ''.join(randomGenerator.choices(string.digits + string.ascii_letters + string.punctuation, k=length))
         return masterKey
 
     def readPassFile(self, fileName):

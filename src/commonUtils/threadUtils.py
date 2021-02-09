@@ -7,6 +7,7 @@ Description: Module which handles multi-threading operations
 """
 import logging
 import queue
+from queue import Empty
 import threading
 
 logger = logging.getLogger('mainLogger')
@@ -56,7 +57,7 @@ class Thread:
         """
         logger.debug("Current number of tasks in queue - {}".format(self.threadQueue.qsize()))
         while not self.threadQueue.empty():
-            function, saveOutputKey, arguments = self.threadQueue.get(timeout=10)
+            function, saveOutputKey, block, arguments = self.threadQueue.get(timeout=10, block=False)
             args, kwargs = arguments
             logging.debug("Logs of thread - {}".format(threading.currentThread().getName()))
             try:
@@ -66,24 +67,38 @@ class Thread:
                     self.returnValues[saveOutputKey] = output
                 else:
                     self.returnValues[function.__name__] = output
+            except Empty:
+                continue
             except Exception as err:
                 logging.exception(err)
                 # set the value of stop flag to true in case of any exception
                 self.stopValue = True
-            finally:
                 # Acknowledge the task done
+                self.threadQueue.task_done()
+                # if block param is provided then empty the queue in case of failure
+                if block:
+                    # Acquiring the lock to clear the queue
+                    self.acquireLock()
+                    while not self.threadQueue.empty():
+                        self.threadQueue.get(block=False)
+                        self.threadQueue.task_done()
+                    # Releasing the lock after queue is empty
+                    self.releaseLock()
+                    return
+            else:
                 self.threadQueue.task_done()
         return True
 
-    def spawnThread(self, func, *args, saveOutputKey=None, **kwargs):
+    def spawnThread(self, func, *args, saveOutputKey=None, block=False, **kwargs):
         """
             Description: This method puts the task in the queue for further execution by threads.
             Parameters: func          - The object of the target function for the thread(object)
                         args          - Arguments used in target function
                         saveOutputKey - Key to be used to store return value from function
+                        block         - Key used to block further thread execution if a thread ecounters any error
                         kwargs        - Keyword arguements to be used in target function
         """
-        self.threadQueue.put((func, saveOutputKey, (args, kwargs)), timeout=10)
+        self.threadQueue.put((func, saveOutputKey, block, (args, kwargs)), timeout=10)
 
     def joinThreads(self):
         """

@@ -102,6 +102,7 @@ class Rollback:
         self.rollbackTask.append('vcdObj.reconnectOrDisconnectSourceEdgeGateway(sourceEdgeGatewayId, connect=True)')
         self.reconnectOrDisconnectSourceEdgeGateway = copy.deepcopy(self.rollbackTask)
         self.reconnectOrgVDCNetworks = copy.deepcopy(self.rollbackTask)
+        self.configureDHCP = copy.deepcopy(self.rollbackTask)
         self.reconnectTargetEdgeGateway = copy.deepcopy(self.rollbackTask)
 
     def perform(self, vcdObj, vcdValidationObj, nsxtObj, rollbackTasks=None):
@@ -124,6 +125,10 @@ class Rollback:
             targetOrgVDCId = self.apiData.get('targetOrgVDC', {}).get('@id')
 
             if targetOrgVDCId:
+                # allow rollback if there are no vapps on target Org VDC
+                if self.key == 'moveVapp' and not vcdObj.getOrgVDCvAppsList(targetOrgVDCId):
+                    self.moveVapp = copy.deepcopy(self.rollbackTask)
+
                 # getting source edge gateway id from metadata
                 sourceEdgeGatewayId = self.apiData.get('sourceEdgeGatewayId')
                 # getting target network list from metadata
@@ -157,16 +162,17 @@ class Rollback:
             # Saving the list of tasks left as part of rollback in metadata to continue rollback from the same step
             vcdObj.createMetaDataInOrgVDC(sourceOrgVDCId,
                                           metadataDict={'rollbackTasks': rollbackTasksLeft}, domain='system')
-            self.logger.info("Rollback failed, manual rollback required or use --rollback parameter to retry rollback again.")
+            self.logger.error("Rollback failed, manual rollback required or use --rollback parameter to retry rollback again.")
         else:
             # Deleting metadata created in the source org vdc after rollback
             vcdObj.deleteMetadata(sourceOrgVDCId)
+            self.logger.info("Rollback completed successfully.")
         finally:
             # logging out vcd user
             vcdObj.deleteSession()
             # clear the requests certificates entries
             self.utils.clearRequestsPemCert()
-            self.logger.critical("VCD V2T Migration Tool failed due to errors. For more details, please refer "
-                                 "main log file {}".format(self.mainLogfile))
+            #self.logger.critical("VCD V2T Migration Tool failed due to errors. For more details, please refer "
+            #                     "main log file {}".format(self.mainLogfile))
             # Exiting the migrator after rollback
             os._exit(0)

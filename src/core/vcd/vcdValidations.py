@@ -159,10 +159,13 @@ class VCDMigrationValidation():
         sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id'].split(':')[-1]
         targetOrgVDCId = self.rollback.apiData['targetOrgVDC']['@id']
 
-        # fetching metadata from source org vdc
-        metadata = self.getOrgVDCMetadata(sourceOrgVDCId, wholeData=True)
+        # fetching raw metadata from source org vdc
+        raw_metadata = self.getOrgVDCMetadata(sourceOrgVDCId, rawData=True)
+
         # segregating user created metadata
-        metadataToMigrate = {key: value for key, value in metadata.items() if not re.search(r'-v2t$', key)}
+        metadataToMigrate = {data['Key']: [data['TypedValue']['Value'], data['TypedValue']['@xsi:type'], data.get('Domain')] for data in raw_metadata
+                             if not re.search(r'-v2t$', data['Key'])}
+
         if metadataToMigrate:
             # Creating metadata in target org vdc
             self.createMetaDataInOrgVDC(targetOrgVDCId, metadataDict=metadataToMigrate, migration=True)
@@ -172,12 +175,13 @@ class VCDMigrationValidation():
         logger.info('Successfully prepared Target VDC.')
 
     @isSessionExpired
-    def getOrgVDCMetadata(self, orgVDCId, wholeData=False, domain='all'):
+    def getOrgVDCMetadata(self, orgVDCId, wholeData=False, domain='all', rawData=False):
         """
         Description :   Gets Metadata in the specified Organization VDC
         Parameters  :   orgVDCId    -   Id of the Organization VDC (STRING)
                         wholeData   -   key that decides which metadata is required i.e. whole data or only created by migration tool (BOOLEAN)
                         domain      -   key used to fetch domain specific metadata all/system/general (STRING)
+                        rawData     -   key used to fetch raw metadata Organization VDC (STRING)
         Returns     :   metadata    -   key value pair of metadata in Organization VDC (DICT)
         """
         try:
@@ -193,6 +197,8 @@ class VCDMigrationValidation():
             if response.status_code == requests.codes.ok:
                 if responseDict['Metadata'].get('MetadataEntry'):
                     metaDataList = responseDict['Metadata']['MetadataEntry'] if isinstance(responseDict['Metadata']['MetadataEntry'], list) else [responseDict['Metadata']['MetadataEntry']]
+                    if rawData:
+                        return metaDataList
                     for data in metaDataList:
                         if domain == 'general' and data.get('Domain'):
                             continue
@@ -320,7 +326,15 @@ class VCDMigrationValidation():
                         # replacing & with escape value for XML based API's
                         if '&' in str(value):
                             value = eval(str(value).replace('&', '&amp;'))
-                    payloadDict = {'key': key, 'value': value, 'domain': domainPayload}
+                        metadataType = 'MetadataStringValue'
+                    else:
+                        # Fetch domain of user-defined metadata and create payload from it
+                        value, metadataType, domain = value
+                        if domain:
+                            domainPayload = f"<Domain visibility='{domain['@visibility']}'>{domain['#text']}</Domain>"
+                        else:
+                            domainPayload = ''
+                    payloadDict = {'key': key, 'value': value, 'domain': domainPayload, 'metadataType': metadataType}
                     # creating payload data
                     xmlPayload += self.vcdUtils.createPayload(filePath,
                                                               payloadDict,
@@ -621,30 +635,30 @@ class VCDMigrationValidation():
             raise
 
     @isSessionExpired
-    def getSourceOrgVDCvAppsList(self, sourceOrgVDCId):
+    def getOrgVDCvAppsList(self, orgVDCId):
         """
         Description :   Retrieves the list of vApps in the Source Org VDC
         Returns     :   Returns Source vapps list (LIST)
         """
         try:
-            logger.debug("Getting Source Org VDC vApps List")
+            logger.debug("Getting Org VDC vApps List")
 
-            sourceOrgVDCId = sourceOrgVDCId.split(':')[-1]
+            orgVDCId = orgVDCId.split(':')[-1]
             url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                vcdConstants.ORG_VDC_BY_ID.format(sourceOrgVDCId))
+                                vcdConstants.ORG_VDC_BY_ID.format(orgVDCId))
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
                 responseDict = xmltodict.parse(response.content)
             else:
-                raise Exception('Error occurred while retrieving Org VDC - {} details'.format(sourceOrgVDCId))
+                raise Exception('Error occurred while retrieving Org VDC - {} details'.format(orgVDCId))
             # getting list instance of resources in the source org
             if responseDict['AdminVdc'].get('ResourceEntities'):
-                sourceOrgVDCEntityList = responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'] \
+                orgVDCEntityList = responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'] \
                     if isinstance(responseDict['AdminVdc']['ResourceEntities']['ResourceEntity'], list) else [
                     responseDict['AdminVdc']['ResourceEntities']['ResourceEntity']]
-                if sourceOrgVDCEntityList:
+                if orgVDCEntityList:
                     # getting list of source vapps
-                    sourceVappList = [vAppEntity for vAppEntity in sourceOrgVDCEntityList if
+                    sourceVappList = [vAppEntity for vAppEntity in orgVDCEntityList if
                                     vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
                     return sourceVappList
             else:
@@ -663,7 +677,7 @@ class VCDMigrationValidation():
         """
         try:
             vAppFencingList = list()
-            allVappList = self.getSourceOrgVDCvAppsList(sourceOrgVDCId)
+            allVappList = self.getOrgVDCvAppsList(sourceOrgVDCId)
 
             # iterating over the vapps in the source org vdc
             for eachVapp in allVappList:
@@ -873,7 +887,10 @@ class VCDMigrationValidation():
             if len(sourceOrgVDCPlacementPolicyList) != len(targetPVDCComputePolicyList):
                 raise Exception('Target PVDC - {} does not have source Org VDC - {} placement policies in it.'.format(targetProviderVDCName,
                                                                                                                      sourceOrgVDCName))
-            logger.debug("Validated successfully, source Org VDC placement policy exist in target PVDC")
+            if len(sourceOrgVDCPlacementPolicyList)>0:
+                logger.debug("Validated successfully, source Org VDC placement policy exist in target PVDC")
+            else:
+                logger.debug("No placement policies are present in source Org VDC")
         except Exception:
             raise
 
@@ -1159,6 +1176,7 @@ class VCDMigrationValidation():
             Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
         """
         try:
+            edgeGatewayId = edgeGatewayId.split(':')[-1]
             # url to connect uplink the source edge gateway
             logger.debug("Validating if all edge gateways interfaces are in use")
             url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
@@ -1170,11 +1188,10 @@ class VCDMigrationValidation():
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
                 gatewayInterfaces = responseDict['configuration']['gatewayInterfaces']['gatewayInterface']
-                if len(gatewayInterfaces) >= 9:
-                    return ['No more uplinks present on source Edge Gateway to connect dummy External Uplink.']
-                return []
+                if len(gatewayInterfaces) > 9:
+                    raise Exception('No more uplinks present on source Edge Gateway to connect dummy External Uplink.')
             else:
-                return ['Failed to get Edge Gateway Uplink details']
+                return Exception('Failed to get Edge Gateway Uplink details')
         except Exception:
             raise
 
@@ -1566,31 +1583,34 @@ class VCDMigrationValidation():
             response = self.restClientObj.get(url, headers)
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
-                if responseDict['sites']:
-                    sites = responseDict['sites']['sites']
-                    sourceIPsecSite = sites if isinstance(sites, list) else [sites]
-                    # iterating over source ipsec sites
-                    for eachsourceIPsecSite in sourceIPsecSite:
-                        # raising exception if ipsecSessionType is not equal to policybasedsession
-                        if eachsourceIPsecSite['ipsecSessionType'] != "policybasedsession":
-                            errorList.append(
-                                'Source IPSEC rule is having routebased session type which is not supported\n')
-                        # raising exception if the ipsec encryption algorithm in the source ipsec rule  is not present in the target
-                        if eachsourceIPsecSite['encryptionAlgorithm'] != "aes256":
-                            errorList.append(
-                                'Source IPSEC rule is configured with unsupported encryption algorithm {}\n'.format(
-                                    eachsourceIPsecSite['encryptionAlgorithm']))
-                        # raising exception if the authentication mode is not psk
-                        if eachsourceIPsecSite['authenticationMode'] != "psk":
-                            errorList.append(
-                                'Authentication mode as Certificate is not supported in target edge gateway\n')
-                        # raising exception if the digest algorithm is not supported in target
-                        if eachsourceIPsecSite['digestAlgorithm'] != "sha1":
-                            errorList.append(
-                                'The specified digest algorithm {} is not supported in target edge gateway\n'.format(
-                                    eachsourceIPsecSite['digestAlgorithm']))
-                    logger.debug("IPSEC configuration of Source Edge Gateway retrieved successfully")
-                    return errorList, responseDict
+                if responseDict['enabled']:
+                    if responseDict['sites']:
+                        sites = responseDict['sites']['sites']
+                        sourceIPsecSite = sites if isinstance(sites, list) else [sites]
+                        # iterating over source ipsec sites
+                        for eachsourceIPsecSite in sourceIPsecSite:
+                            # raising exception if ipsecSessionType is not equal to policybasedsession
+                            if eachsourceIPsecSite['ipsecSessionType'] != "policybasedsession":
+                                errorList.append(
+                                    'Source IPSEC rule is having routebased session type which is not supported\n')
+                            # raising exception if the ipsec encryption algorithm in the source ipsec rule  is not present in the target
+                            if eachsourceIPsecSite['encryptionAlgorithm'] != "aes256":
+                                errorList.append(
+                                    'Source IPSEC rule is configured with unsupported encryption algorithm {}\n'.format(
+                                        eachsourceIPsecSite['encryptionAlgorithm']))
+                            # raising exception if the authentication mode is not psk
+                            if eachsourceIPsecSite['authenticationMode'] != "psk":
+                                errorList.append(
+                                    'Authentication mode as Certificate is not supported in target edge gateway\n')
+                            # raising exception if the digest algorithm is not supported in target
+                            if eachsourceIPsecSite['digestAlgorithm'] != "sha1":
+                                errorList.append(
+                                    'The specified digest algorithm {} is not supported in target edge gateway\n'.format(
+                                        eachsourceIPsecSite['digestAlgorithm']))
+                        logger.debug("IPSEC configuration of Source Edge Gateway retrieved successfully")
+                        return errorList, responseDict
+                    else:
+                        return errorList, responseDict
                 else:
                     return errorList, responseDict
             else:
@@ -1764,7 +1784,7 @@ class VCDMigrationValidation():
         """
         try:
             self.suspendedVMList = list()
-            sourceVappsList = self.getSourceOrgVDCvAppsList(sourceOrgVDCId)
+            sourceVappsList = self.getOrgVDCvAppsList(sourceOrgVDCId)
             if not sourceVappsList:
                 return
 
@@ -1834,7 +1854,7 @@ class VCDMigrationValidation():
             self.vAppNetworkDict = dict()
             self.DHCPEnabled = dict()
 
-            vAppList = self.getSourceOrgVDCvAppsList(sourceOrgVDCId)
+            vAppList = self.getOrgVDCvAppsList(sourceOrgVDCId)
             if not vAppList:
                 return
 
@@ -1848,10 +1868,6 @@ class VCDMigrationValidation():
                 for key, value in self.vAppNetworkDict.items():
                     vAppNetworkList.append('vAppName: ' + key + ' : NetworkName: ' + ', '.join(value))
                 raise Exception("vApp Routed Network: '{}' exist in Source Org VDC".format(', '.join(vAppNetworkList)))
-            if self.DHCPEnabled:
-                for key, value in self.DHCPEnabled.items():
-                    vAppNetworkList.append('vAppName: ' + key + ' : NetworkName: ' + ', '.join(value))
-                raise Exception("DHCP is configured on vApp Isolated Network: '{}'".format(', '.join(vAppNetworkList)))
         except Exception:
             raise
 
@@ -1901,7 +1917,7 @@ class VCDMigrationValidation():
             vAppNetworkList = list()
             self.DHCPEnabled = dict()
 
-            vAppList = self.getSourceOrgVDCvAppsList(sourceOrgVDCId)
+            vAppList = self.getOrgVDCvAppsList(sourceOrgVDCId)
             if not vAppList:
                 return
 
@@ -1938,7 +1954,10 @@ class VCDMigrationValidation():
                         responseDict['VApp']['Children']['Vm']]
                     # iterating over vms in the vapp
                     for vm in vmList:
-                        mediaSettings = vm['VmSpecSection']['MediaSection']['MediaSettings']
+                        mediaSettings = vm['VmSpecSection']['MediaSection']['MediaSettings'] if isinstance(
+                            vm['VmSpecSection']['MediaSection']['MediaSettings'], list) else [
+                            vm['VmSpecSection']['MediaSection']['MediaSettings']
+                        ]
                         # iterating over the list of media settings of vm
                         for mediaSetting in mediaSettings:
                             # checking for the ISO media type that should be disconnected, else raising exception
@@ -2117,10 +2136,6 @@ class VCDMigrationValidation():
             if isinstance(dummyExternalNetwork, Exception):
                 raise dummyExternalNetwork
 
-            # validating whether edge gateway have dedicated external network
-            logger.info('Validating whether other Edge gateways are using dedicated external network')
-            self.validateDedicatedExternalNetwork()
-
             # getting the source provider VDC details and checking if its NSX-V backed
             logger.info('Getting the source Provider VDC - {} details.'.format(vcdDict.NSXVProviderVDCName))
             sourceProviderVDCId, isNSXTbacked = self.getProviderVDCId(vcdDict.NSXVProviderVDCName)
@@ -2156,8 +2171,7 @@ class VCDMigrationValidation():
             self.validateVMPlacementPolicy(sourceOrgVDCId)
 
             # validating whether source and target P-VDC have same vm storage profiles
-            logger.info('Validating whether source Org VDC and target Provider VDC have same storage profiles')
-            logger.info('Validating source org vdc storage profiles present in target provider vdc are all enabled in target provider vdc')
+            logger.info('Validating storage profiles in source Org VDC and target Provider VDC')
             self.validateStorageProfiles()
 
             # validating whether same subnet exist in source and target External networks
@@ -2177,6 +2191,10 @@ class VCDMigrationValidation():
             sourceEdgeGatewayId = self.validateSingleEdgeGatewayExistForOrgVDC(sourceOrgVDCId)
             self.rollback.apiData['sourceEdgeGatewayId'] = sourceEdgeGatewayId
 
+            # validating whether edge gateway have dedicated external network
+            logger.info('Validating whether other Edge gateways are using dedicated external network')
+            self.validateDedicatedExternalNetwork(sourceEdgeGatewayId)
+
             # getting the source Org VDC networks
             logger.info('Getting the Org VDC networks of source Org VDC {}'.format(vcdDict.OrgVDCName))
             orgVdcNetworkList = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks')
@@ -2193,6 +2211,10 @@ class VCDMigrationValidation():
             logger.info('Validating whether Org VDC have Direct networks.')
             self.validateOrgVDCNetworkDirect(orgVdcNetworkList)
 
+            #Validating if all edge gateways interfaces are in use
+            logger.info('Validating if all edge gateways interfaces are in use')
+            self.validateEdgeGatewayUplinks(sourceEdgeGatewayId)
+
             # get the list of services configured on source Edge Gateway
             logger.info('Getting the services configured on source Edge Gateway')
             ipsecConfigDict = self.getEdgeGatewayServices(sourceEdgeGatewayId)
@@ -2200,6 +2222,7 @@ class VCDMigrationValidation():
             self.rollback.apiData['ipsecConfigDict'] = ipsecConfigDict
 
             # validating nat and ipsec service ips are from sub-allocated ip pool of source edge gateway
+            logger.info("Validating whether external ip's are added in sub-allocated ip pool of source edge gateway")
             self.validateNatIpInSrcEdgeSuballocatedPool(sourceOrgVDCId, vcdDict.NSXVProviderVDCExternalNetwork, sourceEdgeGatewayId)
 
             logger.info("Validating if Independent Disks exist in Source Org VDC")
@@ -2216,13 +2239,19 @@ class VCDMigrationValidation():
             raise
 
     @isSessionExpired
-    def validateDedicatedExternalNetwork(self):
+    def validateDedicatedExternalNetwork(self, sourceEdgeGatewayId):
         """
         Description :   Validate if the External network is dedicatedly used by any other edge gateway
         """
         try:
             # reading the data from metadata
             data = self.rollback.apiData
+            sourceEdgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
+            bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
+            if bgpConfigDict and isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == 'true'\
+                    and data['targetExternalNetwork']['usedIpCount'] > 0:
+                raise Exception('Dedicated target external network is required as BGP is configured on source edge gateway')
+
             if 'targetExternalNetwork' not in data.keys():
                 raise Exception('Target External Network not present')
             else:
@@ -2340,7 +2369,7 @@ class VCDMigrationValidation():
         """
         try:
             emptyvAppList = list()
-            sourceVappsList = self.getSourceOrgVDCvAppsList(sourceOrgVDCId)
+            sourceVappsList = self.getOrgVDCvAppsList(sourceOrgVDCId)
             if not sourceVappsList:
                 return
 
@@ -2643,9 +2672,9 @@ class VCDMigrationValidation():
                         or NAT/IPSec service  ip address is present and source edge gateway's sub-allocated ip pool is absent
         """
         try:
-            logger.info("Validating whether external ip's are added in sub-allocated ip pool of source edge gateway")
             # retrieving the details of the source edge gateway
             responseDict = self.getOrgVDCEdgeGateway(orgVDCId)
+
             if responseDict:
                 sourceEdgeGatewayDict = responseDict['values'][0]
                 # getting the list instance of source edge gateway uplinks
@@ -2692,9 +2721,9 @@ class VCDMigrationValidation():
                             natInvalidIpList.append(natRule['ruleId'])
 
                     # if natInvalidIpList is empty means no invalid ips present in nat
-                    if not natInvalidIpList:
+                    if not natInvalidIpList and userdefinedNatRules:
                         logger.debug("Validated Successfully, NAT Ips are present in Source Edge Gateway's sub-allocated ip pool")
-                    else:
+                    elif natInvalidIpList:
                         if subAllocatedPoolsList:
                             errorString += "The Ips used in NAT '{}' are not present in source edge gateway's sub-allocated ip pool {}\n".format(', '.join(natInvalidIpList),
                                                                                                                                                  subAllocatedPoolsList)
@@ -2708,9 +2737,8 @@ class VCDMigrationValidation():
                 ipsecErrorList, ipsecResponseDict = self.getEdgeGatewayIpsecConfig(gatewayId)
                 # checking if ipsec rules are present or not in source edge gateway
                 if ipsecResponseDict:
-
                     # checking if ipsec is enabled on source edge gateway, if so then only validating ipsec ips else not validating
-                    if ipsecResponseDict['enabled'] == "true":
+                    if ipsecResponseDict['enabled']:
 
                         # ipsecInvalidIpList is a list of invalid ipsec ips rule name list, initially creating empty list
                         ipsecInvalidIpList = list()

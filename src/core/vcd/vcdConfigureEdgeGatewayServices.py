@@ -12,6 +12,8 @@ import os
 import random
 import time
 
+from collections import OrderedDict
+
 import requests
 import xmltodict
 
@@ -690,8 +692,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # configure dns on target only if source dns is enabled
             if data:
                 logger.info('Configuring DNS on target edge gateway')
-                forwardersList = data if isinstance(data, list) else [data]
-                forwarders = [forwarder['ipAddress'] for forwarder in forwardersList]
+                if isinstance(data, list):
+                    forwarders = [forwarder['ipAddress'] for forwarder in data]
+                elif isinstance(data, OrderedDict):
+                    forwarders = data['ipAddress'] if isinstance(data['ipAddress'], list) else [data['ipAddress']]
+                else:
+                    forwardersList = [data]
+                    forwarders = [forwarder['ipAddress'] for forwarder in forwardersList]
                 # creating payload for dns configuration
                 payloadData = {"enabled": True,
                                "listenerIp": None,
@@ -701,7 +708,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                "conditionalForwarderZones": None,
                                "version": None}
                 payloadData = json.dumps(payloadData)
-                # createing url for dns config update
+                # creating url for dns config update
                 url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                       vcdConstants.ALL_EDGE_GATEWAYS,
                                       vcdConstants.CREATE_DNS_CONFIG.format(edgeGatewayID))
@@ -791,7 +798,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         except Exception:
             raise
 
-    @remediate
     def createSecurityGroup(self, networkID, firewallRule, edgeGatewayID):
         """
            Description: Create security groups in the target Edge gateway

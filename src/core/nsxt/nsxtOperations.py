@@ -166,9 +166,9 @@ class NSXTOperations():
                         logger.debug('Bridge Endpoint Profile {} created successfully.'.format(payloadDict['bridgeEndpointProfileName']))
                         bridgeEndpointProfileId = json.loads(response.content)["id"]
                         bridgeEndpointProfileList.append(bridgeEndpointProfileId)
-                        logger.info('Successfully created Bridge Endpoint Profile.')
                     else:
                         raise Exception('Failed to create Bridge Endpoint Profile. Errors {}.'.format(response.content))
+                logger.info('Successfully created Bridge Endpoint Profile.')
             else:
                 raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
         except Exception:
@@ -255,6 +255,9 @@ class NSXTOperations():
                                             "transport_zone_profile_ids": edgeNodeData['transport_zone_endpoints'][0]['transport_zone_profile_ids']}
                     transportZoneList.append(newTransportZoneList)
                     dataNetworkList = edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config']['data_network_ids']
+                    # since nsxt 3.0 null coming in data_network_ids while getting edge transport node details
+                    if None in dataNetworkList:
+                        dataNetworkList.remove(None)
                     newDataNetworkList = portGroup['moref']
                     dataNetworkList.append(newDataNetworkList)
                     edgeNodeData["host_switch_spec"]["host_switches"] = hostSwitchSpec
@@ -272,7 +275,6 @@ class NSXTOperations():
                                                       auth=self.restClientObj.auth)
                     if response.status_code == requests.codes.ok:
                         logger.debug("Successfully updated Edge Transport node {}".format(edgeNodeData['display_name']))
-                        logger.info('Successfully added Bridge Transport Zone to Bridge Edge Transport Nodes.')
                     else:
                         msg = "Failed to update Edge Transport node {} with error {}.".format(edgeNodeData['display_name'], response.json()['error_message'])
                         logger.error(msg)
@@ -281,6 +283,7 @@ class NSXTOperations():
                     msg = "Failed to get Edge Transport node {} with error {}.".format(data['transport_node_id'], response.json()['error_message'])
                     logger.error(msg)
                     raise Exception(msg)
+            logger.info('Successfully added Bridge Transport Zone to Bridge Edge Transport Nodes.')
         except Exception:
             raise
 
@@ -349,13 +352,13 @@ class NSXTOperations():
                         if geneveLogicalSwitch[2] == 'NAT_ROUTED':
                             edgeNodeList.append(edgeNodeId)
                         self.rollback.apiData['edgeNodeList'] = edgeNodeList
-                        logger.info('Successfully attached bridge endpoint profile to Logical Switch.')
-                        logger.info('Successfully configured NSXT Bridging.')
                     else:
                         raise Exception('Failed to attach Bridge Endpoint Profile to logical switch {}.'.format(geneveLogicalSwitch[1]))
                 else:
                     logger.debug('Failed to create Bridge Endpoint')
                     raise Exception('Failed to create Bridge Endpoint')
+            logger.info('Successfully attached bridge endpoint profile to Logical Switch.')
+            logger.info('Successfully configured NSXT Bridging.')
             return
         except Exception:
             raise

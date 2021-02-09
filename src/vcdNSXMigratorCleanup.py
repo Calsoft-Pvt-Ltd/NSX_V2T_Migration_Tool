@@ -19,7 +19,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
     """
     Description :   The class has methods which do all the clean-up tasks(like deleting, resetting, etc) after migrating the VMware vCloud Director from NSX-V to NSX-T
     """
-    def __init__(self, inputDict, vcdObj, nsxtObj):
+    def __init__(self, inputDict, vcdObj, nsxtObj, passFilePath):
         """
         Description :   Initializer method of all clean-up tasks
         """
@@ -28,6 +28,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
         self.inputDict = inputDict
         self.nsxtObj = nsxtObj
         self.vcdObj = vcdObj
+        self.passFilePath = passFilePath
 
     def run(self):
         """
@@ -119,6 +120,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
                     self.consoleLogger.info('Updating the source External network.')
                     self.vcdObj.updateSourceExternalNetwork(sourceExternalNetworkName, ipRanges)
             self.consoleLogger.info('Successfully cleaned up Source Org VDC.')
+            self.consoleLogger.warning('Please remove the password file - "{}" if not required, for security reasons'.format(self.passFilePath))
 
             # deleting the current user api session of vmware cloud director
             self.consoleLogger.debug('Logging out the current VMware Cloud Director user')

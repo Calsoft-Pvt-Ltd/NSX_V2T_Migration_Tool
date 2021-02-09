@@ -215,7 +215,7 @@ vCloudDirector:
     <MetadataEntry>
       {{domain}}
       <Key>{{key}}</Key>
-      <TypedValue ovf:type="MetadataStringValue">
+      <TypedValue ovf:type="{{metadataType}}">
         <Value>{{value}}</Value>
       </TypedValue>
     </MetadataEntry>
@@ -228,3 +228,26 @@ vCloudDirector:
       <root:IpAddressAllocationMode>{{allocationModel}}</root:IpAddressAllocationMode>
       <root:NetworkAdapterType>{{adapterType}}</root:NetworkAdapterType>
     </root:NetworkConnection>
+  moveVappNoNetworkIpPoolConfig:
+    <root:NetworkConfig networkName="{{networkName}}">
+      <root:Description>{{networkDescription}}</root:Description>
+      <root:Configuration>
+        <root:IpScopes>
+          <root:IpScope>
+            <root:IsInherited>{{isInherited}}</root:IsInherited>
+            <root:Gateway>{{gateway}}</root:Gateway>
+            <root:Netmask>{{netmask}}</root:Netmask>
+            <root:SubnetPrefixLength>{{subnet}}</root:SubnetPrefixLength>
+            <root:Dns1>{{dns1}}</root:Dns1>
+            <root:IpRanges>
+              <root:IpRange>
+              <root:StartAddress>{{startAddress}}</root:StartAddress>
+              <root:EndAddress>{{endAddress}}</root:EndAddress>
+              </root:IpRange>
+            </root:IpRanges>
+          </root:IpScope>
+        </root:IpScopes>
+        <root:FenceMode>{{fenceMode}}</root:FenceMode>
+      </root:Configuration>
+      <root:IsDeployed>{{isDeployed}}</root:IsDeployed>
+    </root:NetworkConfig>

@@ -140,10 +140,12 @@ class VcenterApi():
             if response.status_code == requests.codes.ok:
                 # successful log out of current vcenter user
                 logger.debug("Successfully logged out vcenter user")
+            elif response.status_code == requests.codes.unauthorized:
+                logger.debug("vCenter user session already ended due to timeout")
             else:
                 # failure in current vcenter user log out
                 responseDict = response.json()
-                raise Exception("Failed to log out the current vcenter user: {} with error code: {}".format(responseDict['localizableMessages'][0]['defaultMessage'],
-                                                                                                            responseDict['majorErrorCode']))
+                raise Exception("Failed to log out the current vcenter user due to error: "
+                                .format(responseDict['value']['messages'][0]['default_message']))
         except Exception:
             raise

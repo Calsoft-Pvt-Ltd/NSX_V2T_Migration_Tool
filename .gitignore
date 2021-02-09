@@ -3,3 +3,4 @@
 *.diff
 *.idea
 *apiOutput.json
+*passFile

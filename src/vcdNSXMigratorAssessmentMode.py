@@ -41,7 +41,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         self.vcdValidationObj.vcdLogin()
         self.vcdValidationMapping = dict()
         self.currentDateTime = os.path.basename(self.preAssessmentLogs).replace('VCD-NSX-Migrator-preCheck-Summary-', '').replace('.log', '')
-        self.summaryIntroData = 'Start Time: ' + self.currentDateTime + "\nOrganization VDC: " + self.inputDict.OrgName + "\n"
+        self.summaryIntroData = 'Start Time: ' + self.currentDateTime + "\nOrganization VDC: " + self.inputDict.OrgVDCName + "\n"
         with open(self.preAssessmentLogs, 'w') as preCheckSummary:
             preCheckSummary.write(self.summaryIntroData)
 
@@ -106,6 +106,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating vApps do not have routed vApp networks': [self.vcdValidationObj.validateNoVappNetworksExist, self.sourceOrgVDCId],
                 'Validating vApps do not have isolated vApp networks with DHCP enabled': [self.vcdValidationObj.validateDHCPOnIsolatedvAppNetworks, self.sourceOrgVDCId],
                 'Validating whether source Org VDC is fast provisioned': [self.vcdValidationObj.validateOrgVDCFastProvisioned],
+                'Validating whether single Edge gateway exist in source Org VDC': [self.vcdValidationObj.validateSingleEdgeGatewayExistForOrgVDC, self.sourceOrgVDCId],
                 'Validating whether Edge gateways are using dedicated external network': [self.vcdValidationObj.validateDedicatedExternalNetwork],
                 'Validating Source Network Pool is VXLAN or VLAN backed': [self.vcdValidationObj.validateSourceNetworkPools],
                 'Validating whether source Org VDC is NSX-V backed': [self.vcdValidationObj.validateOrgVDCNSXbacking, self.sourceOrgVDCId, self.sourceProviderVDCId, self.isSourceNSXTbacked],
@@ -113,9 +114,8 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating Hardware version of Source Provider VDC: {} and Target Provider VDC: {}'.format(self.inputDict.NSXVProviderVDCName, self.inputDict.NSXTProviderVDCName): [self.vcdValidationObj.validateHardwareVersion],
                 'Validating if fencing is enabled on vApps in source OrgVDC': [self.vcdValidationObj.validateVappFencingMode, self.sourceOrgVDCId],
                 'Validating whether source Org VDC placement policies are present in target PVDC': [self.vcdValidationObj.validateVMPlacementPolicy, self.sourceOrgVDCId],
-                'Validating whether source Org VDC and target Provider VDC have same storage profiles\nValidating source org vdc storage profiles present in target provider vdc are all enabled in target provider vdc': [self.vcdValidationObj.validateStorageProfiles],
+                'Validating storage profiles in source Org VDC and target Provider VDC': [self.vcdValidationObj.validateStorageProfiles],
                 'Validating if source and target External networks have same subnets': [self.vcdValidationObj.validateExternalNetworkSubnets],
-                'Validating whether single Edge gateway exist in source Org VDC': [self.vcdValidationObj.validateSingleEdgeGatewayExistForOrgVDC, self.sourceOrgVDCId],
                 'Validating if all edge gateways interfaces are in use': [self.vcdValidationObj.validateEdgeGatewayUplinks],
                 'Validating whether DHCP is enabled on source Isolated Org VDC network': [self.vcdValidationObj.validateDHCPEnabledonIsolatedVdcNetworks, self.orgVdcNetworkList],
                 'Validating whether Org VDC networks are shared': [self.vcdValidationObj.validateOrgVDCNetworkShared, self.orgVdcNetworkList],
@@ -145,7 +145,8 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 argsList = method
                 if desc == 'Validating Source Edge gateway services' or \
                         desc == 'Validating if all edge gateways interfaces are in use' or \
-                        desc == 'Validating whether external ips are added in sub-allocated ip pool of source edge gateway':
+                        desc == 'Validating whether external ips are added in sub-allocated ip pool of source edge gateway' or \
+                        desc == 'Validating whether Edge gateways are using dedicated external network':
                     if validationReturnDict['Validating whether single Edge gateway exist in source Org VDC']:
                         argsList.append(validationReturnDict['Validating whether single Edge gateway exist in source Org VDC'])
                     else:

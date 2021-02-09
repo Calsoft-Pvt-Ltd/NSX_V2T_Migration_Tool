@@ -378,8 +378,8 @@ class VMwareCloudDirectorNSXMigrator():
             else:
                 if not self.passFile:
                     self._encryptAndSavePasswords()
-                    self.consoleLogger.info(
-                        'Password file is saved at location: {}'.format(os.path.join(os.path.dirname(os.path.abspath('passFile')), 'passFile')))
+                    self.consoleLogger.warning(
+                        'Password file is saved at location: {}'.format(os.path.join(os.path.dirname(os.path.abspath('passFile')), 'passfile')))
         except Exception:
             raise
 
@@ -444,6 +444,17 @@ class VMwareCloudDirectorNSXMigrator():
             # Saving vcdDict in Rollback class
             self.rollback.vcdDict = self.inputDict
 
+            # if verify is false on any component then logging a message
+            if not all([self.inputDict.VCloudDirectorVerify, self.inputDict.NSXTVerify, self.inputDict.VcenterVerify]):
+                componentsWithCertificateValidationDisabled = ['VMware vCloud Director' if not self.inputDict.VCloudDirectorVerify else str(),
+                                'NSX' if not self.inputDict.NSXTVerify else str(),
+                                'vCenter' if not self.inputDict.VcenterVerify else str()]
+
+                warningMessage = '\n'+'*'*100+'\n*'+(('Certificate validation disabled for - ' +
+                                 ', '.join([component for component in componentsWithCertificateValidationDisabled if component != str()]))
+                                 .center(98)+'*\n'+'*'*100)
+                logging.warning(warningMessage)
+
             # if verify is set to True on any one component then we have to update certificates in requests
             if self.inputDict.VCloudDirectorVerify or self.inputDict.NSXTVerify or self.inputDict.VcenterVerify:
                 certPath = self.inputDict.CertificatePath
@@ -484,7 +495,8 @@ class VMwareCloudDirectorNSXMigrator():
             # Running cleanup script if cleanup parameter is provided
             if self.cleanup:
                 self.CLEAN_UP_SCRIPT_RUN = True
-                VMwareCloudDirectorNSXMigratorCleanup(self.inputDict, self.vcdObj, self.nsxtObj).run()
+                passFilePath = self.passFile if self.passFile else self.defaultPassFileName
+                VMwareCloudDirectorNSXMigratorCleanup(self.inputDict, self.vcdObj, self.nsxtObj, passFilePath).run()
                 os._exit(0)
 
             # Running migration script in assessment Mode
@@ -582,6 +594,11 @@ class VMwareCloudDirectorNSXMigrator():
         Description: Hanlding the Ctrl+C i.e abruptly closing the script
         """
         self.consoleLogger.warning('Aborting the VCD NSX Migrator tool execution due to keyboard interrupt.')
+        if self.vcdObj and self.vcdObj.VCD_SESSION_CREATED:
+            self.vcdObj.deleteSession()
+        # logging out the vcenter user
+        if self.vcenterObj and self.vcenterObj.VCENTER_SESSION_CREATED:
+            self.vcenterObj.deleteSession()
         # clear the requests certificates entries
         self.utils.clearRequestsPemCert()
         os._exit(0)

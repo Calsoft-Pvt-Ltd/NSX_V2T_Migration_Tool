@@ -241,7 +241,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     logger.debug('Organization VDC deleted successfully.')
                     return
             else:
-                raise Exception('Failed to delete source Org VDC {}'.format(responseDict['Error']['@message']))
+                raise Exception('Failed to delete Org VDC {}'.format(responseDict['Error']['@message']))
         except Exception:
             raise
 
@@ -820,8 +820,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Description : Applying VM placement policy on vdc
         """
         try:
-            logger.info('Applying vm placement policy on target Org vdc')
-
             data = self.rollback.apiData
             computePolicyHrefList = []
             # retrieving the target org vdc id, target provider vdc id & compute policy list of source from apiOutput.json
@@ -830,6 +828,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if not data.get('sourceOrgVDCComputePolicyList'):
                 logger.debug('No source Org VDC compute Policy exist')
                 return
+            logger.info('Applying vm placement policy on target Org vdc')
             sourcePolicyList = data['sourceOrgVDCComputePolicyList']
             # getting list instance of sourcePolicyList
             sourceComputePolicyList = [sourcePolicyList] if isinstance(sourcePolicyList, dict) else sourcePolicyList
@@ -880,7 +879,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             self.DELETE_TARGET_ORG_VDC = True
             raise
 
-    @isSessionExpired
+    @description("Enabling Affinity Rules in Target VDC")
+    @remediate
     def enableTargetAffinityRules(self):
         """
         Description :   Enable Affinity Rules in Target VDC
@@ -891,7 +891,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             targetOrgVdcId = data['targetOrgVDC']['@id']
             targetvdcid = targetOrgVdcId.split(':')[-1]
             # checking if affinity rules present in source
-            if data['sourceVMAffinityRules']:
+            if data.get('sourceVMAffinityRules'):
+                logger.info('Configuring target Org VDC affinity rules')
                 sourceAffinityRules = data['sourceVMAffinityRules'] if isinstance(data['sourceVMAffinityRules'], list) else [data['sourceVMAffinityRules']]
                 # iterating over the affinity rules
                 for sourceAffinityRule in sourceAffinityRules:
@@ -935,11 +936,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         logger.debug('Affinity Rules got updated successfully in Target')
                     else:
                         raise Exception('Failed to update Affinity Rules in Target {}'.format(responseDict['Error']['@message']))
+                logger.info('Successfully configured target Org VDC affinity rules')
         except Exception:
             raise
-        else:
-            self.rollback.executionResult['enableTargetAffinityRules'] = True
-
 
     @isSessionExpired
     def renameOrgVDC(self, sourceOrgVDCName, targetVDCId):
@@ -1336,6 +1335,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             # reconnecting target org vdc edge gateway from T0
             self.reconnectTargetEdgeGateway()
+            # Restoring rollback key
+            self.rollback.key = 'reconnectTargetEdgeGateway'
         except Exception:
             raise
 
@@ -1688,26 +1689,22 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 logger.debug("No Vapps in Source Org VDC, hence skipping migrateVapps task.")
                 self.rollback.executionResult['moveVapp'] = True
                 self.rollback.executionResult['enableTargetAffinityRules'] = True
-                return
+            else:
+                # Logging continuation message
+                if self.rollback.metadata and not hasattr(self.rollback, 'retry'):
+                    logger.info(
+                        'Continuing migration of NSX-V backed Org VDC to NSX-T backed from {}.'.format(
+                            "Migration of vApps"))
+                    self.rollback.retry = True
 
-            # Logging continuation message
-            if self.rollback.metadata and not hasattr(self.rollback, 'retry'):
-                logger.info(
-                    'Continuing migration of NSX-V backed Org VDC to NSX-T backed from {}.'.format(
-                        "Migration of vApps"))
-                self.rollback.retry = True
+                if not metadata.get('moveVapp'):
+                    # recompose target vApp by adding source vm
+                    logger.info('Migrating source vApps.')
+                    self.moveVapp(sourceOrgVDCId, targetOrgVDCId, orgVDCNetworkList, timeout)
+                    logger.info('Successfully migrated source vApps.')
 
-            if not metadata.get('moveVapp'):
-                # recompose target vApp by adding source vm
-                logger.info('Migrating source vApps.')
-                self.moveVapp(sourceOrgVDCId, targetOrgVDCId, orgVDCNetworkList, timeout)
-                logger.info('Successfully migrated source vApps.')
-
-            if not metadata.get('enableTargetAffinityRules'):
-                # configuring Affinity rules
-                logger.info('Configuring target Org VDC affinity rules')
-                self.enableTargetAffinityRules()
-                logger.info('Successfully configured target Org VDC affinity rules')
+            # configuring Affinity rules
+            self.enableTargetAffinityRules()
         except Exception:
             raise
 
@@ -2013,20 +2010,41 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         networkName = network['@networkName']
                     else:
                         networkName = network['@networkName'] + '-v2t'
-                    payloadDict = {'networkName': networkName,
-                                   'networkDescription': network['Description'] if network.get('Description') else '',
-                                   'fenceMode': network['Configuration']['FenceMode'],
-                                   'isInherited': network['Configuration']['IpScopes']['IpScope']['IsInherited'],
-                                   'gateway': network['Configuration']['IpScopes']['IpScope']['Gateway'],
-                                   'netmask': network['Configuration']['IpScopes']['IpScope']['Netmask'],
-                                   'subnet': network['Configuration']['IpScopes']['IpScope']['SubnetPrefixLength'] if
-                                   network['Configuration']['IpScopes']['IpScope'].get('SubnetPrefixLength') else 1,
-                                   'dns1': network['Configuration']['IpScopes']['IpScope']['Dns1'] if
-                                   network['Configuration']['IpScopes']['IpScope'].get('Dns1') else '',
-                                   'isDeployed': network['IsDeployed']}
-                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                              componentName=vcdConstants.COMPONENT_NAME,
-                                                              templateName=vcdConstants.MOVE_VAPP_NO_NETWORK_CONFIG_TEMPLATE)
+                    # if static ip pools exist in vapp network
+                    if network['Configuration']['IpScopes']['IpScope'].get('IpRanges'):
+                        payloadDict = {'networkName': networkName,
+                                       'networkDescription': network['Description'] if network.get(
+                                           'Description') else '',
+                                       'fenceMode': network['Configuration']['FenceMode'],
+                                       'isInherited': network['Configuration']['IpScopes']['IpScope']['IsInherited'],
+                                       'gateway': network['Configuration']['IpScopes']['IpScope']['Gateway'],
+                                       'netmask': network['Configuration']['IpScopes']['IpScope']['Netmask'],
+                                       'subnet': network['Configuration']['IpScopes']['IpScope'][
+                                           'SubnetPrefixLength'] if
+                                       network['Configuration']['IpScopes']['IpScope'].get('SubnetPrefixLength') else 1,
+                                       'dns1': network['Configuration']['IpScopes']['IpScope']['Dns1'] if
+                                       network['Configuration']['IpScopes']['IpScope'].get('Dns1') else '',
+                                       'startAddress': network['Configuration']['IpScopes']['IpScope']['IpRanges']['IpRange']['StartAddress'],
+                                       'endAddress': network['Configuration']['IpScopes']['IpScope']['IpRanges']['IpRange']['EndAddress'],
+                                       'isDeployed': network['IsDeployed']}
+                        payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                                                  componentName=vcdConstants.COMPONENT_NAME,
+                                                                  templateName=vcdConstants.MOVE_VAPP_NO_NETWORK_IP_POOL_CONFIG_TEMPLATE)
+                    else:
+                        payloadDict = {'networkName': networkName,
+                                       'networkDescription': network['Description'] if network.get('Description') else '',
+                                       'fenceMode': network['Configuration']['FenceMode'],
+                                       'isInherited': network['Configuration']['IpScopes']['IpScope']['IsInherited'],
+                                       'gateway': network['Configuration']['IpScopes']['IpScope']['Gateway'],
+                                       'netmask': network['Configuration']['IpScopes']['IpScope']['Netmask'],
+                                       'subnet': network['Configuration']['IpScopes']['IpScope']['SubnetPrefixLength'] if
+                                       network['Configuration']['IpScopes']['IpScope'].get('SubnetPrefixLength') else 1,
+                                       'dns1': network['Configuration']['IpScopes']['IpScope']['Dns1'] if
+                                       network['Configuration']['IpScopes']['IpScope'].get('Dns1') else '',
+                                       'isDeployed': network['IsDeployed']}
+                        payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                                                  componentName=vcdConstants.COMPONENT_NAME,
+                                                                  templateName=vcdConstants.MOVE_VAPP_NO_NETWORK_CONFIG_TEMPLATE)
                     networkPayloadData += payloadData.strip("\"")
         # create vApp children vm's payload
         vmPayloadData = self.createMoveVappVmPayload(vApp, targetOrgVDCId)
@@ -2063,8 +2081,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             responseDict = xmltodict.parse(response.content)
             raise Exception(
                 'Failed to move vApp - {} with errors {}'.format(vApp['@name'], responseDict['Error']['@message']))
-        # Saving rollback key
-        self.rollback.key = 'moveVapp'
         logger.info(
             'Moved vApp - {} successfully to target Org VDC - {}'.format(vApp['@name'], self.sourceOrgVDCName+'-t'))
 
@@ -2078,15 +2094,17 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                       timeout  -  timeout to be used for vapp migration task (INT)
         """
         try:
+            # Saving rollback key
+            self.rollback.key = 'moveVapp'
             sourceOrgVDCId = sourceOrgVDCId.split(':')[-1]
             # retrieving target org vdc id
             targetOrgVDCId = targetOrgVDCId.split(':')[-1]
-            vAppList = self.getSourceOrgVDCvAppsList(sourceOrgVDCId)
+            vAppList = self.getOrgVDCvAppsList(sourceOrgVDCId)
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
             # iterating over the source vapps
             for vApp in vAppList:
                 # Spawning threads for move vApp call
-                self.thread.spawnThread(self.moveVappApiCall, vApp, targetOrgVDCNetworkList, targetOrgVDCId, filePath, timeout)
+                self.thread.spawnThread(self.moveVappApiCall, vApp, targetOrgVDCNetworkList, targetOrgVDCId, filePath, timeout, block=True)
                 # Blocking the main thread until all the threads complete execution
             self.thread.joinThreads()
             # Checking if any thread's execution failed
@@ -2571,7 +2589,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Description : Disabling Promiscuous Mode and Forged transmit of source org vdc network
         """
         try:
-            logger.info("RollBack: Disabling the Promiscuous Mode and Forged Mode")
+            logger.info("RollBack: Restoring the Promiscuous Mode and Forged Mode")
             data = self.rollback.apiData
             orgVDCNetworkList = data["orgVDCNetworkPromiscModeList"]
             # iterating over the orgVDCNetworkList
@@ -2586,8 +2604,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
                     # disable call then setting the mode to its initial state by retrieving from apiOutput.json
-                    responseDict['dvpgProperties'][0]['promiscuousMode'] = False #orgVdcNetwork['promiscForge']['dvpgProperties'][0]['promiscuousMode']
-                    responseDict['dvpgProperties'][0]['forgedTransmit'] = False #orgVdcNetwork['promiscForge']['dvpgProperties'][0]['forgedTransmit']
+                    if not orgVdcNetwork['promiscForge']['dvpgProperties'][0]['promiscuousMode']:
+                        responseDict['dvpgProperties'][0][
+                            'promiscuousMode'] = False  # orgVdcNetwork['promiscForge']['dvpgProperties'][0]['promiscuousMode']
+                    if not orgVdcNetwork['promiscForge']['dvpgProperties'][0]['forgedTransmit']:
+                        responseDict['dvpgProperties'][0][
+                            'forgedTransmit'] = False  # orgVdcNetwork['promiscForge']['dvpgProperties'][0]['forgedTransmit']
                     payloadData = json.dumps(responseDict)
                     payloadData = json.loads(payloadData)
                     payloadData = json.dumps(payloadData)
