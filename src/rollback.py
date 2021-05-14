@@ -71,8 +71,10 @@ class Rollback:
         self.createEdgeGateway = copy.deepcopy(self.rollbackTask)
 
         self.rollbackTask.insert(1, 'vcdObj.deleteOrgVDCNetworks(targetOrgVDCId, source=False, rollback=True)')
+        self.rollbackTask.insert(1, 'nsxtObj.deleteLogicalSegments()')
         self.createOrgVDCNetwork = copy.deepcopy(self.rollbackTask)
         self.disconnectTargetOrgVDCNetwork = copy.deepcopy(self.rollbackTask)
+
 
         self.rollbackTask.insert(1, 'vcdObj.disablePromiscModeForgedTransmit()')
         self.enablePromiscModeForgedTransmit = copy.deepcopy(self.rollbackTask)
@@ -97,7 +99,7 @@ class Rollback:
         self.rollbackTask.insert(0, 'vcdObj.loadBalancerRollback()')
         self.configureLoadBalancer = copy.deepcopy(self.rollbackTask)
 
-        self.rollbackTask.append('vcdObj.disconnectSourceOrgVDCNetwork(orgVDCNetworkList, rollback=True)')
+        self.rollbackTask.append('vcdObj.disconnectSourceOrgVDCNetwork(orgVDCNetworkList, sourceEdgeGatewayId, rollback=True)')
         self.rollbackTask.append('vcdObj.dhcpRollBack()')
         self.rollbackTask.append('vcdObj.ipsecRollBack()')
         self.disconnectSourceOrgVDCNetwork = copy.deepcopy(self.rollbackTask)
@@ -120,6 +122,10 @@ class Rollback:
         self.reconnectTargetEdgeGateway = copy.deepcopy(self.rollbackTask)
         self.rollbackTask.insert(1, 'vcdObj.moveVapp(targetOrgVDCId, sourceOrgVDCId, orgVDCNetworkList, timeout, rollback=True)',)
         self.moveVapp = copy.deepcopy(self.rollbackTask)
+        self.rollbackTask.insert(1, 'vcdObj.enableTargetAffinityRules(rollback=True)')
+        self.enableTargetAffinityRules = copy.deepcopy(self.rollbackTask)
+        self.rollbackTask.insert(1, 'vcdObj.disableTargetOrgVDC()')
+        self.disableTargetOrgVDC = copy.deepcopy(self.rollbackTask)
 
     def perform(self, vcdObj, vcdValidationObj, nsxtObj, rollbackTasks=None):
         """

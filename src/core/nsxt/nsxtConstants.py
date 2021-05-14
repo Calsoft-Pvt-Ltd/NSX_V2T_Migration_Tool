@@ -50,6 +50,12 @@ CREATE_UPLINK_PROFILE = "createUplinkProfiles"
 # nsx-t bridge uplink profile name
 BRDIGE_UPLINK_PROFILE_NAME = "bridge-uplink-profile"
 
+# nsx-t bridge transport zone name
+BRIDGE_TRANSPORT_ZONE_NAME = "Bridge-Migration-TZ"
+
+# nsx-t bridge transport zone's host-switch-name
+BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME = "Bridge-nvds-v2t"
+
 # nsx-t transport zone uri
 TRANSPORT_ZONE_API = "api/v1/transport-zones"
 
@@ -94,3 +100,6 @@ BGP_ROUTING_CONFIG_API = "policy/api/v1/infra/tier-0s/{}/locale-services/{}/bgp"
 
 # Tier0 locale serivces uri
 GET_LOCALE_SERVICES_API = 'policy/api/v1/infra/tier-0s/{}/locale-services'
+
+# create logical segments endpoints
+CREATE_LOGICAL_SEGMENTS_ENDPOINT = 'policy/api/v1/infra/segments/{}'

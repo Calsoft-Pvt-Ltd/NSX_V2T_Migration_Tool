@@ -46,6 +46,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         ServiceEngineGroupName - Name of service engine group for load balancer configuration (STRING)
         """
         try:
+            if not self.rollback.apiData['targetEdgeGateway']:
+                logger.debug('Skipping services configuration as edge gateway does '
+                             'not exists')
+                return
+
             targetEdgeGatewayIdList = [edgeGateway['id'] for edgeGateway in self.rollback.apiData['targetEdgeGateway']]
             ipsecConfigDict = self.rollback.apiData['ipsecConfigDict']
 
@@ -1196,7 +1201,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 "translatedAddress": translatedAddressCIDR
             })
             # adding dnatExternalPort port profile to payload data
-            if self.version == vcdConstants.API_VERSION_PRE_ZEUS:
+            if float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
                 payloadDict["internalPort"] = sourceNATRule['originalPort'] if sourceNATRule[
                                                                                        'originalPort'] != 'any' else ''
             else:
@@ -1246,17 +1251,20 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                     protocol_port_name, protocol_port_id = icmpvalue['name'], icmpvalue['id']
                                     payloadData['applicationPortProfile'] = {"name": protocol_port_name,
                                                                              "id": protocol_port_id}
+                                    break
                                 # checking source icmp redirect type and icmp redirect port profile
                                 if sourceNATRule['icmpType'] == "redirect" and icmpvalue['name'] == "ICMP Redirect":
                                     protocol_port_name, protocol_port_id = icmpvalue['name'], icmpvalue[
                                         'id']
                                     payloadData["applicationPortProfile"] = {"name": protocol_port_name,
                                                                              "id": protocol_port_id}
+                                    break
                             # for the icmp type which is not present in port profiles, will taking it as ICMPv4-ALL
                             elif icmpvalue['name'] == vcdConstants.ICMP_ALL:
                                 protocol_port_name, protocol_port_id = icmpvalue['name'], icmpvalue['id']
                                 payloadData["applicationPortProfile"] = {"name": protocol_port_name,
                                                                          "id": protocol_port_id}
+                                break
             else:
                 payloadData["applicationPortProfile"] = None
         # configuring SNAT
@@ -1712,7 +1720,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         """
         try:
             # check api version for load balancer rollback
-            if self.version == vcdConstants.API_VERSION_PRE_ZEUS:
+            if float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
                 return
 
             loggingDone = False
@@ -1864,7 +1872,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         loadBalancerVIPSubnet - Subnet for loadbalancer virtual service VIP configuration
         """
         try:
-            if self.version != vcdConstants.API_VERSION_ZEUS:
+            if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
                 logger.debug('Load Balancer is getting configured')
 
             for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
@@ -1884,7 +1892,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     responseDict = xmltodict.parse(response.content)
                     # checking if load balancer is enabled, if so raising exception
                     if responseDict['loadBalancer']['enabled'] == "true":
-                        if self.version != vcdConstants.API_VERSION_ZEUS:
+                        if not float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
                             raise Exception("Load Balancer service is configured in the Source edge gateway {} but not supported in the Target".format(sourceEdgeGateway['name']))
                         serviceEngineGroupResultList = self.getServiceEngineGroupDetails()
                         if not serviceEngineGroupResultList:
@@ -1894,6 +1902,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         serviceEngineGroupDetails = [serviceEngineGroup for serviceEngineGroup in
                                                      serviceEngineGroupResultList if
                                                      serviceEngineGroup['name'] == ServiceEngineGroupName]
+                        if not serviceEngineGroupDetails:
+                            raise Exception("Service Engine Group {} is not present in Avi.".format(ServiceEngineGroupName))
                         self.serviceEngineGroupName = serviceEngineGroupDetails[0]['name']
                         self.serviceEngineGroupId = serviceEngineGroupDetails[0]['id']
                         # enable load balancer service

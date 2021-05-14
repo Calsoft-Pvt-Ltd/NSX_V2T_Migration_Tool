@@ -69,8 +69,8 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             targetProviderVDCId, isNSXTbacked = self.vcdObj.getProviderVDCId(self.inputDict.NSXTProviderVDCName)
 
             # getting the target organization vdc details from the above organization
-            self.consoleLogger.info('Getting the target Organization VDC {} details.'.format(sourceOrgVDCName + '-t'))
-            targetOrgVDCId = self.vcdObj.getOrgVDCDetails(orgUrl, sourceOrgVDCName + '-t', 'targetOrgVDC', saveResponse=False)
+            self.consoleLogger.info('Getting the target Organization VDC {} details.'.format(sourceOrgVDCName + '-v2t'))
+            targetOrgVDCId = self.vcdObj.getOrgVDCDetails(orgUrl, sourceOrgVDCName + '-v2t', 'targetOrgVDC', saveResponse=False)
 
             # validating whether target org vdc is NSX-T backed
             self.consoleLogger.info('Validating whether target Org VDC is NSX-T backed')
@@ -81,7 +81,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             self.vcdObj.validateTargetOrgVDCState(targetOrgVDCId)
 
             # getting the target organization vdc details from the above organization
-            self.consoleLogger.info('Getting the target Organization VDC {} network details.'.format(sourceOrgVDCName + '-t'))
+            self.consoleLogger.info('Getting the target Organization VDC {} network details.'.format(sourceOrgVDCName + '-v2t'))
             dfwStatus = True if metadata.get('OrgVDCGroupID') else False
             orgVDCNetworkList = self.vcdObj.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False, dfwStatus=dfwStatus)
 

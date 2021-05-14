@@ -32,6 +32,12 @@ ENABLE_DISABLE_AFFINITY_RULES = "https://{}/api/vmAffinityRule/{}"
 # vcd user operations legacy api url
 XML_API_URL = "https://{}/api/"
 
+# query to fetch org vdc data
+ORG_VDC_QUERY = "query?type=adminOrgVdc&format=records"
+
+# fetch all vdcs
+FETCH_ALL_VDCS = "vdcs"
+
 # org vdc metadata uri
 META_DATA_IN_ORG_VDC_BY_ID = "vdc/{}/metadata"
 
@@ -62,6 +68,9 @@ XML_VCD_NSX_API = "https://{}/network/"
 # external networks uri
 ALL_EXTERNAL_NETWORKS = "externalNetworks"
 
+# org vdc capabilities
+ORG_VDC_CAPABILITIES = "vdcs/{}/capabilities"
+
 # org vdc networks uri
 ALL_ORG_VDC_NETWORKS = "orgVdcNetworks"
 
@@ -91,6 +100,9 @@ ORG_VDC_AFFINITY_RULES = "vdc/{}/vmAffinityRules"
 
 # vcd nsxv edge uri
 NETWORK_EDGES = "edges"
+
+# vcd cells information
+VCD_CELLS = "cells"
 
 # application Port Profile uri
 APPLICATION_PORT_PROFILES = "applicationPortProfiles"
@@ -643,5 +655,27 @@ IPV6ICMP = 'ICMP ALL'
 # update DFW rules task name used to check if the task completed successfully
 UPDATE_DFW_RULES_TASK_NAME = 'vdcGroupDfwRulesUpdate'
 
-#Applied to list for DFW
+# Applied to list for DFW
 APPLIED_TO_LIST = ['VDC', 'Network']
+
+# query to check parentnetwork
+QUERY_EXTERNAL_NETWORK = '?filterEncoded=true&filter=((parentNetworkId.id=={}))'
+
+# query to check the scope of external network
+SCOPE_EXTERNAL_NETWORK_QUERY = '?filterEncoded=true&filter=(_context=={})'
+
+# Qurey API tp get vlan id of the port groups
+
+GET_PORTGROUP_VLAN_ID ='query?type=portgroup&filter=(moref=={})'
+
+# Constans used to Dump Migration State Log to logfile.
+ORG = 'Organization'
+SOURCE_ORG_VDC = 'sourceOrgVDC'
+SOURCE_ORG_VDC_NW = 'sourceOrgVDCNetworks'
+SOURCE_EDGE_GW = 'sourceEdgeGateway'
+TARGET_ORG_VDC = 'targetOrgVDC'
+TARGET_ORG_VDC_NW = 'targetOrgVDCNetworks'
+TARGET_EDGE_GW = 'targetEdgeGateway'
+SOURCE_VAPPS = 'SourcevApp'
+TARGET_VAPPS = 'TargetvApp'
+

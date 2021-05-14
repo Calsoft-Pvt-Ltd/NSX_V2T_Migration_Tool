@@ -1,5 +1,5 @@
 # ***************************************************
-# Copyright © 2020 VMware, Inc. All rights reserved.
+# Copyright © 2020-2021 VMware, Inc. All rights reserved.
 # ***************************************************
 
 """
@@ -38,6 +38,7 @@ from src.core.vcd.vcdValidations import VCDMigrationValidation
 from src.core.vcenter.vcenterApis import VcenterApi
 from src.vcdNSXMigratorCleanup import VMwareCloudDirectorNSXMigratorCleanup
 from src.vcdNSXMigratorAssessmentMode import VMwareCloudDirectorNSXMigratorAssessmentMode
+from src.vcdNSXMigratorV2TAssessment import VMwareCloudDirectorNSXMigratorV2T
 
 
 class VMwareCloudDirectorNSXMigrator():
@@ -56,7 +57,9 @@ class VMwareCloudDirectorNSXMigrator():
         self.executionMode = None
         self.cleanup = None
         self.assessmentMode = None
+        self.v2tAssessment = None
         self.userInputFilePath = None
+        self.buildVersion = None
         self.loginErrorDict = {
             self._loginToVcd.__name__: False,
             self._loginToNsxt.__name__: False,
@@ -66,7 +69,7 @@ class VMwareCloudDirectorNSXMigrator():
         }
         self.defaultPassFileName = 'passfile'
 
-        parser = argparse.ArgumentParser(description='Arguments supported by V2T migration tool')
+        parser = argparse.ArgumentParser(description='Arguments supported by V2T migration tool\n\nNOTE: v2tAssessment mode does not take password file as parameter.', formatter_class=argparse.RawTextHelpFormatter)
         parser.add_argument("--filepath", dest='filePath',
                             help="Path of the userInput spec file to run VMware VCD NSX Migrator/Cleanup workflow (REQUIRED ARGUMENT)")
         parser.add_argument("--cleanup", dest="cleanupValue", action="store_const",
@@ -79,6 +82,8 @@ class VMwareCloudDirectorNSXMigrator():
                             help="Run migration tool with generated password File", required=False)
         parser.add_argument("--rollback", dest='rollback', help='retry rollback (OPTIONAL ARGUMENT)', \
                             action="store_true", default=False, required=False)
+        parser.add_argument("--v2tAssessment", dest="v2tAssessment", help='run v2tAssessment mode(OPTIONAL ARGUMENT)', \
+                            action="store_true", default=False, required=False)
 
         args = parser.parse_args()
         # Set the execution mode flag based in the input arguments passed
@@ -88,8 +93,12 @@ class VMwareCloudDirectorNSXMigrator():
         elif args.preCheck:
             self.executionMode = 'preCheck'
             self.assessmentMode = args.preCheck
+        elif args.v2tAssessment:
+            self.executionMode = 'v2tAssessment'
+            self.v2tAssessment = args.v2tAssessment
         else:
             self.executionMode = 'Main'
+
         if args.filePath:
             self.userInputFilePath = args.filePath
         # if retry argument is provided then previously saved password will be used
@@ -105,12 +114,21 @@ class VMwareCloudDirectorNSXMigrator():
         self.mainLogfile = logging.getLogger('mainLogger').handlers[0].baseFilename
         self.rollback.mainLogfile = self.mainLogfile
         #Check if invalid arguements are passed
+        if not any(args.__dict__.values()):
+            # If no args are provided show only help
+            parser.print_help()
+            os._exit(0)
+
         if (not args.cleanupValue and not args.filePath) or \
             (not args.filePath and args.cleanupValue) or \
             (args.cleanupValue and args.preCheck) or \
             (not args.filePath and args.preCheck) or \
             (args.cleanupValue and args.rollback) or \
-                (args.preCheck and args.rollback):
+            (args.preCheck and args.rollback) or \
+            (args.cleanupValue and args.v2tAssessment) or \
+            (args.v2tAssessment and not args.filePath) or \
+            (args.v2tAssessment and args.passwordFilePath) or \
+            (args.preCheck and args.v2tAssessment):
             parser.print_help()
             raise Exception("Invalid Input Arguments")
         # handling the CNTRL+C  i.e keyboard interrupt
@@ -124,6 +142,7 @@ class VMwareCloudDirectorNSXMigrator():
         releaseFile = os.path.join(mainConstants.rootDir, "release.yml")
         with open(releaseFile) as f:
             releaseData = yaml.safe_load(f)
+        self.buildVersion = releaseData['Build']
         self.consoleLogger.info("Build Version: {}".format(releaseData['Build']))
         self.consoleLogger.info("Build Release Date: {}".format(releaseData['ReleaseDate']))
 
@@ -485,6 +504,15 @@ class VMwareCloudDirectorNSXMigrator():
             with open(self.userInputFilePath) as f:
                 self.inputDict = yaml.safe_load(f)
 
+            if self.v2tAssessment:
+                V2TAssessmentModeObj = VMwareCloudDirectorNSXMigratorV2T(self.inputDict, buildVersion=self.buildVersion)
+                self.consoleLogger.info('Starting V2T-Assessment mode for NSX-V migration to NSX-T')
+                # Executing v2t-Assessment mode
+                V2TAssessmentModeObj.run()
+                # Creating csv report
+                V2TAssessmentModeObj.createReport()
+                os._exit(0)
+
             # password prompt from user
             self._getPasswordFromUser()
 
@@ -512,7 +540,7 @@ class VMwareCloudDirectorNSXMigrator():
                 logging.warning(warningMessage)
 
             # if verify is set to True on any one component then we have to update certificates in requests
-            if self.inputDict.VCloudDirectorVerify or self.inputDict.NSXTVerify or self.inputDict.VcenterVerify:
+            if self.inputDict.VCloudDirectorVerify or self.inputDict.NSXTVerify or self.inputDict.VcenterVerify or getattr(self.inputDict, 'NSXVVerify', None):
                 certPath = self.inputDict.CertificatePath
                 # checking for certificate path is present in user input
                 if not certPath:
@@ -565,7 +593,7 @@ class VMwareCloudDirectorNSXMigrator():
             # Running migration script in assessment Mode
             if self.assessmentMode:
                 assessmentModeObj = VMwareCloudDirectorNSXMigratorAssessmentMode\
-                    (self.inputDict, self.vcdValidationObj, self.nsxtObj, self.nsxvObj)
+                    (self.inputDict, self.vcdValidationObj, self.nsxtObj, self.nsxvObj, self.vcenterObj)
                 assessmentModeObj.run()
                 assessmentModeObj.updateInventoryLogs()
                 os._exit(0)
@@ -574,7 +602,7 @@ class VMwareCloudDirectorNSXMigrator():
                 self.consoleLogger.info('Started migration of NSX-V backed Org VDC to NSX-T backed.')
 
             # Performing premigration validations
-            self.vcdObj.preMigrationValidation(self.inputDict, self.sourceOrgVDCId, self.nsxtObj, self.nsxvObj)
+            self.vcdObj.preMigrationValidation(self.inputDict, self.sourceOrgVDCId, self.nsxtObj, self.nsxvObj, self.vcenterObj)
 
             # writing the promiscuous mode and forged mode details to apiData dict
             self.vcdObj.getPromiscModeForgedTransmit(self.sourceOrgVDCId)
@@ -584,19 +612,22 @@ class VMwareCloudDirectorNSXMigrator():
 
             # Getting source org vdc network list
             orgVdcNetworkList = self.vcdObj.retrieveNetworkListFromMetadata(self.sourceOrgVDCId, orgVDCType='source')
+            filteredList = copy.deepcopy(orgVdcNetworkList)
+            filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', filteredList))
             # only if org vdc networks exist bridging will be configured
-            if orgVdcNetworkList:
+            if filteredList:
                 # Fetching target VDC Id
                 targetOrgVdcId = self.rollback.apiData['targetOrgVDC']['@id']
                 # Getting target org vdc network list
                 targetOrgVdcNetworkList = self.vcdObj.retrieveNetworkListFromMetadata(targetOrgVdcId, orgVDCType='target')
 
                 # Configuring Bridging
-                self.nsxtObj.configureNSXTBridging(self.inputDict.EdgeClusterName, self.inputDict.TransportZoneName,
-                                                   targetOrgVdcNetworkList)
+                self.nsxtObj.configureNSXTBridging(self.inputDict.EdgeClusterName, targetOrgVdcNetworkList)
 
                 # verify bridge connectivity
                 self.nsxtObj.verifyBridgeConnectivity(self.vcdObj, self.vcenterObj)
+            elif orgVdcNetworkList:
+                self.consoleLogger.warning('Skipping the NSXT Bridging configuration and verifying connectivity check as the networks are type "Direct"')
             else:
                 self.consoleLogger.warning('Skipping the NSXT Bridging configuration and verifying connectivity check as no source Org VDC network exist')
 
@@ -611,6 +642,7 @@ class VMwareCloudDirectorNSXMigrator():
             # configuring target vdc i.e reconnecting target vdc networks and edge gateway
             self.vcdObj.configureTargetVDC()
 
+            sourcevAppList = self.vcdObj.checkIfSourceVappsExist(self.sourceOrgVDCId, True)
             try:
                 self.vcdObj.migrateVapps(self.inputDict.OrgVDCName, metadata, self.timeoutForVappMigration)
             except:
@@ -624,6 +656,8 @@ class VMwareCloudDirectorNSXMigrator():
 
             # disabling target vdc only if source org vdc is disabled
             self.vcdObj.disableTargetOrgVDC()
+            # Migration end state log.
+            self.vcdObj.dumpEndStateLog(sourcevAppList)
             self.consoleLogger.info('Successfully migrated NSX-V backed Org VDC to NSX-T backed.')
 
         except requests.exceptions.SSLError as e:
@@ -656,7 +690,7 @@ class VMwareCloudDirectorNSXMigrator():
 
     def signalHandler(self, sig, frame):
         """
-        Description: Hanlding the Ctrl+C i.e abruptly closing the script
+        Description: Handling the Ctrl+C i.e abruptly closing the script
         """
         self.consoleLogger.warning('Aborting the VCD NSX Migrator tool execution due to keyboard interrupt.')
         # clear the requests certificates entries

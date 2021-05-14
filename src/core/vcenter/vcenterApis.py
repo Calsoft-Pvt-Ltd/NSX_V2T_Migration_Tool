@@ -6,8 +6,14 @@
 Description: Module which performs the vcenter API related Operations
 """
 
+import atexit
 import logging
+import pyVmomi
 import requests
+import ssl
+from pyVmomi import vim, eam, VmomiSupport
+from pyVim.connect import SmartConnect, Disconnect
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
 import src.core.vcenter.vcenterConstants as constants
 from src.commonUtils.restClient import RestAPIClient
@@ -149,3 +155,48 @@ class VcenterApi():
                                 .format(responseDict['value']['messages'][0]['default_message']))
         except Exception:
             raise
+
+    def fetchAgencyClusterMapping(self):
+        """
+            Description : This method creates mappings of cluster and hosts as well as cluster and agents
+            Returns: Dictionary of mappings (DICT)
+        """
+        try:
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+
+            # Disabling the InsecureRequestWarning message
+            requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+            # connecting to vCenter
+            si = SmartConnect(host=self.ipAddress,
+                              user=self.username,
+                              pwd=self.password,
+                              sslContext=context)
+            # Defering disconnect method
+            atexit.register(Disconnect, si)
+
+            # Connect to EAM Endpoint
+            hostname = si._stub.host.split(":")[0]
+            eamStub = pyVmomi.SoapStubAdapter(host=hostname,
+                                              version="eam.version.version1",
+                                              path="/eam/sdk",
+                                              poolSize=0,
+                                              sslContext=context)
+            eamStub.cookie = si._stub.cookie
+            eamCx = eam.EsxAgentManager("EsxAgentManager", eamStub)
+            eamAgencies = eamCx.QueryAgency()
+
+            # dictionary to store the mapping
+            agencyClusterMapping = {}
+
+            # Iterating over agencies
+            for agency in eamAgencies:
+                agentName = agency.QueryConfig().agentName
+                for cluster in agency.QueryConfig().scope.computeResource:
+                    clusterName = str(cluster).strip('\'').split(':')[-1]
+                    agencyClusterMapping[clusterName] = agentName
+
+            return agencyClusterMapping
+        except Exception as err:
+            raise Exception(f"Failed to fetch agency details from EAM(EsxAgentManager) due to error - {str(err)}")

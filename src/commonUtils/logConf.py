@@ -73,11 +73,24 @@ class Logger():
                 componentLogPath = config["handlers"]["pre-assessment"]["filename"]
                 config["handlers"]["pre-assessment"]["filename"] = os.path.join(baseLogPath, componentLogPath)
 
-            #Set handlers for main log file
+            if executionMode == 'v2tAssessment':
+                # set handlers for preCheck Details file
+                del config["handlers"]["pre-assessment"]
+                del config['loggers']['precheckLogger']
+                executionMode = executionMode + '-Log'
+
+            # Set handlers for main log file
             mainLogFile = config["handlers"]["main"]["filename"].format(executionMode)
             config["handlers"]["main"]["filename"] = '{}-{}.log'.format(mainLogFile.split(".")[0], currentDateTime)
             mainLogPath = config["handlers"]["main"]["filename"]
             config["handlers"]["main"]["filename"] = os.path.join(baseLogPath, mainLogPath)
+
+            # Set handlers for StateLog file
+            if executionMode == 'Main':
+                stateLogFile = config["handlers"]["end-state-log"]["filename"].format(executionMode)
+                config["handlers"]["end-state-log"]["filename"] = '{}-{}.log'.format(stateLogFile.split(".")[0], currentDateTime)
+                stateLogPath = config["handlers"]["end-state-log"]["filename"]
+                config["handlers"]["end-state-log"]["filename"] = os.path.join(baseLogPath, stateLogPath)
 
             if executionMode == 'Main':
                 # delete preCheck from handlers and loggers as it is not required in main migrator
@@ -86,6 +99,10 @@ class Logger():
 
             if executionMode == 'cleanup':
                 # delete preCheck and inventory from handlers and loggers as it is not required in cleanup mode
+                del config["handlers"]["pre-assessment"]
+                del config['loggers']['precheckLogger']
+
+            if executionMode == 'v2tAssessment':
                 del config["handlers"]["pre-assessment"]
                 del config['loggers']['precheckLogger']
 

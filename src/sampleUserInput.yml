@@ -1,48 +1,47 @@
 ---
 VCloudDirector:
   Common:
-    ipAddress: cpsbu-tpm-vcd.eng.vmware.com # IP/FQDN of VCD
-    username: administrator # VCD login name
-    verify: True
+    ipAddress: cpsbu-tpm-vcd.eng.vmware.com # IP/FQDN of VMware Cloud Director
+    username: administrator # VMware Cloud Director system administrator login name
+    verify: True  # Certificate validation enabled
   Organization:
-    OrgName: Coke   # Short name of the organization that is already created
+    OrgName: Acme # Short name of the organization containing Org VDC to be migrated
   SourceOrgVDC:
-    OrgVDCName: OrgVdc  # # Name of the source organization VDC which will be migrated
+    OrgVDCName: Org-VDC # Name of the source organization VDC which will be migrated
   NSXTProviderVDC:
-    ProviderVDCName: t-pvdc # Name of NSX-T BACKED Provider VDC
-    ExternalNetwork: tpm-externalnetwork # Name of the external network to which this Provider VDC is connected.
-    NoSnatDestinationSubnet: 10.100.0.0/16 # Optional parameter if destination subnet is not required
+    ProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
+    ExternalNetwork: tpm-externalnetwork # Name of the external network to which all target NSX-T edge gateways will be connected to.
+    ImportedNeworkTransportZone: Direct-TZ # NSX-T VLAN transport zone used for segment creation for imported networks
+    NoSnatDestinationSubnet: 10.100.0.0/16 # (optional)  Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
   NSXVProviderVDC:
-    ProviderVDCName: v-pvdc # Name of NSX-T BACKED Provider VDC
-    DummyExternalNetwork: Dummy-ext-net # Name of the dummy external network which will be attached to source edge gateway
-  ServiceEngineGroupName: Tenant1 # Service engine group name to be used for load balancer configuration
-  LoadBalancerVIPSubnet: 192.168.255.128/28 # Network to be used for Virtual IP configuration of virtual service in load balancer (Default value - 192.168.255.128/28)
+    ProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
+    DummyExternalNetwork:  Dummy-ext-net # Name of the dummy external network which will be temporarily attached to source edge gateway  during network disconnection.
+  ServiceEngineGroupName: Tenant1 # NSX ALB service engine group name to be used for load balancer configuration
+  LoadBalancerVIPSubnet: 192.168.255.128/28 # Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
 
 NSXT:
   Common:
-    ipAddress: 10.196.235.14 # IP/FQDN of NSXT
-    username: admin # NSXT login name
-    verify: True
-  EdgeClusterName:
-    - Bridge-edge-cluster1 # Name of bridge Edge cluster
+    ipAddress: 10.196.235.14 # IP/FQDN of NSXT Manager
+    username: admin # NSX-T administrator login name
+    verify: True # Certificate validation enabled
+  EdgeClusterName: # List of dedicated NSX-T Edge Clusters to be used for bridging
+    - Bridge-edge-cluster1
     - Bridge-edge-cluster2
-  TransportZone: # bridge transport zone
-    TransportZoneName: Bridge-TZ
-  EdgeGatewayDeploymentEdgeCluster: Bridge-edge-cluster3 # Edge cluster to be used for edge gateway deployment
+  EdgeGatewayDeploymentEdgeCluster: Bridge-edge-cluster3 #  (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment.
 
 NSXV:
   Common:
-    ipAddress: 10.196.235.7 # IP/FQDN of NSXV
-    username: admin # NSXV login name
-    verify: True
+    ipAddress: 10.196.235.7 # IP/FQDN of NSX-V Manager
+    username: admin # NSX-V administrator login name
+    verify: True # Certificate validation enabled
 
 Vcenter:
   Common:
-    ipAddress: cpsbu-tpm-vcsa.eng.vmware.com # IP/FQDN of Vcenter
-    username: administrator@vsphere.local # Vcenter login name
-    verify: True
+    ipAddress: cpsbu-tpm-vcsa.eng.vmware.com # IP/FQDN of vCenter server
+    username: administrator@vsphere.local # vCenter server administrator login name
+    verify: True # Certificate validation enabled
 
 Common:
-  CertificatePath: /root/vcdNSXMigrator/caCert.pem # ca/self-signed certificate path for validation
+  CertificatePath: /root/vcdNSXMigrator/caCert.pem # Signing CA or self-signed certificate path for certificates validation
   MaxThreadCount: 75 # Number of threads to be used for parallel processing
-  TimeoutForVappMigration: 3600 # Timeout to be used for vapp migration task in seconds (Default value - 3600 seconds)
+  TimeoutForVappMigration: 3600 #  Timeout in seconds to be used for vApp migration task (Default value - 3600 seconds)

@@ -30,6 +30,11 @@ handlers:
     level: INFO
     filename: VCD-NSX-Migrator-preCheck-Summary.log
 
+  end-state-log:
+    class: logging.FileHandler
+    level: INFO
+    filename: VCD-NSX-Migrator-Statelog.log
+
 loggers:
   consoleLogger:
     level: INFO
@@ -50,6 +55,13 @@ loggers:
     handlers:
     - pre-assessment
     - console
+    propagate: no
+
+  endstateLogger:
+    level: INFO
+    handlers:
+      - end-state-log
+      - console
     propagate: no
 
 root:

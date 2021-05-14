@@ -39,7 +39,6 @@ class Thread:
         """
             Description: This method creates the queue for the specified tasks.
             Parameters: daemon  - Value to decide whether to run thread in background or not(BOOLEAN)
-
         """
         threadCount = min(self.numOfThread, self.threadQueue.qsize())
         for _ in range(threadCount):

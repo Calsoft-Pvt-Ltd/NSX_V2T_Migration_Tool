@@ -10,6 +10,7 @@ import logging
 import os
 import prettytable
 import sys
+import copy
 from src.core.vcd import vcdConstants
 
 # Set path till src folder in PYTHONPATH
@@ -23,7 +24,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
     """
     Description :   The class has methods which does validation tasks from NSX-V to NSX-T
     """
-    def __init__(self, inputDict, vcdValidationObj, nsxtObj, nsxvObj):
+    def __init__(self, inputDict, vcdValidationObj, nsxtObj, nsxvObj, vcenterObj):
         """
         Description : This method initializes the basic configurations reqired to run Assessment mode
         """
@@ -43,9 +44,12 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         self.ServiceEngineGroupName = getattr(inputDict, 'ServiceEngineGroupName', None)
         # Fetching edge cluster name from sampleInput
         self.edgeGatewayDeploymentEdgeCluster =getattr(inputDict, 'EdgeGatewayDeploymentEdgeCluster', None)
+        self.EdgeClusterName = getattr(inputDict, 'EdgeClusterName', None)
+        self.NSXTProviderVDCImportedNeworkTransportZone = getattr(inputDict, 'NSXTProviderVDCImportedNeworkTransportZone', None)
         self.vcdValidationObj = vcdValidationObj
         self.nsxtValidationObj = nsxtObj
         self.nsxvObj = nsxvObj
+        self.vcenterObj = vcenterObj
         self.vcdValidationObj.vcdLogin()
         self.vcdValidationMapping = dict()
         self.edgeGatewayException = None
@@ -110,7 +114,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             # fetch distributed firewall configuration
             self.consoleLogger.info(getDistributedFirewallDesc)
             self.thread.spawnThread(self.vcdValidationObj.getDistributedFirewallConfig,
-                                    self.sourceOrgVDCId, saveOutputKey='distributedFirewall')
+                                    self.sourceOrgVDCId, True, saveOutputKey='distributedFirewall')
 
             self.consoleLogger.info(getOrgVdcNetworkDesc)
             self.thread.spawnThread(self.vcdValidationObj.getOrgVDCNetworks, self.sourceOrgVDCId,
@@ -133,12 +137,15 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             if self.thread.returnValues['getNSXVOrgVdcNetwork'] and isinstance(self.thread.returnValues['getNSXVOrgVdcNetwork'], Exception):
                 self.validationFailures.append([getOrgVdcNetworkDesc, self.thread.returnValues['getNSXVOrgVdcNetwork', 'Failed']])
             self.orgVdcNetworkList = self.thread.returnValues['getNSXVOrgVdcNetwork']
+            filteredList = copy.deepcopy(self.orgVdcNetworkList)
+            # if filtered list is empty False is passes as extra argument to skip NSX-T bridging related validations.
+            filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', filteredList))
+
             # Validation methods reference
             self.vcdValidationMapping = {
                 'Validating NSX-T manager Ip Address and version': [self.vcdValidationObj.getNsxDetails, self.inputDict.NSXTIpaddress],
-                'Validating NSX-T Bridge Uplink Profile does not exist': [self.nsxtValidationObj.validateBridgeUplinkProfile],
-                'Validating Edge Cluster exists in NSX-T and Edge Transport Nodes are not in use': [self.nsxtValidationObj.validateEdgeNodesNotInUse, self.inputDict.EdgeClusterName],
-                'Validating Transport Zone exists in NSX-T': [self.nsxtValidationObj.validateTransportZoneExistsInNSXT, self.inputDict.TransportZoneName],
+                'Validating NSX-T Bridge Uplink Profile does not exist': [self.nsxtValidationObj.validateBridgeUplinkProfile] if filteredList else [self.nsxtValidationObj.validateBridgeUplinkProfile, False],
+                'Validating Edge Cluster exists in NSX-T and Edge Transport Nodes are not in use': [self.nsxtValidationObj.validateEdgeNodesNotInUse, self.EdgeClusterName] if filteredList else [self.nsxtValidationObj.validateEdgeNodesNotInUse, self.EdgeClusterName, False],
                 'Validating if target OrgVDC do not exists': [self.vcdValidationObj.validateNoTargetOrgVDCExists, self.inputDict.OrgVDCName],
                 'Validating if empty vApps do not exist in source org VDC':[ self.vcdValidationObj.validateNoEmptyVappsExistInSourceOrgVDC, self.sourceOrgVDCId],
                 'Validating VMs in suspended state do not exists any source vApps': [self.vcdValidationObj.validateSourceSuspendedVMsInVapp, self.sourceOrgVDCId],
@@ -159,10 +166,12 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating whether DHCP is enabled on source Isolated Org VDC network': [self.vcdValidationObj.validateDHCPEnabledonIsolatedVdcNetworks, self.orgVdcNetworkList],
                 'Validating Isolated OrgVDCNetwork DHCP configuration': [self.vcdValidationObj.getOrgVDCNetworkDHCPConfig, self.orgVdcNetworkList],
                 'Validating whether Org VDC networks are shared': [self.vcdValidationObj.validateOrgVDCNetworkShared, self.orgVdcNetworkList],
-                'Validating whether Org VDC have Direct networks': [self.vcdValidationObj.validateOrgVDCNetworkDirect, self.orgVdcNetworkList],
+                'Validating whether Org VDC have Direct networks': [self.vcdValidationObj.validateOrgVDCNetworkDirect, self.orgVdcNetworkList, self.inputDict.NSXTProviderVDCName, self.NSXTProviderVDCImportedNeworkTransportZone, self.nsxtValidationObj],
                 'Validating if Independent Disks exist in Source Org VDC': [self.vcdValidationObj.validateIndependentDisksDoesNotExistsInOrgVDC, self.sourceOrgVDCId],
                 'Validating Source Edge gateway services': [self.vcdValidationObj.getEdgeGatewayServices, self.nsxtValidationObj, self.nsxvObj, self.noSnatDestSubnet, True, self.ServiceEngineGroupName],
-                'Validating OrgVDC Network and Edge transport Nodes': [self.nsxtValidationObj.validateOrgVdcNetworksAndEdgeTransportNodes, self.inputDict.EdgeClusterName, self.orgVdcNetworkList],
+                'Validating OrgVDC Network and Edge transport Nodes': [self.nsxtValidationObj.validateOrgVdcNetworksAndEdgeTransportNodes, self.EdgeClusterName, self.orgVdcNetworkList] if filteredList else [self.nsxtValidationObj.validateOrgVdcNetworksAndEdgeTransportNodes, self.EdgeClusterName, self.orgVdcNetworkList, False],
+                'Validating whether the edge transport nodes are accessible via ssh or not': [self.nsxtValidationObj.validateIfEdgeTransportNodesAreAccessibleViaSSH, self.EdgeClusterName] if filteredList else [self.nsxtValidationObj.validateIfEdgeTransportNodesAreAccessibleViaSSH, self.EdgeClusterName, False],
+                'Validating whether the edge transport nodes are deployed on v-cluster or not': [self.nsxtValidationObj.validateEdgeNodesDeployedOnVCluster, self.EdgeClusterName, self.vcenterObj] if filteredList else [self.nsxtValidationObj.validateEdgeNodesDeployedOnVCluster, self.EdgeClusterName, self.vcenterObj, False],
                 'Validating Edge cluster for target edge gateway deployment': [self.vcdValidationObj.validateEdgeGatewayDeploymentEdgeCluster, self.edgeGatewayDeploymentEdgeCluster, self.nsxtValidationObj]
             }
         except Exception as e:

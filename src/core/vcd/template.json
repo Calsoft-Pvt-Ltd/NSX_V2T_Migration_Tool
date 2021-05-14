@@ -12,18 +12,6 @@
         }
       ],
       "distributedRoutingEnabled": false,
-      "APIVERSION-34.0": {
-        "orgVdc": {
-        "name": "{{orgVDCName}}",
-        "id": "{{orgVDCId}}"
-      }
-      },
-      "APIVERSION-35.0": {
-      "ownerRef": {
-        "name": "{{orgVDCName}}",
-        "id": "{{orgVDCId}}"
-      }
-      },
       "orgVdc": {
         "name": "{{orgVDCName}}",
         "id": "{{orgVDCId}}"
@@ -52,18 +40,6 @@
         ]
       },
       "networkType": "{{orgVDCNetworkType}}",
-      "APIVERSION-34.0": {
-        "orgVdc": {
-        "name": "{{orgVDCName}}",
-        "id": "{{orgVDCId}}"
-      }
-      },
-      "APIVERSION-35.0": {
-      "ownerRef": {
-        "name": "{{orgVDCName}}",
-        "id": "{{orgVDCId}}"
-      }
-      },
       "connection": {
         "routerRef": {
           "name": "{{edgeGatewayName}}",
@@ -178,8 +154,6 @@
       "ruleType": "{{action}}",
       "externalAddresses": "{{originalAddress}}",
       "internalAddresses": "{{translatedAddress}}",
-      "APIVERSION-35.0": {"dnatExternalPort": "{{dnatExternalPort}}"},
-      "APIVERSION-34.0": {"internalPort": "{{internalPort}}"},
       "logging": "{{loggingEnabled}}",
       "systemRule": false,
       "snatDestinationAddresses": " ",
@@ -227,53 +201,53 @@
       "connected": true,
       "quickAddAllocatedIpCount": null
     },
-    "subnetValue":{
-                "gateway": "{{externalNetworkGateway}}",
-                "prefixLength": "{{externalNetworkprefixLength}}",
-                "dnsSuffix": null,
-                "dnsServer1": "",
-                "dnsServer2": "",
-                "enabled": true,
-                "autoAllocateIpRanges": false
-              },
+    "subnetValue": {
+      "gateway": "{{externalNetworkGateway}}",
+      "prefixLength": "{{externalNetworkprefixLength}}",
+      "dnsSuffix": null,
+      "dnsServer1": "",
+      "dnsServer2": "",
+      "enabled": true,
+      "autoAllocateIpRanges": false
+    },
     "createLoadBalancerPool": {
-                "enabled": true,
-                "passiveMonitoringEnabled": true,
-                "name": "{{poolName}}",
-                "description": "{{description}}",
-                "defaultPort": 80,
-                "gracefulTimeoutPeriod": 1,
-                "algorithm": "{{algorithm}}",
-                "persistenceProfile": null,
-                "virtualServiceRefs": null,
-                "gatewayRef": {
-                  "name": "{{gatewayName}}",
-                  "id": "{{gatewayId}}"
-                }
-              },
+      "enabled": true,
+      "passiveMonitoringEnabled": true,
+      "name": "{{poolName}}",
+      "description": "{{description}}",
+      "defaultPort": 80,
+      "gracefulTimeoutPeriod": 1,
+      "algorithm": "{{algorithm}}",
+      "persistenceProfile": null,
+      "virtualServiceRefs": null,
+      "gatewayRef": {
+        "name": "{{gatewayName}}",
+        "id": "{{gatewayId}}"
+      }
+    },
     "createLoadBalancerVirtualService": {
-                "name": "{{virtualServiceName}}",
-                "description": "{{description}}",
-                "enabled": "{{enabled}}",
-                "virtualIpAddress": "{{ipAddress}}",
-                "loadBalancerPoolRef": {
-                  "name": "{{poolName}}",
-                  "id": "{{poolId}}"
-                },
-                "gatewayRef": {
-                  "name": "{{gatewayName}}",
-                  "id": "{{gatewayId}}"
-                },
-                "serviceEngineGroupRef": {
-                  "name": "{{serviceEngineGroupName}}",
-                  "id": "{{serviceEngineGroupId}}"
-                },
-                "servicePorts": [
-                  {
-                    "portStart" : "{{port}}",
-                    "sslEnabled": "{{sslEnabled}}"
-                  }
-                ]
-              }
+      "name": "{{virtualServiceName}}",
+      "description": "{{description}}",
+      "enabled": "{{enabled}}",
+      "virtualIpAddress": "{{ipAddress}}",
+      "loadBalancerPoolRef": {
+        "name": "{{poolName}}",
+        "id": "{{poolId}}"
+      },
+      "gatewayRef": {
+        "name": "{{gatewayName}}",
+        "id": "{{gatewayId}}"
+      },
+      "serviceEngineGroupRef": {
+        "name": "{{serviceEngineGroupName}}",
+        "id": "{{serviceEngineGroupId}}"
+      },
+      "servicePorts": [
+        {
+          "portStart": "{{port}}",
+          "sslEnabled": "{{sslEnabled}}"
+        }
+      ]
+    }
   }
 }
