@@ -1,6 +1,6 @@
-# ***************************************************
-# Copyright © 2020 VMware, Inc. All rights reserved.
-# ***************************************************
+# ******************************************************
+# Copyright © 2020-2021 VMware, Inc. All rights reserved.
+# ******************************************************
 
 """
 Description: Module which performs all the clean-up tasks after migrating the VMware Cloud Director from NSX-V to NSX-T
@@ -10,46 +10,123 @@ import ipaddress
 import logging
 import os
 import sys
+import threading
+import traceback
 
 # Set path till src folder in PYTHONPATH
 cwd = os.getcwd()
 parentDir = os.path.abspath(os.path.join(cwd, os.pardir))
 sys.path.append(parentDir)
 
+from src import constants
+
+
 class VMwareCloudDirectorNSXMigratorCleanup():
     """
     Description :   The class has methods which do all the clean-up tasks(like deleting, resetting, etc) after migrating the VMware vCloud Director from NSX-V to NSX-T
     """
-    def __init__(self, inputDict, vcdObj, nsxtObj, passFilePath):
+    def __init__(self, orgvdcdict=None, inputDict=None, vcdObj=None, nsxtObj=None, passFilePath=None):
         """
         Description :   Initializer method of all clean-up tasks
         """
         self.consoleLogger = logging.getLogger("consoleLogger")
         self.mainLogfile = logging.getLogger('mainLogger').handlers[0].baseFilename
         self.inputDict = inputDict
+        self.orgvdcdict = orgvdcdict
         self.nsxtObj = nsxtObj
         self.vcdObj = vcdObj
+        self.targetOrgVDCId = None
+        self.orgUrl = None
         self.passFilePath = passFilePath
+
+    def checkTargetOrgVDCStatus(self):
+        """
+        Description:   Check status of target org vdc and backing type
+        """
+        try:
+            # Changing the name of the thread with the name of org vdc
+            threading.current_thread().name = self.orgvdcdict["OrgVDCName"]
+
+            # Getting Organization details.
+            orgName = self.inputDict['VCloudDirector']['Organization']['OrgName']
+            sourceOrgVDCName = self.orgvdcdict["OrgVDCName"]
+            self.consoleLogger.info('Getting the Organization {} details.'.format(orgName))
+            self.orgUrl = self.vcdObj.getOrgUrl(orgName)
+
+            #  getting the target provider VDC details and checking if its NSX-T backed
+            self.consoleLogger.info(
+                'Getting the target Provider VDC - {} details.'.format(self.orgvdcdict['NSXTProviderVDCName']))
+            targetProviderVDCId, isNSXTbacked = self.vcdObj.getProviderVDCId(self.orgvdcdict['NSXTProviderVDCName'])
+
+            # getting the target organization vdc details from the above organization
+            self.consoleLogger.info('Getting the target Organization VDC {} details.'.format(sourceOrgVDCName + '-v2t'))
+            self.targetOrgVDCId = self.vcdObj.getOrgVDCDetails(self.orgUrl, sourceOrgVDCName + '-v2t', 'targetOrgVDC',
+                                                               saveResponse=False)
+
+            # validating whether target org vdc is NSX-T backed
+            self.consoleLogger.info('Validating whether target Org VDC is NSX-T backed')
+            self.vcdObj.validateOrgVDCNSXbacking(self.targetOrgVDCId, targetProviderVDCId, isNSXTbacked)
+
+            # validating if target org vdc is enabled or disabled
+            self.consoleLogger.info('Validating whether target Org VDC is enabled')
+            self.vcdObj.validateTargetOrgVDCState(self.targetOrgVDCId)
+
+            # validating media is connected to any of the vms
+            self.consoleLogger.info('Validating whether media is attached to any vApp VMs')
+            self.vcdObj.validateVappVMsMediaNotConnected(self.targetOrgVDCId, raiseError=True)
+        except:
+            self.consoleLogger.error(traceback.format_exc())
+            raise
+
+    def cleanupBridging(self, vcdObjList, nsxtObj):
+        """
+        Description :   Clears the bridging after cleanup task completes
+        Parameters  :   vcdObjList - List of objects of vcd operations class (LIST)
+                        nsxtObj    - Object of NSX-T operations class (OBJECT)
+        """
+        try:
+            # Get current thread name
+            currentThreadName = threading.currentThread().getName()
+            # Changing current thread name
+            threading.current_thread().name = "cleanupBridging"
+
+            # Check if bridging is configured from metadata
+            if vcdObjList[0].rollback.metadata.get('configureNSXTBridging'):
+                self.consoleLogger.info('Removing bridging from NSX-T')
+                # Fetching networks list that are bridged
+                bridgedNetworksList = list()
+                for vcdObject in vcdObjList:
+                    # getting the target org vdc urn
+                    dfw = True if vcdObject.rollback.apiData.get('OrgVDCGroupID') else False
+                    if vcdObject.rollback.apiData.get('targetOrgVDC', {}).get('@id'):
+                        bridgedNetworksList += vcdObject.retrieveNetworkListFromMetadata(
+                            vcdObject.rollback.apiData.get('targetOrgVDC', {}).get('@id'), orgVDCType='target',
+                            dfwStatus=dfw)
+                nsxtObj.clearBridging(self.inputDict["NSXT"]["EdgeClusterName"], bridgedNetworksList)
+        except:
+            raise
+        else:
+            # Restore thread name
+            threading.current_thread().name = currentThreadName
 
     def run(self):
         """
         Description :   Deletes the source Organization VDC and renames target
         """
         try:
-            orgName = self.inputDict.OrgName
-            sourceOrgVDCName = self.inputDict.OrgVDCName
+            # Changing the name of the thread with the name of org vdc
+            threading.current_thread().name = self.orgvdcdict["OrgVDCName"]
 
-            # getting the organization details
-            self.consoleLogger.info('Getting the Organization {} details.'.format(orgName))
-            orgUrl = self.vcdObj.getOrgUrl(orgName)
+            # Getting Organization details.
+            sourceOrgVDCName = self.orgvdcdict["OrgVDCName"]
 
             # getting the source provider VDC details and checking if its NSX-V backed
-            self.consoleLogger.info('Getting the source Provider VDC - {} details.'.format(self.inputDict.NSXVProviderVDCName))
-            sourceProviderVDCId, isNSXTbacked = self.vcdObj.getProviderVDCId(self.inputDict.NSXVProviderVDCName)
+            self.consoleLogger.info('Getting the source Provider VDC - {} details.'.format(self.orgvdcdict['NSXVProviderVDCName']))
+            sourceProviderVDCId, isNSXTbacked = self.vcdObj.getProviderVDCId(self.orgvdcdict['NSXVProviderVDCName'])
 
             # getting the source organization vdc details from the above organization
             self.consoleLogger.info('Getting the source Organization VDC {} details.'.format(sourceOrgVDCName))
-            sourceOrgVDCId = self.vcdObj.getOrgVDCDetails(orgUrl, sourceOrgVDCName, 'sourceOrgVDC', saveResponse=False)
+            sourceOrgVDCId = self.vcdObj.getOrgVDCDetails(self.orgUrl, sourceOrgVDCName, 'sourceOrgVDC', saveResponse=False)
 
             # getting source external network data
             self.consoleLogger.info('Getting the source external networks details.')
@@ -64,38 +141,14 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             # getting the source edge gateway details
             edgeGatewayDetails = self.vcdObj.getOrgVDCEdgeGateway(sourceOrgVDCId)['values']
 
-            #  getting the target provider VDC details and checking if its NSX-T backed
-            self.consoleLogger.info('Getting the target Provider VDC - {} details.'.format(self.inputDict.NSXTProviderVDCName))
-            targetProviderVDCId, isNSXTbacked = self.vcdObj.getProviderVDCId(self.inputDict.NSXTProviderVDCName)
-
-            # getting the target organization vdc details from the above organization
-            self.consoleLogger.info('Getting the target Organization VDC {} details.'.format(sourceOrgVDCName + '-v2t'))
-            targetOrgVDCId = self.vcdObj.getOrgVDCDetails(orgUrl, sourceOrgVDCName + '-v2t', 'targetOrgVDC', saveResponse=False)
-
-            # validating whether target org vdc is NSX-T backed
-            self.consoleLogger.info('Validating whether target Org VDC is NSX-T backed')
-            self.vcdObj.validateOrgVDCNSXbacking(targetOrgVDCId, targetProviderVDCId, isNSXTbacked)
-
-            # validating if target org vdc is enabled or disabled
-            self.consoleLogger.info('Validating whether target Org VDC is enabled')
-            self.vcdObj.validateTargetOrgVDCState(targetOrgVDCId)
-
             # getting the target organization vdc details from the above organization
             self.consoleLogger.info('Getting the target Organization VDC {} network details.'.format(sourceOrgVDCName + '-v2t'))
             dfwStatus = True if metadata.get('OrgVDCGroupID') else False
-            orgVDCNetworkList = self.vcdObj.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False, dfwStatus=dfwStatus)
-
-            # validating media is connected to any of the vms
-            self.consoleLogger.info('Validating whether media is attached to any vApp VMs')
-            self.vcdObj.validateVappVMsMediaNotConnected(targetOrgVDCId, raiseError=True)
+            orgVDCNetworkList = self.vcdObj.getOrgVDCNetworks(self.targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False, dfwStatus=dfwStatus)
 
             # migrating catalog items - vApp Templates and media objects
             self.consoleLogger.info('Migrating catalog items - vApp Templates & media objects.')
-            self.vcdObj.migrateCatalogItems(sourceOrgVDCId, targetOrgVDCId, orgUrl)
-
-            # clearing nsx-t bridging
-            self.consoleLogger.info('Removing bridging from NSX-T')
-            self.nsxtObj.clearBridging(orgVDCNetworkList)
+            self.vcdObj.migrateCatalogItems(sourceOrgVDCId, self.targetOrgVDCId, self.orgUrl)
 
             # delete the source org vdc networks
             self.consoleLogger.info('Deleting the source Org VDC Networks.')
@@ -105,17 +158,21 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             self.consoleLogger.info('Deleting the source Org VDC Edge Gateway.')
             self.vcdObj.deleteNsxVBackedOrgVDCEdgeGateways(sourceOrgVDCId)
 
+            # Delete Named Disks metadata
+            for disk in self.vcdObj.namedDisks.get(self.targetOrgVDCId, []):
+                self.vcdObj.deleteMetadata(disk['id'], entity=f"disk {disk['name']}")
+
             # delete the source Org VDC
             self.consoleLogger.info('Deleting the source Org VDC.')
             self.vcdObj.deleteOrgVDC(sourceOrgVDCId)
 
             # renaming the target Org VDC networks
             self.consoleLogger.info('Renaming the target Org VDC networks')
-            self.vcdObj.renameTargetNetworks(targetOrgVDCId)
+            self.vcdObj.renameTargetNetworks(self.targetOrgVDCId)
 
             # rename target Org VDC
             self.consoleLogger.info('Renaming target Org VDC.')
-            self.vcdObj.renameOrgVDC(sourceOrgVDCName, targetOrgVDCId)
+            self.vcdObj.renameOrgVDC(sourceOrgVDCName, self.targetOrgVDCId)
 
             # getting the source external network details from source edge gateway and creating a dict of subnet and corresponding ip values used
             edgeGatewaySubnetDict = {}
@@ -145,6 +202,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
                 self.vcdObj.updateSourceExternalNetwork(sourceExternalNetwork['name'], edgeGatewaySubnetDict)
 
             self.consoleLogger.info('Successfully cleaned up Source Org VDC.')
+
             self.consoleLogger.warning('Please remove the password file - "{}" if not required, for security reasons'.format(self.passFilePath))
 
             # deleting the current user api session of vmware cloud director
@@ -152,4 +210,5 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             self.vcdObj.deleteSession()
 
         except Exception:
+            self.consoleLogger.error(traceback.format_exc())
             raise

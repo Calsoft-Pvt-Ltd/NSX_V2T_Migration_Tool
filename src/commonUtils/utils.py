@@ -200,3 +200,9 @@ class Utilities():
         except Exception as err:
             logger.error(err)
             raise
+
+    @staticmethod
+    def chunksOfList(_list, n):
+        """Yield successive n-sized chunks from list."""
+        for i in range(0, len(_list), n):
+            yield int(i / n), _list[i:i + n]

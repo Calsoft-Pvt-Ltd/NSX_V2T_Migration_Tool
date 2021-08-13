@@ -3,45 +3,52 @@ VCloudDirector:
   Common:
     ipAddress: cpsbu-tpm-vcd.eng.vmware.com # IP/FQDN of VMware Cloud Director
     username: administrator # VMware Cloud Director system administrator login name
-    verify: True  # Certificate validation enabled
+    verify: False # Certificate validation enabled
   Organization:
     OrgName: Acme # Short name of the organization containing Org VDC to be migrated
   SourceOrgVDC:
-    OrgVDCName: Org-VDC # Name of the source organization VDC which will be migrated
-  NSXTProviderVDC:
-    ProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
-    ExternalNetwork: tpm-externalnetwork # Name of the external network to which all target NSX-T edge gateways will be connected to.
-    ImportedNeworkTransportZone: Direct-TZ # NSX-T VLAN transport zone used for segment creation for imported networks
-    NoSnatDestinationSubnet: 10.100.0.0/16 # (optional)  Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
-  NSXVProviderVDC:
-    ProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
-    DummyExternalNetwork:  Dummy-ext-net # Name of the dummy external network which will be temporarily attached to source edge gateway  during network disconnection.
-  ServiceEngineGroupName: Tenant1 # NSX ALB service engine group name to be used for load balancer configuration
-  LoadBalancerVIPSubnet: 192.168.255.128/28 # Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
+    # Single/multiple source Org VDCs in the form of a list that needs to be migrated
+    - OrgVDCName: Acme-1-vdc # Name of the source organization VDC
+      NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
+      NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
+      ExternalNetwork: tpm-externalnetwork # Name of the external network to which all target NSX-T edge gateways will be connected to
+      NoSnatDestinationSubnet: 10.100.0.0/16 # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
+      ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
+      LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
+      EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
+    - OrgVDCName: Acme-2-vdc # Name of the source organization VDC
+      NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
+      NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
+      ExternalNetwork: tpm-externalnetwork # Name of the external network to which all target NSX-T edge gateways will be connected to
+      NoSnatDestinationSubnet: 10.100.0.0/16 # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
+      ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
+      LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
+      EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
+  ImportedNeworkTransportZone: Direct-TZ # NSX-T VLAN transport zone used for segment creation for imported networks
+  DummyExternalNetwork: Dummy-ext # Name of the dummy external network which will be temporarily attached to source edge gateway during network disconnection.
 
 NSXT:
   Common:
-    ipAddress: 10.196.235.14 # IP/FQDN of NSXT Manager
+    ipAddress: 10.196.235.14 # IP address or FQDN of NSX-T Data Center that is used for integration with VMware Cloud Director
     username: admin # NSX-T administrator login name
-    verify: True # Certificate validation enabled
+    verify: False # Certificate validation enabled
   EdgeClusterName: # List of dedicated NSX-T Edge Clusters to be used for bridging
     - Bridge-edge-cluster1
     - Bridge-edge-cluster2
-  EdgeGatewayDeploymentEdgeCluster: Bridge-edge-cluster3 #  (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment.
 
 NSXV:
   Common:
     ipAddress: 10.196.235.7 # IP/FQDN of NSX-V Manager
     username: admin # NSX-V administrator login name
-    verify: True # Certificate validation enabled
+    verify: False # Certificate validation enabled
 
 Vcenter:
   Common:
-    ipAddress: cpsbu-tpm-vcsa.eng.vmware.com # IP/FQDN of vCenter server
+    ipAddress: cpsbu-tpm-vcsa.eng.vmware.com # IP/FQDN of the source vCenter server
     username: administrator@vsphere.local # vCenter server administrator login name
-    verify: True # Certificate validation enabled
+    verify: False # Certificate validation enabled
 
 Common:
   CertificatePath: /root/vcdNSXMigrator/caCert.pem # Signing CA or self-signed certificate path for certificates validation
   MaxThreadCount: 75 # Number of threads to be used for parallel processing
-  TimeoutForVappMigration: 3600 #  Timeout in seconds to be used for vApp migration task (Default value - 3600 seconds)
+  TimeoutForVappMigration: 3600 # Timeout in seconds to be used for vApp migration task (Default value - 3600 seconds)

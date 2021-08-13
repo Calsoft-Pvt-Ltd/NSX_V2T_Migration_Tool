@@ -1,6 +1,6 @@
-# ***************************************************
-# Copyright © 2020 VMware, Inc. All rights reserved.
-# ***************************************************
+# ******************************************************
+# Copyright © 2020-2021 VMware, Inc. All rights reserved.
+# ******************************************************
 
 """
 Description : Configuring Edge Gateway Services
@@ -13,18 +13,22 @@ import random
 import time
 import ipaddress
 import copy
+import threading
+import traceback
 
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 
 import requests
 import xmltodict
 
 import src.core.vcd.vcdConstants as vcdConstants
 
-from src.core.vcd.vcdValidations import VCDMigrationValidation, isSessionExpired, remediate, description
+from src.commonUtils.utils import Utilities
+from src.core.vcd.vcdValidations import (
+    VCDMigrationValidation, isSessionExpired, remediate, description, DfwRulesAbsentError, getSession)
 
 logger = logging.getLogger('mainLogger')
-
+chunksOfList = Utilities.chunksOfList
 
 class ConfigureEdgeGatewayServices(VCDMigrationValidation):
     """
@@ -35,19 +39,28 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         super().__init__(*args, **kwargs)
         vcdConstants.VCD_API_HEADER = vcdConstants.VCD_API_HEADER.format(self.version)
         vcdConstants.GENERAL_JSON_CONTENT_TYPE = vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version)
+        vcdConstants.OPEN_API_CONTENT_TYPE = vcdConstants.OPEN_API_CONTENT_TYPE.format(self.version)
 
-    def configureServices(self, metadata, noSnatDestSubnet, loadBalancerVIPSubnet, nsxvObj, ServiceEngineGroupName):
+    def configureServices(self, nsxvObj, orgVDCDict):
         """
         Description :   Configure the  service to the Target Gateway
-        Parameters  :   metadata - Status of service configuration (DICT)
-                        noSnatDestSubnet - Destination subnet address
-                        loadBalancerVIPSubnet - Subnet for loadbalancer virtual service VIP configuration
-                        nsxvObj - NSXVOperations class object
-                        ServiceEngineGroupName - Name of service engine group for load balancer configuration (STRING)
+        Parameters  :   nsxvObj - NSXVOperations class object
+                        orgVDCDict - Org VDC Input Dict (DICT)
         """
         try:
+            # Setting thread name as vdc name
+            threading.current_thread().name = self.vdcName
+
+            noSnatDestSubnet = orgVDCDict.get('NoSnatDestinationSubnet')
+            # Fetching load balancer vip configuration subnet from user input file
+            loadBalancerVIPSubnet = orgVDCDict.get('LoadBalancerVIPSubnet')
+            # Fetching service engine group name from sampleInput
+            serviceEngineGroupName = orgVDCDict.get('ServiceEngineGroupName')
+
+            metadata = self.rollback.metadata
+
             if not self.rollback.apiData['targetEdgeGateway']:
-                logger.debug('Skipping services configuration as edge gateway does '
+                logger.info('Skipping services configuration as edge gateway does '
                              'not exists')
                 return
 
@@ -70,9 +83,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # Configuring DNS
             self.configureDNS()
             # configuring loadbalancer
-            self.configureLoadBalancer(nsxvObj, ServiceEngineGroupName, loadBalancerVIPSubnet)
+            self.configureLoadBalancer(nsxvObj, serviceEngineGroupName, loadBalancerVIPSubnet)
             logger.debug("Edge Gateway services configured successfully")
-        except Exception:
+        except:
+            logger.error(traceback.format_exc())
             raise
 
     @isSessionExpired
@@ -464,6 +478,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         try:
             logger.info('Configuring Target Edge gateway services.')
             logger.debug('IPSEC is getting configured')
+
+            # Acquiring lock due to vCD multiple org vdc transaction issue
+            self.lock.acquire(blocking=True)
+
             targetEdgeGateway = copy.deepcopy(self.rollback.apiData['targetEdgeGateway'])
             targetEdgegatewayIdList = [(edgeGateway['id'], edgeGateway['name']) for edgeGateway in targetEdgeGateway]
             data = self.rollback.apiData
@@ -541,6 +559,12 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     logger.debug('No IPSEC rules configured in source edge gateway - {}'.format(targetEdgeGatewayName))
         except Exception:
             raise
+        finally:
+            # Releasing thread lock
+            try:
+                self.lock.release()
+            except RuntimeError:
+                pass
 
     @isSessionExpired
     def getApplicationPortProfiles(self):
@@ -561,6 +585,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
                 resultTotal = responseDict['resultTotal']
+            else:
+                response = response.json()
+                raise Exception('Failed to fetch application port profile {} '.format(response['message']))
             pageNo = 1
             pageSizeCount = 0
             resultList = list()
@@ -570,13 +597,18 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                         vcdConstants.APPLICATION_PORT_PROFILES, pageNo,
                                                         vcdConstants.APPLICATION_PORT_PROFILES_PAGE_SIZE,
                                                                             nsxtManagerId)
+                getSession(self)
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
                     resultList.extend(responseDict['values'])
                     pageSizeCount += len(responseDict['values'])
+                    resultTotal = responseDict['resultTotal']
                     logger.debug('Application Port Profiles result pageSize = {}'.format(pageSizeCount))
                     pageNo += 1
+                else:
+                    response = response.json()
+                    raise Exception('Failed to fetch application port profile {} '.format(response['message']))
             logger.debug('Total Application Port Profiles result count = {}'.format(len(resultList)))
             logger.debug('Application Port Profiles successfully retrieved')
             return resultList
@@ -828,6 +860,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         """
         try:
             logger.debug('DNS is getting configured')
+            self.rollback.apiData['listenerIp'] = {}
             for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
                 sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
                 edgeGatewayID = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
@@ -874,8 +907,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         if response.status_code == requests.codes.ok:
                             responseDict = response.json()
                             logger.warning(
-                                "Use this IP address {} when configuring VM's DNS server and Org VDC network's"
-                                " DNS server".format(responseDict['listenerIp']))
+                                "Use this Listener IP address {} when configuring VM's DNS server. The Org VDC network's"
+                                " DNS server will be configured with this listener IP".format(responseDict['listenerIp']))
+                            self.rollback.apiData['listenerIp'][edgeGatewayID] = responseDict['listenerIp']
                     else:
                         # failure in configuring dns
                         errorResponse = apiResponse.json()
@@ -911,19 +945,28 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 continue
                             propertyUrl = "{}{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
                                                             vcdConstants.T1_ROUTER_IPSEC_CONFIG.format(edgeGatewayID), vcdConstants.CONNECTION_PROPERTIES_CONFIG.format(ruleid))
+                            # if the source encryption algorithm is 'AES-GCM', then target Ike algorith supported is 'AES 128'
+                            if sourceIPsecSite['encryptionAlgorithm'] == 'aes-gcm':
+                                ikeEncryptionAlgorithm  = vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get('aes')
+                                tunnelDigestAlgorithm = None
+                                ikeDigestAlgorithm = vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get('sha1')
+                            else:
+                                ikeEncryptionAlgorithm = vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get(sourceIPsecSite['encryptionAlgorithm'])
+                                tunnelDigestAlgorithm = [vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(sourceIPsecSite['digestAlgorithm'])]
+                                ikeDigestAlgorithm = vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(sourceIPsecSite['digestAlgorithm'])
                             payloadDict = {
                                     "securityType": "CUSTOM",
                                     "ikeConfiguration": {
                                         "ikeVersion": vcdConstants.CONNECTION_PROPERTIES_IKE_VERSION.get(sourceIPsecSite['ikeOption']),
                                         "dhGroups": [vcdConstants.CONNECTION_PROPERTIES_DH_GROUP.get(sourceIPsecSite['dhGroup'])],
-                                        "digestAlgorithms": [vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(sourceIPsecSite['digestAlgorithm'])],
-                                        "encryptionAlgorithms": [vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get(sourceIPsecSite['encryptionAlgorithm'])],
+                                        "digestAlgorithms": [ikeDigestAlgorithm],
+                                        "encryptionAlgorithms": [ikeEncryptionAlgorithm],
                                     },
                                     "tunnelConfiguration": {
                                         "perfectForwardSecrecyEnabled": "true" if sourceIPsecSite['enablePfs'] else "false",
                                         "dhGroups": [vcdConstants.CONNECTION_PROPERTIES_DH_GROUP.get(sourceIPsecSite['dhGroup'])],
                                         "encryptionAlgorithms": [vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get(sourceIPsecSite['encryptionAlgorithm'])],
-                                        "digestAlgorithms": [vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(sourceIPsecSite['digestAlgorithm'])]
+                                        "digestAlgorithms": tunnelDigestAlgorithm
                                     }
                                 }
                             payloadData = json.dumps(payloadDict)
@@ -979,18 +1022,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             network_id = target_network['id']
                             members.append({'name': network_name, 'id': network_id})
             # getting the already created firewall groups summaries
-            firewallGroupsUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                              vcdConstants.FIREWALL_GROUPS_SUMMARY)
-            getsummaryResponse = self.restClientObj.get(firewallGroupsUrl, self.headers)
-            if getsummaryResponse.status_code == requests.codes.ok:
-                summaryResponseDict = json.loads(getsummaryResponse.content)
-                summaryValues = summaryResponseDict['values']
-                for summary in summaryValues:
-                    # checking if the firewall group is already created for the given edge gateway
-                    # if yes then appending the firewall group id to the list
-                    if summary.get('edgeGatewayRef'):
-                        if summary['edgeGatewayRef']['id'] == edgeGatewayId:
-                            firewallGroupIds.append(summary['id'])
+            summaryValues = self.fetchFirewallGroups()
+            for summary in summaryValues:
+                # checking if the firewall group is already created for the given edge gateway
+                # if yes then appending the firewall group id to the list
+                if summary.get('edgeGatewayRef'):
+                    if summary['edgeGatewayRef']['id'] == edgeGatewayId:
+                        firewallGroupIds.append(summary['id'])
             for firewallGroupId in firewallGroupIds:
                 # getting the details of specific firewall group
                 groupIdUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
@@ -1200,19 +1238,22 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 "originalAddress": sourceNATRule['originalAddress'],
                 "translatedAddress": translatedAddressCIDR
             })
-            # adding dnatExternalPort port profile to payload data
-            if float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
-                payloadDict["internalPort"] = sourceNATRule['originalPort'] if sourceNATRule[
-                                                                                       'originalPort'] != 'any' else ''
-            else:
-                payloadDict["dnatExternalPort"] = sourceNATRule['originalPort'] if sourceNATRule[
-                                                                                     'originalPort'] != 'any' else ''
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
             # creating payload data
             payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='json',
                                                       componentName=vcdConstants.COMPONENT_NAME,
                                                       templateName=vcdConstants.CREATE_DNAT_TEMPLATE, apiVersion=self.version)
             payloadData = json.loads(payloadData)
+            # adding dnatExternalPort port profile to payload data
+            if float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
+                payloadData["internalPort"] = sourceNATRule['originalPort'] if sourceNATRule['originalPort'] != 'any' else ''
+            else:
+                payloadData["dnatExternalPort"] = sourceNATRule['originalPort'] if sourceNATRule['originalPort'] != 'any' else ''
+
+            # From VCD v10.2.2, firewallMatch to external address to be provided for DNAT rules
+            if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS_10_2_2):
+                payloadData["firewallMatch"] = "MATCH_EXTERNAL_ADDRESS"
+
             # if protocol and port is not equal to any search or creating new application port profiles
             if sourceNATRule['protocol'] != "any" and sourceNATRule['translatedPort'] != "any":
                 protocol_port_name, protocol_port_id = self._searchApplicationPortProfile(
@@ -1417,6 +1458,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         Description: Creating DHCP service in Source Org VDC for roll back
         """
         try:
+            # Check if services configuration or network switchover was performed or not
+            if not self.rollback.metadata.get("configureTargetVDC", {}).get("disconnectSourceOrgVDCNetwork"):
+                return
+
             data = self.rollback.apiData['sourceEdgeGatewayDHCP']
             # ID of source edge gateway
             for sourceEdgeGatewayId in self.rollback.apiData['sourceEdgeGatewayId']:
@@ -1459,6 +1504,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         Description: Configuring IPSEC service in source Edge gateway for roll back
         """
         try:
+            # Check if services configuration or network switchover was performed or not
+            if not self.rollback.metadata.get("configureTargetVDC", {}).get("disconnectSourceOrgVDCNetwork"):
+                return
+
             for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
                 # ID of source edge gateway
                 edgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
@@ -1603,6 +1652,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                         vcdConstants.EDGE_GATEWAY_LOADBALANCER_POOLS_USING_ID.format(
                                                             edgeGatewayId), pageNo,
                                                         25)
+                getSession(self)
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
@@ -1610,6 +1660,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     pageSizeCount += len(responseDict['values'])
                     logger.debug('pool summary result pageSize = {}'.format(pageSizeCount))
                     pageNo += 1
+                    resultTotal = responseDict['resultTotal']
             return targetLoadBalancerPoolSummary
         except:
             raise
@@ -1639,6 +1690,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                         vcdConstants.EDGE_GATEWAY_LOADBALANCER_VIRTUALSERVICE_USING_ID.format(
                                                             edgeGatewayId), pageNo,
                                                         25)
+                getSession(self)
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
@@ -1646,6 +1698,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     pageSizeCount += len(responseDict['values'])
                     logger.debug('virtual service summary result pageSize = {}'.format(pageSizeCount))
                     pageNo += 1
+                    resultTotal = responseDict['resultTotal']
                 else:
                     raise Exception('Failed to fetch load balancer virtual service details')
             return targetLoadBalancerVirtualServiceSummary
@@ -1677,6 +1730,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                         vcdConstants.ASSIGN_SERVICE_ENGINE_GROUP_URI,
                                                         pageNo,
                                                         25)
+                getSession(self)
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
@@ -1684,6 +1738,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     pageSizeCount += len(responseDict['values'])
                     logger.debug('virtual service summary result pageSize = {}'.format(pageSizeCount))
                     pageNo += 1
+                    resultTotal = responseDict['resultTotal']
                 else:
                     raise Exception('Failed to fetch load balancer virtual service details')
             serviceEngineGroupInEdgeGatewayList = list(filter(
@@ -1719,6 +1774,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         Description:  Rollback for load balancer service of target edge gateway
         """
         try:
+            # Check if services were configured using metadata
+            if not isinstance(self.rollback.metadata.get("configureServices", {}).get("configureLoadBalancer"), bool):
+                return
+
             # check api version for load balancer rollback
             if float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
                 return
@@ -1924,10 +1983,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         ))
             logger.info('Target Edge gateway services got configured successfully.')
         except Exception:
-            # Updating rollback key in metadata in case of failure
-            self.rollback.key = 'configureLoadBalancer'
-            self.createMetaDataInOrgVDC(self.rollback.apiData['sourceOrgVDC']['@id'],
-                                        metadataDict={'rollbackKey': self.rollback.key}, domain='system')
+            # Updating execution result in metadata in case of failure
+            self.rollback.executionResult['configureServices']['configureLoadBalancer'] = False
+            self.saveMetadataInOrgVdc()
             raise
 
     @isSessionExpired
@@ -1978,6 +2036,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             protocol_port_name, protocol_port_id = self._searchApplicationPortProfile(
                 applicationPortProfilesList, 'tcp', port)
             payloadData["applicationPortProfile"] = {"name": protocol_port_name, "id": protocol_port_id}
+
+            # From VCD v10.2.2, firewallMatch to external address to be provided for DNAT rules
+            if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS_10_2_2):
+                payloadData["firewallMatch"] = "MATCH_EXTERNAL_ADDRESS"
 
             # Create rule api call
             self.createNatRuleTask(payloadData, url)
@@ -2438,438 +2500,901 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         except:
             raise
 
-    @description('Configuring source DFW rules in Target VDC groups')
-    @remediate
-    def configureDFW(self, sourceOrgVDCId):
+    @isSessionExpired
+    def getDcGroupNetworks(self, dcGroupId):
         """
-        Description: Configuring source DFW rules in Target VDC groups
-        parameter: sourceOrgVDCId - ID of source orgVDC(NSX ID format not URN)
+        Description :   Fetch all networks from the provided DC group
+        Parameters  :   dcGroupId - Id of the DC Group (STR)
+        Returns     :   resultFetched - List of networks associated with DC Group (LIST)
         """
         try:
-            self.rollback.key = 'configureDFW'
-            firewallIdDict = dict()
-            isofirewallIdDict = dict()
-            sourceipsetNames = list()
-            desipsetNames = list()
-            logger.info("Configuring DFW Services in VDC groups")
-            orgvDCgroupIds = self.rollback.apiData['OrgVDCGroupID'].values() if self.rollback.apiData.get('OrgVDCGroupID') else []
-            # getting all the L3 DFW rules
-            allLayer3Rules = self.getDistributedFirewallConfig(sourceOrgVDCId)
-            allLayer3Rules = allLayer3Rules if isinstance(allLayer3Rules, list) else [allLayer3Rules]
-            # getting layer 3 services
-            applicationPortProfilesList = self.getApplicationPortProfiles()
-            vcdid = sourceOrgVDCId.split(':')[-1]
-            url = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
-                                vcdConstants.GET_IPSET_GROUP_BY_ID.format(
-                                    vcdConstants.IPSET_SCOPE_URL.format(vcdid)))
+            pageSize = vcdConstants.DEFAULT_QUERY_PAGE_SIZE
+            base_url = "{}{}".format(
+                vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                vcdConstants.ALL_ORG_VDC_NETWORKS)
+            query = f'&filterEncoded=true&filter=((ownerRef.id=={dcGroupId});(crossVdcNetworkId==null))'
+
+            # Get first page of query
+            pageNo = 1
+            url = f"{base_url}?page={pageNo}&pageSize={pageSize}{query}"
+            self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+
             response = self.restClientObj.get(url, self.headers)
-            if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
-                if responseDict.get('list'):
-                    ipsetgroups = responseDict['list']['ipset'] if isinstance(responseDict['list']['ipset'],
-                                                                              list) else [
-                        responseDict['list']['ipset']]
+            if not response.status_code == requests.codes.ok:
+                raise Exception(
+                    f'Error occurred while retrieving DC group networks: {response.json()["message"]}')
+
+            # Store first page result and preapre for second page
+            responseContent = response.json()
+            resultTotal = responseContent['resultTotal']
+            resultFetched = responseContent['values']
+            pageNo += 1
+
+            # Return if results are empty
+            if resultTotal == 0:
+                return []
+
+            # Query second page onwards until resultTotal is reached
+            while len(resultFetched) < resultTotal:
+                url = f"{base_url}?page={pageNo}&pageSize={pageSize}{query}"
+                self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+                response = self.restClientObj.get(url, self.headers)
+                if not response.status_code == requests.codes.ok:
+                    raise Exception(
+                        f'Error occurred while retrieving DC group networks: {response.json()["message"]}')
+
+                responseContent = response.json()
+                resultFetched.extend(responseContent['values'])
+                resultTotal = responseContent['resultTotal']
+                logger.debug(f'DC group networks result pageSize = {len(resultFetched)}')
+                pageNo += 1
+
+            logger.debug(f'Total DC group networks count = {len(resultFetched)}')
+            logger.debug(f'DC group networks successfully retrieved')
+
+            return resultFetched
+
+        except Exception as e:
+            logger.error(f'Error occurred while retrieving Named Disks: {e}')
+            raise
+
+    def getTargetEntitiesToDcGroupMap(self):
+        """
+        Description :   Map entities like Org VDC and Org VDC network to DC groups which they are part of.
+        Returns     :   dict with with key as entity ID(Org VDC/Network) and value as set of DC
+                        group IDs associated with it (DICT)
+        """
+        dcGroupsIds = self.rollback.apiData.get('OrgVDCGroupID')
+        logger.debug('dcGroupsIds {}'.format(dcGroupsIds))
+        dcGroups = self.getOrgVDCGroup()
+        dcGroups = {dcGroup['id']: dcGroup for dcGroup in dcGroups}
+
+        targetEntitiesToDcGroupMap = defaultdict(set)
+        for dcGroupId in dcGroupsIds.values():
+            # Collect Org VDC and all DC Groups associated with it.
+            for vdc in dcGroups.get(dcGroupId, {}).get('participatingOrgVdcs', []):
+                targetEntitiesToDcGroupMap[vdc['vdcRef']['id']].add(dcGroupId)
+
+            # Create Org VDC network to DC group dictionary. One network should
+            # belong to only one Network
+            dcGroupNetworks = self.getDcGroupNetworks(dcGroupId)
+            for network in dcGroupNetworks:
+                targetEntitiesToDcGroupMap[network['id']] = {dcGroupId}
+
+        logger.debug(f'targetEntitiesToDcGroupMap {targetEntitiesToDcGroupMap}')
+        return {key: frozenset(value) for key, value in targetEntitiesToDcGroupMap.items()}
+
+    def getDfwRuleScope(self, l3rule, targetEntitiesToDcGroupMap, sourceToTargetOrgNetIds, sourceDfwSecurityGroups):
+        """
+        Description :   Provides a set of DC groups on which DFW rule is to be created
+                        based upon Org VDC networks and AppliedTO section in rule
+        Parameters  :   l3rule - DFW rule from source Org VDC (DICT)
+                        targetEntitiesToDcGroupMap : Map of entities like Org VDC and Org VDC network to DC groups
+                            which they are part of (DICT)
+        Returns     :   Set of DC group IDs (SET)
+        """
+        def all_networks(entities):
+            """Returns list of network objects used in entites. If any other object is present in entities return empty list """
+            entities = entities if isinstance(entities, list) else [entities]
+            networks = set()
+            for entity in entities:
+                if entity['type'] == 'Network':
+                    networks.add(entity['value'])
+
+                elif entity['type'] == 'SecurityGroup':
+                    sourceGroup = sourceDfwSecurityGroups[entity['value']]
+                    if sourceGroup.get('dynamicMemberDefinition'):
+                        return list()
+
+                    if not sourceGroup.get('member'):
+                        continue
+
+                    includeMembers = (sourceGroup['member'] if isinstance(sourceGroup['member'], list) else [sourceGroup['member']])
+                    for member in includeMembers:
+                        if member['type']['typeName'] == 'Network':
+                            networks.add(member['objectId'])
+                        else:
+                            return list()
 
                 else:
-                    ipsetgroups = []
-                if ipsetgroups:
-                    if self.rollback.apiData.get('firewallIdDict'):
-                        firewallIdDict = self.rollback.apiData.get('firewallIdDict')
-                    if self.rollback.apiData.get('ConflictNetworks'):
-                        isofirewallIdDict = self.createDFWIPSET(ipsetgroups)
-                    firewallIdDict = {**firewallIdDict, **isofirewallIdDict}
-            ipsetIds = self.fetchipset(orgvDCgroupIds)
-            for allLayer3Rule in allLayer3Rules:
-                srcorgvDCgroupId, desorgvDCgroupId = str(), str()
-                data = dict()
+                    return list()
+
+            return networks
+
+        data = self.rollback.apiData
+
+        # Case 1
+        # If rule has only Org VDC networks(directly or in Security groups),
+        # scope of rule will be only DC group to which that network is attached.
+        # For this network only rule, only one DC group should match. "appliedToList" parameter from rule is ignored.
+        sourceNetworks = list()
+        if l3rule.get('sources', {}).get('source'):
+             sourceNetworks.extend(all_networks(l3rule['sources']['source']))
+
+        if l3rule.get('destinations', {}).get('destination'):
+            sourceNetworks.extend(all_networks(l3rule['destinations']['destination']))
+
+        targetAppliedToScope = set()
+        for net in sourceNetworks:
+            targetNetworkId = sourceToTargetOrgNetIds[net]
+            targetAppliedToScope.update(targetEntitiesToDcGroupMap[targetNetworkId])
+        logger.debug(f'new scope {targetAppliedToScope}')
+
+        if targetAppliedToScope:
+            if len(targetAppliedToScope) == 1:
+                return targetAppliedToScope
+            else:
+                raise Exception('Invalid DFW rule {}: Network objects in rule belongs to different DC groups'.format(
+                    l3rule.get('name')))
+
+        # Case 2
+        # If network object is clubbed with other firewall objects check for "appliedToList" scope as per below criteria
+        # 1. NSX-V rules with an Org VDC scope will be migrated to all target DC Groups that contain this Org VDC.
+        # 2. NSX-V rules with Org VDC network scope will be migrated only to DC Group that contains this network.
+        if not l3rule.get('appliedToList'):
+            raise Exception('Invalid "appliedTo" for DFW rule {}'.format(l3rule.get('name')))
+
+        sourceAppliedToScope = (
+            l3rule['appliedToList']['appliedTo']
+            if isinstance(l3rule['appliedToList']['appliedTo'], list)
+            else [l3rule['appliedToList']['appliedTo']]
+        )
+
+        targetAppliedToScope = set()
+        for item in sourceAppliedToScope:
+            # NSX-V rules with an Org VDC scope will be migrated to all target DC Groups that contain this Org VDC.
+            if item['type'] == 'VDC':
+                if not item['value'] == data['sourceOrgVDC']['@id'].split(':')[-1]:
+                    raise Exception('Invalid "appliedTo" for DFW rule {}'.format(l3rule.get('name')))
+                targetAppliedToScope.update(targetEntitiesToDcGroupMap[data['targetOrgVDC']['@id']])
+
+            # NSX-V rules with Org VDC network scope will be migrated only to DC Group that contains this network.
+            elif item['type'] == 'Network':
+                targetNetworkId = sourceToTargetOrgNetIds[item['value']]
+                if not targetNetworkId:
+                    raise Exception('Invalid "appliedTo" for DFW rule {}'.format(l3rule.get('name')))
+                targetAppliedToScope.update(targetEntitiesToDcGroupMap[targetNetworkId])
+
+        return targetAppliedToScope
+
+    @description('Configuring source DFW rules in Target VDC groups')
+    @remediate
+    def configureDFW(self, vcdObjList, sourceOrgVDCId):
+        """
+        Description :   Configuring source DFW rules in Target VDC groups
+        Parameters  :   vcdObjList - List of objects of vcd operations class (LIST)
+                        sourceOrgVDCId - ID of source orgVDC(NSX ID format not URN) (STR)
+        """
+        try:
+            if not self.rollback.apiData.get('OrgVDCGroupID'):
+                return
+
+            # Acquire lock as dc groups can be common and one thread should configure dfw at a time
+            self.lock.acquire(blocking=True)
+            logger.info("Configuring DFW Services in VDC groups")
+
+            # getting all the L3 DFW rules
+            allLayer3Rules = self.getDistributedFirewallRules(sourceOrgVDCId, ruleType='non-default')
+            if not allLayer3Rules:
+                logger.debug('DFW rules are not configured')
+                return
+            allLayer3Rules = allLayer3Rules if isinstance(allLayer3Rules, list) else [allLayer3Rules]
+
+            # sourceToTargetOrgNetIds and targetEntitiesToDcGroupMap is required to identify scope of rule
+            sourceToTargetOrgNetIds = {
+                vcdObj.rollback.apiData["sourceOrgVDCNetworks"][
+                    targetNet[:-4] if targetNet.endswith('-v2t') else targetNet]['id']: targetNetMetadata['id']
+                for vcdObj in vcdObjList
+                for targetNet, targetNetMetadata in vcdObj.rollback.apiData["targetOrgVDCNetworks"].items()
+            }
+            targetEntitiesToDcGroupMap = self.getTargetEntitiesToDcGroupMap()
+
+            logger.debug(f'sourceToTargetOrgNetIds {sourceToTargetOrgNetIds}')
+
+            # Collect pre-configured DFW objects.
+            applicationPortProfilesList = self.getApplicationPortProfiles()
+            sourceDfwSecurityGroups = self.getSourceDfwSecurityGroups()
+            allFirewallGroups = self.fetchFirewallGroupsByDCGroup()
+            self.getTargetSecurityTags()
+            dfwURLs = self.getDfwUrls()
+
+            self.rollback.executionResult["configureTargetVDC"]["configureDFW"] = False
+            self.saveMetadataInOrgVdc()
+
+            for l3rule in allLayer3Rules:
+                logger.debug('RULE_NAME_{}'.format(l3rule['name']))
+                if self.rollback.apiData.get(l3rule['@id']):
+                    continue
+
+                # Rule will be applied to all DC groups identified by ruleScopedDcGroups
+                ruleScopedDcGroups = self.getDfwRuleScope(
+                    l3rule, targetEntitiesToDcGroupMap, sourceToTargetOrgNetIds, sourceDfwSecurityGroups)
+
+                logger.debug(ruleScopedDcGroups)
+
+                # Configure firewall groups for source/destination objects for each DC group identified
+                # by ruleScopedDcGroups
+                sourceFirewallGroupObjects = destFirewallGroupObjects = dict()
+                if l3rule.get('sources', {}).get('source'):
+                    sources = (
+                        l3rule['sources']['source']
+                        if isinstance(l3rule['sources']['source'], list)
+                        else [l3rule['sources']['source']])
+                    sourceFirewallGroupObjects = self.configureDFWgroups(
+                        sources, l3rule['@id'], allFirewallGroups, ruleScopedDcGroups, sourceToTargetOrgNetIds,
+                        targetEntitiesToDcGroupMap, sourceDfwSecurityGroups, source=True)
+                if l3rule.get('destinations', {}).get('destination'):
+                    destinations = (
+                        l3rule['destinations']['destination']
+                        if isinstance(l3rule['destinations']['destination'], list)
+                        else [l3rule['destinations']['destination']])
+                    destFirewallGroupObjects = self.configureDFWgroups(
+                        destinations, l3rule['@id'], allFirewallGroups, ruleScopedDcGroups, sourceToTargetOrgNetIds,
+                        targetEntitiesToDcGroupMap, sourceDfwSecurityGroups, source=False)
+
+                # Preparing payload with parameters which will be common in all DC groups
+                # source firewall groups, destination firewall groups will added as per scope of rule
+                payloadDict = {
+                    'name':
+                        f"{l3rule['name']}-{l3rule['@id']}"
+                        if l3rule['name'] != 'Default Allow Rule'
+                        else 'Default',
+                    'enabled': True if l3rule['@disabled'] == 'false' else 'false',
+                    'action': 'ALLOW' if l3rule['action'] == 'allow' else 'DROP',
+                    'logging': 'true' if l3rule['@logged'] == 'true' else 'false',
+                    'ipProtocol':
+                        'IPV4' if l3rule['packetType'] == 'ipv4'
+                        else 'IPV6' if l3rule['packetType'] == 'ipv6'
+                        else 'IPV4_IPV6',
+                    'direction':
+                        'OUT' if l3rule['direction'] == 'out'
+                        else 'IN' if l3rule['direction'] == 'in'
+                        else 'IN_OUT',
+                }
+
+                # updating the payload with application port profiles
+                # checking for the application key in firewallRule
                 applicationServicesList = list()
-                sourcefirewallGroupList, destfirewallGroupList = list(), list()
                 networkContextProfilesList = list()
-                payloadDict = dict()
-                sourcefirewallGroupId = list()
-                destinationfirewallGroupId = list()
-                if not self.rollback.apiData.get(allLayer3Rule['@id']):
-                    if allLayer3Rule.get('sources', None):
-                        if allLayer3Rule['sources'].get('source', None):
-                            sources = allLayer3Rule['sources']['source'] if isinstance(allLayer3Rule['sources']['source'], list) else [allLayer3Rule['sources']['source']]
-                            firewallGroupIdSource, srcorgvDCgroupId, sourceipsetNames, sourcefirewallGroupList = self.configureDFWgroups(sources, allLayer3Rule, firewallIdDict, source=True)
-                            sourcefirewallGroupId.extend(firewallGroupIdSource)
-                    if allLayer3Rule.get('destinations'):
-                        if allLayer3Rule['destinations'].get('destination'):
-                            destinations = allLayer3Rule['destinations']['destination'] if isinstance(
-                                allLayer3Rule['destinations']['destination'], list) else [allLayer3Rule['destinations']['destination']]
-                            firewallGroupIdDestination, desorgvDCgroupId, desipsetNames, destfirewallGroupList = self.configureDFWgroups(destinations, allLayer3Rule, firewallIdDict, source=False)
-                            destinationfirewallGroupId.extend(firewallGroupIdDestination)
-                    userDefinedRulesList = list()
-                    if not srcorgvDCgroupId and not desorgvDCgroupId:
-                        orgvDCgroupId = list(orgvDCgroupIds)[0]
-                    if srcorgvDCgroupId:
-                        orgvDCgroupId = srcorgvDCgroupId
-                    if desorgvDCgroupId:
-                        orgvDCgroupId = desorgvDCgroupId
-                    if allLayer3Rule.get('sources', None):
-                        if sourceipsetNames and srcorgvDCgroupId:
-                            for ipsetName in sourceipsetNames:
-                                for ipsetId in ipsetIds:
-                                    if list(ipsetId.keys())[0] == orgvDCgroupId:
-                                        if ipsetId[orgvDCgroupId].get(ipsetName):
-                                            sourcefirewallGroupId.append({'id': ipsetId[orgvDCgroupId][ipsetName]})
-                        elif sourceipsetNames:
-                            for ipsetName in sourceipsetNames:
-                                for ipsetId in ipsetIds:
-                                    if list(ipsetId.keys())[0] == list(orgvDCgroupIds)[0]:
-                                        if ipsetId[list(orgvDCgroupIds)[0]].get(ipsetName):
-                                            sourcefirewallGroupId.append(
-                                                {'id': ipsetId[list(orgvDCgroupIds)[0]][ipsetName]})
-                        if orgvDCgroupId and sourcefirewallGroupList:
-                            ipAddressGroupIds = sourcefirewallGroupList[orgvDCgroupId].keys()
-                            for ids in list(ipAddressGroupIds):
-                                id = {'id': ids}
-                                sourcefirewallGroupId.append(id)
-                        elif sourcefirewallGroupList:
-                            ownerRef = orgvDCgroupIds[0]
-                            ipAddressGroupIds = sourcefirewallGroupList[ownerRef].keys()
-                            for ids in list(ipAddressGroupIds):
-                                id = {'id': ids}
-                                sourcefirewallGroupId.append(id)
-                    if allLayer3Rule.get('destinations', None):
-                        if desipsetNames and srcorgvDCgroupId:
-                            for ipsetName in desipsetNames:
-                                for ipsetId in ipsetIds:
-                                    if list(ipsetId.keys())[0] == orgvDCgroupId:
-                                        if ipsetId[orgvDCgroupId].get(ipsetName):
-                                            destinationfirewallGroupId.append({'id': ipsetId[orgvDCgroupId][ipsetName]})
-                        elif desipsetNames:
-                            for ipsetName in desipsetNames:
-                                for ipsetId in ipsetIds:
-                                    if list(ipsetId.keys())[0] == list(orgvDCgroupIds)[0]:
-                                        if ipsetId[list(orgvDCgroupIds)[0]].get(ipsetName):
-                                            destinationfirewallGroupId.append(
-                                                {'id': ipsetId[list(orgvDCgroupIds)[0]][ipsetName]})
-                        if orgvDCgroupId and destfirewallGroupList:
-                            ipAddressGroupIds = destfirewallGroupList[orgvDCgroupId].keys()
-                            for ids in list(ipAddressGroupIds):
-                                id = {'id': ids}
-                                destinationfirewallGroupId.append(id)
-                        elif destfirewallGroupList:
-                            ownerRef = orgvDCgroupIds[0]
-                            ipAddressGroupIds = destfirewallGroupList[ownerRef].keys()
-                            for ids in list(ipAddressGroupIds):
-                                id = {'id': ids}
-                                destinationfirewallGroupId.append(id)
-                    # URL to get dfw policies by vdc groud ID
-                    policyURL = '{}{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                vcdConstants.GET_VDC_GROUP_BY_ID.format(orgvDCgroupId),
-                                                vcdConstants.ENABLE_DFW_POLICY)
-                    header = {'Authorization': self.headers['Authorization'],
-                              'Accept': vcdConstants.VCD_API_HEADER}
-                    policyResponse = self.restClientObj.get(policyURL, header)
-                    if policyResponse.status_code == requests.codes.ok:
-                        policyResponseDict = policyResponse.json()
-                        policyID = policyResponseDict['defaultPolicy']['id']
-                        dfwURL = '{}{}{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                   vcdConstants.GET_VDC_GROUP_BY_ID.format(orgvDCgroupId),
-                                                   vcdConstants.ENABLE_DFW_POLICY, vcdConstants.GET_DFW_RULES.format(policyID))
-                        # get api call to retrieve firewall info of target edge gateway
-                        response = self.restClientObj.get(dfwURL, header)
-                        if response.status_code == requests.codes.ok:
-                            # successful retrieval of firewall info
-                            responseDict = response.json()
-                            userDefinedRulesList = responseDict['values']
-                            # updating the payload with source firewall groups, destination firewall groups, user defined firewall rules, application port profiles
-                            action = 'ALLOW' if allLayer3Rule['action'] == 'allow' else 'DROP'
-                            payloadDict.update({'name': allLayer3Rule['name'] + "-" + allLayer3Rule['@id'] if allLayer3Rule['name'] != 'Default Allow Rule' else 'Default',
-                                                'enabled': True if allLayer3Rule['@disabled'] == 'false' else 'false', 'action': action})
-                            payloadDict['sourceFirewallGroups'] = sourcefirewallGroupId
-                            payloadDict['destinationFirewallGroups'] = destinationfirewallGroupId
-                            payloadDict['logging'] = "true" if allLayer3Rule['@logged'] == "true" else "false"
-                            if allLayer3Rule['packetType'] == 'ipv4':
-                                payloadDict['ipProtocol'] = "IPV4"
-                            elif allLayer3Rule['packetType'] == 'ipv6':
-                                payloadDict['ipProtocol'] = "IPV6"
-                            else:
-                                payloadDict['ipProtocol'] = "IPV4_IPV6"
-                            if allLayer3Rule['direction'] == "out":
-                                payloadDict['direction'] = "OUT"
-                            elif allLayer3Rule['direction'] == "in":
-                                payloadDict['direction'] = "IN"
-                            else:
-                                payloadDict['direction'] = "IN_OUT"
-                            # checking for the application key in firewallRule
-                            if allLayer3Rule.get('services'):
-                                if allLayer3Rule['services'].get('service'):
-                                    layer3AppServices = self.getApplicationServicesDetails(vcdid)
-                                    allNetworkContextProfilesList = self.getNetworkContextProfiles()
-                                    # list instance of application services
-                                    firewallRules = allLayer3Rule['services']['service'] if isinstance(allLayer3Rule['services']['service'], list) else [allLayer3Rule['services']['service']]
-                                    # iterating over the application services
-                                    for applicationService in firewallRules:
-                                        for service in layer3AppServices:
-                                            if applicationService.get('protocolName'):
-                                                if applicationService['protocolName'] == 'TCP' or applicationService['protocolName'] == 'UDP':
-                                                    protocol_name, port_id = self._searchApplicationPortProfile(
-                                                        applicationPortProfilesList, applicationService['protocolName'],
-                                                        applicationService['destinationPort'])
-                                                    applicationServicesList.append({'name': protocol_name, 'id': port_id})
-                                                else:
-                                                    # iterating over the application port profiles
-                                                    for value in applicationPortProfilesList:
-                                                        if value['name'] == vcdConstants.IPV6ICMP:
-                                                            protocol_name, port_id = value['name'], value['id']
-                                                            applicationServicesList.append(
-                                                                {'name': protocol_name, 'id': port_id})
-                                                break
-                                            if service['objectId'] == applicationService['value']:
-                                                if service['layer'] == 'layer3' or service['layer'] == 'layer4':
-                                                    if applicationService['name'] != 'FTP' and applicationService['name'] != 'TFTP':
-                                                        if service['element']['applicationProtocol'] == 'TCP' or \
-                                                                service['element']['applicationProtocol'] == 'UDP':
-                                                            protocol_name, port_id = self._searchApplicationPortProfile(applicationPortProfilesList, service['element']['applicationProtocol'], service['element']['value'])
-                                                            applicationServicesList.append({'name': protocol_name, 'id': port_id})
-                                                    else:
-                                                        # protocol_name, port_id = [[values['name'], values['id']] for values in applicationPortProfilesList if values['name'] == 'FTP' or values['name'] == 'TFTP']
-                                                        for values in applicationPortProfilesList:
-                                                            if values['name'] == applicationService['name']:
-                                                                applicationServicesList.append({'name': values['name'], 'id': values['id']})
-                                                    # if protocol is IPV6ICMP
-                                                    if service['element']['applicationProtocol'] == 'IPV6ICMP':
-                                                        # iterating over the application port profiles
-                                                        for value in applicationPortProfilesList:
-                                                            if value['name'] == vcdConstants.IPV6ICMP:
-                                                                protocol_name, port_id = value['name'], value['id']
-                                                                applicationServicesList.append({'name': protocol_name, 'id': port_id})
-                                                    # if protocal is IPV4ICMP
-                                                    if service['element']['applicationProtocol'] == 'ICMP':
-                                                        for value in applicationPortProfilesList:
-                                                            if value['name'] == service['name'] or value['name'] == service['name'] + ' Request':
-                                                                applicationServicesList.append({'name': value['name'], 'id': value['id']})
-                                                if service['layer'] == 'layer7':
-                                                    for contextProfile in allNetworkContextProfilesList.values():
-                                                        if service['element']['appGuidName'] == contextProfile['name'] or applicationService['name'] == contextProfile['name']:
-                                                            networkContextProfilesList.append({'name': contextProfile['name'], 'id': contextProfile['id']})
-                                    payloadDict['applicationPortProfiles'] = applicationServicesList
-                                    payloadDict['networkContextProfiles'] = networkContextProfilesList
-                            else:
-                                payloadDict['applicationPortProfiles'] = applicationServicesList
-                                payloadDict['networkContextProfiles'] = networkContextProfilesList
-                            if len(networkContextProfilesList) >1 and len(applicationServicesList) >=1:
-                                for networkContextProfiles in networkContextProfilesList:
-                                    payloadDict['networkContextProfiles'] = [networkContextProfiles]
-                                    if payloadDict['name'] == 'Default':
-                                        self.configDefaultDFW(payloadDict=payloadDict, orgVDCIds=orgvDCgroupIds)
-                                        continue
-                                    # get api call to retrieve firewall info of target edge gateway
-                                    response = self.restClientObj.get(dfwURL, header)
-                                    if response.status_code == requests.codes.ok:
-                                        # successful retrieval of firewall info
-                                        responseDict = response.json()
-                                        userDefinedRulesList = responseDict['values']
-                                    data['values'] = userDefinedRulesList + [payloadDict] if userDefinedRulesList else [payloadDict]
-                                    payloadData = json.dumps(data)
-                                    self.headers['Content-Type'] = 'application/json'
-                                    # put api call to configure firewall rules on target edge gateway
-                                    response = self.restClientObj.put(dfwURL, self.headers, data=payloadData)
-                                    if response.status_code == requests.codes.accepted:
-                                        # successful configuration of firewall rules on target edge gateway
-                                        taskUrl = response.headers['Location']
-                                        self._checkTaskStatus(taskUrl=taskUrl)
-                                        logger.debug('DFW rule {} with multiple L7 service created successfully.'.format(allLayer3Rule['name']))
+                if l3rule.get('services'):
+                    if l3rule['services'].get('service'):
+                        layer3AppServices = self.getApplicationServicesDetails(sourceOrgVDCId)
+                        allNetworkContextProfilesList = self.getNetworkContextProfiles()
+                        # list instance of application services
+                        firewallRules = l3rule['services']['service'] if isinstance(l3rule['services']['service'], list) else [l3rule['services']['service']]
+                        # iterating over the application services
+                        for applicationService in firewallRules:
+                            for service in layer3AppServices:
+                                if applicationService.get('protocolName'):
+                                    if applicationService['protocolName'] == 'TCP' or applicationService['protocolName'] == 'UDP':
+                                        protocol_name, port_id = self._searchApplicationPortProfile(
+                                            applicationPortProfilesList, applicationService['protocolName'],
+                                            applicationService['destinationPort'])
+                                        applicationServicesList.append({'name': protocol_name, 'id': port_id})
                                     else:
-                                        # failure in configuration of firewall rules on target edge gateway
-                                        response = response.json()
-                                        raise Exception('Failed to create DFW rule on target - {}'.format(response['message']))
-                                self.rollback.apiData[allLayer3Rule['@id']] = True
-                            else:
-                                if payloadDict['name'] == 'Default':
-                                    self.configDefaultDFW(payloadDict=payloadDict, orgVDCIds=orgvDCgroupIds)
-                                    continue
-                                data['values'] = userDefinedRulesList + [payloadDict] if userDefinedRulesList else [
-                                    payloadDict]
-                                payloadData = json.dumps(data)
-                                self.headers['Content-Type'] = 'application/json'
-                                # put api call to configure firewall rules on target edge gateway
-                                response = self.restClientObj.put(dfwURL, self.headers, data=payloadData)
-                                if response.status_code == requests.codes.accepted:
-                                    # successful configuration of firewall rules on target edge gateway
-                                    taskUrl = response.headers['Location']
-                                    self._checkTaskStatus(taskUrl=taskUrl)
-                                    # setting the configStatus flag meaning the particular firewall rule is configured successfully in order to skip its reconfiguration
-                                    # ruleStatus = {allLayer3Rule['@id']: True}
-                                    self.rollback.apiData[allLayer3Rule['@id']] = True
-                                    logger.debug('DFW rule {} created successfully.'.format(
-                                        allLayer3Rule['name']))
-                                else:
-                                    # failure in configuration of firewall rules on target edge gateway
-                                    response = response.json()
-                                    raise Exception(
-                                        'Failed to create DFW rule on target - {}'.format(response['message']))
-        except Exception:
-            self.saveMetadataInOrgVdc()
-            raise
+                                        # iterating over the application port profiles
+                                        for value in applicationPortProfilesList:
+                                            if value['name'] == vcdConstants.IPV6ICMP:
+                                                protocol_name, port_id = value['name'], value['id']
+                                                applicationServicesList.append(
+                                                    {'name': protocol_name, 'id': port_id})
+                                    break
+                                if service['objectId'] == applicationService['value']:
+                                    if service['layer'] == 'layer3' or service['layer'] == 'layer4':
+                                        if applicationService['name'] != 'FTP' and applicationService['name'] != 'TFTP':
+                                            if service['element']['applicationProtocol'] == 'TCP' or \
+                                                    service['element']['applicationProtocol'] == 'UDP':
+                                                protocol_name, port_id = self._searchApplicationPortProfile(applicationPortProfilesList, service['element']['applicationProtocol'], service['element']['value'])
+                                                applicationServicesList.append({'name': protocol_name, 'id': port_id})
+                                        else:
+                                            # protocol_name, port_id = [[values['name'], values['id']] for values in applicationPortProfilesList if values['name'] == 'FTP' or values['name'] == 'TFTP']
+                                            for values in applicationPortProfilesList:
+                                                if values['name'] == applicationService['name']:
+                                                    applicationServicesList.append({'name': values['name'], 'id': values['id']})
+                                        # if protocol is IPV6ICMP
+                                        if service['element']['applicationProtocol'] == 'IPV6ICMP':
+                                            # iterating over the application port profiles
+                                            for value in applicationPortProfilesList:
+                                                if value['name'] == vcdConstants.IPV6ICMP:
+                                                    protocol_name, port_id = value['name'], value['id']
+                                                    applicationServicesList.append({'name': protocol_name, 'id': port_id})
+                                        # if protocal is IPV4ICMP
+                                        if service['element']['applicationProtocol'] == 'ICMP':
+                                            for value in applicationPortProfilesList:
+                                                if value['name'] == service['name'] or value['name'] == service['name'] + ' Request':
+                                                    applicationServicesList.append({'name': value['name'], 'id': value['id']})
+                                    if service['layer'] == 'layer7':
+                                        for contextProfile in allNetworkContextProfilesList.values():
+                                            if service['element']['appGuidName'] == contextProfile['name'] or applicationService['name'] == contextProfile['name']:
+                                                networkContextProfilesList.append({'name': contextProfile['name'], 'id': contextProfile['id']})
+                        payloadDict['applicationPortProfiles'] = applicationServicesList
+                        payloadDict['networkContextProfiles'] = networkContextProfilesList
+                else:
+                    payloadDict['applicationPortProfiles'] = applicationServicesList
+                    payloadDict['networkContextProfiles'] = networkContextProfilesList
+
+                # Create Rule
+                for dcGroupId in ruleScopedDcGroups:
+                    if len(networkContextProfilesList) > 1 and len(applicationServicesList) >= 1:
+                        self.thread.spawnThread(
+                            self.putDfwMultipleL7Rules, networkContextProfilesList, dfwURLs[dcGroupId], payloadDict,
+                            l3rule['name'], dcGroupId, sourceFirewallGroupObjects, destFirewallGroupObjects)
+                    else:
+                        self.thread.spawnThread(
+                            self.putDfwPolicyRules, dfwURLs[dcGroupId], payloadDict, l3rule['name'], dcGroupId,
+                            sourceFirewallGroupObjects, destFirewallGroupObjects)
+
+                # Halting the main thread till all the threads have completed their execution
+                self.thread.joinThreads()
+                if self.thread.stop():
+                    raise Exception('Failed to create distributed firewall rule')
+                self.rollback.apiData[l3rule['@id']] = True
+
+        except DfwRulesAbsentError as e:
+            logger.debug(e)
+
         finally:
-            self.createMetaDataInOrgVDC(sourceOrgVDCId,
-                                        metadataDict={'rollbackKey': self.rollback.key}, domain='system')
+            try:
+                # Releasing the lock
+                self.lock.release()
+                logger.debug("Lock released by thread - '{}'".format(threading.currentThread().getName()))
+            except RuntimeError:
+                pass
 
     @isSessionExpired
-    def createDFWIPSET(self, ipsetgroups):
+    def getDfwUrls(self):
         """
-        Description : Create IPSET as security group for firewall
-        Parameters: ipsetgroups - All the IPset's information in Source Org VDC
+        Description :   Get DFW policy and form URL
         """
-        try:
-            if ipsetgroups:
-                logger.debug('Creating IPSET in isolated network VDC groups')
-                firewallGroupIds = list()
-                firewallGroupName = list()
-                firewallIdDict = dict()
-                conflictnetworks = self.rollback.apiData['ConflictNetworks'] if self.rollback.apiData.get('ConflictNetworks') else []
-                ownerRefIds = self.rollback.apiData['OrgVDCGroupID']
-                orgvDCgroupIds = list()
-                for networks in conflictnetworks:
-                    if ownerRefIds.get(networks['id']):
-                        orgvDCgroupIds.append(ownerRefIds[networks['id']])
-                # iterating over the ipset group list
-                for ipsetgroup in ipsetgroups:
-                    for orgVDCGroupID in orgvDCgroupIds:
-                        # orgVDCGroupID = list(orgVDCGroupID.values())[0]
-                        ipAddressList = list()
-                        # url to retrieve the info of ipset group by id
-                        ipseturl = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
-                                                 vcdConstants.GET_IPSET_GROUP_BY_ID.format(ipsetgroup['objectId']))
-                        # get api call to retrieve the ipset group info
-                        ipsetresponse = self.restClientObj.get(ipseturl, self.headers)
-                        if ipsetresponse.status_code == requests.codes.ok:
-                            # successful retrieval of ipset group info
-                            ipsetresponseDict = xmltodict.parse(ipsetresponse.content)
-                            if self.rollback.apiData.get('DFWIdDict'):
-                                if self.rollback.apiData['DFWIdDict'].get(orgVDCGroupID):
-                                    if self.rollback.apiData['DFWIdDict'][orgVDCGroupID].get(ipsetresponseDict['ipset']['name']):
-                                        continue
-                            # storing the ip-address and range present in the IPSET
-                            ipsetipaddress = ipsetresponseDict['ipset']['value']
+        dfwURLs = dict()
+        for dcGroupId in self.rollback.apiData.get('OrgVDCGroupID').values():
+            policyResponseDict = self.getDfwPolicy(dcGroupId)
+            if policyResponseDict is None:
+                raise Exception('DFW policy not found')
 
-                            description = ipsetresponseDict['ipset']['description'] if ipsetresponseDict['ipset'].get(
-                                'description') else ''
-                            # if multiple ip=address or range present in the ipset spliting it with ','
-                            if "," in ipsetipaddress:
-                                ipsetipaddresslist = ipsetipaddress.split(',')
-                                ipAddressList.extend(ipsetipaddresslist)
-                            else:
-                                ipAddressList.append(ipsetipaddress)
-                            # creating payload data to create firewall group
-                            firewallGroupDict = {'name': ipsetresponseDict['ipset']['name'], 'description': description,
-                                                 'ownerRef': {'id': orgVDCGroupID}, 'ipAddresses': ipAddressList}
-                            firewallGroupDict = json.dumps(firewallGroupDict)
-                            # url to create firewall group
-                            firewallGroupUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                             vcdConstants.CREATE_FIREWALL_GROUP)
-                            self.headers['Content-Type'] = 'application/json'
-                            # post api call to create firewall group
-                            response = self.restClientObj.post(firewallGroupUrl, self.headers,
-                                                               data=firewallGroupDict)
-                            if response.status_code == requests.codes.accepted:
-                                # successful creation of firewall group
-                                taskUrl = response.headers['Location']
-                                firewallGroupId = self._checkTaskStatus(taskUrl, returnOutput=True)
-                                logger.debug('Successfully configured IPSET- {} in target'.format(ipsetresponseDict['ipset']['name']))
-                                self.rollback.apiData[ipsetgroup['objectId'].split(':')[-1]] = True
-                                firewallGroupIds.append({'id': 'urn:vcloud:firewallGroup:{}'.format(firewallGroupId)})
-                                firewallGroupName.append(ipsetresponseDict['ipset']['name'])
-                                # creating a dict with firewallName as key and firewallIDs as value
-                                firewallIdDict = dict(zip(firewallGroupName, firewallGroupIds))
-                                self.rollback.apiData['DFWIdDict'] = {orgVDCGroupID: firewallIdDict}
-                            else:
-                                errorResponse = response.json()
-                                raise Exception('Failed to create IPSET - {}'.format(errorResponse['message']))
-                        else:
-                            errorResponse = ipsetresponse.json()
-                            raise Exception('Failed to get IPSET details due to error - {}'.format(errorResponse['message']))
-                return firewallIdDict
-        except Exception:
-            raise
+            dfwURL = '{}{}{}{}'.format(
+                vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                vcdConstants.GET_VDC_GROUP_BY_ID.format(dcGroupId),
+                vcdConstants.ENABLE_DFW_POLICY,
+                vcdConstants.GET_DFW_RULES.format(policyResponseDict['defaultPolicy']['id']))
+
+            dfwURLs[dcGroupId] = dfwURL
+
+        return dfwURLs
+
+    def getDfwPolicy(self, orgvDCgroupId):
+        """
+        Description :   Get dfw policies by vdc group ID
+        Parameters  :   orgvDCgroupId - Id of DC group (STR)
+        Returns     :   Policy configured on DC group (DICT)
+        """
+        # URL to get dfw policies by vdc group ID
+        url = '{}{}{}'.format(
+            vcdConstants.OPEN_API_URL.format(self.ipAddress),
+            vcdConstants.GET_VDC_GROUP_BY_ID.format(orgvDCgroupId),
+            vcdConstants.ENABLE_DFW_POLICY)
+        header = {'Authorization': self.headers['Authorization'],
+                  'Accept': vcdConstants.VCD_API_HEADER}
+        response = self.restClientObj.get(url, header)
+        if response.status_code == requests.codes.ok:
+            return response.json()
+
+        raise Exception('Failed to get DFW policies - {}'.format(response.json()['message']))
+
+    def getDfwPolicyRules(self, dfwURL):
+        """
+        Description :   Get DFW policy rules present on DC group
+        Parameters  :   dfwURL : URL of DFW policy by ID (STR)
+        Returns     :   List of rules present (LIST)
+        """
+        header = {'Authorization': self.headers['Authorization'],
+                  'Accept': vcdConstants.VCD_API_HEADER}
+        # get api call to retrieve firewall info of target edge gateway
+        response = self.restClientObj.get(dfwURL, header)
+        if response.status_code == requests.codes.ok:
+            # successful retrieval of firewall info
+            responseDict = response.json()
+            return responseDict['values']
+
+        raise Exception('Failed to get previously configured rules - {}'.format(response.json()['message']))
+
+    def putDfwPolicyRules(
+            self, dfwURL, payloadDict, ruleName, dcGroupId, sourceFirewallGroupObjects=None,
+            destFirewallGroupObjects=None, defaultRule=False):
+        """
+        Description :   Create DFW policy rule by appending exsisting rules. If default rule is getting configured,
+                        remove all existing rules and put only default.
+        Parameters  :   dfwURL - URL of DFW policy by ID (STR)
+                        payloadDict - payload to create a DFW rule (DICT)
+                        ruleName - Rule from source side (DICT)
+                        dcGroupId - DC group where rule is getting created (STR)
+                        multipleL7 - Specifies rule has L7 profiles (BOOL)
+                        defaultRule - True when default rule is configured (BOOL)
+        """
+        # Creating new variable for payload as with threading reference of payloadDict remains same for each thread
+        payload = {
+            'sourceFirewallGroups': sourceFirewallGroupObjects.get(dcGroupId) if sourceFirewallGroupObjects else None,
+            'destinationFirewallGroups': destFirewallGroupObjects.get(dcGroupId) if destFirewallGroupObjects else None,
+            **payloadDict
+        }
+
+        # When default rule is getting configured, do not collect existing rules.
+        # Default rule will replace all previous rules
+        userDefinedRulesList = [] if defaultRule else self.getDfwPolicyRules(dfwURL)
+
+        # If default rule is already configured, put new rule before default rule otherwise put new rule in the end
+        if self.rollback.apiData.get('DfwDefaultRule', {}).get(dcGroupId):
+            userDefinedRulesList.insert(-1, payload)
         else:
-            self.rollback.apiData['DFWIPSET'] = True
-        finally:
-            self.saveMetadataInOrgVdc()
+            userDefinedRulesList.append(payload)
 
-    @isSessionExpired
-    def createDFWSecurityGroups(self, networkid):
+        self.headers['Content-Type'] = 'application/json'
+        response = self.restClientObj.put(
+            dfwURL, self.headers,
+            data=json.dumps({'values': userDefinedRulesList})
+        )
+        if not response.status_code == requests.codes.accepted:
+            raise Exception('Failed to create DFW rule on target - {}'.format(response.json()['message']))
+
+        self._checkTaskStatus(taskUrl=response.headers['Location'])
+        logger.debug('DFW rule {} created successfully on {}.'.format(ruleName, dcGroupId))
+
+    def putDfwMultipleL7Rules(
+            self, networkContextProfilesList, dfwURL, payloadDict, ruleName, dcGroupId,
+            sourceFirewallGroupObjects, destFirewallGroupObjects):
+        for networkContextProfiles in networkContextProfilesList:
+            payload = {**payloadDict}
+            payload['networkContextProfiles'] = [networkContextProfiles]
+            self.putDfwPolicyRules(
+                dfwURL, payload, ruleName, dcGroupId, sourceFirewallGroupObjects, destFirewallGroupObjects)
+        logger.debug('DFW rule {} with multiple L7 service created successfully on {}.'.format(
+            ruleName, dcGroupId))
+
+    def deleteDfwPolicyRules(self, dfwURL, dcGroupId):
         """
-        Description: Create security groups for network scoped to org vdc group
-        parameter:  networkid - urn id of a target network
+        Description :   Delete all DFW policy rules
+        Parameters  :   dfwURL - URL of DFW policy by ID (STR)
+                        dcGroupId - DC group where rule is getting created (STR)
+        """
+        self.headers['Content-Type'] = 'application/json'
+        response = self.restClientObj.put(
+            dfwURL, self.headers,
+            data=json.dumps({'values': []})
+        )
+        if not response.status_code == requests.codes.accepted:
+            raise Exception('Failed to delete DFW rules on target - {}'.format(response.json()['message']))
+
+        self._checkTaskStatus(taskUrl=response.headers['Location'])
+        logger.debug(f"All DFW rules deleted from {dcGroupId}")
+
+    def configureDfwDefaultRule(self, vcdObjList, sourceOrgVDCId):
+        """
+        Description :   Configure DFW default rule on DC groups associated with Org VDC.
+        Parameters  :   vcdObjList - List of objects of vcd operations class (LIST)
+                        sourceOrgVDCId - ID of source orgVDC(NSX ID format not URN) (STR)
         """
         try:
-            # taking target edge gateway id from apioutput json file
-            targetOrgVdcId = self.rollback.apiData['targetOrgVDC']['@id']
-            members = list()
-            target_networks = self.retrieveNetworkListFromMetadata(targetOrgVdcId, dfwStatus=True, orgVDCType='target')
-            url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(networkid))
-            getnetworkResponse = self.restClientObj.get(url, self.headers)
-            if getnetworkResponse.status_code == requests.codes.ok:
-                responseDict = json.loads(getnetworkResponse.content)
-                for target_network in target_networks:
-                    if responseDict['name'] + '-v2t' == target_network['name']:
-                        ownerRefID = target_network['ownerRef']['id']
-                        network_name = target_network['name']
-                        network_id = target_network['id']
-                        members.append({'name': network_name, 'id': network_id})
-                        # getting the new member name from the list
-                        network_name = network_name.split('-')
-                        # popping out '-v2t' from the name fetched above
-                        network_name.pop(-1)
-                        # joining the remaining substrings
-                        network_name = '-'.join(network_name)
-                        # creating payload data to create firewall group
-                        firewallGroupDict = {'name': 'SecurityGroup-(' + network_name + ')'}
-                        if self.rollback.apiData.get('vdcGroups'):
-                            if self.rollback.apiData['vdcGroups'].get(firewallGroupDict['name']):
-                                return self.rollback.apiData['vdcGroups'][firewallGroupDict['name']], ownerRefID
-                        # getting the already created firewall groups summaries
-                        firewallGroupsUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                          vcdConstants.FIREWALL_GROUPS_SUMMARY)
-                        getsummaryResponse = self.restClientObj.get(firewallGroupsUrl, self.headers)
-                        if getsummaryResponse.status_code == requests.codes.ok:
-                            summaryResponseDict = json.loads(getsummaryResponse.content)
-                            summaryValues = summaryResponseDict['values']
-                            for summary in summaryValues:
-                                # checking if the firewall group is already created for the given edge gateway
-                                # if yes then appending the firewall group id to the list
-                                if summary['ownerRef']['id'] == ownerRefID and summary['name'] == firewallGroupDict['name']:
-                                    ownerRefID = summary['ownerRef']['id']
-                                    return summary['id'], ownerRefID
-                                    # firewallGroupIds.append(summary['id'])
-                        firewallGroupDict['ownerRef'] = {'id': ownerRefID}
-                        firewallGroupDict['members'] = members
-                        firewallGroupDict['type'] = vcdConstants.SECURITY_GROUP
-                        firewallGroupData = json.dumps(firewallGroupDict)
-                        # url to create firewall group
-                        firewallGroupUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                         vcdConstants.CREATE_FIREWALL_GROUP)
-                        self.headers['Content-Type'] = 'application/json'
-                        # post api call to create firewall group
-                        response = self.restClientObj.post(firewallGroupUrl, self.headers, data=firewallGroupData)
-                        if response.status_code == requests.codes.accepted:
-                            # successful creation of firewall group
-                            taskUrl = response.headers['Location']
-                            firewallGroupId = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
-                            logger.debug('Successfully configured security group for {}.'.format(
-                                network_name))
-                            # appending the new firewall group id
-                            newFirewallGroupIds = 'urn:vcloud:firewallGroup:{}'.format(firewallGroupId)
-                            if not self.rollback.apiData.get('vdcGroups'):
-                                self.rollback.apiData['vdcGroups'] = dict()
-                            self.rollback.apiData['vdcGroups'][firewallGroupDict['name']] = newFirewallGroupIds
-                            # returning the firewall group ids
-                            return newFirewallGroupIds, ownerRefID
-                        else:
-                            # failure in creation of firewall group
-                            response = response.json()
-                            raise Exception('Failed to create Security Group - {}'.format(response['message']))
-        except Exception:
-            raise
+            if not self.rollback.apiData.get('OrgVDCGroupID'):
+                return
+
+            # Acquire lock as dc groups can be common in different org vdc's
+            self.lock.acquire(blocking=True)
+
+            dcGroupIds = self.rollback.apiData['OrgVDCGroupID'].values()
+            rule = self.getDistributedFirewallRules(sourceOrgVDCId, ruleType='default')
+            if not rule:
+                logger.debug(f'Default rule not present on {sourceOrgVDCId}')
+                return
+
+            logger.info('Configuring DFW default rule')
+            sharedNetwork = False
+            networks = self.getOrgVDCNetworks(
+                sourceOrgVDCId, orgVDCNetworkType='sourceOrgVDCNetworks', sharedNetwork=True, dfwStatus=True,
+                saveResponse=False)
+            for network in networks:
+                if network['shared']:
+                    sharedNetwork = True
+                    break
+
+            payloadDict = {
+                'name': 'Default',
+                'enabled': 'true' if rule['@disabled'] == 'false' else 'false',
+                'action': 'ALLOW' if rule['action'] == 'allow' else 'DROP',
+                'logging': 'true' if rule['@logged'] == 'true' else 'false',
+                'ipProtocol':
+                    'IPV4' if rule['packetType'] == 'ipv4'
+                    else 'IPV6' if rule['packetType'] == 'ipv6'
+                    else 'IPV4_IPV6',
+                'direction':
+                    'OUT' if rule['direction'] == 'out'
+                    else 'IN' if rule['direction'] == 'in'
+                    else 'IN_OUT',
+            }
+            for dcGroupId in dcGroupIds:
+                if self.rollback.apiData.get('DfwDefaultRule', {}).get(dcGroupId):
+                    continue
+
+                policyResponseDict = self.getDfwPolicy(dcGroupId)
+                if policyResponseDict is None:
+                    continue
+
+                dfwURL = '{}{}{}{}'.format(
+                    vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                    vcdConstants.GET_VDC_GROUP_BY_ID.format(dcGroupId),
+                    vcdConstants.ENABLE_DFW_POLICY,
+                    vcdConstants.GET_DFW_RULES.format(policyResponseDict['defaultPolicy']['id']))
+
+                self.putDfwPolicyRules(dfwURL, payloadDict, 'Default', dcGroupId, defaultRule=True)
+
+                # If shared network is enabled, update metadata for each participating VDC
+                if sharedNetwork:
+                    for vcdObj in vcdObjList:
+                        if not vcdObj.rollback.apiData.get('DfwDefaultRule'):
+                            vcdObj.rollback.apiData['DfwDefaultRule'] = dict()
+                        vcdObj.rollback.apiData['DfwDefaultRule'][dcGroupId] = True
+                        vcdObj.saveMetadataInOrgVdc(force=True)
+                else:
+                    if not self.rollback.apiData.get('DfwDefaultRule'):
+                        self.rollback.apiData['DfwDefaultRule'] = dict()
+                    self.rollback.apiData['DfwDefaultRule'][dcGroupId] = True
+                    self.saveMetadataInOrgVdc(force=True)
+
+        except DfwRulesAbsentError as e:
+            logger.debug(e)
+
         finally:
+            try:
+                # Releasing the lock
+                self.lock.release()
+                logger.debug("Lock released by thread - '{}'".format(threading.currentThread().getName()))
+            except RuntimeError:
+                pass
+
+    @isSessionExpired
+    def fetchFirewallGroups(self):
+        """
+        Description: Fetch all the firewall groups from vCD
+        """
+        try:
+            firewallGroupsUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                              vcdConstants.FIREWALL_GROUPS_SUMMARY)
+            response = self.restClientObj.get(firewallGroupsUrl, self.headers)
+            # Fetching firewall groups summary
+            firewallGroupsSummary = []
+            if response.status_code == requests.codes.ok:
+                logger.debug("Retrieved firewall groups details successfully")
+                responseDict = response.json()
+                resultTotal = responseDict['resultTotal']
+                pageNo = 1
+                pageSizeCount = 0
+            else:
+                response = response.json()
+                raise Exception(
+                    "Failed to fetch firewall group summary from target - {}".format(response['message']))
+
+            while resultTotal > 0 and pageSizeCount < resultTotal:
+                url = "{}?page={}&pageSize={}".format(firewallGroupsUrl, pageNo,
+                                                      vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE)
+                getSession(self)
+                response = self.restClientObj.get(url, self.headers)
+                if response.status_code == requests.codes.ok:
+                    responseDict = response.json()
+                    firewallGroupsSummary.extend(responseDict['values'])
+                    pageSizeCount += len(responseDict['values'])
+                    logger.debug('firewall group summary result pageSize = {}'.format(pageSizeCount))
+                    pageNo += 1
+                    resultTotal = responseDict['resultTotal']
+                else:
+                    response = response.json()
+                    raise Exception(
+                        "Failed to fetch firewall group summary from target - {}".format(response['message']))
+            return firewallGroupsSummary
+        except:
+            raise
+
+    def fetchFirewallGroupsByDCGroup(self):
+        """
+        Description: Fetch all the firewall groups from vCD
+        """
+        orgvDCgroupIds = self.rollback.apiData['OrgVDCGroupID'].values() if self.rollback.apiData.get(
+            'OrgVDCGroupID') else []
+
+        firewallGroupsSummary = self.fetchFirewallGroups()
+        firewallGroupsSummary = list(filter(
+            lambda firewallGroup: firewallGroup['ownerRef']['id'] in orgvDCgroupIds, firewallGroupsSummary
+        ))
+
+        firewallGroups = defaultdict(dict)
+        for group in firewallGroupsSummary:
+            firewallGroups[group['ownerRef']['id']].update({
+                f"{group['typeValue']}-{group['name']}": {
+                    'id': group['id']
+                }
+            })
+
+        return firewallGroups
+
+    def getTargetSecurityTags(self, vmDetails=True):
+        """
+        Description : Fetch all the security tags from target
+        Parameters  : vmDetails - False when only tag names are to be listed and associated VMs will not be collected.
+        """
+        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
+            return
+
+        base_url = "{}securityTags/values?links=true".format(
+            vcdConstants.OPEN_API_URL.format(self.ipAddress))
+        headers = {
+            'X-VMWARE-VCLOUD-TENANT-CONTEXT': self.rollback.apiData['Organization']['@id'].split(':')[-1],
+            **self.headers
+        }
+        response = self.restClientObj.get(base_url, headers)
+        # Fetching security tags summary
+        securityTags = []
+        if response.status_code == requests.codes.ok:
+            logger.debug("Retrieved security tags details successfully")
+            responseDict = response.json()
+            resultTotal = responseDict['resultTotal']
+            pageNo = 1
+            pageSizeCount = 0
+        else:
+            response = response.json()
+            raise Exception(
+                "Failed to fetch security tag summary from target - {}".format(response['message']))
+
+        while resultTotal > 0 and pageSizeCount < resultTotal:
+            url = "{}?page={}&pageSize={}".format(base_url, pageNo,
+                                                  vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE)
+            response = self.restClientObj.get(url, headers)
+            if response.status_code == requests.codes.ok:
+                responseDict = response.json()
+                securityTags.extend(responseDict['values'])
+                pageSizeCount += len(responseDict['values'])
+                logger.debug('security tag summary result pageSize = {}'.format(pageSizeCount))
+                pageNo += 1
+                resultTotal = responseDict['resultTotal']
+            else:
+                response = response.json()
+                raise Exception(
+                    "Failed to fetch security tag summary from target - {}".format(response['message']))
+
+        if vmDetails:
+            self.dfwSecurityTags.update({
+                tag['tag']: self.getTargetSecurityTagMembers(tag['tag'])
+                for tag in securityTags
+            })
+        else:
+            self.dfwSecurityTags.update({
+                tag['tag']: None
+                for tag in securityTags
+            })
+        return self.dfwSecurityTags
+
+    def getTargetSecurityTagMembers(self, tagName):
+        """
+        Description: Fetch all the associated VMs with tag from vCD
+        """
+        base_url = "{}securityTags/entities".format(
+            vcdConstants.OPEN_API_URL.format(self.ipAddress))
+        query_filter = f'&filterEncoded=true&filter=tag=={tagName}'
+        url = f"{base_url}?page=1&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}{query_filter}"
+        response = self.restClientObj.get(url, self.headers)
+
+        # Fetching associated VMs with tag summary
+        vms = []
+        if response.status_code == requests.codes.ok:
+            logger.debug(f"Retrieved associated VMs with tag {tagName} details successfully")
+            responseDict = response.json()
+            resultTotal = responseDict['resultTotal']
+            pageNo = 1
+            pageSizeCount = 0
+        else:
+            response = response.json()
+            raise Exception("Failed to fetch associated VMs with tag {} summary from target - {}".format(
+                tagName, response['message']))
+
+        while resultTotal > 0 and pageSizeCount < resultTotal:
+            url = f"{base_url}?page={pageNo}&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}{query_filter}"
+            response = self.restClientObj.get(url, self.headers)
+            if response.status_code == requests.codes.ok:
+                responseDict = response.json()
+                vms.extend(responseDict['values'])
+                pageSizeCount += len(responseDict['values'])
+                logger.debug('associated VMs with tag {} summary result pageSize = {}'.format(
+                    tagName, pageSizeCount))
+                pageNo += 1
+                resultTotal = responseDict['resultTotal']
+            else:
+                response = response.json()
+                raise Exception("Failed to fetch associated VMs with tag {} summary from target - {}".format(
+                    tagName, response['message']))
+
+        return [vm['id'] for vm in vms]
+
+    def deleteSecurityTag(self, name):
+        """
+        Description :   Delete security tag
+        Parameters  :   name - name of tag to be deleted (STR)
+        """
+        url = f"{vcdConstants.OPEN_API_URL.format(self.ipAddress)}securityTags/tag"
+        payload = json.dumps({
+            'tag': name,
+            'entities': [],
+        })
+        self.headers['Content-Type'] = 'application/json'
+        response = self.restClientObj.put(url, self.headers, data=payload)
+        if response.status_code == requests.codes.no_content:
+            logger.debug(f"Security Tag deleted: {name}")
+        else:
+            raise Exception(f"Failed to delete Security Tag '{name}': {response.json()['message']}")
+
+    def putSecurityTag(self, name, vms):
+        """
+        Description :   Create security tag
+        Parameters  :   name - name of tag to be created (STR)
+                        vms - list of VMs to be associated with tag (LIST)
+        """
+        if name in self.dfwSecurityTags:
+            return
+
+        url = f"{vcdConstants.OPEN_API_URL.format(self.ipAddress)}securityTags/tag"
+        payload = json.dumps({
+            'tag': name,
+            'entities': vms,
+        })
+        self.headers['Content-Type'] = 'application/json'
+        response = self.restClientObj.put(url, self.headers, data=payload)
+        if response.status_code == requests.codes.no_content:
+            logger.debug(f"Security Tag created: {name}")
+            self.dfwSecurityTags[name] = vms
+            self.rollback.apiData['SecurityTags'] = self.rollback.apiData.get('SecurityTags', []) + [name]
             self.saveMetadataInOrgVdc()
+        else:
+            raise Exception(f"Failed to create Security Tag '{name}': {response.json()['message']}")
+
+    @isSessionExpired
+    def securityTagsRollback(self):
+        """
+        Description :   Rollback task to delete all security tags
+        """
+        if not (
+                isinstance(self.rollback.metadata.get("configureTargetVDC", {}).get("configureDFW"), bool) or
+                isinstance(self.rollback.metadata.get("configureTargetVDC", {}).get("configureSecurityTags"), bool)):
+            return
+
+        if not self.rollback.apiData.get('SecurityTags'):
+            return
+
+        logger.info('Removing DFW security tags')
+        for tag in self.rollback.apiData['SecurityTags']:
+            self.deleteSecurityTag(tag)
+
+    @description('Creating DFW security tags')
+    @remediate
+    def configureSecurityTags(self):
+        """
+        Create source Security tags on target side
+        """
+        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
+            return
+
+        logger.info('Creating DFW security tags')
+        sourceOrgVdcName = self.rollback.apiData['sourceOrgVDC']['@name']
+        securityTags = self.getSourceDfwSecurityTags()
+        for tag in securityTags.values():
+            self.putSecurityTag(f"{sourceOrgVdcName}_{tag['name']}", tag['members'])
+
+    @isSessionExpired
+    def getSourceDfwSecurityTags(self, vmDetails=True):
+        """
+        Description : Fetch all the security tags from source
+        Parameters  : vmDetails - False when only tag names are to be listed and associated VMs will not be collected.
+        """
+        logger.debug('Fetching DFW security tags')
+        url = "{}{}".format(
+            vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+            'services/securitytags/tag/scope/{}'.format(self.rollback.apiData['sourceOrgVDC']['@id'].split(':')[-1])
+        )
+        response = self.restClientObj.get(url, self.headers)
+        responseDict = xmltodict.parse(response.content)
+        if not response.status_code == requests.codes.ok:
+            raise Exception('Unable to fetch Security Tags {}'.format(responseDict.get('Error', {}).get('@message')))
+
+        securityTags = []
+        if responseDict.get('securityTags'):
+            securityTags = (
+                responseDict['securityTags']['securityTag']
+                if isinstance(responseDict['securityTags']['securityTag'], list)
+                else [responseDict['securityTags']['securityTag']])
+
+        securityTags = {
+            tag['objectId']: {
+                'id': tag['objectId'],
+                'name': tag['name'],
+                'members': self.getSourceSecurityTagMembers(tag['objectId'], tag['name']) if vmDetails else None,
+            }
+            for tag in securityTags
+        }
+        return securityTags
+
+    @isSessionExpired
+    def getSourceSecurityTagMembers(self, tag_id, tag_name):
+        """
+        Collects members associated with source security tag
+        """
+        url = "{}{}".format(
+            vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+            'services/securitytags/tag/{}/vm'.format(tag_id)
+        )
+
+        response = self.restClientObj.get(url, self.headers)
+        responseDict = xmltodict.parse(response.content)
+        if not response.status_code == requests.codes.ok:
+            raise Exception(f"Unable to fetch Security Tag {tag_name}: {responseDict.get('Error', {}).get('@message')}")
+
+        if responseDict.get('basicinfolist'):
+            vms = (
+                responseDict['basicinfolist']['basicinfo']
+                if isinstance(responseDict['basicinfolist']['basicinfo'], list)
+                else [responseDict['basicinfolist']['basicinfo']])
+            return [
+                f"urn:vcloud:vm:{vm['objectId']}"
+                for vm in vms
+                if vm['objectTypeName'] == 'VirtualMachine'
+            ]
+        return []
+
+    def createDfwFirewallGroup(self, payload, allFirewallGroups, groupType, ruleObjects):
+        """
+        Description :   Create a firewall group(Static/dynamic/ipset) on DC group
+        Parameters  :   payload : details of firewall group to be created (DICT)
+                        allFirewallGroups : List of all existing firewall groups (LIST)
+                        groupType : Type of group as identified by API response
+        Returns     :   ID of firewall group created
+        """
+        # Skip if firewall groups is already present
+        nameKey = f"{groupType}-{payload['name']}"
+        if allFirewallGroups[payload['ownerRef']['id']].get(nameKey):
+            logger.debug(f"Firewall group already present: {payload['name']} on {payload['ownerRef']['id']}")
+            ruleObjects.append({'id': allFirewallGroups[payload['ownerRef']['id']][nameKey]['id']})
+            return
+
+        firewallGroupUrl = "{}{}".format(
+            vcdConstants.OPEN_API_URL.format(self.ipAddress),
+            vcdConstants.CREATE_FIREWALL_GROUP)
+        self.headers['Content-Type'] = 'application/json'
+        response = self.restClientObj.post(firewallGroupUrl, self.headers, data=json.dumps(payload))
+
+        if response.status_code == requests.codes.accepted:
+            firewallGroup = self._checkTaskStatus(taskUrl=response.headers['Location'], returnOutput=True)
+            logger.debug(f"Firewall Group created: {payload['name']}({firewallGroup}) on {payload['ownerRef']['id']}")
+            allFirewallGroups[payload['ownerRef']['id']].update({
+                nameKey: {'id': f'urn:vcloud:firewallGroup:{firewallGroup}'}
+            })
+            ruleObjects.append({'id': f"urn:vcloud:firewallGroup:{firewallGroup}"})
+            return
+
+        raise Exception('Failed to create Firewall group - {}'.format(response.json()['message']))
 
     @description('Increase the scope of the network to OrgVDC group')
     @remediate
@@ -2879,166 +3404,392 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         parameter:  rollback- True to decrease the scope of networks from NSX-T ORg VDC
         """
         try:
+            # Acquiring thread lock
+            self.lock.acquire(blocking=True)
+            # Check if services configuration or network switchover was performed or not
+            if rollback and not self.rollback.metadata.get("configureTargetVDC", {}).get("increaseScopeforNetworks"):
+                return
+
             targetOrgVdcId = self.rollback.apiData['targetOrgVDC']['@id']
             ownerRefID = self.rollback.apiData['OrgVDCGroupID'] if self.rollback.apiData.get('OrgVDCGroupID') else {}
-            target_networks = self.retrieveNetworkListFromMetadata(targetOrgVdcId, dfwStatus=True, orgVDCType='target')
+            targetNetworks = self.retrieveNetworkListFromMetadata(targetOrgVdcId, dfwStatus=True, orgVDCType='target')
+            sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
+            sourceNetworks = self.retrieveNetworkListFromMetadata(sourceOrgVDCId, dfwStatus=True, orgVDCType='source')
+            allLayer3Rules = self.getDistributedFirewallConfig(sourceOrgVDCId)
             if ownerRefID:
-                logger.info(' The scope of the networks is getting changed')
-                for target_network in target_networks:
-                    url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                        vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(target_network['id']))
-                    header = {'Authorization': self.headers['Authorization'],
-                              'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
-                    response = self.restClientObj.get(url, header)
-                    if response.status_code == requests.codes.ok:
-                        responseDict = response.json()
-                        if target_network['networkType'] == 'ISOLATED':
-                            # rollback is true to decrease the scope of ORG VDC networks
-                            if rollback:
-                                # changing the owner reference from  org VDC group to org VDC
-                                responseDict['ownerRef'] = {'id': targetOrgVdcId}
+                if rollback:
+                    logger.info("Rollback: Decreasing scope of networks")
+                else:
+                    logger.info('Increasing scope of networks')
+                for targetNetwork in targetNetworks:
+                    for sourceNetwork in sourceNetworks:
+                        if sourceNetwork['name'] + '-v2t' == targetNetwork['name']:
+                            url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(targetNetwork['id']))
+                            header = {'Authorization': self.headers['Authorization'],
+                                      'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+                            response = self.restClientObj.get(url, header)
+                            if response.status_code == requests.codes.ok:
+                                responseDict = response.json()
+                                if targetNetwork['networkType'] == 'ISOLATED' or sourceNetwork["networkType"] == 'DIRECT':
+                                    # rollback is true to decrease the scope of ORG VDC networks
+                                    if rollback:
+                                        # Decrease scope only if it was increased for Direct Networks
+                                        if sourceNetwork['networkType'] == 'DIRECT':
+                                            if not ownerRefID.get(targetNetwork['id']):
+                                                continue
+                                        # changing the owner reference from  org VDC group to org VDC
+                                        responseDict['ownerRef'] = {'id': targetOrgVdcId}
+                                    else:
+                                        # Increase scope of network only if the network is shared or DFW is configured
+                                        if allLayer3Rules or sourceNetwork['shared']:
+                                            # Increase Direct Network scope only if it was created in PG backed external network
+                                            if sourceNetwork["networkType"] == "DIRECT" and ownerRefID.get(
+                                                    targetNetwork['id']):
+                                                responseDict['ownerRef'] = {'id': ownerRefID[targetNetwork['id']]}
+                                            elif allLayer3Rules and sourceNetwork["networkType"] != "DIRECT":
+                                                # changing the owner reference from org VDC to org VDC group
+                                                responseDict['ownerRef'] = {'id': list(ownerRefID.values())[0] if targetNetwork['id'] not in list(ownerRefID.keys()) else ownerRefID[targetNetwork['id']]}
+                                            elif ownerRefID.get(targetNetwork['id']):
+                                                # changing the owner reference from org VDC to org VDC group
+                                                responseDict['ownerRef'] = {'id': ownerRefID[targetNetwork['id']]}
+
+                                    payloadData = json.dumps(responseDict)
+                                    self.headers['Content-Type'] = 'application/json'
+                                    # post api call to create firewall group
+                                    response = self.restClientObj.put(url, self.headers, data=payloadData)
+                                    if response.status_code == requests.codes.accepted:
+                                        # successful creation of firewall group
+                                        taskUrl = response.headers['Location']
+                                        self._checkTaskStatus(taskUrl, returnOutput=False)
+                                        logger.debug('The network - {} scope has been changed successfully'.format(responseDict['name']))
+                                    else:
+                                        errorResponse = response.json()
+                                        # failure in increase scope of the network
+                                        raise Exception('Failed to change scope of the network {} - {}'.format(responseDict['name'], errorResponse['message']))
                             else:
-                                # changing the owner reference from org VDC to org VDC group
-                                responseDict['ownerRef'] = {'id': list(ownerRefID.values())[0] if target_network['id'] not in list(ownerRefID.keys()) else ownerRefID[target_network['id']]}
-                            payloadData = json.dumps(responseDict)
-                            self.headers['Content-Type'] = 'application/json'
-                            # post api call to create firewall group
-                            response = self.restClientObj.put(url, self.headers, data=payloadData)
-                            if response.status_code == requests.codes.accepted:
-                                # successful creation of firewall group
-                                taskUrl = response.headers['Location']
-                                self._checkTaskStatus(taskUrl, returnOutput=False)
-                                logger.debug('The nework - {} scope has been changed successfully'.format(responseDict['name']))
-                            else:
-                                errorResponse = response.json()
-                                # failure in increase scope of the network
-                                raise Exception('Failed to change scope of the network {} - {}'.format(responseDict['name'], errorResponse['message']))
-                    else:
-                        responseDict = response.json()
-                        raise Exception('Failed to retrieve network- {}'.format(responseDict['message']))
-        except Exception:
+                                responseDict = response.json()
+                                raise Exception('Failed to retrieve network- {}'.format(responseDict['message']))
+        except:
             raise
+        finally:
+            try:
+                # Releasing the lock
+                self.lock.release()
+                logger.debug("Lock released by thread - '{}'".format(threading.currentThread().getName()))
+            except RuntimeError:
+                pass
 
     @isSessionExpired
-    def configureDFWgroups(self, entities, allLayer3Rule, firewallIdDict, source=True):
+    def configureDFWgroups(
+            self, entities, ruleId, allFirewallGroups, appliedToDcGroups, sourceToTargetOrgNetIds,
+            targetEntitiesToDcGroupMap, sourceDfwSecurityGroups, source=True):
         """
         Description: Configures Firewall group in VDC group
         parameters: entities: This refers source or destination in a DFW rule
-                    allLayer3Rule: L3 dfw rule
+                    l3rule: L3 dfw rule
                     source: True/False to denote the entities is for source or destination
                    firewallIdDict:
+                   allFirewallGroups: (DICT) key - DC group ID, value - List of firewall groups
         """
-        try:
-            firewallGroupId = list()
-            ipAddressList = list()
-            orgvDCgroupId = str()
-            ownerRefId = list()
-            firewallGroupList = dict()
-            orgvDCgroupIds = list(self.rollback.apiData['OrgVDCGroupID'].values()) if self.rollback.apiData.get('OrgVDCGroupID') else []
-            ownerRefIds = self.rollback.apiData['OrgVDCGroupID'] if self.rollback.apiData.get('OrgVDCGroupID') else []
-            conflictnetworks = self.rollback.apiData['ConflictNetworks'] if self.rollback.apiData.get('ConflictNetworks') else []
-            ipsetNames = list()
-            for entity in entities:
-                if entity['type'] == 'Ipv4Address':
-                    ipAddressList.append(entity['value'])
-                    for orgvDCgroupId in orgvDCgroupIds:
-                        # creating payload data to create firewall group
-                        firewallGroupDict = {
-                            'name': allLayer3Rule['name'] + '-' + 'Source-' + str(random.randint(1, 1000)) if source else allLayer3Rule['name'] + '-' + 'Destination-' + str(random.randint(1, 1000)),
-                            'ownerRef': {'id': orgvDCgroupId},
-                            'ipAddresses': ipAddressList}
-                        firewallGroupDict = json.dumps(firewallGroupDict)
-                        # url to create firewall group
-                        firewallGroupUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                         vcdConstants.CREATE_FIREWALL_GROUP)
-                        self.headers['Content-Type'] = 'application/json'
-                        # post api call to create firewall group
-                        response = self.restClientObj.post(firewallGroupUrl, self.headers, data=firewallGroupDict)
-                        if response.status_code == requests.codes.accepted:
-                            # successful creation of firewall group
-                            taskUrl = response.headers['Location']
-                            firewallGroup = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
-                            if firewallGroupList.get(orgvDCgroupId):
-                                firewallGroupList[orgvDCgroupId].update({'urn:vcloud:firewallGroup:{}'.format(firewallGroup): orgvDCgroupId})
-                            else:
-                                firewallGroupList[orgvDCgroupId] = {
-                                    'urn:vcloud:firewallGroup:{}'.format(firewallGroup): orgvDCgroupId}
-                            # firewallGroupList.update({'urn:vcloud:firewallGroup:{}'.format(firewallGroup): orgvDCgroupId})
-                            # firewallGroupId.append({'id': 'urn:vcloud:firewallGroup:{}'.format(firewallGroup)})
-                        else:
-                            errorResponse = response.json()
-                            raise Exception('Failed to create Firewall group - {}'.format(errorResponse['message']))
-                if entity['type'] == 'IPSet':
-                    # url to retrieve the info of ipset group by id
-                    ipseturl = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress), vcdConstants.GET_IPSET_GROUP_BY_ID.format(entity['value']))
-                    # get api call to retrieve the ipset group info
-                    ipsetresponse = self.restClientObj.get(ipseturl, self.headers)
-                    if ipsetresponse.status_code == requests.codes.ok:
-                        # successful retrieval of ipset group info
-                        ipsetresponseDict = xmltodict.parse(ipsetresponse.content)
-                        ipsetNames.append(ipsetresponseDict['ipset']['name'])
-                if entity['type'] == 'Network':
-                    securityGroupID, ownerRefId = self.createDFWSecurityGroups(networkid=entity['value'])
-                    firewallGroupId.append({'id': securityGroupID})
-            return firewallGroupId, ownerRefId, ipsetNames, firewallGroupList
-        except Exception:
-            raise
+        def _listify(_list):
+            """Converts to list if not a list"""
+            return _list if isinstance(_list, list) else [_list]
+
+        def createVmTagName(name, value):
+            """Validates if length of tag name does not exceed max limit"""
+            if len(name) > 128 - len(value):
+                logger.debug('Slicing tag name as its length exceeded')
+                return "{}[TRIMMED]-{}".format(name[:127 - len(f'[TRIMMED]-{value}')], value)
+            return f'{name}-{value}'
+
+        def createFirewallGroupName(
+                orgVdcName, orgVdcId, sourceGroupName, sourceGroupId, ruleId=None, source=None,
+                groupType=None, idx=None):
+            """Validates if length of firewall group name does not exceed max limit"""
+            # IP Set        :   f"{orgVdcName}-{sourceGroupName}"
+            # Security Group:   f"{orgVdcName}-{sourceGroupName}-{groupType}-{idx}"
+            #                   f"{orgVdcName}-{sourceGroupName}-{idx}",
+            # VDC Networks  :   f"{orgVdcName}-{sourceGroupName}"   # Not implemented
+            # Ipv4Address   :   f"{orgVdcName}-{ruleId}-{groupType}-{'S' if source else 'D'}"
+
+            suffix = ''
+            if ruleId:
+                if not sourceGroupName:
+                    sourceGroupName = ruleId
+                else:
+                    suffix = f"{suffix}_{ruleId}"
+            if groupType:
+                suffix = f"{suffix}_{groupType}"
+            if isinstance(source, bool):
+                suffix = f"{suffix}_{'S' if source else 'D'}"
+            if isinstance(idx, int):
+                suffix = f"{suffix}_{idx}"
+
+            name = f"{orgVdcName}_{sourceGroupName}{suffix}"
+            if len(name) < 128:
+                return name
+
+            name = f"vdc-{orgVdcId}_{sourceGroupName}{suffix}"
+            if len(name) < 128:
+                return name
+
+            return f"vdc-{orgVdcId}_group-{sourceGroupId}{suffix}"
+
+        ipv4Addresses = list()
+        firewallGroupObjects = defaultdict(list)
+        orgVdcName = self.rollback.apiData['sourceOrgVDC']['@name']
+        orgVdcId = self.rollback.apiData['sourceOrgVDC']['@id'].split(':')[-1]
+        groupTypes = {
+            'Ipv4Address': 'IP_SET',
+            'IPSet': 'IP_SET',
+            'Network': 'STATIC_MEMBERS',
+            'VirtualMachine': 'VM_CRITERIA',
+        }
+
+        for entity in entities:
+            # Collect all Ipv4Address from rule and create a single group on target side.
+            if entity['type'] == 'Ipv4Address':
+                ipv4Addresses.append(entity['value'])
+
+            elif entity['type'] == 'IPSet':
+                ipset = self.getIpset(entity['value'])
+                for dcGroupId in appliedToDcGroups:
+                    payload = {
+                        'name': createFirewallGroupName(orgVdcName, orgVdcId, entity['name'], entity['value']),
+                        'ownerRef': {'id': dcGroupId},
+                        'ipAddresses': ipset['ipset']['value'].split(','),
+                    }
+                    self.thread.spawnThread(
+                        self.createDfwFirewallGroup, payload, allFirewallGroups, groupTypes.get(entity['type']),
+                        firewallGroupObjects[dcGroupId])
+                # Halting the main thread till all the threads have completed their execution
+                self.thread.joinThreads()
+
+            elif entity['type'] == 'Network':
+                network_id = sourceToTargetOrgNetIds.get(entity['value'])
+                ownerRefId = list(targetEntitiesToDcGroupMap[network_id])[0]
+                payload = {
+                    'name': f"SecurityGroup-({entity['name']})",
+                    'ownerRef': {'id': ownerRefId},
+                    'members': [{'id': network_id}],
+                    'type': vcdConstants.SECURITY_GROUP,
+                }
+                self.createDfwFirewallGroup(payload, allFirewallGroups, groupTypes.get(entity['type']), firewallGroupObjects[ownerRefId])
+
+            elif entity['type'] == 'VirtualMachine':
+                tagName = createVmTagName(entity['name'], entity['value'])
+                self.putSecurityTag(tagName, [entity['value']])
+                vmCriteria = [{
+                    'rules': [{
+                        'attributeType': 'VM_TAG',
+                        'operator': 'EQUALS',
+                        'attributeValue': tagName,
+                    }]
+                }]
+                for dcGroupId in appliedToDcGroups:
+                    payload = {
+                        'name': tagName,
+                        'description': '',
+                        'vmCriteria': vmCriteria,
+                        'ownerRef': {'id': dcGroupId},
+                        'typeValue': 'VM_CRITERIA',
+                    }
+                    self.thread.spawnThread(
+                        self.createDfwFirewallGroup, payload, allFirewallGroups, groupTypes.get('VirtualMachine'),
+                        firewallGroupObjects[dcGroupId])
+                # Halting the main thread till all the threads have completed their execution
+                self.thread.joinThreads()
+
+            elif entity['type'] == 'SecurityGroup':
+                sourceGroup = sourceDfwSecurityGroups[entity['value']]
+                if sourceGroup.get('member'):
+                    includeMembers = (
+                        sourceGroup['member']
+                        if isinstance(sourceGroup['member'], list)
+                        else [sourceGroup['member']])
+                    vmTags = []
+                    for member in includeMembers:
+                        if member['type']['typeName'] == 'VirtualMachine':
+                            tagName = createVmTagName(member['name'], member['objectId'])
+                            self.putSecurityTag(tagName, [member['objectId']])
+                            vmTags.append(tagName)
+
+                        if member['type']['typeName'] == 'SecurityTag':
+                            vmTags.append(f"{orgVdcName}_{member['name']}")
+
+                        if member['type']['typeName'] == 'IPSet':
+                            ipset = self.getIpset(member['objectId'])
+                            for dcGroupId in appliedToDcGroups:
+                                payload = {
+                                    'name': createFirewallGroupName(
+                                        orgVdcName, orgVdcId, member['name'], member['objectId']),
+                                    'ownerRef': {'id': dcGroupId},
+                                    'ipAddresses': ipset['ipset']['value'].split(','),
+                                }
+                                self.thread.spawnThread(
+                                    self.createDfwFirewallGroup, payload, allFirewallGroups,
+                                    groupTypes.get(member['type']['typeName']), firewallGroupObjects[dcGroupId])
+                            # Halting the main thread till all the threads have completed their execution
+                            self.thread.joinThreads()
+
+                        if member['type']['typeName'] == 'Network':
+                            network_id = sourceToTargetOrgNetIds.get(member['objectId'])
+                            ownerRefId = list(targetEntitiesToDcGroupMap[network_id])[0]
+                            payload = {
+                                'name': f"SecurityGroup-({member['name']})",
+                                'ownerRef': {'id': ownerRefId},
+                                'members': [{'id': network_id}],
+                                'type': vcdConstants.SECURITY_GROUP,
+                            }
+                            self.createDfwFirewallGroup(
+                                payload, allFirewallGroups, groupTypes.get(member['type']['typeName']),
+                                firewallGroupObjects[ownerRefId])
+
+                    if vmTags:
+                        vmCriteria = [
+                            {
+                                'rules': [{
+                                    'attributeType': 'VM_TAG',
+                                    'operator': 'EQUALS',
+                                    'attributeValue': tagName,
+                                }]
+                            }
+                            for tagName in vmTags
+                        ]
+                        for dcGroupId in appliedToDcGroups:
+                            for idx, sublist in chunksOfList(vmCriteria, 3):
+                                payload = {
+                                    'name': createFirewallGroupName(
+                                        orgVdcName, orgVdcId, sourceGroup['name'], entity['value'], groupType='member',
+                                        idx=idx),
+                                    'description': sourceGroup['description'],
+                                    'vmCriteria': sublist,
+                                    'ownerRef': {'id': dcGroupId},
+                                    'typeValue': 'VM_CRITERIA',
+                                }
+                                self.thread.spawnThread(
+                                    self.createDfwFirewallGroup, payload, allFirewallGroups,
+                                    groupTypes.get('VirtualMachine'), firewallGroupObjects[dcGroupId])
+                        # Halting the main thread till all the threads have completed their execution
+                        self.thread.joinThreads()
+
+                if sourceGroup.get('dynamicMemberDefinition'):
+                    vmCriteria = [
+                        {
+                            'rules': [
+                                {
+                                    'attributeType':
+                                        'VM_TAG' if rule['key'] == 'VM.SECURITY_TAG'
+                                        else 'VM_NAME' if rule['key'] == 'VM.NAME'
+                                        else None,
+                                    'operator':
+                                        'CONTAINS' if rule['criteria'] == 'contains'
+                                        else 'STARTS_WITH' if rule['criteria'] == 'starts_with'
+                                        else 'ENDS_WITH' if rule['criteria'] == 'ends_with'
+                                        else None,
+                                    'attributeValue':
+                                        f"{orgVdcName}_{rule['value']}"
+                                        if rule['key'] == 'VM.SECURITY_TAG' and rule['criteria'] == 'starts_with'
+                                        else rule['value'],
+                                }
+                                for rule in _listify(dynset['dynamicCriteria'])
+                            ]
+                        }
+                        for dynset in _listify(sourceGroup['dynamicMemberDefinition']['dynamicSet'])
+                    ]
+                    for dcGroupId in appliedToDcGroups:
+                        for idx, sublist in chunksOfList(vmCriteria, 3):
+                            payload = {
+                                'name': createFirewallGroupName(
+                                        orgVdcName, orgVdcId, sourceGroup['name'], entity['value'], idx=idx),
+                                'description': sourceGroup['description'],
+                                'vmCriteria': sublist,
+                                'ownerRef': {'id': dcGroupId},
+                                'typeValue': 'VM_CRITERIA',
+                            }
+                            self.thread.spawnThread(
+                                self.createDfwFirewallGroup, payload, allFirewallGroups,
+                                groupTypes.get('VirtualMachine'), firewallGroupObjects[dcGroupId])
+                    # Halting the main thread till all the threads have completed their execution
+                    self.thread.joinThreads()
+
+        if ipv4Addresses:
+            for dcGroupId in appliedToDcGroups:
+                payload = {
+                    'name': createFirewallGroupName(
+                        orgVdcName, orgVdcId, sourceGroupName=None, sourceGroupId=None, ruleId=ruleId,
+                        groupType='ip', source=source),
+                    'ownerRef': {'id': dcGroupId},
+                    'ipAddresses': ipv4Addresses
+                }
+                self.thread.spawnThread(
+                    self.createDfwFirewallGroup, payload, allFirewallGroups, groupTypes.get('Ipv4Address'),
+                    firewallGroupObjects[dcGroupId])
+            # Halting the main thread till all the threads have completed their execution
+            self.thread.joinThreads()
+
+        return firewallGroupObjects
+
+    def getIpset(self, ipsetId):
+        # url to retrieve the info of ipset group by id
+        url = "{}{}".format(
+            vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+            vcdConstants.GET_IPSET_GROUP_BY_ID.format(ipsetId))
+        # get api call to retrieve the ipset group info
+        response = self.restClientObj.get(url, self.headers)
+        if response.status_code == requests.codes.ok:
+            # successful retrieval of ipset group info
+            responseDict = xmltodict.parse(response.content)
+            return responseDict
+        raise Exception('Unable to fetch ipset {} - {}'.format(ipsetId, response.json()['message']))
 
     @isSessionExpired
-    def dfwRulesRollback(self, rollback=True):
+    def dfwRulesRollback(self):
         """
             Description: Removing DFW rules from datacenter group for rollback
         """
         try:
-            orgVDCGroupID = list(self.rollback.apiData['OrgVDCGroupID'].values()) if self.rollback.apiData.get('OrgVDCGroupID') else []
-            if orgVDCGroupID:
-                logger.debug('Removing DFW rules as a part of DFW rollback') if rollback else logger.debug('Removing Default rules in DFW')
-                for orgVDCGroupID in orgVDCGroupID:
-                    policyURL = '{}{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                vcdConstants.GET_VDC_GROUP_BY_ID.format(orgVDCGroupID),
-                                                vcdConstants.ENABLE_DFW_POLICY)
-                    header = {'Authorization': self.headers['Authorization'],
-                              'Accept': vcdConstants.VCD_API_HEADER}
-                    # Fetching policy id
-                    policyResponse = self.restClientObj.get(policyURL, header)
-                    if policyResponse.status_code == requests.codes.ok:
-                        policyResponseDict = policyResponse.json()
-                        policyID = policyResponseDict['defaultPolicy']['id']
-                    else:
-                        errorResponse = policyResponse.json()
-                        raise Exception(
-                            "Failed to fetch policy details for datacenter group - {}".format(errorResponse['message']))
+            # Check if services configuration or network switchover was performed or not
+            if not isinstance(self.rollback.metadata.get("configureTargetVDC", {}).get("configureDFW"), bool) \
+                    or not self.rollback.apiData.get('DfwDefaultRule'):
+                return
+            # If DFW was not configured on source org vdc return
+            sourceOrgVDCId = self.rollback.apiData.get('sourceOrgVDC', {}).get('@id')
+            if sourceOrgVDCId:
+                allLayer3Rules = self.getDistributedFirewallConfig(sourceOrgVDCId)
+                if not allLayer3Rules:
+                    return
+            # Acquiring thread lock
+            self.lock.acquire(blocking=True)
 
+            orgVDCGroupIDList = list(self.rollback.apiData['OrgVDCGroupID'].values()) if self.rollback.apiData.get('OrgVDCGroupID') else []
+            # Fetching all dc group id's from vCD
+            vdcGroupsIds = [group['id'] for group in self.getOrgVDCGroup()]
+            if [dcGroupId for dcGroupId in orgVDCGroupIDList if dcGroupId in vdcGroupsIds]:
+                logger.info('Rollback: Deleting DFW rules from Data Center Groups')
+                for orgVDCGroupID in orgVDCGroupIDList:
+                    policyResponseDict = self.getDfwPolicy(orgVDCGroupID)
+                    policyID = policyResponseDict['defaultPolicy']['id']
                     # url to fetch dfw rules
-                    dfwURL = '{}{}{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                               vcdConstants.GET_VDC_GROUP_BY_ID.format(orgVDCGroupID),
-                                               vcdConstants.ENABLE_DFW_POLICY, vcdConstants.GET_DFW_RULES.format(policyID))
-                    # get api call to retrieve dfw rules from datacenter group
-                    response = self.restClientObj.get(dfwURL, header)
-                    if response.status_code == requests.codes.ok:
-                        # successful retrieval of dfw rules
-                        responseDict = response.json()
-                        userDefinedRulesList = responseDict['values']
-                    else:
-                        errorResponse = response.json()
-                        raise Exception("Failed to fetch dfw rules from target - {}".format(errorResponse['message']))
+                    dfwURL = '{}{}{}{}'.format(
+                        vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                        vcdConstants.GET_VDC_GROUP_BY_ID.format(orgVDCGroupID),
+                        vcdConstants.ENABLE_DFW_POLICY,
+                        vcdConstants.GET_DFW_RULES.format(policyID))
 
-                    # iterating over rules list to delete the rules using rule id
-                    for rule in userDefinedRulesList:
-                        deleteRuleUrl = dfwURL + f"/{rule['id']}"
-                        response = self.restClientObj.delete(deleteRuleUrl, self.headers)
-                        if response.status_code == requests.codes.accepted:
-                            # successful deletion of DFW rules from datacenter group
-                            taskUrl = response.headers['Location']
-                            self._checkTaskStatus(taskUrl=taskUrl)
-                            logger.debug("Successfully deleted DFW rule '{}'".format(rule['name']))
-                        else:
-                            response = response.json()
-                            raise Exception(
-                                "Failed to delete DFW rule '{}' on target - {}".format(rule['name'], response['message']))
-                    logger.debug('Successfully removed DFW rules as a part of DFW rollback') if rollback else logger.debug('Successfully removed default DFW rules')
+                    self.deleteDfwPolicyRules(dfwURL, orgVDCGroupID)
+                    logger.debug('Successfully removed DFW rules from datacenter groups')
         except:
+            logger.error(traceback.format_exc())
             raise
+        finally:
+            try:
+                # Releasing the lock
+                self.lock.release()
+                logger.debug("Lock released by thread - '{}'".format(threading.currentThread().getName()))
+            except RuntimeError:
+                pass
 
     @isSessionExpired
     def dfwGroupsRollback(self):
@@ -3046,63 +3797,57 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             Description: Removing DFW groups from datacenter group for rollback
         """
         try:
+            # Check if services configuration was performed or not
+            if not self.rollback.metadata.get("configureTargetVDC", {}).get("increaseScopeOfEdgegateways") or \
+                    not isinstance(self.rollback.metadata.get("configureTargetVDC", {}).get("configureDFW"), bool):
+                return
+            # Acquiring thread lock
+            self.lock.acquire(blocking=True)
             orgVDCGroupID = list(self.rollback.apiData['OrgVDCGroupID'].values()) if self.rollback.apiData.get('OrgVDCGroupID') else []
             if orgVDCGroupID:
-                logger.info('Removing DFW groups as a part of DFW rollback')
-                # url to fetch firewall groups summary
-                firewallGroupUrl = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                    vcdConstants.FIREWALL_GROUPS_SUMMARY)
-                response = self.restClientObj.get(firewallGroupUrl, self.headers)
-
-                # Fetching firewall groups summary
-                firewallGroupsSummary = []
-                if response.status_code == requests.codes.ok:
-                    logger.debug("Retrieved firewall groups details successfully")
-                    responseDict = response.json()
-                    resultTotal = responseDict['resultTotal']
-                    pageNo = 1
-                    pageSizeCount = 0
+                if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA):
+                    logger.info("Rollback: Removing Firewall-Groups from Data Center Groups")
                 else:
-                    response = response.json()
-                    raise Exception(
-                        "Failed to fetch firewall group summary from target - {}".format(response['message']))
-
-                while resultTotal > 0 and pageSizeCount < resultTotal:
-                    url = "{}?page={}&pageSize={}".format(firewallGroupUrl, pageNo, vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE)
-                    response = self.restClientObj.get(url, self.headers)
-                    if response.status_code == requests.codes.ok:
-                        responseDict = response.json()
-                        firewallGroupsSummary.extend(responseDict['values'])
-                        pageSizeCount += len(responseDict['values'])
-                        logger.debug('firewall group summary result pageSize = {}'.format(pageSizeCount))
-                        pageNo += 1
-                    else:
-                        response = response.json()
-                        raise Exception(
-                            "Failed to fetch firewall group summary from target - {}".format(response['message']))
-
-                # Filtering firewall groups corresponding to org vdc group
-                firewallGroupsSummary = list(
-                    filter(lambda firewallGroup: firewallGroup['ownerRef']['id'] in orgVDCGroupID,
-                           firewallGroupsSummary))
+                    logger.info("Rollback: Removing Security-Groups from Data Center Groups")
+                # url to fetch firewall groups summary
+                firewallGroupsSummary = self.fetchFirewallGroupsByDCGroup()
 
                 # Iterating over dfw groups to delete the groups using firewall group id
-                for firewallGroup in firewallGroupsSummary:
-                    deleteFirewallGroupUrl = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                           vcdConstants.FIREWALL_GROUP.format(firewallGroup['id']))
-                    response = self.restClientObj.delete(deleteFirewallGroupUrl, self.headers)
-                    if response.status_code == requests.codes.accepted:
-                        taskUrl = response.headers['Location']
-                        self._checkTaskStatus(taskUrl=taskUrl)
-                        logger.debug("Successfully deleted firewall group '{}'".format(firewallGroup['name']))
-                    else:
-                        response = response.json()
-                        raise Exception(
-                            "Failed to delete firewall group '{}' from target - {}".format(firewallGroup['name'],
-                                                                                           response['message']))
-                logger.debug('Successfully removed DFW groups as a part of DFW rollback')
+                for owner, groups in firewallGroupsSummary.items():
+                    for _, sublist in chunksOfList(list(groups.items()), 40):
+                        taskUrls = dict()
+                        for firewallGroupName, firewallGroup in sublist:
+                            deleteFirewallGroupUrl = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                                   vcdConstants.FIREWALL_GROUP.format(firewallGroup['id']))
+                            response = self.restClientObj.delete(deleteFirewallGroupUrl, self.headers)
+                            if response.status_code == requests.codes.accepted:
+                                taskUrls[firewallGroupName] = response.headers['Location']
+                            else:
+                                response = response.json()
+                                raise Exception("Failed to delete firewall group '{}' from target - {}".format(
+                                    firewallGroupName, response['message']))
+
+                        errors = list()
+                        for firewallGroupName, url in taskUrls.items():
+                            try:
+                                self._checkTaskStatus(taskUrl=url)
+                                logger.debug("Successfully deleted firewall group '{}'".format(firewallGroupName))
+                            except Exception as e:
+                                errors.append(e)
+
+                        if errors:
+                            raise Exception(errors)
+
+                logger.debug('Successfully removed Firewall-Groups from Data Center Groups')
         except:
             raise
+        finally:
+            try:
+                # Releasing the lock
+                self.lock.release()
+                logger.debug("Lock released by thread - '{}'".format(threading.currentThread().getName()))
+            except RuntimeError:
+                pass
 
     @isSessionExpired
     def firewallruleRollback(self):
@@ -3110,9 +3855,15 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         Description: Removing DFW rules from datacenter group for rollback
         """
         try:
+            # Check if services configuration was performed or not
+            if not self.rollback.metadata.get("configureTargetVDC", {}).get("increaseScopeOfEdgegateways"):
+                return
+
             orgVDCGroupID = list(self.rollback.apiData['OrgVDCGroupID'].values()) if self.rollback.apiData.get('OrgVDCGroupID') else []
-            if orgVDCGroupID:
-                logger.info('Removing firewall rule as a part of rollback')
+            # Fetching all dc group id's from vCD
+            vdcGroupsIds = [group['id'] for group in self.getOrgVDCGroup()]
+
+            if [dcGroupId for dcGroupId in orgVDCGroupID if dcGroupId in vdcGroupsIds]:
                 targetEdgeGatewayIdList = [edgeGateway['id'] for edgeGateway in
                                            self.rollback.apiData['targetEdgeGateway']]
                 for edgeGatewayId in targetEdgeGatewayIdList:
@@ -3127,113 +3878,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     else:
                         response = response.json()
                         raise Exception(
-                            "Failed to delete firewall Rules from target - {}".format(response['message']))
-                logger.debug('Successfully removed firewall rule as a part of rollback')
+                            "Failed to delete firewall from target - {}".format(response['message']))
+                logger.debug('Successfully deleted firewall rules')
         except Exception:
-            raise
-
-    @isSessionExpired
-    def fetchipset(self, orgVDCgroupIds):
-        """
-        Description: Fetich IPSET scoped to Orgvdc Groups
-        parameters : orgVDCgroupIds - Ids of the org VDC group
-        return : ipsetIds - Ids of the ipsets
-        """
-        try:
-            ipsetIds = list()
-            # url to fetch firewall groups summary
-            firewallGroupsUrl = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                vcdConstants.FIREWALL_GROUPS_SUMMARY)
-            response = self.restClientObj.get(firewallGroupsUrl, self.headers)
-            # Fetching firewall groups summary
-            firewallGroupsSummary = []
-            if response.status_code == requests.codes.ok:
-                logger.debug("Retrieved firewall groups details successfully")
-                responseDict = response.json()
-                resultTotal = responseDict['resultTotal']
-                pageNo = 1
-                pageSizeCount = 0
-            else:
-                response = response.json()
-                raise Exception(
-                    "Failed to fetch firewall group summary from target - {}".format(response['message']))
-            while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}?page={}&pageSize={}".format(firewallGroupsUrl, pageNo,
-                                                      vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE)
-                response = self.restClientObj.get(url, self.headers)
-                if response.status_code == requests.codes.ok:
-                    responseDict = response.json()
-                    firewallGroupsSummary.extend(responseDict['values'])
-                    pageSizeCount += len(responseDict['values'])
-                    logger.debug('firewall group summary result pageSize = {}'.format(pageSizeCount))
-                    pageNo += 1
-                else:
-                    response = response.json()
-                    raise Exception(
-                        "Failed to fetch firewall group summary from target - {}".format(response['message']))
-            # Filtering firewall groups corresponding to org vdc group
-            firewallGroupsSummary = list(filter(lambda firewallGroup: firewallGroup['ownerRef']['id'] in orgVDCgroupIds, firewallGroupsSummary))
-            for groups in firewallGroupsSummary:
-                if groups['type'] == 'IP_SET':
-                    ownerRef = groups['ownerRef']['id']
-                    ipsetId = groups['id']
-                    ipsetName = groups['name']
-                    ipsetIds.append({ownerRef: {ipsetName: ipsetId}})
-            return ipsetIds
-        except Exception:
-            raise
-
-    @isSessionExpired
-    def configDefaultDFW(self, payloadDict, orgVDCIds):
-        """
-        Description: Configure default rule in all org vdc groups
-        parameters: payloadDict - payload data of the default rules
-                    orgVDCIds -  Ids of all org vdcs
-        """
-        try:
-            data = dict()
-            for orgvDCgroupId in orgVDCIds:
-                # URL to get dfw policies by vdc groud ID
-                policyURL = '{}{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                            vcdConstants.GET_VDC_GROUP_BY_ID.format(orgvDCgroupId),
-                                            vcdConstants.ENABLE_DFW_POLICY)
-                header = {'Authorization': self.headers['Authorization'],
-                          'Accept': vcdConstants.VCD_API_HEADER}
-                policyResponse = self.restClientObj.get(policyURL, header)
-                if policyResponse.status_code == requests.codes.ok:
-                    policyResponseDict = policyResponse.json()
-                    policyID = policyResponseDict['defaultPolicy']['id']
-                    dfwURL = '{}{}{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                               vcdConstants.GET_VDC_GROUP_BY_ID.format(orgvDCgroupId),
-                                               vcdConstants.ENABLE_DFW_POLICY, vcdConstants.GET_DFW_RULES.format(policyID))
-                    # get api call to retrieve firewall info of target edge gateway
-                    response = self.restClientObj.get(dfwURL, header)
-                    if response.status_code == requests.codes.ok:
-                        # successful retrieval of firewall info
-                        responseDict = response.json()
-                        userDefinedRulesList = responseDict['values']
-                        # get api call to retrieve firewall info of target edge gateway
-                        response = self.restClientObj.get(dfwURL, header)
-                        if response.status_code == requests.codes.ok:
-                            # successful retrieval of firewall info
-                            responseDict = response.json()
-                            userDefinedRulesList = responseDict['values']
-                        data['values'] = userDefinedRulesList + [payloadDict] if userDefinedRulesList else [payloadDict]
-                        payloadData = json.dumps(data)
-                        self.headers['Content-Type'] = 'application/json'
-                        # put api call to configure firewall rules on target edge gateway
-                        response = self.restClientObj.put(dfwURL, self.headers, data=payloadData)
-                        if response.status_code == requests.codes.accepted:
-                            # successful configuration of firewall rules on target edge gateway
-                            taskUrl = response.headers['Location']
-                            self._checkTaskStatus(taskUrl=taskUrl)
-                            logger.debug('Default DFW rule created successfully in VDC group Id: {}.'.format(orgvDCgroupId))
-                        else:
-                            # failure in configuration of firewall rules on target edge gateway
-                            response = response.json()
-                            raise Exception('Failed to create DFW rule on target - {}'.format(response['message']))
-                else:
-                    response = policyResponse.json()
-                    raise Exception('Failed to create DFW rule on target - {}'.format(response['message']))
-        except Exception:
+            logger.error(traceback.format_exc())
             raise

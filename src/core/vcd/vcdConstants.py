@@ -1,7 +1,6 @@
-# ***************************************************
-# Copyright © 2020 VMware, Inc. All rights reserved.
-# ***************************************************
-
+# ******************************************************
+# Copyright © 2020-2021 VMware, Inc. All rights reserved.
+# ******************************************************
 """
 Description: Module which contains all the constants required for VMware Cloud Director Migration from NSX-V to NSX-T
 """
@@ -17,8 +16,12 @@ VCD_API_HEADER = 'application/*;version={}'
 # vcd admin operations legacy api url
 XML_ADMIN_API_URL = "https://{}/api/admin/"
 
+# API version for Andromeda builds
+API_VERSION_ANDROMEDA = "36.0"
+
 # API version for Zeus builds
 API_VERSION_ZEUS = "35.0"
+API_VERSION_ZEUS_10_2_2 = "35.2"
 
 # API version before Zeus
 API_VERSION_PRE_ZEUS = "34.0"
@@ -67,6 +70,9 @@ XML_VCD_NSX_API = "https://{}/network/"
 
 # external networks uri
 ALL_EXTERNAL_NETWORKS = "externalNetworks"
+
+# direct network connected to (port group backed) external network backing type
+DIRECT_NETWORK_CONNECTED_TO_PG_BACKED_EXT_NET = "DV_PORTGROUP"
 
 # org vdc capabilities
 ORG_VDC_CAPABILITIES = "vdcs/{}/capabilities"
@@ -195,6 +201,9 @@ VDC_COMPUTE_POLICIES_BY_ID = "/{}/vdcs"
 # org vdc metadata uri
 META_DATA_IN_ORG_VDC_BY_ID = "vdc/{}/metadata"
 
+# disk metadata uri
+META_DATA_IN_DISK_BY_ID = "disk/{}/metadata"
+
 #configure network profile
 NETWORK_PROFILE = 'vdcs/{}/networkProfile'
 
@@ -236,10 +245,11 @@ CREATE_AFFINITY_RULE_TEMPLATE = 'creatingAffinityRule'
 COMPONENT_NAME = 'vCloudDirector'
 
 # openapi content type for json
-OPEN_API_CONTENT_TYPE = 'application/json'
+OPEN_API_CONTENT_TYPE = 'application/json;version={}'
 
 # content type fro json
 GENERAL_JSON_CONTENT_TYPE = 'application/*+json;version={}'
+GENERAL_JSON_ONLY_CONTENT_TYPE =  'application/*+json'
 
 # content type for xml
 GENERAL_XML_CONTENT_TYPE = 'application/*+xml;charset=UTF-8'
@@ -341,7 +351,7 @@ VCD_ROOT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 VCD_STORAGE_PROFILE_BY_ID = "vdcStorageProfile/{}"
 
 # string to check if the independent key exist or not in source org vdc
-INDEPENDENT_DISKS_EXIST_IN_ORG_VDC_TYPE = 'application/vnd.vmware.vcloud.disk+xml'
+XML_INDEPENDENT_DISK_TYPE = 'application/vnd.vmware.vcloud.disk+xml'
 
 # compute policy of org vdc by id uri
 ORG_VDC_COMPUTE_POLICY = "vdc/{}/computePolicies"
@@ -495,6 +505,7 @@ CONNECTION_PROPERTIES_CONFIG = '/{}/connectionProperties'
 
 # distributed firewall supported object
 DISTRIBUTED_FIREWALL_OBJECT_LIST = ['IPSet', 'Network', 'Ipv4Address']
+DISTRIBUTED_FIREWALL_OBJECT_LIST_ANDROMEDA = ['IPSet', 'Network', 'Ipv4Address', 'VirtualMachine', 'SecurityGroup']
 
 # ike version dict
 CONNECTION_PROPERTIES_IKE_VERSION = {"ikev1": "IKE_V1", "ikev2": "IKE_V2", "ike-flex": "IKE_FLEX"}
@@ -506,7 +517,7 @@ CONNECTION_PROPERTIES_DH_GROUP = {"dh2": "GROUP2", "dh5": "GROUP5", "dh14": "GRO
 CONNECTION_PROPERTIES_DIGEST_ALGORITHM = {"sha1": "SHA1"}
 
 # encryption algorithm ipsec
-CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM = {"aes256": "AES_256"}
+CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM = {"aes256": "AES_256", "aes": "AES_128", "aes-gcm": "AES_GCM_128"}
 
 # update connecton properties ipsec vpn
 UPDATE_IPSEC_TUNNEL_PROPERTIES = 'updateIpSecVpnTunnelProperties'
@@ -639,7 +650,7 @@ ASSIGN_SERVICE_ENGINE_GROUP_URI = 'loadBalancer/serviceEngineGroups/assignments'
 ASSIGN_SERVICE_ENGINE_GROUP_TASK_NAME = 'loadBalancerServiceEngineGroupAssignmentCreate'
 
 # vCD groups
-VDC_GROUPS = 'vdcGroups/'
+VDC_GROUPS = 'vdcGroups'
 
 # get Vdc group by Id
 GET_VDC_GROUP_BY_ID = 'vdcGroups/{}/'
@@ -668,6 +679,27 @@ SCOPE_EXTERNAL_NETWORK_QUERY = '?filterEncoded=true&filter=(_context=={})'
 
 GET_PORTGROUP_VLAN_ID ='query?type=portgroup&filter=(moref=={})'
 
+# Default page size for query APIs
+DEFAULT_QUERY_PAGE_SIZE = 25
+
+# Query API and Page size for named disk
+GET_NAMED_DISK_BY_VDC = 'query?type=disk&filter=(((vdc=={})))'
+
+# API suffix for disk API to get attached VMs
+GET_ATTACHED_VMS_TO_DISK = 'attachedVms'
+
+# API to detach disk from VM
+VM_DETACH_DISK = 'disk/action/detach'
+
+# API to attach disk from VM
+VM_ATTACH_DISK = 'disk/action/attach'
+
+# API to move Disk
+DISK_MOVE = 'action/moveDisk'
+
+# Task type for JSON requests
+JSON_TASK_TYPE = 'application/vnd.vmware.vcloud.task+json'
+
 # Constans used to Dump Migration State Log to logfile.
 ORG = 'Organization'
 SOURCE_ORG_VDC = 'sourceOrgVDC'
@@ -679,3 +711,20 @@ TARGET_EDGE_GW = 'targetEdgeGateway'
 SOURCE_VAPPS = 'SourcevApp'
 TARGET_VAPPS = 'TargetvApp'
 
+# vApp data url
+VAPP_DATA_URL = 'https://{}/api/query?type=vApp&format=records'
+
+# Query to get vApp data
+VAPP_INFO_QUERY = 'query?type=vApp'
+
+# max orgVdc count for shared network migration
+MAX_ORGVDC_COUNT = 16
+
+# query to get vAppNetwork
+VAPP_NETWORK_QUERY = "query?type=vAppNetwork"
+
+# get edgeCluster data
+EDGE_CLUSTER_DATA = 'edgeClusters'
+
+# get vNics details
+VNIC = '/vnics'

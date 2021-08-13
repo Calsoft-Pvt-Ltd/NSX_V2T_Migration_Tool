@@ -15,6 +15,7 @@ import math
 import os
 import prettytable
 import sys
+import traceback
 from collections import OrderedDict
 from src import constants
 from src.commonUtils import utils
@@ -26,6 +27,7 @@ from src.rollback import Rollback
 cwd = os.getcwd()
 parentDir = os.path.abspath(os.path.join(cwd, os.pardir))
 sys.path.append(parentDir)
+from src.commonUtils.threadUtils import Thread, waitForThreadToComplete
 
 # Status codes are assigned to each orgVDC after completion of its assessment
 # e. g.: if any single validations from 'Blocking' category failed, status will be
@@ -52,14 +54,12 @@ VALIDATION_CLASSIFICATION = {
     'Empty vApps': 1,
     'Suspended VMs': 1,
     'Routed vApp Networks': 2,
-    'DHCP on isolated vApp networks': 2,
-    'Fast Provisioning': 1,
     'Network Pool not VXLAN/VLAN backed': 2,
     'Fencing enabled on vApps': 2,
     'No free interface on edge gateways': 1,
     'Edge Gateway Rate Limit': 1,
-    'Shared Networks': 2,
-    'Independent Disks': 2,
+    'Independent Disks: Shared disk present': 2,
+    'Independent Disks: Attached VMs are not powered off': 1,
     'DHCP Relay': 2,
     'DHCP: Static binding': 2,
     'Gateway Firewall: Any as TCP/UDP port': 1,
@@ -73,6 +73,7 @@ VALIDATION_CLASSIFICATION = {
     'IPsec: Authentication mode as Certificate': 2,
     'IPsec: Unsupported Digest Algorithm': 1,
     'OSPF routing protocol': 2,
+    'User-defined Static Routes': 1,
     'LoadBalancer: Transparent Mode': 2,
     'LoadBalancer: Application Rules': 2,
     'LoadBalancer: Default pool not configured': 1,
@@ -84,9 +85,8 @@ VALIDATION_CLASSIFICATION = {
     'Distributed Firewall: Unsupported type in applied to section': 1,
     'Distributed Firewall: Networks connected to different edge gateway used': 1,
     'Distributed Firewall: Layer 2 Rule': 1,
-    'DHCP Isolated Network Enabled': 1,
-    'Distributed Firewall': 1,
-    'LoadBalancer': 1,
+    'Distributed Firewall: Invalid Security Group objects in rule': 1
+
 }
 
 
@@ -142,13 +142,16 @@ class VMwareCloudDirectorNSXMigratorV2T:
         # Getting password of VMware vCloud Director
         vCloudDirectorPassword = self._getVcloudDirectorPassword()
 
+        self.threadCount = inputDict.get("Common", {}).get("MaxThreadCount", 75)
+        threadObj = Thread(maxNumberOfThreads=self.threadCount)
+
         # Creating object of vcd validation class
         self.vcdValidationObj = self.vcdValidationObj = VCDMigrationValidation(
             self.inputDict['VCloudDirector']['ipAddress'],
             self.inputDict['VCloudDirector']['username'],
             vCloudDirectorPassword,
             self.inputDict['VCloudDirector']['verify'],
-            self.rollback)
+            self.rollback, threadObj, vdcName="MainThread")
 
         # Login to vCD
         self.vcdValidationObj.vcdLogin()
@@ -218,7 +221,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
         except Exception:
             raise
 
-    def initializeV2TValidations(self, orgName, vdcName, vdcId):
+    def initializeV2TValidations(self, orgName, OrgId, vdcName, vdcId):
         """
             Description : This method fetches the necessary details to run validations
         """
@@ -238,19 +241,14 @@ class VMwareCloudDirectorNSXMigratorV2T:
                 'Empty vApps': [self.vcdValidationObj.validateNoEmptyVappsExistInSourceOrgVDC, vdcId],
                 'Suspended VMs': [self.vcdValidationObj.validateSourceSuspendedVMsInVapp, vdcId],
                 'Routed vApp Networks': [self.vcdValidationObj.validateNoVappNetworksExist, vdcId],
-                'DHCP on isolated vApp networks': [self.vcdValidationObj.validateDHCPOnIsolatedvAppNetworks,
-                                                   vdcId],
-                'Fast Provisioning': [self.vcdValidationObj.validateOrgVDCFastProvisioned],
                 'Network Pool not VXLAN/VLAN backed': [self.vcdValidationObj.validateSourceNetworkPools],
                 'Fencing enabled on vApps': [self.vcdValidationObj.validateVappFencingMode, vdcId],
                 'No free interface on edge gateways': [self.vcdValidationObj.validateEdgeGatewayUplinks,
                                                      vdcId, self.edgeGatewayIdList],
                 'Edge Gateway Rate Limit': [self.vcdValidationObj.validateEdgeGatewayRateLimit, self.edgeGatewayIdList],
-                'Shared Networks': [self.vcdValidationObj.validateOrgVDCNetworkShared, self.orgVdcNetworkList],
-                'Independent Disks': [self.vcdValidationObj.validateIndependentDisksDoesNotExistsInOrgVDC,
-                                      vdcId],
+                'Independent Disks': [self.vcdValidationObj.validateIndependentDisks, vdcId, OrgId, True],
                 'Validating Source Edge gateway services': [self.vcdValidationObj.getEdgeGatewayServices, None, None, None, True, None, True],
-                'Unsupported DFW configuration': [self.vcdValidationObj.getDistributedFirewallConfig, vdcId, True, True]
+                'Unsupported DFW configuration': [self.vcdValidationObj.getDistributedFirewallConfig, vdcId, True, True, True]
             }
         except Exception:
             raise
@@ -489,7 +487,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
                         self.orgVDCResult['Number of Networks to Bridge'] = len(filteredList)
 
                         # Initializing the necessities for validation of a org vdc
-                        self.initializeV2TValidations(org, VDC, VDCId)
+                        orgId = self.vcdValidationObj.getOrgId(org)
+                        self.initializeV2TValidations(org, orgId, VDC, VDCId)
 
                         # Iterating over the validations and start executing validations one by one
                         for desc, method in self.vcdValidationMapping.items():
@@ -505,7 +504,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                             else:
                                 # Run method
                                 output = self.runV2TValidations(desc, methodName, argsList)
-                                # If the method is validating edge gateway services get the output and process for report
+                                # If the method is validating edgegateway services get the output and process for report
                                 if desc == "Unsupported DFW configuration":
                                     del self.orgVDCResult["Unsupported DFW configuration"]
                                     dfwResult = output
@@ -513,18 +512,27 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                         self.orgVDCResult["Distributed Firewall: Invalid objects in rule"] = True
                                     else:
                                         self.orgVDCResult["Distributed Firewall: Invalid objects in rule"] = False
+
+                                    if "has invalid security group objects" in ''.join(dfwResult) and 'Security Group' in ''.join(dfwResult):
+                                        self.orgVDCResult["Distributed Firewall: Invalid Security Group objects in rule"] = True
+                                    else:
+                                        self.orgVDCResult["Distributed Firewall: Invalid Security Group objects in rule"] = False
+
                                     if "provided in applied to section in rule" in ''.join(dfwResult):
                                         self.orgVDCResult["Distributed Firewall: Unsupported type in applied to section"] = True
                                     else:
                                         self.orgVDCResult["Distributed Firewall: Unsupported type in applied to section"] = False
+
                                     if "are connected to different edge gateways" in ''.join(dfwResult):
                                         self.orgVDCResult["Distributed Firewall: Networks connected to different edge gateway used"] = True
                                     else:
                                         self.orgVDCResult["Distributed Firewall: Networks connected to different edge gateway used"] = False
+
                                     if "Layer2 rule present" in ''.join(dfwResult):
                                         self.orgVDCResult["Distributed Firewall: Layer 2 Rule"] = True
                                     else:
                                         self.orgVDCResult["Distributed Firewall: Layer 2 Rule"] = False
+
                                 if desc == "Validating Source Edge gateway services":
                                     del self.orgVDCResult["Validating Source Edge gateway services"]
                                     servicesResult = output
@@ -590,6 +598,10 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 self.orgVDCResult["OSPF routing protocol"] = True
                                             else:
                                                 self.orgVDCResult["OSPF routing protocol"] = False
+                                            if "static routes configured" in ''.join(result):
+                                                self.orgVDCResult['User-defined Static Routes'] = True
+                                            else:
+                                                self.orgVDCResult['User-defined Static Routes'] = False
                                         if serviceName == "L2VPN":
                                             if "L2VPN service is configured" in ''.join(result):
                                                 self.orgVDCResult["L2VPN service"] = True
@@ -617,6 +629,18 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 self.orgVDCResult["Gateway Firewall: Unsupported grouping object"] = True
                                             else:
                                                 self.orgVDCResult["Gateway Firewall: Unsupported grouping object"] = False
+                                if desc == "Independent Disks":
+                                    del self.orgVDCResult["Independent Disks"]
+                                    diskResult = ''.join(output)
+                                    self.orgVDCResult["Independent Disks: Shared disk present"] = (
+                                        True
+                                        if "Independent Disks in Org VDC are shared" in diskResult
+                                        else False)
+                                    self.orgVDCResult["Independent Disks: Attached VMs are not powered off"] = (
+                                        True
+                                        if "VMs attached to disks are not powered off" in diskResult
+                                        else False)
+
                     except Exception as err:
                         self.logger.debug(f"Failed to evaluate Org VDC '{VDC}' of organization '{org}' due to error - '{str(err)}'")
                         self.orgVDCResult['Status'] = STATUS_CODES[3]
@@ -668,6 +692,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
             output = method(*args)
         except Exception as err:
             self.logger.debug(f"Error: {str(err)}")
+            self.logger.debug(traceback.format_exc())
             self.orgVDCResult[desc] = True
         else:
             if output:
@@ -762,11 +787,19 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
             # Formatting time taken by v2tAssessment
             endTime = datetime.datetime.now()
-            timeTaken = f"{endTime - self.initialTime}".split(":")
 
-            timeFormat = (f"{timeTaken[0]} Hours" if int(timeTaken[0]) else str()) + \
-                         (f" {timeTaken[1]} Minutes" if int(timeTaken[1]) else str()) + \
-                         (f" {math.ceil(float(timeTaken[2]))} Seconds")
+            if "day" in str(endTime - self.initialTime):
+                numberOfDays, timeTaken = f"{endTime - self.initialTime}".split(",")
+                timeTaken = timeTaken.strip().split(":")
+                timeFormat = f"{numberOfDays}" + \
+                             (f" {timeTaken[0]} Hours" if int(timeTaken[0]) else str()) + \
+                             (f" {timeTaken[1]} Minutes" if int(timeTaken[1]) else str()) + \
+                             (f" {math.ceil(float(timeTaken[2]))} Seconds" if math.ceil(float(timeTaken[2])) else str())
+            else:
+                timeTaken = f"{endTime - self.initialTime}".split(":")
+                timeFormat = (f"{timeTaken[0]} Hours" if int(timeTaken[0]) else str()) + \
+                             (f" {timeTaken[1]} Minutes" if int(timeTaken[1]) else str()) + \
+                             (f" {math.ceil(float(timeTaken[2]))} Seconds" if math.ceil(float(timeTaken[2])) else str())
 
             numberOfORGsEvaluated = len(set(row['Org Name'] for row in self.reportData))
             numberOfVDCsEvaluated = len([row['Org VDC'] for row in self.reportData])

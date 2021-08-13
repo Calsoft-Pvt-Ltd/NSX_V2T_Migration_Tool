@@ -39,6 +39,20 @@ vCloudDirector:
       </root:Configuration>
       <root:IsDeployed>true</root:IsDeployed>
     </root:NetworkConfig>
+  moveVappNetworkConfigFeatures:
+    <root:Features>
+      {{dhcpConfig}}
+    </root:Features>
+  moveVappNetworkConfigFeaturesDhcp:
+    <root:DhcpService xmlns:root="http://www.vmware.com/vcloud/v1.5">
+      <root:IsEnabled>{{isEnabled}}</root:IsEnabled>
+      <root:DefaultLeaseTime>{{defaultLeaseTime}}</root:DefaultLeaseTime>
+      <root:MaxLeaseTime>{{maxLeaseTime}}</root:MaxLeaseTime>
+      <root:IpRange>
+        <root:StartAddress>{{ipRangeStartAddress}}</root:StartAddress>
+        <root:EndAddress>{{ipRangeEndAddress}}</root:EndAddress>
+      </root:IpRange>
+    </root:DhcpService>
   moveVappVm:
     <root:SourcedItem>
       <root:Source href="{{vmHref}}"></root:Source>
@@ -138,6 +152,7 @@ vCloudDirector:
           </root:IpScope>
           </root:IpScopes>
         <root:FenceMode>{{fenceMode}}</root:FenceMode>
+        {{featuresConfig}}
       </root:Configuration>
       <root:IsDeployed>{{isDeployed}}</root:IsDeployed>
     </root:NetworkConfig>
@@ -248,6 +263,7 @@ vCloudDirector:
           </root:IpScope>
         </root:IpScopes>
         <root:FenceMode>{{fenceMode}}</root:FenceMode>
+        {{featuresConfig}}
       </root:Configuration>
       <root:IsDeployed>{{isDeployed}}</root:IsDeployed>
     </root:NetworkConfig>

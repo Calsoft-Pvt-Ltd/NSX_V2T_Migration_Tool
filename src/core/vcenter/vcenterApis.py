@@ -1,6 +1,6 @@
-# ***************************************************
-# Copyright © 2020 VMware, Inc. All rights reserved.
-# ***************************************************
+# ******************************************************
+# Copyright © 2020-2021 VMware, Inc. All rights reserved.
+# ******************************************************
 
 """
 Description: Module which performs the vcenter API related Operations
@@ -156,6 +156,65 @@ class VcenterApi():
         except Exception:
             raise
 
+    def fetchClusterResourcePoolMapping(self):
+        """
+            Description : This method creates mappings of cluster and resource pools
+            Returns: Dictionary of mappings (DICT)
+        """
+        try:
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+
+            # Disabling the InsecureRequestWarning message
+            requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+            # connecting to vCenter
+            si = SmartConnect(host=self.ipAddress,
+                              user=self.username,
+                              pwd=self.password,
+                              sslContext=context)
+
+            # If connection was not successful, raise an Exception
+            if not si:
+                raise Exception("Could not connect to the specified host using specified "
+                                "username and password")
+
+            atexit.register(Disconnect, si)
+            content = si.RetrieveContent()
+
+            # Cluster resource pool mapping
+            clusterRpMapping = dict()
+
+            # Iterating over datacenters
+            for child in content.rootFolder.childEntity:
+                if hasattr(child, 'hostFolder'):
+                    # Iterating over all the cluster present in datacenter
+                    for cluster in child.hostFolder.childEntity:
+                        # Fetching cluster moref
+                        clusterName = str(cluster).strip('\'').split(':')[-1]
+                        resourcePoolList = []
+                        # If resource pools are present iterate over them to get their names
+                        if hasattr(cluster, 'resourcePool'):
+                            # Fetch moref of parent resource pool
+                            resourcePoolList.append(str(cluster.resourcePool).strip('\'').split(':')[-1])
+                            if hasattr(cluster.resourcePool, 'resourcePool'):
+                                for rPool in cluster.resourcePool.resourcePool:
+                                    # Fetch moref of resource pool
+                                    resourcePoolList.append(str(rPool).strip('\'').split(':')[-1])
+                                    if hasattr(rPool, 'resourcePool'):
+                                        for orgVdcRPool in rPool.resourcePool:
+                                            # Fetch moref of resource pool
+                                            resourcePoolList.append(str(orgVdcRPool).strip('\'').split(':')[-1])
+                        # Create cluster and resource pool mapping
+                        if clusterName in clusterRpMapping:
+                            clusterRpMapping[clusterName].extend(resourcePoolList)
+                        else:
+                            clusterRpMapping[clusterName] = resourcePoolList
+
+            return clusterRpMapping
+        except Exception as err:
+            raise Exception(f"Failed to Resource Pool details from vCenter due to error - {str(err)}")
+
     def fetchAgencyClusterMapping(self):
         """
             Description : This method creates mappings of cluster and hosts as well as cluster and agents
@@ -173,6 +232,11 @@ class VcenterApi():
                               user=self.username,
                               pwd=self.password,
                               sslContext=context)
+            # If connection was not successful, raise an Exception
+            if not si:
+                raise Exception(f"Could not connect to the vCenter-{self.ipAddress} using specified "
+                                "username and password")
+
             # Defering disconnect method
             atexit.register(Disconnect, si)
 
@@ -187,16 +251,15 @@ class VcenterApi():
             eamCx = eam.EsxAgentManager("EsxAgentManager", eamStub)
             eamAgencies = eamCx.QueryAgency()
 
-            # dictionary to store the mapping
-            agencyClusterMapping = {}
+            # List to store the mapping
+            agencyClusterMapping = list()
 
             # Iterating over agencies
             for agency in eamAgencies:
                 agentName = agency.QueryConfig().agentName
                 for cluster in agency.QueryConfig().scope.computeResource:
                     clusterName = str(cluster).strip('\'').split(':')[-1]
-                    agencyClusterMapping[clusterName] = agentName
-
+                    agencyClusterMapping.append([clusterName, agentName])
             return agencyClusterMapping
         except Exception as err:
             raise Exception(f"Failed to fetch agency details from EAM(EsxAgentManager) due to error - {str(err)}")

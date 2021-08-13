@@ -1,6 +1,6 @@
-# ***************************************************
-# Copyright © 2020 VMware, Inc. All rights reserved.
-# ***************************************************
+# ******************************************************
+# Copyright © 2020-2021 VMware, Inc. All rights reserved.
+# ******************************************************
 
 """
 Description: Module which handles the logging of the migration of vCloud Director NSXV to NSXT
@@ -65,7 +65,10 @@ class Logger():
             currentDateTime = datetime.datetime.now().strftime("%d-%m-%Y-%H-%M-%S")
 
             if executionMode == 'preCheck':
-                #set handlers for preCheck Details file
+                # delete handlers and loggers for end state log.
+                del config["handlers"]["end-state-log"]
+                del config['loggers']['endstateLogger']
+                # set handlers for preCheck Details file
                 executionMode = executionMode + '-Log'
                 componentLogFile = config["handlers"]["pre-assessment"]["filename"]
                 config["handlers"]["pre-assessment"]["filename"] = '{}-{}.log'.format(componentLogFile.split(".")[0],
@@ -77,6 +80,9 @@ class Logger():
                 # set handlers for preCheck Details file
                 del config["handlers"]["pre-assessment"]
                 del config['loggers']['precheckLogger']
+                # delete handlers and loggers for end state log.
+                del config["handlers"]["end-state-log"]
+                del config['loggers']['endstateLogger']
                 executionMode = executionMode + '-Log'
 
             # Set handlers for main log file
@@ -101,10 +107,16 @@ class Logger():
                 # delete preCheck and inventory from handlers and loggers as it is not required in cleanup mode
                 del config["handlers"]["pre-assessment"]
                 del config['loggers']['precheckLogger']
+                # deletes end state logger as it is not required in cleanup mode.
+                del config["handlers"]["end-state-log"]
+                del config['loggers']['endstateLogger']
 
             if executionMode == 'v2tAssessment':
                 del config["handlers"]["pre-assessment"]
                 del config['loggers']['precheckLogger']
+                # deletes end state logger as it is not required in v2tAssessment mode.
+                del config["handlers"]["end-state-log"]
+                del config['loggers']['endstateLogger']
 
             logging.config.dictConfig(config)
 
