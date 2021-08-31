@@ -2698,7 +2698,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             if not allLayer3Rules:
                 logger.debug('DFW rules are not configured')
                 return
-            allLayer3Rules = allLayer3Rules if isinstance(allLayer3Rules, list) else [allLayer3Rules]
 
             # sourceToTargetOrgNetIds and targetEntitiesToDcGroupMap is required to identify scope of rule
             sourceToTargetOrgNetIds = {
@@ -2718,6 +2717,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             self.getTargetSecurityTags()
             dfwURLs = self.getDfwUrls()
 
+            if not self.rollback.executionResult.get("configureTargetVDC"):
+                self.rollback.executionResult["configureTargetVDC"] = {}
             self.rollback.executionResult["configureTargetVDC"]["configureDFW"] = False
             self.saveMetadataInOrgVdc()
 
@@ -2756,9 +2757,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 # source firewall groups, destination firewall groups will added as per scope of rule
                 payloadDict = {
                     'name':
-                        f"{l3rule['name']}-{l3rule['@id']}"
-                        if l3rule['name'] != 'Default Allow Rule'
-                        else 'Default',
+                        l3rule['name'] if l3rule['name'] == f"rule-{l3rule['@id']}"
+                        else f"{l3rule['name']}-{l3rule['@id']}",
                     'enabled': True if l3rule['@disabled'] == 'false' else 'false',
                     'action': 'ALLOW' if l3rule['action'] == 'allow' else 'DROP',
                     'logging': 'true' if l3rule['@logged'] == 'true' else 'false',
@@ -3126,10 +3126,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
         firewallGroups = defaultdict(dict)
         for group in firewallGroupsSummary:
+            groupType = group['typeValue'] if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA) else group['type']
             firewallGroups[group['ownerRef']['id']].update({
-                f"{group['typeValue']}-{group['name']}": {
-                    'id': group['id']
-                }
+                f"{groupType}-{group['name']}": {'id': group['id']}
             })
 
         return firewallGroups
@@ -3540,12 +3539,19 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         firewallGroupObjects = defaultdict(list)
         orgVdcName = self.rollback.apiData['sourceOrgVDC']['@name']
         orgVdcId = self.rollback.apiData['sourceOrgVDC']['@id'].split(':')[-1]
-        groupTypes = {
-            'Ipv4Address': 'IP_SET',
-            'IPSet': 'IP_SET',
-            'Network': 'STATIC_MEMBERS',
-            'VirtualMachine': 'VM_CRITERIA',
-        }
+        if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA):
+            groupTypes = {
+                'Ipv4Address': 'IP_SET',
+                'IPSet': 'IP_SET',
+                'Network': 'STATIC_MEMBERS',
+                'VirtualMachine': 'VM_CRITERIA',
+            }
+        else:
+            groupTypes = {
+                'Ipv4Address': 'IP_SET',
+                'IPSet': 'IP_SET',
+                'Network': 'SECURITY_GROUP',
+            }
 
         for entity in entities:
             # Collect all Ipv4Address from rule and create a single group on target side.

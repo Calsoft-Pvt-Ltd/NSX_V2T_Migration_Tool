@@ -114,6 +114,43 @@ class NSXTOperations():
         except Exception:
             raise
 
+    def getNetworkData(self, nsxtVersion, componentName=None, backingNetworkingId=None):
+        """
+        Description   : This function validates the presence of the component in NSX-T
+        Parameters    : nsxtVersion         -   NSXT version to check for interop (STRING)
+                        componentName       -   Display-Name of the network (STRING)
+                        backingNetworkingId -   Backing Network Id of org vdc network (STRING)
+        Returns       : componentData if the component with the same display name is already present (DICTIONARY)
+        """
+        try:
+            if str(nsxtVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
+                componentApi = nsxtConstants.SEGMENT_DETAILS
+            else:
+                componentApi = nsxtConstants.CREATE_LOGICAL_SWITCH_API
+
+            logger.debug("Fetching NSXT Logical-Segment data")
+            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, componentApi)
+            response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
+            if response.status_code == requests.codes.ok:
+                responseData = json.loads(response.content)
+                if nsxtConstants.NSX_API_RESULTS_KEY in responseData.keys():
+                    responseData = responseData[nsxtConstants.NSX_API_RESULTS_KEY]
+                # If componentName not provided return the whole response dict
+                if not componentName:
+                    return responseData
+                if not isinstance(responseData, list):
+                    responseData = [responseData]
+                # Iterate through the response for the componentName
+                for component in responseData:
+                    if component[nsxtConstants.NSX_API_DISPLAY_NAME_KEY] == componentName or \
+                            backingNetworkingId == component['id']:
+                        logger.debug("NSXT Logical Segment Name : {}".format(
+                            component[nsxtConstants.NSX_API_DISPLAY_NAME_KEY]))
+                        return component
+            raise Exception("Failed to get NSXT Logical Segment details with name {}".format(componentName))
+        except Exception:
+            raise
+
     def getNsxtAPIVersion(self):
         """
                 Description   : This function get the API version of NSX-T
@@ -427,16 +464,15 @@ class NSXTOperations():
             switchList = []
             for orgVdcNetwork in targetOrgVDCNetworks:
                 if orgVdcNetwork['networkType'] != 'DIRECT' and orgVdcNetwork['networkType'] != 'OPAQUE':
-                    # checks API version for Interop
+                    networkData = self.getNetworkData(nsxtVersion=apiVersion,
+                                                      componentName=f"{orgVdcNetwork['name']}-"
+                                                                    f"{orgVdcNetwork['id'].split(':')[-1]}",
+                                                      backingNetworkingId=orgVdcNetwork['backingNetworkId'])
+                    # checks API version for Interoperability
                     if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                        networkData = self.getComponentData(componentApi=nsxtConstants.SEGMENT_DETAILS,
-                                                            componentName=orgVdcNetwork['name'] + '-' +
-                                                                          orgVdcNetwork['id'].split(':')[-1])
                         switchTags = [data for data in networkData['tags'] if
                                       orgVdcNetwork['orgVdc']['id'] in data['tag']]
                     else:
-                        networkData = self.getComponentData(componentApi=nsxtConstants.CREATE_LOGICAL_SWITCH_API,
-                                                            componentName=orgVdcNetwork['name'] + '-' + orgVdcNetwork['id'].split(':')[-1])
                         switchTags = [data for data in networkData['tags'] if orgVdcNetwork['backingNetworkId'] in data['tag']]
 
                     if switchTags:
@@ -445,7 +481,7 @@ class NSXTOperations():
             edgeSwitchList = []
             for item in portgroupList:
                 for item1 in switchList:
-                    if item['networkName'] + '-v2t' in item1[0]:
+                    if item['networkName'] in item1[0]:
                         edgeSwitchList.append((item, item1[1], item1[2], item1[0]))
             bridgeEndpointUrl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.CREATE_BRIDGE_ENDPOINT_API)
             logicalPorturl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.CREATE_LOGICAL_SWITCH_PORT_API)
@@ -673,6 +709,7 @@ class NSXTOperations():
         currentThreadName = threading.current_thread().getName()
         try:
             # Setting temporary thread name
+
             threading.current_thread().name = "MainThread"
 
             orgVDCNetworkList = list(filter(lambda network: network['networkType'] != 'DIRECT' and network['networkType'] != 'OPAQUE', orgVDCNetworkList))
@@ -695,18 +732,17 @@ class NSXTOperations():
             # getting the logical switch id of the corresponding org vdc network
             for orgVdcNetwork in orgVDCNetworkList:
                 if orgVdcNetwork['networkType'] != 'DIRECT' and orgVdcNetwork['networkType'] != 'OPAQUE':
-                    # checks API version for Interop
+                    networkData = self.getNetworkData(nsxtVersion=apiVersion,
+                                                      componentName=f"{orgVdcNetwork['name']}-"
+                                                                    f"{orgVdcNetwork['id'].split(':')[-1]}",
+                                                      backingNetworkingId=orgVdcNetwork['backingNetworkId'])
+                    # checks API version for Interoperability
                     if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                        networkData = self.getComponentData(componentApi=nsxtConstants.SEGMENT_DETAILS,
-                                                            componentName=orgVdcNetwork['name'] + '-' +
-                                                                          orgVdcNetwork['id'].split(':')[-1])
                         if orgVdcNetwork.get('orgVdc', None) is None:
                             switchTags = [data for data in networkData['tags'] if 'vdcGroup' in data['tag']]
                         else:
                             switchTags = [data for data in networkData['tags'] if orgVdcNetwork['orgVdc']['id'] in data['tag']]
                     else:
-                        networkData = self.getComponentData(componentApi=nsxtConstants.CREATE_LOGICAL_SWITCH_API,
-                                                            componentName=orgVdcNetwork['name'] + '-' + orgVdcNetwork['id'].split(':')[-1])
                         switchTags = [data for data in networkData['tags'] if orgVdcNetwork['backingNetworkId'] in data['tag']]
 
                     if switchTags:
@@ -984,7 +1020,6 @@ class NSXTOperations():
                 # Fetching port group list
                 portGroupList += vcdObj.rollback.apiData['portGroupList'] if vcdObj.rollback.apiData.get(
                     'portGroupList') else list()
-
 
             # Replacing thread name with the name bridging
             threading.current_thread().name = "Bridging"

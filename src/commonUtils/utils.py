@@ -206,3 +206,17 @@ class Utilities():
         """Yield successive n-sized chunks from list."""
         for i in range(0, len(_list), n):
             yield int(i / n), _list[i:i + n]
+
+    @staticmethod
+    def renderInputDict(dataStructure):
+        """Renders all the values to string apart from required ones"""
+        if isinstance(dataStructure, dict):
+            for key in list(dataStructure.keys()):
+                if not isinstance(dataStructure[key], (dict, list)) and \
+                        key not in ['verify', 'MaxThreadCount', 'TimeoutForVappMigration']:
+                    dataStructure[key] = str(dataStructure[key])
+                Utilities.renderInputDict(dataStructure[key])
+        elif isinstance(dataStructure, list):
+            for index in reversed(range(len(dataStructure))):
+                if isinstance(dataStructure[index], dict):
+                    Utilities.renderInputDict(dataStructure[index])
