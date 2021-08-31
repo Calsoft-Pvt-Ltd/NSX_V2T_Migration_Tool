@@ -1,5 +1,6 @@
 *.pyc
 *.log
+*.csv
 *.diff
 *.idea
 *apiOutput.json
