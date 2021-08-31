@@ -11,6 +11,8 @@ from requests.auth import HTTPBasicAuth
 import requests
 import urllib3
 
+# Wait time for server to send data
+REQUEST_TIMEOUT = 300
 
 class RestAPIClient():
     """
@@ -38,7 +40,7 @@ class RestAPIClient():
         Returns: Response object
         """
         # get api call of requests module
-        responseData = requests.get(url=url, headers=headers, auth=auth, verify=self.verify, **kwargs)
+        responseData = requests.get(url=url, headers=headers, auth=auth, verify=self.verify, timeout=REQUEST_TIMEOUT, **kwargs)
         return responseData
 
     def post(self, url, headers=None, auth=None, **kwargs):
@@ -50,7 +52,7 @@ class RestAPIClient():
         Returns     : Response object
         """
         # post api call of requests module
-        responseData = requests.post(url=url, headers=headers, auth=auth, verify=self.verify, **kwargs)
+        responseData = requests.post(url=url, headers=headers, auth=auth, verify=self.verify, timeout=REQUEST_TIMEOUT, **kwargs)
         return responseData
 
     def put(self, url, headers=None, **kwargs):
@@ -62,7 +64,19 @@ class RestAPIClient():
         Returns     : Response object
         """
         # put api call of requests module
-        responseData = requests.put(url=url, headers=headers, verify=self.verify, **kwargs)
+        responseData = requests.put(url=url, headers=headers, verify=self.verify, timeout=REQUEST_TIMEOUT, **kwargs)
+        return responseData
+
+    def patch(self, url, headers=None, **kwargs):
+        """
+        Description : This method contains handler for RestAPIClient PATCH call.
+        Parameters  : url         - Complete location url path for running for REST call (STRING)
+                      headers     - (OPTIONAL) Content-Type: application/(json/xml) (DICTIONARY)
+                      kwargs      - (OPTIONAL) parameters used in REST request. (DICTIONARY)
+        Returns     : Response object
+        """
+        # patch api call of requests module
+        responseData = requests.patch(url=url, headers=headers, verify=self.verify, timeout=REQUEST_TIMEOUT, **kwargs)
         return responseData
 
     def delete(self, url, headers=None, **kwargs):
@@ -74,5 +88,5 @@ class RestAPIClient():
         Returns     : Response object
         """
         # delete api call of requests module
-        responseData = requests.delete(url=url, headers=headers, verify=self.verify, **kwargs)
+        responseData = requests.delete(url=url, headers=headers, verify=self.verify, timeout=REQUEST_TIMEOUT, **kwargs)
         return responseData

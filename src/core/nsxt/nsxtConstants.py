@@ -1,6 +1,6 @@
-# ***************************************************
-# Copyright © 2020 VMware, Inc. All rights reserved.
-# ***************************************************
+# ******************************************************
+# Copyright © 2020-2021 VMware, Inc. All rights reserved.
+# ******************************************************
 
 """
 Description: Module which contains all the constants required for VMware Cloud Director Migration from NSX-V to NSX-T
@@ -23,14 +23,41 @@ NSXT_API_HEADER = {'Content-Type': 'application/json'}
 # nsx-t edge cluster uri
 CREATE_EDGE_CLUSTER_API = "api/v1/edge-clusters"
 
+# nsx-t logical routers uri
+LOGICAL_ROUTER_API = "api/v1/logical-routers"
+
+# max limit of bridge endpoint profiles in NSX-T
+MAX_LIMIT_OF_BRIDGE_ENDPOINT_PROFILES = 128
+
+# Defauly Policy V1 Api path
+DEFAULT_POLICY_API_PATH = "policy/api/v1{}"
+
 # nsx-t bridge endpoint profile uri
 CREATE_BRIDGE_ENDPOINT_PROFILE = "api/v1/bridge-endpoint-profiles"
+
+# nsx-t Edeg bridge profile with policy API
+CREATE_BRIDGE_ENDPOINT_PROFILE_POLICY_API = "policy/api/v1/infra/sites/default/enforcement-points/default/edge-bridge-profiles/Bridge-Edge-Profile{}"
+
+# nsx-t edge profile details with Policy API.
+BRIDGE_EDGE_PROFILE_DETAILS = "policy/api/v1/infra/sites/default/enforcement-points/default/edge-bridge-profiles"
+
+# NSX-T get edge clusters
+GET_EDGE_CLUSTERS_API = "policy/api/v1/infra/sites/default/enforcement-points/default/edge-clusters"
+
+# nsx-r Edge Path for create Edge Bride Profile with policy API.
+EDGE_PATH = "{}/edge-nodes"
+
+# nsx-t API version
+API_VERSION = "https://{}/policy/api/v1/spec/openapi/nsx_policy_api.json"
 
 # root directory constant which fetches the absolute path of this module i.e D:/vcd-migration/src/core/nsxt
 NSXT_ROOT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
 # nsx-t create bridge endpoint profile template name
 CREATE_BRIDGE_ENDPOINT_PROFILE_COMPONENT_NAME = 'createBridgeEndpointProfile'
+
+# nsx-t create bridge edge profile(Policy API) template name.
+CREATE_BRIDGE_EDGE_PROFILE_COMPONENT_NAME = 'createBridgeEdgeProfile'
 
 # nsx-t component name used in the template.json
 COMPONENT_NAME = 'NSXT'
@@ -46,6 +73,12 @@ CREATE_UPLINK_PROFILE = "createUplinkProfiles"
 
 # nsx-t bridge uplink profile name
 BRDIGE_UPLINK_PROFILE_NAME = "bridge-uplink-profile"
+
+# nsx-t bridge transport zone name
+BRIDGE_TRANSPORT_ZONE_NAME = "Bridge-Migration-TZ"
+
+# nsx-t bridge transport zone's host-switch-name
+BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME = "Bridge-nvds-v2t"
 
 # nsx-t transport zone uri
 TRANSPORT_ZONE_API = "api/v1/transport-zones"
@@ -85,3 +118,35 @@ DELETE_HOST_SWITCH_PROFILE_API = "api/v1/host-switch-profiles/{}"
 
 # nsx-t uri to retrieve the list of compute-managers
 LIST_COMPUTE_MANAGERS = "api/v1/fabric/compute-managers"
+
+# BGP ROUTING CONFIG uri
+BGP_ROUTING_CONFIG_API = "policy/api/v1/infra/tier-0s/{}/locale-services/{}/bgp"
+
+# Tier0 locale serivces uri
+GET_LOCALE_SERVICES_API = 'policy/api/v1/infra/tier-0s/{}/locale-services'
+
+# create logical segments endpoints
+CREATE_LOGICAL_SEGMENTS_ENDPOINT = 'policy/api/v1/infra/segments/{}'
+
+# Attach segment using policy API
+ATTACH_SEGMENTS = "policy/api/v1/infra/segments/{}"
+SEGMENT_DETAILS = "policy/api/v1/infra/segments"
+
+# Detach segment
+DETACH_SEGMENT = "policy/api/v1{}"
+
+# policy API version startswith '3.' onwards.
+API_VERSION_STARTWITH = "3."
+
+# nsx-t openapi specs uri
+OPENAPI_SPECS_API = "api/v1/spec/openapi/nsx_api.json"
+
+# nsx-t Default transport zone path.
+TRANSPORT_ZONE_PATH = "/infra/sites/default/enforcement-points/default/transport-zones/{}"
+
+# Get transport zone details
+TRANSPORT_ZONE_DETAILS = "policy/api/v1/infra/sites/default/enforcement-points/default/transport-zones"
+TRANSPORT_ZONE_DETAILS_URL = "policy/api/v1/infra/sites/default/enforcement-points/default/transport-zones/{}"
+
+# Timeout to get Transport Zone details.
+TRANSPORT_ZONE_DETAILS_TIMEOUT = 60 * 10

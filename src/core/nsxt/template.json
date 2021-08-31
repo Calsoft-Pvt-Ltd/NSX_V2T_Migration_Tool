@@ -6,6 +6,12 @@
        "edge_cluster_id" : "{{edgeClusterId}}",
        "failover_mode" : "PREEMPTIVE"
     },
+    "createBridgeEdgeProfile": {
+      "display_name": "{{bridgeEndpointProfileName}}",
+      "id": "{{bridgeEndpointProfileName}}",
+      "ha_mode": "ACTIVE_STANDBY",
+      "failover_mode": "PREEMPTIVE"
+    },
     "createUplinkProfiles": {
       "resource_type": "UplinkHostSwitchProfile",
       "description": "",

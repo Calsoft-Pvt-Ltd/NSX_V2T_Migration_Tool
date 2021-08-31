@@ -7,19 +7,6 @@
         {
           "uplinkId": "{{externalNetworkId}}",
           "uplinkName": "{{externalNetworkName}}",
-          "subnets": {
-            "values": [
-              {
-                "gateway": "{{externalNetworkGateway}}",
-                "prefixLength": "{{externalNetworkprefixLength}}",
-                "dnsSuffix": null,
-                "dnsServer1": "",
-                "dnsServer2": "",
-                "enabled": true,
-                "autoAllocateIpRanges": false
-              }
-            ]
-          },
           "connected": false,
           "dedicated": "{{dedicated}}"
         }
@@ -53,10 +40,6 @@
         ]
       },
       "networkType": "{{orgVDCNetworkType}}",
-      "orgVdc": {
-        "name": "{{orgVDCName}}",
-        "id": "{{orgVDCId}}"
-      },
       "connection": {
         "routerRef": {
           "name": "{{edgeGatewayName}}",
@@ -188,7 +171,7 @@
       "internalAddresses": "{{translatedAddress}}",
       "logging": "{{loggingEnabled}}",
       "systemRule": false,
-      "snatDestinationAddresses": " ",
+      "snatDestinationAddresses": "{{snatDestinationAddresses}}",
       "version": {
         "version": "{{version}}"
       }
@@ -217,6 +200,54 @@
       "useForDefaultRoute": false,
       "connected": true,
       "quickAddAllocatedIpCount": null
+    },
+    "subnetValue": {
+      "gateway": "{{externalNetworkGateway}}",
+      "prefixLength": "{{externalNetworkprefixLength}}",
+      "dnsSuffix": null,
+      "dnsServer1": "",
+      "dnsServer2": "",
+      "enabled": true,
+      "autoAllocateIpRanges": false
+    },
+    "createLoadBalancerPool": {
+      "enabled": true,
+      "passiveMonitoringEnabled": true,
+      "name": "{{poolName}}",
+      "description": "{{description}}",
+      "defaultPort": 80,
+      "gracefulTimeoutPeriod": 1,
+      "algorithm": "{{algorithm}}",
+      "persistenceProfile": null,
+      "virtualServiceRefs": null,
+      "gatewayRef": {
+        "name": "{{gatewayName}}",
+        "id": "{{gatewayId}}"
+      }
+    },
+    "createLoadBalancerVirtualService": {
+      "name": "{{virtualServiceName}}",
+      "description": "{{description}}",
+      "enabled": "{{enabled}}",
+      "virtualIpAddress": "{{ipAddress}}",
+      "loadBalancerPoolRef": {
+        "name": "{{poolName}}",
+        "id": "{{poolId}}"
+      },
+      "gatewayRef": {
+        "name": "{{gatewayName}}",
+        "id": "{{gatewayId}}"
+      },
+      "serviceEngineGroupRef": {
+        "name": "{{serviceEngineGroupName}}",
+        "id": "{{serviceEngineGroupId}}"
+      },
+      "servicePorts": [
+        {
+          "portStart": "{{port}}",
+          "sslEnabled": "{{sslEnabled}}"
+        }
+      ]
     }
   }
 }

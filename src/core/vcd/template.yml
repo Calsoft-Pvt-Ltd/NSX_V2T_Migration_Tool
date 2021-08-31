@@ -1,53 +1,5 @@
 ---
 vCloudDirector:
-  createOrgVDC:
-    <CreateVdcParams xmlns='http://www.vmware.com/vcloud/v1.5' xmlns:extension_v1.5='http://www.vmware.com/vcloud/extension/v1.5' name='{{OrgVDCName}}'>
-    <Description></Description>
-    <AllocationModel>{{AllocationModel}}</AllocationModel>
-    <ComputeCapacity>
-      <Cpu>
-        <Units>{{cpuUnits}}</Units>
-        <Allocated>{{cpuAllocated}}</Allocated>
-        <Limit>{{cpuLimit}}</Limit>
-        <Reserved>{{cpuReserved}}</Reserved>
-        <Used>{{cpuUsed}}</Used>
-      </Cpu>
-      <Memory>
-      <Units>{{memoryUnits}}</Units>
-      <Allocated>{{memoryAllocated}}</Allocated>
-      <Limit>{{memoryLimit}}</Limit>
-      <Reserved>{{memoryReserved}}</Reserved>
-      <Used>{{memoryUsed}}</Used>
-      </Memory>
-    </ComputeCapacity>
-    <NicQuota>{{NicQuota}}</NicQuota>
-    <NetworkQuota>{{NetworkQuota}}</NetworkQuota>
-    <VmQuota>{{VmQuota}}</VmQuota>
-    <IsEnabled>true</IsEnabled>
-    <VdcStorageProfile>
-      <Enabled>true</Enabled>
-      <Units>MB</Units>
-      <Limit>0</Limit>
-      <Default>true</Default>
-      <ProviderVdcStorageProfile href="https://cpsbu-tpm-vcd.eng.vmware.com/api/admin/pvdcStorageProfile/4f6095bd-6a3b-4d4e-bfd8-234d0a567b14" name="test storage Policy"/>
-    </VdcStorageProfile>
-    <VdcStorageProfile>
-      <Enabled>true</Enabled>
-      <Units>MB</Units>
-      <Limit>0</Limit>
-      <Default>false</Default>
-      <ProviderVdcStorageProfile href="https://cpsbu-tpm-vcd.eng.vmware.com/api/admin/pvdcStorageProfile/6a285b33-5e2c-45a7-a7cf-57be464e5c73" name="iSCSI storage profile"/>
-    </VdcStorageProfile>
-    <ResourceGuaranteedMemory>{{ResourceGuaranteedMemory}}</ResourceGuaranteedMemory>
-    <ResourceGuaranteedCpu>{{ResourceGuaranteedCpu}}</ResourceGuaranteedCpu>
-    <VCpuInMhz>{{VCpuInMhz2}}</VCpuInMhz>
-    <IsThinProvision>{{IsThinProvision}}</IsThinProvision>
-    <NetworkPoolReference href='{{networkPoolReference}}' id='{{networkPoolReferenceId}}' type='{{networkPoolReferenceType}}' name='{{networkPoolReferenceName}}'/>
-    <ProviderVdcReference href='{{proVdcReference}}' id='{{proVdcReferenceId}}' type='{{proVdcReferenceType}}' name='{{proVdcReferenceName}}'/>
-    <UsesFastProvisioning>{{UsesFastProvisioning}}</UsesFastProvisioning>
-    <IsElastic>{{IsElastic}}</IsElastic>
-    <IncludeMemoryOverhead>{{IncludeMemoryOverhead}}</IncludeMemoryOverhead>
-    </CreateVdcParams>
   createOrgVDCAccessControl:
     <ControlAccessParams xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1">
       <IsSharedToEveryone>false</IsSharedToEveryone>
@@ -87,6 +39,20 @@ vCloudDirector:
       </root:Configuration>
       <root:IsDeployed>true</root:IsDeployed>
     </root:NetworkConfig>
+  moveVappNetworkConfigFeatures:
+    <root:Features>
+      {{dhcpConfig}}
+    </root:Features>
+  moveVappNetworkConfigFeaturesDhcp:
+    <root:DhcpService xmlns:root="http://www.vmware.com/vcloud/v1.5">
+      <root:IsEnabled>{{isEnabled}}</root:IsEnabled>
+      <root:DefaultLeaseTime>{{defaultLeaseTime}}</root:DefaultLeaseTime>
+      <root:MaxLeaseTime>{{maxLeaseTime}}</root:MaxLeaseTime>
+      <root:IpRange>
+        <root:StartAddress>{{ipRangeStartAddress}}</root:StartAddress>
+        <root:EndAddress>{{ipRangeEndAddress}}</root:EndAddress>
+      </root:IpRange>
+    </root:DhcpService>
   moveVappVm:
     <root:SourcedItem>
       <root:Source href="{{vmHref}}"></root:Source>
@@ -96,15 +62,8 @@ vCloudDirector:
       <root:InstantiationParams>
         <root:NetworkConnectionSection>
           <ns7:Info>Network Connection Section</ns7:Info>
-          <root:PrimaryNetworkConnectionIndex>0</root:PrimaryNetworkConnectionIndex>
-          <root:NetworkConnection network="{{networkName}}">
-            <root:NetworkConnectionIndex>0</root:NetworkConnectionIndex>
-            <root:IpAddress>{{ipAddress}}</root:IpAddress>
-            <root:IsConnected>{{connected}}</root:IsConnected>
-            <root:MACAddress>{{macAddress}}</root:MACAddress>
-            <root:IpAddressAllocationMode>{{allocationModel}}</root:IpAddressAllocationMode>
-            <root:NetworkAdapterType>{{adapterType}}</root:NetworkAdapterType>
-          </root:NetworkConnection>
+          <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
+          {{vmNetworkConnectionDetails}}
         </root:NetworkConnectionSection>
       </root:InstantiationParams>
       <root:StorageProfile href="{{storageProfileHref}}"/>
@@ -118,15 +77,8 @@ vCloudDirector:
       <root:InstantiationParams>
         <root:NetworkConnectionSection>
           <ns7:Info>Specifies the available VM network connections</ns7:Info>
-          <root:PrimaryNetworkConnectionIndex>0</root:PrimaryNetworkConnectionIndex>
-          <root:NetworkConnection network="{{networkName}}">
-            <root:NetworkConnectionIndex>0</root:NetworkConnectionIndex>
-            <root:IpAddress>{{ipAddress}}</root:IpAddress>
-            <root:IsConnected>{{connected}}</root:IsConnected>
-            <root:MACAddress>{{macAddress}}</root:MACAddress>
-            <root:IpAddressAllocationMode>{{allocationModel}}</root:IpAddressAllocationMode>
-            <root:NetworkAdapterType>{{adapterType}}</root:NetworkAdapterType>
-          </root:NetworkConnection>
+          <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
+          {{vmNetworkConnectionDetails}}
         </root:NetworkConnectionSection>
       </root:InstantiationParams>
       <root:StorageProfile href="{{storageProfileHref}}"/>
@@ -143,15 +95,8 @@ vCloudDirector:
       <root:InstantiationParams>
         <root:NetworkConnectionSection>
           <ns7:Info>Specifies the available VM network connections</ns7:Info>
-          <root:PrimaryNetworkConnectionIndex>0</root:PrimaryNetworkConnectionIndex>
-          <root:NetworkConnection network="{{networkName}}">
-            <root:NetworkConnectionIndex>0</root:NetworkConnectionIndex>
-            <root:IpAddress>{{ipAddress}}</root:IpAddress>
-            <root:IsConnected>{{connected}}</root:IsConnected>
-            <root:MACAddress>{{macAddress}}</root:MACAddress>
-            <root:IpAddressAllocationMode>{{allocationModel}}</root:IpAddressAllocationMode>
-            <root:NetworkAdapterType>{{adapterType}}</root:NetworkAdapterType>
-          </root:NetworkConnection>
+          <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
+          {{vmNetworkConnectionDetails}}
         </root:NetworkConnectionSection>
       </root:InstantiationParams>
       <root:StorageProfile href="{{storageProfileHref}}"/>
@@ -168,15 +113,8 @@ vCloudDirector:
       <root:InstantiationParams>
         <root:NetworkConnectionSection>
           <ns7:Info>Specifies the available VM network connections</ns7:Info>
-          <root:PrimaryNetworkConnectionIndex>0</root:PrimaryNetworkConnectionIndex>
-          <root:NetworkConnection network="{{networkName}}">
-            <root:NetworkConnectionIndex>0</root:NetworkConnectionIndex>
-            <root:IpAddress>{{ipAddress}}</root:IpAddress>
-            <root:IsConnected>{{connected}}</root:IsConnected>
-            <root:MACAddress>{{macAddress}}</root:MACAddress>
-            <root:IpAddressAllocationMode>{{allocationModel}}</root:IpAddressAllocationMode>
-            <root:NetworkAdapterType>{{adapterType}}</root:NetworkAdapterType>
-          </root:NetworkConnection>
+          <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
+          {{vmNetworkConnectionDetails}}
         </root:NetworkConnectionSection>
       </root:InstantiationParams>
       <root:StorageProfile href="{{storageProfileHref}}"/>
@@ -214,6 +152,118 @@ vCloudDirector:
           </root:IpScope>
           </root:IpScopes>
         <root:FenceMode>{{fenceMode}}</root:FenceMode>
+        {{featuresConfig}}
+      </root:Configuration>
+      <root:IsDeployed>{{isDeployed}}</root:IsDeployed>
+    </root:NetworkConfig>
+  enableDisableAffinityRules:
+    <root:VmAffinityRule xmlns:root="http://www.vmware.com/vcloud/v1.5">
+      <root:Name>{{affinityRuleName}}</root:Name>
+      <root:IsEnabled>{{isEnabled}}</root:IsEnabled>
+      <root:IsMandatory>{{isMandatory}}</root:IsMandatory>
+      <root:Polarity>{{polarity}}</root:Polarity>
+      <root:VmReferences>
+        {{vmReferences}}
+      </root:VmReferences>
+    </root:VmAffinityRule>
+  vmReferenceAffinityRules:
+    <root:VmReference href="{{vmHref}}" id="{{vmId}}" name="{{vmName}}" type="{{vmType}}"/>
+  createTargetOrgVDC:
+    <CreateVdcParams name="{{orgVDCName}}" xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:extension_v1.5="http://www.vmware.com/vcloud/extension/v1.5">
+      <Description>{{vdcDescription}}</Description>
+      <AllocationModel>{{allocationModel}}</AllocationModel>
+      <ComputeCapacity>
+        <Cpu>
+          <Units>{{cpuUnits}}</Units>
+          <Allocated>{{cpuAllocated}}</Allocated>
+          <Limit>{{cpuLimit}}</Limit>
+          <Reserved>{{cpuReserved}}</Reserved>
+          <Used>{{cpuUsed}}</Used>
+        </Cpu>
+        <Memory>
+          <Units>{{memoryUnits}}</Units>
+          <Allocated>{{memoryAllocated}}</Allocated>
+          <Limit>{{memoryLimit}}</Limit>
+          <Reserved>{{memoryReserved}}</Reserved>
+          <Used>{{memoryUsed}}</Used>
+        </Memory>
+      </ComputeCapacity>
+      <NicQuota>{{nicQuota}}</NicQuota>
+      <NetworkQuota>{{networkQuota}}</NetworkQuota>
+      <VmQuota>{{vmQuota}}</VmQuota>
+      <IsEnabled>{{isEnabled}}</IsEnabled>
+      {{vdcStorageProfile}}
+      <ResourceGuaranteedMemory>{{resourceGuaranteedMemory}}</ResourceGuaranteedMemory>
+      <ResourceGuaranteedCpu>{{resourceGuaranteedCpu}}</ResourceGuaranteedCpu>
+      <VCpuInMhz>{{vCpuInMhz}}</VCpuInMhz>
+      <IsThinProvision>{{isThinProvision}}</IsThinProvision>
+      <NetworkPoolReference href="{{networkPoolHref}}" id="{{networkPoolId}}" name="{{networkPoolName}}" type="{{networkPoolType}}" />
+      <ProviderVdcReference href="{{providerVdcHref}}" id="{{providerVdcId}}" name="{{providerVdcName}}" type="{{providerVdcType}}" />
+      <UsesFastProvisioning>{{usesFastProvisioning}}</UsesFastProvisioning>
+      {{defaultComputePolicy}}
+      <IsElastic>{{isElastic}}</IsElastic>
+      <IncludeMemoryOverhead>{{includeMemoryOverhead}}</IncludeMemoryOverhead>
+    </CreateVdcParams>
+  vdcStorageProfileTargetOvdc:
+    <VdcStorageProfile>
+      <Enabled>{{vspEnabled}}</Enabled>
+      <Units>{{vspUnits}}</Units>
+      <Limit>{{vspLimit}}</Limit>
+      <Default>{{vspDefault}}</Default>
+      <ProviderVdcStorageProfile href="{{vspHref}}" name="{{vspName}}" />
+    </VdcStorageProfile>
+  defaultComputePolicyTargetOvdc:
+    <DefaultComputePolicy href="{{defaultComputePolicyHref}}" id="{{defaultComputePolicyId}}" name="{{defaultComputePolicyName}}" />
+  vAppStartupSection:
+    <ovf:StartupSection
+      xmlns:ovf = "{{xmlnsOvf}}" xmlns:vssd = "{{xmlnsVssd}}" xmlns:common = "{{xmlnsCommon}}" xmlns:rasd = "{{xmlnsRasd}}" xmlns:vmw = "{{xmlnsVmw}}" xmlns:vmext = "{{xmlnsVmext}}" xmlns:ovfenv = "{{xmlnsOvfenv}}">
+      <ovf:Info>{{ovfInfo}}</ovf:Info>
+      {{ovfItem}}
+    </ovf:StartupSection>
+  vAppItems:
+    <ovf:Item ovf:id = "{{ovfId}}" ovf:order = "{{ovfOrder}}" ovf:startAction = "{{ovfStartAction}}" ovf:startDelay = "{{ovfStartDelay}}" ovf:stopAction = "{{ovfStopAction}}" ovf:stopDelay = "{{ovfStopDelay}}" />
+  createOrgVDCMetadata:
+    <Metadata xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://www.w3.org/2001/XMLSchema-instance">
+    {{MetadataEntry}}
+    </Metadata>
+  createOrgVDCMetadataEntry:
+    <MetadataEntry>
+      {{domain}}
+      <Key>{{key}}</Key>
+      <TypedValue ovf:type="{{metadataType}}">
+        <Value>{{value}}</Value>
+      </TypedValue>
+    </MetadataEntry>
+  vAppVMNetworkConnectionDetails:
+    <root:NetworkConnection network="{{networkName}}">
+      <root:NetworkConnectionIndex>{{networkConnectionIndex}}</root:NetworkConnectionIndex>
+      <root:IpAddress>{{ipAddress}}</root:IpAddress>
+      <root:IsConnected>{{connected}}</root:IsConnected>
+      <root:MACAddress>{{macAddress}}</root:MACAddress>
+      <root:IpAddressAllocationMode>{{allocationModel}}</root:IpAddressAllocationMode>
+      <root:NetworkAdapterType>{{adapterType}}</root:NetworkAdapterType>
+    </root:NetworkConnection>
+  moveVappNoNetworkIpPoolConfig:
+    <root:NetworkConfig networkName="{{networkName}}">
+      <root:Description>{{networkDescription}}</root:Description>
+      <root:Configuration>
+        <root:IpScopes>
+          <root:IpScope>
+            <root:IsInherited>{{isInherited}}</root:IsInherited>
+            <root:Gateway>{{gateway}}</root:Gateway>
+            <root:Netmask>{{netmask}}</root:Netmask>
+            <root:SubnetPrefixLength>{{subnet}}</root:SubnetPrefixLength>
+            <root:Dns1>{{dns1}}</root:Dns1>
+            <root:IpRanges>
+              <root:IpRange>
+              <root:StartAddress>{{startAddress}}</root:StartAddress>
+              <root:EndAddress>{{endAddress}}</root:EndAddress>
+              </root:IpRange>
+            </root:IpRanges>
+          </root:IpScope>
+        </root:IpScopes>
+        <root:FenceMode>{{fenceMode}}</root:FenceMode>
+        {{featuresConfig}}
       </root:Configuration>
       <root:IsDeployed>{{isDeployed}}</root:IsDeployed>
     </root:NetworkConfig>

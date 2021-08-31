@@ -3,14 +3,14 @@ version: 1
 disable_existing_loggers: False
 formatters:
   colored_format:
-    format: "%(log_color)s %(asctime)s [%(module)s]:[%(funcName)s]:%(lineno)d [%(levelname)s] | %(message)s%(reset)s"
+    format: "%(log_color)s %(asctime)s [%(module)s]:[%(funcName)s]:%(lineno)d [%(levelname)s] [%(threadName)s]| %(message)s%(reset)s"
     log_colors:
       'WARNING':  'yellow'
       'ERROR':    'red'
       'CRITICAL': 'red,bg_white'
     '()': 'colorlog.ColoredFormatter'
   simple:
-    format: "%(asctime)s [%(module)s]:[%(funcName)s]:%(lineno)d [%(levelname)s] | %(message)s"
+    format: "%(asctime)s [%(module)s]:[%(funcName)s]:%(lineno)d [%(levelname)s] [%(threadName)s] | %(message)s"
 
 handlers:
   console:
@@ -23,12 +23,17 @@ handlers:
     class: logging.FileHandler
     level: DEBUG
     formatter: simple
-    filename: VCD-NSX-Migrator-Main.log
+    filename: VCD-NSX-Migrator-{}.log
 
-  tabular:
+  pre-assessment:
     class: logging.FileHandler
     level: INFO
-    filename: VCD-NSX-Migrator-Details.log
+    filename: VCD-NSX-Migrator-preCheck-Summary.log
+
+  end-state-log:
+    class: logging.FileHandler
+    level: INFO
+    filename: VCD-NSX-Migrator-Statelog-{}.log
 
 loggers:
   consoleLogger:
@@ -45,12 +50,19 @@ loggers:
     - console
     propagate: no
 
-  tableLogger:
+  precheckLogger:
     level: INFO
     handlers:
-    - tabular
-    propagate:
-      no
+    - pre-assessment
+    - console
+    propagate: no
+
+  endstateLogger:
+    level: INFO
+    handlers:
+      - end-state-log
+      - console
+    propagate: no
 
 root:
   level: DEBUG
