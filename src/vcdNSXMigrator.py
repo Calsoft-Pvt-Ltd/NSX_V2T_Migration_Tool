@@ -338,7 +338,7 @@ class VMwareCloudDirectorNSXMigrator():
 
         # Validating thread count in user input yaml file
         try:
-            self.threadCount = self.inputDict['Common']['MaxThreadCount']
+            self.threadCount = int(self.inputDict['Common']['MaxThreadCount'])
         except (AttributeError, ValueError):
             self.threadCount = 75
 
@@ -667,6 +667,8 @@ class VMwareCloudDirectorNSXMigrator():
             # reading the input yaml file
             with open(self.userInputFilePath) as f:
                 self.inputDict = yaml.safe_load(f)
+                # Render dict values as strings
+                Utilities.renderInputDict(self.inputDict)
 
             # Execute v2tAssessment
             if self.v2tAssessment:
@@ -706,7 +708,7 @@ class VMwareCloudDirectorNSXMigrator():
 
             # if verify is set to True on any one component then we have to update certificates in requests
             if self.inputDict["VCloudDirector"]["Common"]["verify"] or self.inputDict["NSXT"]["Common"]["verify"] or self.inputDict["Vcenter"]["Common"]["verify"] or self.inputDict.get('NSXV', {}).get("Common", {}).get("verify", None):
-                certPath = self.inputDict.CertificatePath
+                certPath = self.inputDict["Common"].get("CertificatePath")
                 # checking for certificate path is present in user input
                 if not certPath:
                     self.consoleLogger.error("Please enter the certificate path in user Input file.")

@@ -1295,7 +1295,7 @@ class VCDMigrationValidation:
                     raise Exception('All the Source External Networks Subnets are not present in Target External Network.')
                 logger.debug('Validated successfully, all the Source External Networks Subnets are present in Target External Network.')
             else:
-                raise Exception('sourceExternalNetwork or targetExternalNetwork not present')
+                raise Exception('Target External Network not present')
         except Exception:
             raise
 
@@ -1931,15 +1931,6 @@ class VCDMigrationValidation:
                 l7ServiceCnt = 0
                 allSources = allDestinations = list()
 
-                if not eachRule.get('name'):
-                    key = f"rule_id_{eachRule['@id']}"
-                    InvalidRuleDict[key].add('Rule name not present')
-                elif eachRule.get('name') and eachRule['name'] == '':
-                    key = f"rule_id_{eachRule['@id']}"
-                    InvalidRuleDict[key].add('Rule name not present')
-                else:
-                    key = eachRule['name']
-
                 if eachRule.get('sources'):
                     allSources = eachRule['sources']['source'] if isinstance(eachRule['sources']['source'], list) else [eachRule['sources']['source']]
                 if eachRule.get('destinations'):
@@ -1948,17 +1939,17 @@ class VCDMigrationValidation:
                 for eachObject in allSources+allDestinations:
                     if v2tAssessment or float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA):
                         if eachObject['type'] not in vcdConstants.DISTRIBUTED_FIREWALL_OBJECT_LIST_ANDROMEDA:
-                            InvalidRuleDict[key].add(eachObject['type'])
+                            InvalidRuleDict[eachRule['name']].add(eachObject['type'])
                         elif eachObject['type'] == 'SecurityGroup':
                             errors = self.validateSecurityGroupObject(allSecurityGroups[eachObject['value']])
                             if errors:
-                                InvalidSecurityGroupDict[key].add(f"Security Group ({allSecurityGroups[eachObject['value']]['name']})")
+                                InvalidSecurityGroupDict[eachRule['name']].add(f"{allSecurityGroups[eachObject['value']]['name']}")
                                 if isinstance(errors, list):
                                     securityGroupErrors.extend(errors)
 
                     # For versions before Andromeda
                     elif eachObject['type'] not in vcdConstants.DISTRIBUTED_FIREWALL_OBJECT_LIST:
-                        InvalidRuleDict[key].add(eachObject['type'])
+                        InvalidRuleDict[eachRule['name']].add(eachObject['type'])
 
                 if eachRule.get('services'):
                     allServicesInRule = eachRule['services']['service'] \
@@ -1968,7 +1959,7 @@ class VCDMigrationValidation:
                         withAppFlag = bool()
                         if eachRuleService.get('name'):
                             if eachRuleService['name'] in serviceGroupsList:
-                                InvalidRuleDict[key].add('{}: {}'.format(eachRuleService['name'], 'is a service group'))
+                                InvalidRuleDict[eachRule['name']].add('{}: {}'.format(eachRuleService['name'], 'is a service group'))
                                 continue
                             if eachRuleService['name'] not in layer3AppServicesList:
                                 if eachRuleService['name'].startswith('APP_'):
@@ -1981,9 +1972,9 @@ class VCDMigrationValidation:
                                     # compare service name with names of all L7 service
                                     if eachRuleService['name'] not in allNetworkContextProfilesDict.keys():
                                         if withAppFlag is True:
-                                            InvalidRuleDict[key].add('{}{}: {}'.format('APP_', eachRuleService['name'], 'not present'))
+                                            InvalidRuleDict[eachRule['name']].add('{}{}: {}'.format('APP_', eachRuleService['name'], 'not present'))
                                         else:
-                                            InvalidRuleDict[key].add('{}: {}'.format(eachRuleService['name'], 'not present'))
+                                            InvalidRuleDict[eachRule['name']].add('{}: {}'.format(eachRuleService['name'], 'not present'))
                                     else:
                                         l7ServiceCnt += 1
                             else:
@@ -1991,7 +1982,7 @@ class VCDMigrationValidation:
                         else:
                             if eachRuleService['protocolName'] == 'TCP' or eachRuleService['protocolName'] == 'UDP':
                                 if not eachRuleService.get('sourcePort') or not eachRuleService.get('destinationPort'):
-                                    InvalidRuleDict[key].add("{}:{}".format(eachRuleService['protocolName'], 'Any'))
+                                    InvalidRuleDict[eachRule['name']].add("{}:{}".format(eachRuleService['protocolName'], 'Any'))
                                 else:
                                     l3ServiceCnt += 1
                         # if l3ServiceCnt >= 1 and l7ServiceCnt > 1:
@@ -2155,10 +2146,15 @@ class VCDMigrationValidation:
                 if not v2tAssessmentMode and float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
                     raise Exception('DFW feature is not available in API version 34.0')
 
+                allLayer3Rules = []
                 if responseDict['firewallConfiguration']['layer3Sections']['section'].get('rule'):
                     allLayer3Rules = responseDict['firewallConfiguration']['layer3Sections']['section']['rule'] \
                         if isinstance(responseDict['firewallConfiguration']['layer3Sections']['section']['rule'], list) \
                         else [responseDict['firewallConfiguration']['layer3Sections']['section']['rule']]
+
+                    for l3rule in allLayer3Rules:
+                        if not l3rule.get('name') or l3rule.get('name') == '':
+                            l3rule['name'] = f"rule-{l3rule['@id']}"
 
                     allSecurityGroups = self.getSourceDfwSecurityGroups()
 
@@ -2189,7 +2185,7 @@ class VCDMigrationValidation:
                 if allErrorList:
                     raise Exception(',\n'.join(allErrorList))
                 else:
-                    self.l3DfwRules = responseDict['firewallConfiguration']['layer3Sections']['section']['rule']
+                    self.l3DfwRules = allLayer3Rules
                     return self.l3DfwRules
 
             elif response.status_code == 400:
@@ -2217,8 +2213,6 @@ class VCDMigrationValidation:
             return rules
 
         if rules:
-            rules = rules if isinstance(rules, list) else [rules]
-
             # If last rule is any-any-any(source-destination-service), consider it as default rule and
             # separate if from rules list
             lastRule = rules[-1]
@@ -2269,6 +2263,9 @@ class VCDMigrationValidation:
             if not v2tAssessmentMode and not self.nsxVersion:
                 raise Exception('Incorrect NSX-T IP Address in input file. '
                         'Please check if the NSX-T IP Address matches the one in NSXT-Managers in vCD')
+
+            if not v2tAssessmentMode and 'targetExternalNetwork' not in self.rollback.apiData.keys():
+                raise Exception('Target External Network not present')
 
             errorData = {'DHCP': [],
                          'Firewall': [],
@@ -3468,16 +3465,17 @@ class VCDMigrationValidation:
                         responseDict['VApp']['Children']['Vm']]
                     # iterating over vms in the vapp
                     for vm in vmList:
-                        mediaSettings = vm.get('VmSpecSection', {}).get('MediaSection', {}).get('MediaSettings', []) if isinstance(
-                            vm.get('VmSpecSection', {}).get('MediaSection', {}).get('MediaSettings', []), list) else [
-                            vm.get('VmSpecSection', {}).get('MediaSection', {}).get('MediaSettings', [])
-                        ]
-                        # iterating over the list of media settings of vm
-                        for mediaSetting in mediaSettings:
-                            # checking for the ISO media type that should be disconnected, else raising exception
-                            if mediaSetting['MediaType'] == "ISO":
-                                if mediaSetting['MediaState'] != "DISCONNECTED":
-                                    vmWithMediaList.append(vApp['@name'] + ':' + vm['@name'])
+                        if vm.get('VmSpecSection', {}).get('MediaSection', {}):
+                            mediaSettings = vm.get('VmSpecSection', {}).get('MediaSection', {}).get('MediaSettings', []) if isinstance(
+                                vm.get('VmSpecSection', {}).get('MediaSection', {}).get('MediaSettings', []), list) else [
+                                vm.get('VmSpecSection', {}).get('MediaSection', {}).get('MediaSettings', [])
+                            ]
+                            # iterating over the list of media settings of vm
+                            for mediaSetting in mediaSettings:
+                                # checking for the ISO media type that should be disconnected, else raising exception
+                                if mediaSetting['MediaType'] == "ISO":
+                                    if mediaSetting['MediaState'] != "DISCONNECTED":
+                                        vmWithMediaList.append(vApp['@name'] + ':' + vm['@name'])
                     if vmWithMediaList:
                         return vmWithMediaList
                     else:
@@ -4728,6 +4726,8 @@ class VCDMigrationValidation:
                 if int(responseDict['resultTotal']) > 1:
                     # Added validation for shared direct network
                     if networkData['shared']:
+                        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
+                            return None, "Shared Networks are not supported with this vCD version"
                         # Fetching all external networks from vCD
                         try:
                             externalNetworks = self.fetchAllExternalNetworks()
