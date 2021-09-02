@@ -2678,8 +2678,13 @@ class VCDMigrationValidation:
                                                responseDict['firewall']['firewallRules']['firewallRule'] if
                                                defaultRule['ruleType'] == 'default_policy' and defaultRule['action'] == 'accept']
                         userDefinedFirewall.extend(defaultFirewallRule)
+
+                    for rule in userDefinedFirewall:
+                        rule['name'] = rule['name'] or f"rule-{rule['id']}"
+
                     if not validation:
                         return userDefinedFirewall
+
                     groupingobjects = []
                     for firewall in userDefinedFirewall:
                         if firewall.get('application'):

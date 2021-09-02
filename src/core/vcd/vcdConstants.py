@@ -368,6 +368,9 @@ CREATE_FIREWALL_GROUP = 'firewallGroups'
 # ipset group by id uri
 GET_IPSET_GROUP_BY_ID = 'services/ipset/{}'
 
+# IPSET filter for firewall groups
+FIREWALL_GROUP_IPSET_FILTER = 'filterEncoded=true&filter=((ownerRef.id=={};typeValue==IP_SET))'
+
 # create firewall group task name used to check if the task completed successfully
 CREATE_FIREWALL_GROUP_TASK_NAME = 'createFirewallGroup'
 

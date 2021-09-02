@@ -407,8 +407,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 userDefinedRulesList = responseDict['userDefinedRules']
                             # updating the payload with source firewall groups, destination firewall groups, user defined firewall rules, application port profiles
                             action = 'ALLOW' if firewallRule['action'] == 'accept' else 'DROP'
-                            payloadDict.update({'name': firewallRule['name'] + "-" + firewallRule['id'],
-                                                'enabled': firewallRule['enabled'], 'action': action})
+                            payloadDict.update({
+                                'name':
+                                    firewallRule['name'] if firewallRule['name'] == f"rule-{firewallRule['id']}"
+                                    else f"{firewallRule['name']}-{firewallRule['id']}",
+                                'enabled': firewallRule['enabled'],
+                                'action': action,
+                            })
                             payloadDict['sourceFirewallGroups'] = sourcefirewallGroupId if firewallRule.get('source',
                                                                                                             None) else []
                             payloadDict['destinationFirewallGroups'] = destinationfirewallGroupId if firewallRule.get(
@@ -1391,9 +1396,19 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 firewallGroupIds = list()
                 firewallGroupName = list()
                 firewallIdDict = dict()
+
+                sourceOrgVdcName = self.rollback.apiData['sourceOrgVDC']['@name']
+                targetIpsets = self.fetchFirewallGroups(
+                    urlFilter=vcdConstants.FIREWALL_GROUP_IPSET_FILTER.format(edgeGatewayId))
+                targetIpsets = {group['name'] for group in targetIpsets}
+
                 # iterating over the ipset group list
                 for ipsetgroup in ipsetgroups:
                     ipAddressList = list()
+                    ipsetName = f"{sourceOrgVdcName}_{ipsetgroup['name']}"
+                    if ipsetName in targetIpsets:
+                        continue
+
                     # url to retrieve the info of ipset group by id
                     ipseturl = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                                              vcdConstants.GET_IPSET_GROUP_BY_ID.format(ipsetgroup['objectId']))
@@ -1402,10 +1417,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     if ipsetresponse.status_code == requests.codes.ok:
                         # successful retrieval of ipset group info
                         ipsetresponseDict = xmltodict.parse(ipsetresponse.content)
-                        if self.rollback.apiData.get('firewallIdDict'):
-                            if self.rollback.apiData['firewallIdDict'].get(edgeGatewayId):
-                                if self.rollback.apiData['firewallIdDict'][edgeGatewayId].get(ipsetresponseDict['ipset']['name']):
-                                    continue
                         # storing the ip-address and range present in the IPSET
                         ipsetipaddress = ipsetresponseDict['ipset']['value']
 
@@ -1418,7 +1429,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         else:
                             ipAddressList.append(ipsetipaddress)
                         # creating payload data to create firewall group
-                        firewallGroupDict = {'name': ipsetresponseDict['ipset']['name'], 'description': description,
+                        firewallGroupDict = {'name': ipsetName, 'description': description,
                                              'edgeGatewayRef': {'id': edgeGatewayId}, 'ipAddresses': ipAddressList}
                         firewallGroupDict = json.dumps(firewallGroupDict)
                         # url to create firewall group
@@ -3071,14 +3082,16 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 pass
 
     @isSessionExpired
-    def fetchFirewallGroups(self):
+    def fetchFirewallGroups(self, urlFilter=None):
         """
-        Description: Fetch all the firewall groups from vCD
+        Description :   Fetch all the firewall groups from vCD
+        Parameters  :   urlFilter - Optional filter to fetch specific set of firewall groups (STR)
         """
         try:
             firewallGroupsUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                               vcdConstants.FIREWALL_GROUPS_SUMMARY)
-            response = self.restClientObj.get(firewallGroupsUrl, self.headers)
+            url = "{}{}".format(firewallGroupsUrl, f"?{urlFilter}" if urlFilter else '')
+            response = self.restClientObj.get(url, self.headers)
             # Fetching firewall groups summary
             firewallGroupsSummary = []
             if response.status_code == requests.codes.ok:
@@ -3093,8 +3106,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     "Failed to fetch firewall group summary from target - {}".format(response['message']))
 
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}?page={}&pageSize={}".format(firewallGroupsUrl, pageNo,
-                                                      vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE)
+                url = "{}?page={}&pageSize={}{}".format(
+                    firewallGroupsUrl, pageNo, vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE,
+                    f"&{urlFilter}" if urlFilter else '')
                 getSession(self)
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
