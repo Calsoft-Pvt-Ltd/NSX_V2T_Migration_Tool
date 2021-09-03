@@ -4656,9 +4656,12 @@ class VCDMigrationValidation:
         try:
             # Fetching networks details from metadata dict
             orgVdcNetworks = self.getOrgVDCNetworks(orgVdcId, 'sourceOrgVDCNetworks', saveResponse=False, sharedNetwork=True)
-            orgVdcNetworks = {network['name']: network for network in orgVdcNetworks}
+            # Converting list into dict for faster access in subsequent for loops
+            orgVdcNetworks = {
+                network['parentNetworkId']['name'] if network['networkType'] == "DIRECT" else network['name']: network
+                for network in orgVdcNetworks
+            }
 
-            conflictNetworkNames = list()
             errorList = list()
             if not conflictIDs:
                 logger.debug('No overlapping network present in the orgVDC')
@@ -4705,7 +4708,7 @@ class VCDMigrationValidation:
 
                 sourceDFWNetworkDict = {}
                 for dfwRuleNetwork, origin in dfwRuleNetworks:
-                    orgVdcNetwork = orgVdcNetworks.get(dfwRuleNetwork)
+                    orgVdcNetwork = orgVdcNetworks[dfwRuleNetwork]
                     if orgVdcNetwork['networkType'] == "DIRECT" and orgVdcNetwork['parentNetworkId']['name'] == dfwRuleNetwork:
                         errorList.append("Rule: {} has invalid objects: {}.".format(rule['name'], dfwRuleNetwork))
                     elif orgVdcNetwork['name'] == dfwRuleNetwork and orgVdcNetwork['networkType'] == 'NAT_ROUTED':
