@@ -950,8 +950,8 @@ class VCDMigrationValidation:
             allNsxtManager = responseDict['vmext:NsxTManagers']['vmext:NsxTManager'] if isinstance(responseDict['vmext:NsxTManagers']['vmext:NsxTManager'], list) else [responseDict['vmext:NsxTManagers']['vmext:NsxTManager']]
             for eachNsxManager in allNsxtManager:
                 if nsxIpAddress in eachNsxManager['vmext:Url']:
-                    # Network provider scope to be used for data center group creation
-                    self.networkProviderScope = eachNsxManager['vmext:NetworkProviderScope']
+                    # Network provider scope to be used for data center group creation for DFW migration
+                    self.networkProviderScope = eachNsxManager.get('vmext:NetworkProviderScope')
                     self.nsxVersion = eachNsxManager['vmext:Version']
                     currentNsxManager = eachNsxManager
                     break
@@ -2178,6 +2178,12 @@ class VCDMigrationValidation:
                         allErrorList.append('Layer2 rule present in distributed firewall')
                 else:
                     logger.debug('Layer2 rules are not present in distributed firewall')
+
+                # Check if network provider scope is configured as DFW is enabled
+                if not v2tAssessmentMode and not self.networkProviderScope:
+                    # If network provider scope is not configured append error to error list
+                    allErrorList.append("DFW is enabled but 'Network Provider Scope' "
+                                        "is not configured on NSXT Manager in vCD")
 
                 if v2tAssessmentMode:
                     return allErrorList
