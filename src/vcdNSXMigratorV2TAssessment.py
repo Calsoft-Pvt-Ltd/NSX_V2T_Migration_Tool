@@ -128,21 +128,13 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
         # Validating the certificate file and adding SSL certificate if verify is set to True
         if self.inputDict['VCloudDirector']['verify']:
-            if not self.inputDict.get('Common') or (self.inputDict.get('Common') and not self.inputDict.get('Common', {}).get('CertificatePath', None)):
-                self.consoleLogger.error("Verify is set to 'True' but certificate path is not provided in user Input file")
-                os._exit(0)
-            certPath = self.inputDict.get('Common', {}).get('CertificatePath', None)
-            # checking for the path provided in user input whether its valid
-            if not os.path.exists(certPath):
-                self.consoleLogger.error("The provided certificate path in user Input file does not exist.")
-                os._exit(0)
             # update certificate path in requests
+            certPath = self.inputDict.get('Common', {}).get('CertificatePath', None)
             utils.Utilities().updateRequestsPemCert(certPath)
 
         # Getting password of VMware vCloud Director
         vCloudDirectorPassword = self._getVcloudDirectorPassword()
 
-        self.threadCount = inputDict.get("Common", {}).get("MaxThreadCount", 75)
         threadObj = Thread(maxNumberOfThreads=self.threadCount)
 
         # Creating object of vcd validation class
@@ -202,6 +194,19 @@ class VMwareCloudDirectorNSXMigratorV2T:
             errorList.append("'Organization' Value must be a List")
         if self.inputDict.get("OrgVDC", None) and not isinstance(self.inputDict.get("OrgVDC"), list):
             errorList.append("'OrgVDC' Value must be a List")
+        if (self.inputDict.get('VCloudDirector') or {}).get('verify'):
+            certPath = (self.inputDict.get('Common') or {}).get('CertificatePath')
+            if not certPath:
+                errorList.append("Verify is set to 'True' but certificate path is not provided in user Input file")
+            # checking for the path provided in user input whether its valid
+            elif not os.path.exists(certPath):
+                errorList.append(f"The provided certificate path '{certPath}' in user Input file does not exist.")
+
+        try:
+            self.threadCount = int((self.inputDict.get("Common") or {}).get("MaxThreadCount") or 75)
+        except (ValueError, AttributeError, TypeError):
+            errorList.append("Common '[MaxThreadCount]', Value must be integer")
+
         if errorList:
             raise Exception('Input Validation Error - {}'.format('\n'.join(errorList)))
 
