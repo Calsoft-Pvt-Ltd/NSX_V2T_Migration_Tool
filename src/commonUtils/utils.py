@@ -211,11 +211,11 @@ class Utilities():
     def renderInputDict(dataStructure):
         """Renders all the values to string apart from required ones"""
         if isinstance(dataStructure, dict):
-            for key in list(dataStructure.keys()):
-                if not isinstance(dataStructure[key], (dict, list)) and \
+            for key, value in dataStructure.items():
+                if not isinstance(value, (dict, list)) and value != None and \
                         key not in ['verify', 'MaxThreadCount', 'TimeoutForVappMigration']:
-                    dataStructure[key] = str(dataStructure[key])
-                Utilities.renderInputDict(dataStructure[key])
+                    dataStructure[key] = str(value)
+                Utilities.renderInputDict(value)
         elif isinstance(dataStructure, list):
             for index in reversed(range(len(dataStructure))):
                 if isinstance(dataStructure[index], dict):

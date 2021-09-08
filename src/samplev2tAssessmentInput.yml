@@ -14,7 +14,7 @@ Organization: # (optional) List of names of the organization(s) to be validated
   - Acme-27
 
 Common:
-  # Signing CA or self-signed certificate path for certificates validation
-  CertificatePath: D:\tmp\certs\vcd27.pem
+  CertificatePath: D:\tmp\certs\vcd27.pem # Signing CA or self-signed certificate path for certificates validation
+  MaxThreadCount: 75 # Number of threads to be used for parallel processing
 
 # Note: All NSX-V backed Org VDCs will be assessed unless specific OrgVDC(s) or Organization(s) are listed above
