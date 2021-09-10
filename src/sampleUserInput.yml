@@ -12,6 +12,7 @@ VCloudDirector:
       NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
       NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
       ExternalNetwork: tpm-externalnetwork # Name of the external network to which all target NSX-T edge gateways will be connected to
+      NSXTNetworkPoolName: 2nd-t-network-pool # Name of the nsxt backed network pool which needs to be added incase of multiple network pools
       NoSnatDestinationSubnet: 10.100.0.0/16 # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
       ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
       LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
@@ -20,6 +21,7 @@ VCloudDirector:
       NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
       NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
       ExternalNetwork: tpm-externalnetwork # Name of the external network to which all target NSX-T edge gateways will be connected to
+      NSXTNetworkPoolName: 2nd-t-network-pool # Name of the nsxt backed network pool which needs to be added incase of multiple network pools
       NoSnatDestinationSubnet: 10.100.0.0/16 # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
       ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
       LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
