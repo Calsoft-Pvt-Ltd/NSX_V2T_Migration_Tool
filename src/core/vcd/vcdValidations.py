@@ -1017,14 +1017,17 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def validateOrgVDCNSXbacking(self, orgVDCId, providerVDCId, isNSXTbacked):
+    def validateOrgVDCNSXbacking(self, orgVDCId, providerVDCId, isPvdcNSXTbacked):
         """
         Description : Validate whether Org VDC is NSX-V or NSX-T backed
         Parameters : orgVDCId         - Org VDC id (STRING)
                      providerVDCId    - ProviderVDC id (STRING)
-                     isNSXTbacked     - True if provider VDC is NSX-T backed else False (BOOL)
+                     isPvdcNSXTbacked     - True if provider VDC is NSX-T backed else False (BOOL)
         """
         try:
+            # Fetching Backing Type of org vdc
+            backingType = self.getBackingTypeOfOrgVDC(orgVDCId)
+
             # splitting the source org vdc id as per the requirements of xml api
             orgVdcId = orgVDCId.split(':')[-1]
             # url to retrieve the specified provider vdc details
@@ -1035,21 +1038,31 @@ class VCDMigrationValidation:
             responseDict = xmltodict.parse(response.content)
             if response.status_code == requests.codes.ok:
                 responseProviderVDCId = responseDict['AdminVdc']['ProviderVdcReference']['@id']
-                # if NSXTbacked is false
-                if not isNSXTbacked:
-                    # checking if source provider vdc is nsx-v backed, if not then raising exception
-                    if responseProviderVDCId == providerVDCId:
-                        logger.debug("Validated successfully source Org VDC {} is NSX-V backed.".format(responseDict['AdminVdc']['@name']))
-                        return
-                    else:
-                        raise Exception("Source Org VDC {} is not NSX-V backed.".format(responseDict['AdminVdc']['@name']))
+                # if isPvdcNSXTbacked is false
+                if not isPvdcNSXTbacked:
+                    if backingType != "NSX_V":
+                        raise Exception(
+                            "Source Org VDC {} is not NSX-V backed.".format(responseDict['AdminVdc']['@name']))
+                    logger.debug("Validated successfully source Org VDC {} is NSX-V backed.".format(
+                        responseDict['AdminVdc']['@name']))
+
+                    # checking if source provider vdc passed in the user input corresponds to this org vdc
+                    if responseProviderVDCId != providerVDCId:
+                        raise Exception(f"Source Org VDC {responseDict['AdminVdc']['@name']} "
+                                        f"is not backed by the same NSXV Provider VDC "
+                                        f"provided in the input file.")
                 else:
-                    # checking if target provider vdc is nsx-t backed, if not then raising exception
-                    if responseProviderVDCId == providerVDCId:
-                        logger.debug("Validated successfully target Org VDC {} is NSX-T backed.".format(responseDict['AdminVdc']['@name']))
-                        return
-                    else:
-                        raise Exception("Target Org VDC {} is not NSX-T backed.".format(responseDict['AdminVdc']['@name']))
+                    if backingType != "NSX_T":
+                        raise Exception("Target Org VDC {} is not NSX-T backed.".format(
+                            responseDict['AdminVdc']['@name']))
+                    logger.debug(f"Validated successfully target Org VDC {responseDict['AdminVdc']['@name']} "
+                                 f"is NSX-T backed.")
+
+                    # checking if source provider vdc passed in the user input corresponds to this org vdc
+                    if responseProviderVDCId != providerVDCId:
+                        raise Exception(f"Target Org VDC {responseDict['AdminVdc']['@name']} "
+                                        f"is not backed by the same NSXT Provider VDC "
+                                        f"provided in the input file.")
             else:
                 raise Exception('Failed to validate Org VDC NSX backing type.')
         except Exception:
