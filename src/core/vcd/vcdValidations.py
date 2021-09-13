@@ -186,6 +186,7 @@ class VCDMigrationValidation:
         self.rollback = rollback
         self.version = self._getAPIVersion()
         self.nsxVersion = None
+        self.nsxManagerId = None
         self.networkProviderScope = None
         self.namedDisks = dict()
         self.l3DfwRules = None
@@ -942,7 +943,6 @@ class VCDMigrationValidation:
         Parameters :  nsxIpAddress - IP Address of NSX-T Manager (IP ADDRESS)
         """
         try:
-            currentNsxManager = dict()
             url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
                                 vcdConstants.NSX_MANAGERS)
             response = self.restClientObj.get(url, self.headers)
@@ -953,9 +953,10 @@ class VCDMigrationValidation:
                     # Network provider scope to be used for data center group creation for DFW migration
                     self.networkProviderScope = eachNsxManager.get('vmext:NetworkProviderScope')
                     self.nsxVersion = eachNsxManager['vmext:Version']
-                    currentNsxManager = eachNsxManager
-                    break
-            if currentNsxManager == {}:
+                    # Saving NSXT manager id with respect to vCD
+                    self.nsxManagerId = eachNsxManager['@id']
+                    return
+            else:
                 raise Exception('Incorrect NSX-T IP Address in input file. Please check if the NSX-T IP Address matches the one in NSXT-Managers in vCD')
         except Exception:
             raise
@@ -1268,6 +1269,36 @@ class VCDMigrationValidation:
                 logger.debug("Validated successfully, source org vdc storage profiles are all enabled in target provider vdc")
 
         except Exception:
+            raise
+
+    @isSessionExpired
+    def validateExternalNetworkWithNSXT(self):
+        """
+        Description : Validate whether the external network is linked to NSXT provided in the input file
+        """
+        try:
+            # Checking if target external network is present
+            if 'targetExternalNetwork' not in self.rollback.apiData.keys():
+                raise Exception("Target External Network not present")
+
+            # Checking is NSXT Manager is present
+            if not self.nsxManagerId:
+                raise Exception("Incorrect NSX-T IP Address in input file. "
+                                "Please check if the NSX-T IP Address matches the one in NSXT-Managers in vCD")
+
+            # Fetch external network data from apiData
+            targetExtNetData = self.rollback.apiData['targetExternalNetwork']
+
+            # Checking if the target external network belongs to same NSXT provided in the input file
+            # Iterating over all the network backings to check for NSX ID
+            for networkBacking in targetExtNetData.get('networkBackings', {}).get('values', []):
+                nsxtId = (networkBacking.get('networkProvider') or {}).get('id')
+                if nsxtId == self.nsxManagerId:
+                    break
+            else:
+                raise Exception(f"Target external network - '{targetExtNetData['name']}' "
+                                f"is not linked to NSX-T provided in the input file")
+        except:
             raise
 
     @isSessionExpired
@@ -3903,6 +3934,10 @@ class VCDMigrationValidation:
             # validating whether same subnet exist in source and target External networks
             logger.info('Validating source and target External networks have same subnets')
             self.validateExternalNetworkSubnets()
+
+            # Validate whether the external network is linked to NSXT provided in the input file or not
+            logger.info('Validating Target External Network with NSXT provided in input file')
+            self.validateExternalNetworkWithNSXT()
 
             logger.info('Validating if all edge gateways interfaces are in use')
             self.validateEdgeGatewayUplinks(sourceOrgVDCId, sourceEdgeGatewayIdList)
