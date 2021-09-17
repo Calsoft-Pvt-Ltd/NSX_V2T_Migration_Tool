@@ -197,7 +197,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 payloadData['edgeGatewayUplinks'][0]['subnets']['values'] = subnetData
 
                 # Checking if edge cluster is specified in user input yaml
-                if vdcDict.get('EdgeGatewayDeploymentEdgeCluster', None):
+                if vdcDict.get('EdgeGatewayDeploymentEdgeCluster') != 'None':
                     # Fetch edge cluster id
                     edgeClusterId = nsxObj.fetchEdgeClusterDetails(vdcDict["EdgeGatewayDeploymentEdgeCluster"]).get('id')
                 else:
@@ -2021,14 +2021,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             # Check if bridging is to be performed
             if configureBridging:
+                # writing the promiscuous mode and forged mode details to apiData dict
+                self.getPromiscModeForgedTransmit(sourceOrgVDCId)
+
                 # enable the promiscous mode and forged transmit of source org vdc networks
                 self.enablePromiscModeForgedTransmit(orgVdcNetworkList)
 
                 # get the portgroup of source org vdc networks
                 self.getPortgroupInfo(orgVdcNetworkList)
-
-                # writing the promiscuous mode and forged mode details to apiData dict
-                self.getPromiscModeForgedTransmit(sourceOrgVDCId)
 
             # Migrating metadata from source org vdc to target org vdc
             self.migrateMetadata()

@@ -2326,7 +2326,9 @@ class VCDMigrationValidation:
                          'LoadBalancer': [],
                          'L2VPN': [],
                          'SSLVPN': [],
-                         'DNS': []}
+                         'DNS': [],
+                         'Syslog': [],
+                         'SSH': []}
             self.rollback.apiData['sourceEdgeGatewayDHCP'] = {}
             ipsecConfigDict = {}
             allErrorList = list()
@@ -2368,6 +2370,12 @@ class VCDMigrationValidation:
                 # getting the dns config of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewayDnsConfig, gatewayId)
                 time.sleep(2)
+                # getting the syslog config of specified edge gateway
+                self.thread.spawnThread(self.getEdgeGatewaySyslogConfig, gatewayId, v2tAssessmentMode=v2tAssessmentMode)
+                time.sleep(2)
+                # getting the ssh config of specified edge gateway
+                self.thread.spawnThread(self.getEdgeGatewaySSHConfig, gatewayId, v2tAssessmentMode=v2tAssessmentMode)
+                time.sleep(2)
 
                 # Halting the main thread till all the threads have completed their execution
                 self.thread.joinThreads()
@@ -2383,11 +2391,13 @@ class VCDMigrationValidation:
                 L2VpnErrorList = self.thread.returnValues['getEdgeGatewayL2VPNConfig']
                 SslVpnErrorList = self.thread.returnValues['getEdgeGatewaySSLVPNConfig']
                 dnsErrorList = self.thread.returnValues['getEdgeGatewayDnsConfig']
+                syslogErrorList = self.thread.returnValues['getEdgeGatewaySyslogConfig']
+                sshErrorList = self.thread.returnValues['getEdgeGatewaySSHConfig']
                 if bgpStatus is True and edgeGatewayCount > 1:
                     bgpErrorList.append('BGP is enabled on: {} and more than 1 edge gateway present'.format(gatewayName))
                 currentErrorList = currentErrorList + dhcpErrorList + firewallErrorList + natErrorList + ipsecErrorList \
                                + bgpErrorList + routingErrorList + loadBalancingErrorList + L2VpnErrorList \
-                               + SslVpnErrorList + dnsErrorList
+                               + SslVpnErrorList + dnsErrorList + syslogErrorList + sshErrorList
                 defaultGatewayDetails = self.getEdgeGatewayAdminApiDetails(gatewayId, returnDefaultGateway=True)
                 if isinstance(defaultGatewayDetails, list):
                     currentErrorList = currentErrorList + defaultGatewayDetails
@@ -2433,6 +2443,8 @@ class VCDMigrationValidation:
                 errorData['L2VPN'] = errorData.get('L2VPN', []) + L2VpnErrorList
                 errorData['SSLVPN'] = errorData.get('SSLVPN', []) + SslVpnErrorList
                 errorData['DNS'] = errorData.get('DNS', []) + dnsErrorList
+                errorData['Syslog'] = errorData.get('Syslog', []) + syslogErrorList
+                errorData['SSH'] = errorData.get('SSH', []) + sshErrorList
             if v2tAssessmentMode:
                 return errorData
             if allErrorList:
@@ -5219,3 +5231,79 @@ class VCDMigrationValidation:
                     else [responseDict['list']['securitygroup']])
 
         return {group['objectId']: group for group in securityGroups}
+
+    @isSessionExpired
+    def getEdgeGatewaySyslogConfig(self, edgeGatewayId, v2tAssessmentMode):
+        """
+        Description :   Gets the Syslog Configuration details of the specified Edge Gateway
+        Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
+        """
+        try:
+            # url to fetch edge gateway details
+            getUrl = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                                   vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
+            getResponse = self.restClientObj.get(getUrl, headers=self.headers)
+            if getResponse.status_code == requests.codes.ok:
+                responseDict = xmltodict.parse(getResponse.content)
+                edgeGatewayDict = responseDict['EdgeGateway']
+            logger.debug("Getting Syslog Services Configuration Details of Source Edge Gateway")
+            # url to get syslog config details of specified edge gateway
+            url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                  vcdConstants.NETWORK_EDGES,
+                                  vcdConstants.EDGE_GATEWAY_SYSLOG_CONFIG_BY_ID.format(edgeGatewayId))
+            # call to get api to get dns config details of specified edge gateway
+            response = self.restClientObj.get(url, self.headers)
+            if response.status_code == requests.codes.ok:
+                responseDict = xmltodict.parse(response.content)
+                # checking if syslog is enabled, if so raising exception
+                if responseDict['syslog']['enabled'] == "true":
+                    if v2tAssessmentMode:
+                        return ['Syslog service is configured in the Source but not supported in the Target\n']
+                    else:
+                        logger.warning('Syslog service is configured in the Source but not supported in the Target')
+                        return []
+                else:
+                    return []
+            else:
+                return ['Unable to get Syslog Services Configuration Details with error code {}\n'.format(
+                    response.status_code)]
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def getEdgeGatewaySSHConfig(self, edgeGatewayId, v2tAssessmentMode):
+        """
+        Description :   Gets the SSH Configuration details of the specified Edge Gateway
+        Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
+        """
+        try:
+            # url to fetch edge gateway details
+            getUrl = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                                   vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
+            getResponse = self.restClientObj.get(getUrl, headers=self.headers)
+            if getResponse.status_code == requests.codes.ok:
+                responseDict = xmltodict.parse(getResponse.content)
+                edgeGatewayDict = responseDict['EdgeGateway']
+            logger.debug("Getting SSH Services Configuration Details of Source Edge Gateway")
+            # url to get ssh config details of specified edge gateway
+            url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                  vcdConstants.NETWORK_EDGES,
+                                  vcdConstants.EDGE_GATEWAY_CLISETTINGS_CONFIG_BY_ID.format(edgeGatewayId))
+            # call to get api to get ssh config details of specified edge gateway
+            response = self.restClientObj.get(url, self.headers)
+            if response.status_code == requests.codes.ok:
+                responseDict = xmltodict.parse(response.content)
+                # checking if ssh is enabled, if so raising exception
+                if responseDict['cliSettings']['remoteAccess'] == "true":
+                    if v2tAssessmentMode:
+                        return ['SSH service is configured in the Source but not supported in the Target\n']
+                    else:
+                        logger.warning('SSH service is configured in the Source but not supported in the Target')
+                        return []
+                else:
+                    return []
+            else:
+                return ['Unable to get SSH Services Configuration Details with error code {}\n'.format(
+                    response.status_code)]
+        except Exception:
+            raise
