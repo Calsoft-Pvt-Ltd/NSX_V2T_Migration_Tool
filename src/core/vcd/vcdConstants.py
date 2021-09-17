@@ -731,3 +731,9 @@ EDGE_CLUSTER_DATA = 'edgeClusters'
 
 # get vNics details
 VNIC = '/vnics'
+
+# syslog config uri for edge gateway by id
+EDGE_GATEWAY_SYSLOG_CONFIG_BY_ID = "/{}/syslog/config"
+
+# ssh settings ur for edge gateway by id
+EDGE_GATEWAY_CLISETTINGS_CONFIG_BY_ID = "/{}/clisettings"
