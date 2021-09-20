@@ -341,6 +341,7 @@ class VMwareCloudDirectorNSXMigrator():
             self.threadCount = int(self.inputDict['Common']['MaxThreadCount'])
         except (AttributeError, ValueError):
             self.threadCount = 75
+        self.inputDict['Common']['MaxThreadCount'] = self.threadCount
 
         # Validating timeout for vApp migration task
         try:
@@ -348,6 +349,7 @@ class VMwareCloudDirectorNSXMigrator():
         except (AttributeError, ValueError):
             # Setting default value for vapp migration i.e. 3600 seconds if not provided in user input file
             self.timeoutForVappMigration = 3600
+        self.inputDict['Common']['TimeoutForVappMigration'] = self.timeoutForVappMigration
 
     def _loginToVcd(self):
         """

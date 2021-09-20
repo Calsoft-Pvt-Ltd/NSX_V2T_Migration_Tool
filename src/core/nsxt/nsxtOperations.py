@@ -1515,3 +1515,39 @@ class NSXTOperations():
                         raise Exception(msg)
         except Exception:
             raise
+
+    def getNsxtVniPoolIds(self):
+        """
+            Description :   Fetch VNI pool ids from NSXT
+            Returns     :   Set of unique VNI pool ids present in NSXT(SET)
+        """
+        try:
+            logger.debug("Fetching NSX-T VNI Pool id's")
+            # List to store the VNI pool id's
+            vniPoolIds = list()
+
+            # URL to fetch VNI pools from NSXT
+            poolRetrievalUrl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                                      nsxtConstants.FETCH_VNI_POOL)
+
+            # Get API call to retrieve VNI pools from NSXT
+            response = self.restClientObj.get(poolRetrievalUrl,
+                                                 headers=nsxtConstants.NSXT_API_HEADER,
+                                                 auth=self.restClientObj.auth)
+
+            # Rendering JSON response from API
+            responseDict = response.json()
+
+            if response.status_code == requests.codes.ok:
+                logger.debug('Successfully retrieved VNI pool ranges from NSX-T')
+                # Iterating over the VNI pool ranges present in NSXT
+                for result in responseDict['results']:
+                    for poolRange in result['ranges']:
+                        # Creating ID's from pool range and extending it to final result list
+                        vniPoolIds.extend(list(range(poolRange['start'], poolRange['end'] + 1)))
+            else:
+                raise Exception('Failed to retrieve VNI pool ranges from NSX-T')
+            # Returning unique id's
+            return set(vniPoolIds)
+        except:
+            raise

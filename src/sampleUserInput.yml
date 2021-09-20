@@ -26,6 +26,7 @@ VCloudDirector:
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
   ImportedNeworkTransportZone: Direct-TZ # NSX-T VLAN transport zone used for segment creation for imported networks
   DummyExternalNetwork: Dummy-ext # Name of the dummy external network which will be temporarily attached to source edge gateway during network disconnection.
+  CloneOverlayIds: False # (optional) Flag that instructs migration tool to clone the overlay id's of org vdc networks
 
 NSXT:
   Common:
