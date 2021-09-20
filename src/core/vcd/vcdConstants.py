@@ -83,6 +83,9 @@ ALL_ORG_VDC_NETWORKS = "orgVdcNetworks"
 #org vdc network dhcp uri
 ORG_VDC_NETWORK_DHCP = "orgVdcNetworks/{}/dhcp"
 
+# org vdc network additional properties
+ORG_VDC_NETWORK_ADDITIONAL_PROPERTIES = "orgVdcNetworks/{}/additionalProperties"
+
 #nsx managers uri
 NSX_MANAGERS = "extension/nsxtManagers"
 
