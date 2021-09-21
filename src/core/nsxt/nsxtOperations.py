@@ -887,19 +887,20 @@ class NSXTOperations():
                     logger.debug("Updating Edge Transport Node {} by removing Bridge Transport zone".format(edgeNodeData['display_name']))
 
                     # Check if this node was used for bridging or not
-                    for index, switch in enumerate(edgeNodeData["host_switch_spec"]["host_switches"]):
+                    for switch in edgeNodeData["host_switch_spec"]["host_switches"]:
                         if switch['transport_zone_endpoints'][0]['transport_zone_id'] == transportZoneId and \
                            switch['host_switch_profile_ids'][0]['value'] == uplinkProfileData['id']:
-                            indexToRemove = index
                             break
                     else:
                         continue
 
                     hostSwitchSpec = edgeNodeData["host_switch_spec"]["host_switches"]
-                    hostSwitchSpec.pop(indexToRemove)
+                    # Removing last switch for host switch specification
+                    hostSwitchSpec.pop()
                     transportZoneList = edgeNodeData['transport_zone_endpoints']
                     dataNetworkList = edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config']['data_network_ids']
-                    dataNetworkList.pop(indexToRemove)
+                    # Removing last uplink from edge transport node uplink list
+                    dataNetworkList.pop()
                     edgeNodeData["host_switch_spec"]["host_switches"] = hostSwitchSpec
                     edgeNodeData["transport_zone_endpoints"] = transportZoneList
                     edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config'][
