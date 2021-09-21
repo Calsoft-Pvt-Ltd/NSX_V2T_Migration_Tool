@@ -212,8 +212,7 @@ class Utilities():
         """Renders all the values to string apart from required ones"""
         if isinstance(dataStructure, dict):
             for key, value in dataStructure.items():
-                if not isinstance(value, (dict, list)) and value != None and \
-                        key not in ['verify', 'MaxThreadCount', 'TimeoutForVappMigration']:
+                if not isinstance(value, (dict, list, bool)) and value != None:
                     dataStructure[key] = str(value)
                 Utilities.renderInputDict(value)
         elif isinstance(dataStructure, list):

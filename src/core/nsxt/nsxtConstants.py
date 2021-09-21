@@ -141,6 +141,9 @@ API_VERSION_STARTWITH = "3."
 # nsx-t openapi specs uri
 OPENAPI_SPECS_API = "api/v1/spec/openapi/nsx_api.json"
 
+# nsx-t vni pool uri
+FETCH_VNI_POOL = "api/v1/pools/vni-pools"
+
 # nsx-t Default transport zone path.
 TRANSPORT_ZONE_PATH = "/infra/sites/default/enforcement-points/default/transport-zones/{}"
 

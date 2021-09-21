@@ -197,7 +197,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 payloadData['edgeGatewayUplinks'][0]['subnets']['values'] = subnetData
 
                 # Checking if edge cluster is specified in user input yaml
-                if vdcDict.get('EdgeGatewayDeploymentEdgeCluster', None):
+                if vdcDict.get('EdgeGatewayDeploymentEdgeCluster') != 'None':
                     # Fetch edge cluster id
                     edgeClusterId = nsxObj.fetchEdgeClusterDetails(vdcDict["EdgeGatewayDeploymentEdgeCluster"]).get('id')
                 else:
@@ -258,6 +258,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         try:
             segmetList = list()
+            # Check if overlay id's are to be cloned or not
+            cloneOverlayIds = inputDict['VCloudDirector'].get('CloneOverlayIds')
+
             logger.info('Creating target Org VDC Networks')
             data = self.rollback.apiData
             targetOrgVDC = data['targetOrgVDC']
@@ -270,6 +273,28 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             targetOrgVDCNetworksList = [network['name'] for network in self.getOrgVDCNetworks(targetOrgVDC['@id'], 'targetOrgVDCNetworks', saveResponse=False)]
 
             for sourceOrgVDCNetwork in sourceOrgVDCNetworks:
+                overlayId = None
+                # Fetching overlay id of the org vdc network, if CloneOverlayIds parameter is set to true
+                if cloneOverlayIds:
+                    # URL to fetch overlay id of source org vdc networks
+                    overlayIdUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                 vcdConstants.ORG_VDC_NETWORK_ADDITIONAL_PROPERTIES.format(
+                                                     sourceOrgVDCNetwork['id']
+                                                 ))
+                    # Getting response from API call
+                    response = self.restClientObj.get(overlayIdUrl, self.headers)
+                    # Fetching JSON response from API call
+                    responseDict = response.json()
+                    if response.status_code == requests.codes.ok:
+                        logger.debug(
+                            'Fetched source org vdc network "{}" overlay id successfully.'.format(
+                                sourceOrgVDCNetwork['name']))
+                        overlayId = responseDict.get('overlayId')
+                    else:
+                        raise Exception(
+                            'Failed to fetch source org vdc network "{}" overlay id  due to error- "{}"'.format(
+                                sourceOrgVDCNetwork['name'], responseDict['message']))
+
                 # Handled remediation in case of network creation failure
                 if sourceOrgVDCNetwork['name'] + '-v2t' in targetOrgVDCNetworksList:
                     continue
@@ -291,6 +316,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                    'orgVDCNetworkType': sourceOrgVDCNetwork['networkType'],
                                    'orgVDCName': targetOrgVDC['@name'],
                                    'orgVDCId': targetOrgVDC['@id']}
+
                 if sourceOrgVDCNetwork['networkType'] == "ISOLATED":
                     payloadDict.update({'edgeGatewayName': "", 'edgeGatewayId': "", 'edgeGatewayConnectionType': ""})
                 elif sourceOrgVDCNetwork['networkType'] != "DIRECT":
@@ -305,28 +331,24 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='json',
                                                               componentName=vcdConstants.COMPONENT_NAME,
                                                               templateName=vcdConstants.CREATE_ORG_VDC_NETWORK_TEMPLATE, apiVersion=self.version)
+
+                #Loading JSON payload data to python Dict Structure
+                payloadData = json.loads(payloadData)
+
                 if float(self.version) < float(vcdConstants.API_VERSION_ZEUS):
-                    payloadData = json.loads(payloadData)
                     payloadData['orgVdc'] = {
                         "name": targetOrgVDC['@name'],
                         "id": targetOrgVDC['@id']
                     }
-                    payloadData = json.dumps(payloadData)
                 else:
-                    payloadData = json.loads(payloadData)
                     payloadData['ownerRef'] = {
                         "name": targetOrgVDC['@name'],
                         "id": targetOrgVDC['@id']
                     }
-                    payloadData = json.dumps(payloadData)
                 if sourceOrgVDCNetwork['networkType'] == "ISOLATED":
-                    payloadData = json.loads(payloadData)
                     payloadData['connection'] = {}
-                    payloadData = json.dumps(payloadData)
                 if not sourceOrgVDCNetwork['subnets']['values'][0]['ipRanges']['values']:
-                    payloadData = json.loads(payloadData)
                     payloadData['subnets']['values'][0]['ipRanges']['values'] = None
-                    payloadData = json.dumps(payloadData)
                 elif sourceOrgVDCNetwork['networkType'] != "DIRECT":
                     ipRangeList = []
                     for ipRange in sourceOrgVDCNetwork['subnets']['values'][0]['ipRanges']['values']:
@@ -334,18 +356,22 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         ipPoolDict['startAddress'] = ipRange['startAddress']
                         ipPoolDict['endAddress'] = ipRange['endAddress']
                         ipRangeList.append(ipPoolDict)
-                    payloadData = json.loads(payloadData)
                     payloadData['subnets']['values'][0]['ipRanges']['values'] = ipRangeList
-                    payloadData = json.dumps(payloadData)
 
                 # Handling code for dual stack networks
                 if sourceOrgVDCNetwork.get('enableDualSubnetNetwork', None):
-                    payloadData = json.loads(payloadData)
                     payloadData['subnets'] = sourceOrgVDCNetwork['subnets']
                     payloadData['enableDualSubnetNetwork'] = True
-                    payloadData = json.dumps(payloadData)
 
+                # Adding overlay id in payload if cloneOverlayIds parameter is set to True and
+                # if overlay id exists for corresponding org vdc network
+                if cloneOverlayIds and overlayId:
+                    payloadData.update({'overlayId': overlayId})
+
+                # Setting headers for the OPENAPI requests
                 self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+
+                payloadData = json.dumps(payloadData)
                 # post api to create org vdc network
                 response = self.restClientObj.post(url, self.headers, data=payloadData)
                 if response.status_code == requests.codes.accepted:
@@ -1370,6 +1396,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     # creating the payload data
                     vdcNetwork['connection'] = None
                     vdcNetwork['networkType'] = 'ISOLATED'
+
                     payloadData = json.dumps(vdcNetwork)
                     self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
                     # put api call to disconnect the target org vdc network
@@ -2025,14 +2052,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             # Check if bridging is to be performed
             if configureBridging:
+                # writing the promiscuous mode and forged mode details to apiData dict
+                self.getPromiscModeForgedTransmit(sourceOrgVDCId)
+
                 # enable the promiscous mode and forged transmit of source org vdc networks
                 self.enablePromiscModeForgedTransmit(orgVdcNetworkList)
 
                 # get the portgroup of source org vdc networks
                 self.getPortgroupInfo(orgVdcNetworkList)
-
-                # writing the promiscuous mode and forged mode details to apiData dict
-                self.getPromiscModeForgedTransmit(sourceOrgVDCId)
 
             # Migrating metadata from source org vdc to target org vdc
             self.migrateMetadata()

@@ -85,8 +85,9 @@ VALIDATION_CLASSIFICATION = {
     'Distributed Firewall: Unsupported type in applied to section': 1,
     'Distributed Firewall: Networks connected to different edge gateway used': 1,
     'Distributed Firewall: Layer 2 Rule': 1,
-    'Distributed Firewall: Invalid Security Group objects in rule': 1
-
+    'Distributed Firewall: Invalid Security Group objects in rule': 1,
+    'Syslog service': 1,
+    'SSH service': 1
 }
 
 
@@ -634,6 +635,16 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 self.orgVDCResult["Gateway Firewall: Unsupported grouping object"] = True
                                             else:
                                                 self.orgVDCResult["Gateway Firewall: Unsupported grouping object"] = False
+                                        if serviceName == 'Syslog':
+                                            if 'Syslog service is configured' in ''.join(result):
+                                                self.orgVDCResult["Syslog service"] = True
+                                            else:
+                                                self.orgVDCResult["Syslog service"] = False
+                                        if serviceName == 'SSH':
+                                            if 'SSH service is configured' in ''.join(result):
+                                                self.orgVDCResult["SSH service"] = True
+                                            else:
+                                                self.orgVDCResult["SSH service"] = False
                                 if desc == "Independent Disks":
                                     del self.orgVDCResult["Independent Disks"]
                                     diskResult = ''.join(output)

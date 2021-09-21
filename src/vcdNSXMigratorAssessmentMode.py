@@ -143,7 +143,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating NSX-T manager Ip Address and version': [vcdValidationObj.getNsxDetails, self.inputDict["NSXT"]["Common"]["ipAddress"]],
                 'Validating if target OrgVDC do not exists': [vcdValidationObj.validateNoTargetOrgVDCExists, orgVDCDict["OrgVDCName"]],
                 'Validating whether other Edge gateways are using dedicated external network': [vcdValidationObj.validateDedicatedExternalNetwork, self.inputDict, edgeGatewayIdList],
-                'Validating Source Network Pool is VXLAN or VLAN backed': [vcdValidationObj.validateSourceNetworkPools],
+                'Validating Source Network Pool is VXLAN or VLAN backed': [vcdValidationObj.validateSourceNetworkPools, self.inputDict["VCloudDirector"].get("CloneOverlayIds")],
                 'Validating whether source Org VDC is NSX-V backed': [vcdValidationObj.validateOrgVDCNSXbacking, sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked],
                 'Validating Target Provider VDC is enabled': [vcdValidationObj.validateTargetProviderVdc],
                 'Validating Hardware version of Source Provider VDC: {} and Target Provider VDC: {}'.format(orgVDCDict["NSXVProviderVDCName"], orgVDCDict["NSXTProviderVDCName"]): [vcdValidationObj.validateHardwareVersion],
@@ -157,6 +157,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating whether shared networks are supported or not': [vcdValidationObj.validateOrgVDCNetworkShared, sourceOrgVDCId],
                 'Validating Source OrgVDC Direct networks': [vcdValidationObj.validateOrgVDCNetworkDirect, orgVdcNetworkList, orgVDCDict["NSXTProviderVDCName"], self.NSXTProviderVDCImportedNeworkTransportZone, nsxtObj],
                 'Validating Edge cluster for target edge gateway deployment': [vcdValidationObj.validateEdgeGatewayDeploymentEdgeCluster, edgeGatewayDeploymentEdgeCluster, nsxtObj],
+                'Validating whether the source NSX-V VNI pool is subset of target NSX-T VNI pools or not': [vcdValidationObj.validateVniPoolRanges, nsxtObj, self.nsxvObj, self.inputDict["VCloudDirector"].get("CloneOverlayIds")]
             }
             # Perform these validations only if vapps are to be migrated
             if mainConstants.MOVEVAPP_KEYWORD in self.executeList:

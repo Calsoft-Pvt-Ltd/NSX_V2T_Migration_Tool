@@ -114,7 +114,7 @@ class NSXVOperations():
 
     def certRetrieval(self, objectId):
         """
-            Description :   Dedcrypts private key of certificate for futher usage
+            Description :   Decrypts private key of certificate for futher usage
             Params      :   objectId - Object ID of certificate that if required (STRING)
             Returns     :   certificate from NSXV that will be uploaded on vCD(STRING)
         """
@@ -148,3 +148,36 @@ class NSXVOperations():
         finally:
             if os.path.exists(self.pemFileName):
                 os.remove(self.pemFileName)
+
+    def getNsxvVniPoolIds(self):
+        """
+            Description :   Fetch VNI pool ids from NSXV
+            Returns     :   Set of unique VNI pool ids present in NSXV(SET)
+        """
+        try:
+            logger.debug("Fetching NSX-V VNI Pool id's")
+            # List to store the VNI pool id's
+            vniPoolIds = list()
+
+            # URL to fetch VNI pools from NSXV
+            poolRetrievalUrl = nsxvConstants.NSXV_HOST_API_URL.format(self.ipAddress,
+                                                                      nsxvConstants.NSXV_VNI_POOL_URL)
+
+            # Get API call to retrieve VNI pools from NSXV
+            apiResponse = self.restClientObj.get(poolRetrievalUrl,
+                                                      headers=nsxvConstants.NSXV_JSON_API_HEADER,
+                                                      auth=self.restClientObj.auth)
+            # Rendering JSON response from API
+            responseDict = apiResponse.json()
+
+            if apiResponse.status_code == requests.codes.ok:
+                logger.debug('Successfully retrieved VNI pool ranges from NSX-V')
+                for poolRange in responseDict.get('segmentRanges', []):
+                    # Creating ID's from pool range and extending it to final result list
+                    vniPoolIds.extend(list(range(poolRange['begin'], poolRange['end'] + 1)))
+            else:
+                raise Exception('Failed to retrieve VNI pool ranges from NSX-V')
+            # Returning unique id's
+            return set(vniPoolIds)
+        except:
+            raise

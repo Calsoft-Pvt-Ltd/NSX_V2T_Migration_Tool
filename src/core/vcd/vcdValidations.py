@@ -2326,7 +2326,9 @@ class VCDMigrationValidation:
                          'LoadBalancer': [],
                          'L2VPN': [],
                          'SSLVPN': [],
-                         'DNS': []}
+                         'DNS': [],
+                         'Syslog': [],
+                         'SSH': []}
             self.rollback.apiData['sourceEdgeGatewayDHCP'] = {}
             ipsecConfigDict = {}
             allErrorList = list()
@@ -2368,6 +2370,12 @@ class VCDMigrationValidation:
                 # getting the dns config of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewayDnsConfig, gatewayId)
                 time.sleep(2)
+                # getting the syslog config of specified edge gateway
+                self.thread.spawnThread(self.getEdgeGatewaySyslogConfig, gatewayId, v2tAssessmentMode=v2tAssessmentMode)
+                time.sleep(2)
+                # getting the ssh config of specified edge gateway
+                self.thread.spawnThread(self.getEdgeGatewaySSHConfig, gatewayId, v2tAssessmentMode=v2tAssessmentMode)
+                time.sleep(2)
 
                 # Halting the main thread till all the threads have completed their execution
                 self.thread.joinThreads()
@@ -2383,11 +2391,13 @@ class VCDMigrationValidation:
                 L2VpnErrorList = self.thread.returnValues['getEdgeGatewayL2VPNConfig']
                 SslVpnErrorList = self.thread.returnValues['getEdgeGatewaySSLVPNConfig']
                 dnsErrorList = self.thread.returnValues['getEdgeGatewayDnsConfig']
+                syslogErrorList = self.thread.returnValues['getEdgeGatewaySyslogConfig']
+                sshErrorList = self.thread.returnValues['getEdgeGatewaySSHConfig']
                 if bgpStatus is True and edgeGatewayCount > 1:
                     bgpErrorList.append('BGP is enabled on: {} and more than 1 edge gateway present'.format(gatewayName))
                 currentErrorList = currentErrorList + dhcpErrorList + firewallErrorList + natErrorList + ipsecErrorList \
                                + bgpErrorList + routingErrorList + loadBalancingErrorList + L2VpnErrorList \
-                               + SslVpnErrorList + dnsErrorList
+                               + SslVpnErrorList + dnsErrorList + syslogErrorList + sshErrorList
                 defaultGatewayDetails = self.getEdgeGatewayAdminApiDetails(gatewayId, returnDefaultGateway=True)
                 if isinstance(defaultGatewayDetails, list):
                     currentErrorList = currentErrorList + defaultGatewayDetails
@@ -2433,6 +2443,8 @@ class VCDMigrationValidation:
                 errorData['L2VPN'] = errorData.get('L2VPN', []) + L2VpnErrorList
                 errorData['SSLVPN'] = errorData.get('SSLVPN', []) + SslVpnErrorList
                 errorData['DNS'] = errorData.get('DNS', []) + dnsErrorList
+                errorData['Syslog'] = errorData.get('Syslog', []) + syslogErrorList
+                errorData['SSH'] = errorData.get('SSH', []) + sshErrorList
             if v2tAssessmentMode:
                 return errorData
             if allErrorList:
@@ -3669,9 +3681,10 @@ class VCDMigrationValidation:
         except Exception:
             raise
 
-    def validateSourceNetworkPools(self):
+    def validateSourceNetworkPools(self, cloneOverlayIds=False):
         """
-        Description :   Validates the source network pool is VXLAN backed
+        Description :  Validates the source network pool is VXLAN or VLAN backed
+        Parameters  :  cloneOverlayIds - Flag that decides whether the overlay id's will be cloned or not (BOOLEAN)
         """
         try:
             # reading data from metadata
@@ -3683,14 +3696,20 @@ class VCDMigrationValidation:
                 # get api call to retrieve the info of source org vdc network pool
                 networkPoolResponse = self.restClientObj.get(networkPool['@href'], self.headers)
                 networkPoolDict = xmltodict.parse(networkPoolResponse.content)
-                # checking if the source network pool is VXLAN backed
-                if networkPoolDict['vmext:VMWNetworkPool']['@xsi:type'] == vcdConstants.VXLAN_NETWORK_POOL_TYPE or \
-                        networkPoolDict['vmext:VMWNetworkPool']['@xsi:type'] == vcdConstants.VLAN_NETWORK_POOL_TYPE:
-                    # success - source network pool is VXLAN backed
-                    logger.debug("Validated successfully, source org VDC network pool {} is VXLAN backed".format(networkPoolDict['vmext:VMWNetworkPool']['@name']))
+                networkPoolType = networkPoolDict['vmext:VMWNetworkPool']['@xsi:type']
+
+                # checking if the source network pool is VXLAN backed if cloneOverlayIds parameter is set to true
+                if cloneOverlayIds and networkPoolType != vcdConstants.VXLAN_NETWORK_POOL_TYPE:
+                    raise Exception("'cloneOverlayIds' parameter is set to 'True' but "
+                                    "source network pool is not VXLAN backed")
+                # checking if the source network pool is VXLAN or VLAN backed
+                elif networkPoolType not in [vcdConstants.VXLAN_NETWORK_POOL_TYPE,
+                                             vcdConstants.VLAN_NETWORK_POOL_TYPE]:
+                    raise Exception("Source org VDC network pool {} is not VXLAN/VLAN backed".format(
+                        networkPoolDict['vmext:VMWNetworkPool']['@name']))
                 else:
-                    # fail - source network pool is not VXLAN backed
-                    raise Exception("Source org VDC network pool {} is not VXLAN/VLAN backed".format(networkPoolDict['vmext:VMWNetworkPool']['@name']))
+                    logger.debug("Validated successfully, source org VDC network pool "
+                                 "{} is VXLAN or VLAN backed".format(networkPoolDict['vmext:VMWNetworkPool']['@name']))
             else:
                 raise Exception("No Network pool is associated with Source Org VDC")
         except Exception:
@@ -3699,9 +3718,9 @@ class VCDMigrationValidation:
     def validateNoTargetOrgVDCExists(self, sourceOrgVDCName):
         """
         Description :   Validates the target Org VDC does not exist with same name as that of source Org VDC
-                        with '-t' appended
+                        with '-v2t' appended
                         Eg: source org vdc name :-  v-CokeOVDC
-                            target org vdc name :-  v-CokeOVDC-t
+                            target org vdc name :-  v-CokeOVDC-v2t
         Parameters : sourceOrgVDCName - Name of the source Org VDC (STRING)
         """
         try:
@@ -3818,6 +3837,40 @@ class VCDMigrationValidation:
             # failure in retrieving the capabilities of org vdc
             raise Exception("Failed to fetch the capabilities of org vdc due to error - {}".format(responseDict['message']))
 
+    def validateVniPoolRanges(self, nsxtObj, nsxvObj, cloneOverlayIds=False):
+        """
+        Description : Pre migration validation tasks for org vdc
+        Parameters  : nsxtObj         - Object of NSXT operations class holding all functions related to NSXT (OBJECT)
+                      nsxvObj         - Object of NSXV operations class holding all functions related to NSXV (OBJECT)
+                      cloneOverlayIds - Flag to decide whether to validate the VNI pools or not (BOOLEAN)
+        """
+        try:
+            # If clone overlay id parameter is False, then we don't need to validate the pool ranges
+            if not cloneOverlayIds:
+                logger.debug("'CloneOverlayIds' parameter is set to 'False' or not provided in user input file, "
+                             "so skipping the VNI pool validation")
+                return
+
+            # If clone overlay id parameter is True,
+            # and NSXV details are not provided in input file then we cannot perform validation
+            if not nsxvObj.ipAddress or not nsxvObj.username:
+                raise Exception(
+                    "'CloneOverlayIds' parameter is set to 'True', "
+                    "but NSX-V details are not provided in user input file")
+
+            # Fetching target NSXT pool id's
+            targetVNIPoolIds = nsxtObj.getNsxtVniPoolIds()
+            # Fetching source NSXV pool id's
+            sourceVNIPoolIds = nsxvObj.getNsxvVniPoolIds()
+
+            # If source NSXV VNI pool id's are not subset of
+            if not sourceVNIPoolIds.issubset(targetVNIPoolIds):
+                raise Exception("All the source NSX-V VNI pool ID's are not present in target NSX-T VNI pools")
+            else:
+                logger.debug('Validated successfully that the source NSX-V VNI pool is subset of target NSX-T VNI pools')
+        except:
+            raise
+
     @description("Checking Bridging Components")
     @remediate
     def checkBridgingComponents(self, orgVDCIDList, edgeClusterNameList, nsxtObj, vcenterObj):
@@ -3853,13 +3906,14 @@ class VCDMigrationValidation:
 
     @description("Performing OrgVDC related validations")
     @remediate
-    def orgVDCValidations(self, inputDict, vdcDict, sourceOrgVDCId, nsxtObj):
+    def orgVDCValidations(self, inputDict, vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj):
         """
         Description : Pre migration validation tasks for org vdc
         Parameters  : inputDict      -  dictionary of all the input yaml file key/values (DICT)
                       vdcDict        -  dictionary of the vcd details (DIC)
                       sourceOrgVDCId -  ID of source org vdc (STRING)
                       nsxtObj        -  Object of NSXT operations class holding all functions related to NSXT (OBJECT)
+                      nsxvObj        -  Object of NSXV operations class holding all functions related to NSXV (OBJECT)
         """
         # Flag to check whether the org vdc was disabled or not
         disableOrgVDC = False
@@ -3872,10 +3926,6 @@ class VCDMigrationValidation:
             # validating whether target org vdc with same name as that of source org vdc exists
             logger.info("Validating whether target Org VDC already exists")
             self.validateNoTargetOrgVDCExists(vdcDict["OrgVDCName"])
-
-            # validating org vdc fast provisioned
-            #logger.info('Validating whether source Org VDC is fast provisioned')
-            #self.validateOrgVDCFastProvisioned()
 
             # getting the target External Network details
             logger.info(
@@ -3899,7 +3949,7 @@ class VCDMigrationValidation:
 
             # validating the source network pool is VXLAN or VLAN backed
             logger.info("Validating Source Network Pool is VXLAN or VLAN backed")
-            self.validateSourceNetworkPools()
+            self.validateSourceNetworkPools(cloneOverlayIds=inputDict["VCloudDirector"].get("CloneOverlayIds"))
 
             # validating whether source org vdc is NSX-V backed
             logger.info('Validating whether source Org VDC is NSX-V backed')
@@ -3983,6 +4033,10 @@ class VCDMigrationValidation:
             providerVDCImportedNeworkTransportZone = inputDict["VCloudDirector"].get("ImportedNeworkTransportZone", None)
             self.validateOrgVDCNetworkDirect(orgVdcNetworkList, vdcDict["NSXTProviderVDCName"],
                                              providerVDCImportedNeworkTransportZone, nsxtObj)
+
+            # validating NSX-V and NSX-T VNI pool ranges
+            logger.info('Validating whether the source NSX-V VNI pool is subset of target NSX-T VNI pools or not')
+            self.validateVniPoolRanges(nsxtObj, nsxvObj, cloneOverlayIds=inputDict['VCloudDirector'].get('CloneOverlayIds'))
 
         except:
             # Enabling source Org VDC if premigration validation fails
@@ -4091,7 +4145,7 @@ class VCDMigrationValidation:
 
             if any([
                     # Performing org vdc related validations
-                    self.orgVDCValidations(inputDict, vdcDict, sourceOrgVDCId, nsxtObj),
+                    self.orgVDCValidations(inputDict, vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj),
                     # Performing services related validations
                     self.servicesValidations(vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj) if validateServices else False,
                     # Performing vApp related validations
@@ -5258,3 +5312,79 @@ class VCDMigrationValidation:
                     else [responseDict['list']['securitygroup']])
 
         return {group['objectId']: group for group in securityGroups}
+
+    @isSessionExpired
+    def getEdgeGatewaySyslogConfig(self, edgeGatewayId, v2tAssessmentMode):
+        """
+        Description :   Gets the Syslog Configuration details of the specified Edge Gateway
+        Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
+        """
+        try:
+            # url to fetch edge gateway details
+            getUrl = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                                   vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
+            getResponse = self.restClientObj.get(getUrl, headers=self.headers)
+            if getResponse.status_code == requests.codes.ok:
+                responseDict = xmltodict.parse(getResponse.content)
+                edgeGatewayDict = responseDict['EdgeGateway']
+            logger.debug("Getting Syslog Services Configuration Details of Source Edge Gateway")
+            # url to get syslog config details of specified edge gateway
+            url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                  vcdConstants.NETWORK_EDGES,
+                                  vcdConstants.EDGE_GATEWAY_SYSLOG_CONFIG_BY_ID.format(edgeGatewayId))
+            # call to get api to get dns config details of specified edge gateway
+            response = self.restClientObj.get(url, self.headers)
+            if response.status_code == requests.codes.ok:
+                responseDict = xmltodict.parse(response.content)
+                # checking if syslog is enabled, if so raising exception
+                if responseDict['syslog']['enabled'] == "true":
+                    if v2tAssessmentMode:
+                        return ['Syslog service is configured in the Source but not supported in the Target\n']
+                    else:
+                        logger.warning('Syslog service is configured in the Source but not supported in the Target')
+                        return []
+                else:
+                    return []
+            else:
+                return ['Unable to get Syslog Services Configuration Details with error code {}\n'.format(
+                    response.status_code)]
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def getEdgeGatewaySSHConfig(self, edgeGatewayId, v2tAssessmentMode):
+        """
+        Description :   Gets the SSH Configuration details of the specified Edge Gateway
+        Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
+        """
+        try:
+            # url to fetch edge gateway details
+            getUrl = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                                   vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
+            getResponse = self.restClientObj.get(getUrl, headers=self.headers)
+            if getResponse.status_code == requests.codes.ok:
+                responseDict = xmltodict.parse(getResponse.content)
+                edgeGatewayDict = responseDict['EdgeGateway']
+            logger.debug("Getting SSH Services Configuration Details of Source Edge Gateway")
+            # url to get ssh config details of specified edge gateway
+            url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                  vcdConstants.NETWORK_EDGES,
+                                  vcdConstants.EDGE_GATEWAY_CLISETTINGS_CONFIG_BY_ID.format(edgeGatewayId))
+            # call to get api to get ssh config details of specified edge gateway
+            response = self.restClientObj.get(url, self.headers)
+            if response.status_code == requests.codes.ok:
+                responseDict = xmltodict.parse(response.content)
+                # checking if ssh is enabled, if so raising exception
+                if responseDict['cliSettings']['remoteAccess'] == "true":
+                    if v2tAssessmentMode:
+                        return ['SSH service is configured in the Source but not supported in the Target\n']
+                    else:
+                        logger.warning('SSH service is configured in the Source but not supported in the Target')
+                        return []
+                else:
+                    return []
+            else:
+                return ['Unable to get SSH Services Configuration Details with error code {}\n'.format(
+                    response.status_code)]
+        except Exception:
+            raise

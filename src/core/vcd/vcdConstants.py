@@ -83,6 +83,9 @@ ALL_ORG_VDC_NETWORKS = "orgVdcNetworks"
 #org vdc network dhcp uri
 ORG_VDC_NETWORK_DHCP = "orgVdcNetworks/{}/dhcp"
 
+# org vdc network additional properties
+ORG_VDC_NETWORK_ADDITIONAL_PROPERTIES = "orgVdcNetworks/{}/additionalProperties"
+
 #nsx managers uri
 NSX_MANAGERS = "extension/nsxtManagers"
 
@@ -737,3 +740,8 @@ DHCP_FORWARDER = "edgeGateways/{}/dhcpForwarder"
 
 # Filter to get VNic details
 VNIC_INDEX = "/vdcNetworks?includeDistributed=false&includeUdlrUplinks=true"
+# syslog config uri for edge gateway by id
+EDGE_GATEWAY_SYSLOG_CONFIG_BY_ID = "/{}/syslog/config"
+
+# ssh settings ur for edge gateway by id
+EDGE_GATEWAY_CLISETTINGS_CONFIG_BY_ID = "/{}/clisettings"
