@@ -249,7 +249,7 @@ OPEN_API_CONTENT_TYPE = 'application/json;version={}'
 
 # content type fro json
 GENERAL_JSON_CONTENT_TYPE = 'application/*+json;version={}'
-GENERAL_JSON_ONLY_CONTENT_TYPE =  'application/*+json'
+GENERAL_JSON_ONLY_CONTENT_TYPE = 'application/*+json'
 
 # content type for xml
 GENERAL_XML_CONTENT_TYPE = 'application/*+xml;charset=UTF-8'
@@ -731,3 +731,9 @@ EDGE_CLUSTER_DATA = 'edgeClusters'
 
 # get vNics details
 VNIC = '/vnics'
+
+# Update DHCP forwarder config on edge gateway services
+DHCP_FORWARDER = "edgeGateways/{}/dhcpForwarder"
+
+# Filter to get VNic details
+VNIC_INDEX = "/vdcNetworks?includeDistributed=false&includeUdlrUplinks=true"

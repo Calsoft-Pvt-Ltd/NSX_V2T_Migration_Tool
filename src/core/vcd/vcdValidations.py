@@ -2669,7 +2669,10 @@ class VCDMigrationValidation:
                 relayresponsedict = xmltodict.parse(relayresponse.content)
                 # checking if relay is configured in dhcp, if so raising exception
                 if relayresponsedict['relay'] is not None:
-                    errorList.append('DHCP Relay is configured in source edge gateway\n')
+                    if 'fqdn' in relayresponsedict['relay']['relayServer'].keys():
+                        errorList.append('Domain names are configured as a DHCP servers in DHCP Relay configuration in source edge gateway.\n')
+                    if 'groupingObjectId' in relayresponsedict['relay']['relayServer'].keys():
+                        errorList.append('IP sets are configured as a DHCP servers in DHCP Relay configuration in source edge gateway.\n')
             else:
                 errorList.append('Failed to retrieve DHCP Relay configuration of Source Edge Gateway with error code {} \n'.format(relayresponse.status_code))
                 return errorList, None
@@ -4186,6 +4189,42 @@ class VCDMigrationValidation:
                     deleteResponseDict = deleteResponse.json()
                     raise Exception("Failed to log out current user of VMware Cloud Director: {}".format(deleteResponseDict['message']))
         except Exception:
+            raise
+
+    @isSessionExpired
+    def getEdgeGatewayDHCPRelayConfig(self, edgeGatewayId):
+        """
+        Description : Get configuration of DHCP Relay service on edge gateway.
+        Parameters : edgeGatewayID - edge gateway ID (STRING)
+        """
+        try:
+            logger.debug("Getting configuration of DHCP Relay service on source edge gateway.")
+            relayConfigData = None
+            # # relay url to get dhcp config details of specified edge gateway
+            # relayurl = "{}{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+            #                              vcdConstants.NETWORK_EDGES,
+            #                              vcdConstants.EDGE_GATEWAY_DHCP_CONFIG_BY_ID.format(edgeGatewayId),
+            #                              vcdConstants.EDGE_GATEWAY_DHCP_RELAY_CONFIG_BY_ID)
+            #
+            # # call to get api to get dhcp relay config details of specified edge gateway
+            # relayresponse = self.restClientObj.get(relayurl, self.headers)
+
+            relayConfigData = self.rollback.apiData['sourceEdgeGatewayDHCP'][edgeGatewayId]
+            if 'relay' in relayConfigData.keys():
+                # checking if domain names/Ip sets are configured in dhcp relay, if so raising an exception.
+                if relayConfigData['relay'] is not None:
+                    if 'fqdn' in relayConfigData['relay']['relayServer'].keys():
+                        raise Exception(
+                            'Domain names are configured as a DHCP servers in DHCP Relay configuration in source edge gateway.\n')
+                    if 'groupingObjectId' in relayConfigData['relay']['relayServer'].keys():
+                        raise Exception(
+                            'IP sets are configured as a DHCP servers in DHCP Relay configuration in source edge gateway.\n')
+            else:
+                logger.debug("DHCP Relay is not configured on Source Edge Gateway {}.".format(edgeGatewayId))
+                return None
+
+            return relayConfigData
+        except:
             raise
 
     @isSessionExpired

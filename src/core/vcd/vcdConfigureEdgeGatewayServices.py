@@ -923,6 +923,98 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         except:
             raise
 
+
+    @description("configuration of DHCP relay service on target edge gateway")
+    @remediate
+    def configureDHCPRelayService(self):
+        """
+        Description : Configure DHCP Relay service on target edge gateway.
+        """
+        try:
+            logger.debug('DHCP Relay Service is getting configured')
+            sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
+            targetOrgVDCId = self.rollback.apiData['targetOrgVDC']['@id']
+            for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
+                sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
+                targetEdgeGatewayID = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'], self.rollback.apiData['targetEdgeGateway']))[0]['id']
+
+                DHCPRelayData = self.getEdgeGatewayDHCPRelayConfig(sourceEdgeGateway['id'])
+                # configure dns on target only if source dns is enabled
+                if DHCPRelayData:
+                    logger.debug('Configuring DHCP relay service on target edge gateway - {}'.format(sourceEdgeGateway['name']))
+
+                    # get the list of DHCP servers configured in DHCP relay configurations..
+                    relayServers = DHCPRelayData['relay']['relayServer']['ipAddresses']
+                    forwardersList = list()
+                    if isinstance(relayServers, list):
+                        forwardersList = [relayServer for relayServer in relayServers]
+                    else:
+                        forwardersList = [relayServers]
+
+                    # get the list of relay agents configured in DHCP relay configurations..
+                    relayAgentsData = DHCPRelayData['relay']['relayAgents']['relayAgents']
+                    relayAgentsList = list()
+                    if isinstance(relayAgentsData, list):
+                        relayAgentsList = [relayAgent['giAddress'] for relayAgent in relayAgentsData]
+                    elif isinstance(relayAgentsData, OrderedDict):
+                        relayAgentsList = [relayAgentsData['giAddress']]
+                    else:
+                        relayAgentsList = [relayAgentsData['giAddress']]
+
+                    # Enables the DHCP forwarder on edhe Gateway.
+                    DHCPForwarderUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.DHCP_FORWARDER.format(targetEdgeGatewayID))
+                    payloadData = {
+                                    "enabled": "true",
+                                    "dhcpServers": forwardersList
+                                }
+                    payloadData = json.dumps(payloadData)
+
+                    # Call for PUT API to configure DHCP forwarder service
+                    apiResponse = self.restClientObj.put(DHCPForwarderUrl, headers=self.headers, data=payloadData)
+                    if apiResponse.status_code == requests.codes.ok or apiResponse.status_code == requests.codes.accepted:
+                        logger.info("DHCP forwarder successfully configured on target edge gateway {}.".
+                                    format(targetEdgeGatewayID))
+                    else:
+                        # Failed to configure DHCP forwarder.
+                        errorResponse = apiResponse.json()
+                        logger.debug("Failed to configure DHCP forwarder on edge gateway {}, error : {}.".
+                                     format(targetEdgeGatewayID, errorResponse))
+                        raise Exception("Failed to configure DHCP forwarder on edge gateway {}, error : {}.".
+                                        format(targetEdgeGatewayID, errorResponse))
+
+                    # get OrgVDC Network details which are used as a relay agents.
+                    orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
+                    for network in orgvdcNetworks:
+                        networkGateway = network['subnets']['values'][0]['gateway']
+                        if networkGateway in relayAgentsList:
+                            networkId = network['id']
+
+                            # Enable the DHCP with relay mode "true" on the Org VDC Networks.
+                            DHCPurl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                vcdConstants.ORG_VDC_NETWORK_DHCP.format(networkId))
+                            # Creating Payload
+                            payloadData = {
+                                            "enabled": "true",
+                                            "mode": "RELAY"
+                                          }
+                            payloadData = json.dumps(payloadData)
+                            # Call for PUT API to configure DHCP on OrgVDC network, which used as a DHCP relay agents.
+                            apiResponse = self.restClientObj.put(DHCPurl, headers=self.headers,
+                                                                 data=payloadData)
+                            if apiResponse.status_code == requests.codes.ok or apiResponse.status_code == requests.codes.accepted:
+                                logger.info("DHCP Enabled successfully in relay mode on OrgVDC network: {}.".format(network['name']))
+                            else:
+                                # Failed to Enable DHCP with in relay mode on Org VDC network..
+                                errorResponse = apiResponse.json()
+                                logger.debug("Failed to enable DHCP in relay mode on OrgVDC network {}, error : {}.".
+                                             format(network['name'], errorResponse))
+                                raise Exception("Failed to enable DHCP in relay mode on OrgVDC network {}, error : {}.".
+                                                format(network['name'], errorResponse))
+                else:
+                    logger.debug("DHCP relay service not configured on source edge gateway : {}.".format(sourceEdgeGateway))
+        except:
+            raise
+
     @remediate
     def connectionPropertiesConfig(self, edgeGatewayID, ipsecConfigDict):
         """
@@ -1464,6 +1556,34 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             raise
 
     @isSessionExpired
+    def getOrgVDCNetworksVNics(self, edgeGatewayId, orgvdcNetworkName):
+        """
+        Description: Get VNic index for OrgVDC network
+        parameter : OrgVDC network name
+                    Edge gateway ID
+        returns:    Returns VNic Index of the OrgVDC Network.
+        """
+        try:
+            logger.debug("Getting VNics index for OrgVDC network : ".format(orgvdcNetworkName))
+            orgvdcNetworkDetailsUrl = "{}{}/{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                  vcdConstants.NETWORK_EDGES, edgeGatewayId, vcdConstants.VNIC_INDEX)
+            # get api call to retrieve the edge gateway VNics info for orgVDC network.
+            response = self.restClientObj.get(orgvdcNetworkDetailsUrl, self.headers)
+            if response.status_code == requests.codes.ok:
+                responseDict = xmltodict.parse(response.content)
+                for edgeInterface in responseDict['edgeInterfaces']['edgeInterface']:
+                    if edgeInterface['name'] == orgvdcNetworkName:
+                        return edgeInterface['index']
+                else:
+                    raise Exception("Failed to get VNic details for edge gateway {} of network name {}.".format
+                                    (edgeGatewayId, orgvdcNetworkName))
+            else:
+                raise Exception("Failed to get VNic details for edge gateway {} of network name {}.".format
+                                (edgeGatewayId, orgvdcNetworkName))
+        except:
+            raise
+
+    @isSessionExpired
     def dhcpRollBack(self):
         """
         Description: Creating DHCP service in Source Org VDC for roll back
@@ -1474,6 +1594,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 return
 
             data = self.rollback.apiData['sourceEdgeGatewayDHCP']
+            sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
             # ID of source edge gateway
             for sourceEdgeGatewayId in self.rollback.apiData['sourceEdgeGatewayId']:
                 edgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
@@ -1482,8 +1603,31 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                       vcdConstants.NETWORK_EDGES,
                                       vcdConstants.EDGE_GATEWAY_DHCP_CONFIG_BY_ID .format(edgeGatewayId))
                 # if DHCP pool was present in the source
-                if data[sourceEdgeGatewayId]['ipPools']:
+                if data[sourceEdgeGatewayId]['ipPools'] or data[sourceEdgeGatewayId]['relay']:
                     del data[sourceEdgeGatewayId]['version']
+                    if data[sourceEdgeGatewayId]['relay']:
+                        # get relay agents list from DHCP configuration.
+                        DHCPRelayData = data[sourceEdgeGatewayId]
+                        relayAgentsList = list()
+                        relayAgentsData = DHCPRelayData['relay']['relayAgents']['relayAgents']
+                        if isinstance(relayAgentsData, list):
+                            relayAgentsList = [relayAgent['giAddress'] for relayAgent in relayAgentsData]
+                        elif isinstance(relayAgentsData, OrderedDict):
+                            relayAgentsList = [relayAgentsData['giAddress']]
+                        else:
+                            relayAgentsList = [relayAgentsData['giAddress']]
+                        orgvdcNetworks = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks',
+                                                                saveResponse=False)
+                        for network in orgvdcNetworks:
+                            networkGateway = network['subnets']['values'][0]['gateway']
+                            if networkGateway in relayAgentsList:
+                                orgvdcNetworkVNics = self.getOrgVDCNetworksVNics(edgeGatewayId, network['name'])
+                                for relayAgent in relayAgentsData:
+                                    if relayAgent['giAddress'] == networkGateway:
+                                        relayAgent['vnicIndex'] = orgvdcNetworkVNics
+
+                        data[sourceEdgeGatewayId]['relay']['relayAgents']['relayAgents'] = relayAgentsData
+
                     payloadData = json.dumps(data[sourceEdgeGatewayId])
                     self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
                     response = self.restClientObj.put(url, self.headers, data=payloadData)
