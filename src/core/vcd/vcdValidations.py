@@ -4253,16 +4253,6 @@ class VCDMigrationValidation:
         """
         try:
             logger.debug("Getting configuration of DHCP Relay service on source edge gateway.")
-            relayConfigData = None
-            # # relay url to get dhcp config details of specified edge gateway
-            # relayurl = "{}{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
-            #                              vcdConstants.NETWORK_EDGES,
-            #                              vcdConstants.EDGE_GATEWAY_DHCP_CONFIG_BY_ID.format(edgeGatewayId),
-            #                              vcdConstants.EDGE_GATEWAY_DHCP_RELAY_CONFIG_BY_ID)
-            #
-            # # call to get api to get dhcp relay config details of specified edge gateway
-            # relayresponse = self.restClientObj.get(relayurl, self.headers)
-
             relayConfigData = self.rollback.apiData['sourceEdgeGatewayDHCP'][edgeGatewayId]
             if 'relay' in relayConfigData.keys():
                 # checking if domain names/Ip sets are configured in dhcp relay, if so raising an exception.
