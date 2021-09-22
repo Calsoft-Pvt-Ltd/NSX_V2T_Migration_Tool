@@ -4048,6 +4048,10 @@ class VCDMigrationValidation:
             logger.info('Validating whether the source NSX-V VNI pool is subset of target NSX-T VNI pools or not')
             self.validateVniPoolRanges(nsxtObj, nsxvObj, cloneOverlayIds=inputDict['VCloudDirector'].get('CloneOverlayIds'))
 
+            # validating target external network pools
+            nsxtNetworkPoolName = vdcDict.get('NSXTNetworkPoolName', None)
+            logger.info('Validating Target NSXT backed Network Pools')
+            self.validateTargetNetworkPools(nsxtNetworkPoolName)
         except:
             # Enabling source Org VDC if premigration validation fails
             if disableOrgVDC:
@@ -5359,3 +5363,24 @@ class VCDMigrationValidation:
                     response.status_code)]
         except Exception:
             raise
+
+    @isSessionExpired
+    def validateTargetNetworkPools(self, networkPoolName):
+        """
+        Description: Validate NSXT backed Target network pools
+        Parameters: networkPoolName - NSXT network pool name
+        """
+        data = self.rollback.apiData
+        targetPVDCPayloadDict = data['targetProviderVDC']
+        networkPoolReferences = listify(targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference'])
+
+        # if multiple network pools exist and network pool not specified in user spec
+        if len(networkPoolReferences) > 1 and not networkPoolName:
+            raise Exception('Target PVDC has multiple network pools. Please specify the NSXT Network Pool in user spec.')
+
+        # if network pool passed by user doesn't exist in target then raise exception
+        if [pool for pool in networkPoolReferences if pool['@name'] == networkPoolName]:
+            logger.debug('Network Pool {} exists in Target PVDC'.format(networkPoolName))
+        else:
+            raise Exception("Network Pool {} doesn't exist in Target PVDC".format(networkPoolName))
+
