@@ -129,23 +129,6 @@
         "type": "{{pvdcType}}"
       }
     },
-    "createIPSecServices": {
-      "name": "{{name}}",
-      "description": "",
-      "enabled": "{{enabled}}",
-      "localEndpoint": {
-        "localId": "{{localId}}",
-        "localAddress": "{{externalIp}}"
-      },
-      "remoteEndpoint": {
-        "remoteId": "{{peerIp}}",
-        "remoteAddress": "{{RemoteIp}}"
-      },
-      "preSharedKey": "{{psk}}",
-      "connectorInitiationMode": " ",
-      "securityType": "DEFAULT",
-      "logging": true
-    },
     "createDNATServices": {
       "id": "{{ruleId}}",
       "name": "{{ruleTag}}",

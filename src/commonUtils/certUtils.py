@@ -8,6 +8,8 @@ Description: Module which holds all the methods for decrpyting the session key a
 
 import ast
 import base64
+import os
+import subprocess
 
 from Crypto.Cipher import AES
 from Crypto.PublicKey import RSA
@@ -50,3 +52,27 @@ def decryptCertPrivateKey(encPrivateKey, secret):
     cipher = AES.new(secret)
     decryptedPrivateKey = str(cipher.decrypt(base64.b64decode(privateKey)), 'utf-8').rstrip('{')
     return decryptedPrivateKey
+
+
+def verifyCertificateAgainstCa(certPem, caPem):
+    """
+    Description :   Verify service certificate against CA certificate
+    Parameters  :   certPem - service certificate is PEM format (STR)
+                    caPem - CA certificate is PEM format (STR)
+    Returns     :   True if service certificate is signed by CA certificate (BOOL)
+    """
+    caFile = 'ca.pem'
+    certFile = 'cert.pem'
+    try:
+        with open(certFile, 'w', encoding='utf-8') as cert:
+            cert.write(certPem)
+        with open(caFile, 'w', encoding='utf-8') as ca:
+            ca.write(caPem)
+        out = subprocess.run(['openssl', 'verify', '-CAfile', caFile, certFile], stdout=subprocess.PIPE)
+        return True if out.returncode == 0 and f'{certFile}: OK' in out.stdout.decode('utf-8') else False
+
+    finally:
+        if os.path.exists(caFile):
+            os.remove(caFile)
+        if os.path.exists(certFile):
+            os.remove(certFile)
