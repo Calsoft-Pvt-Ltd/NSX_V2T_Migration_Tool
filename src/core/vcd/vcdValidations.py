@@ -5370,21 +5370,17 @@ class VCDMigrationValidation:
         Description: Validate NSXT backed Target network pools
         Parameters: networkPoolName - NSXT network pool name
         """
-        try:
-            data = self.rollback.apiData
-            targetPVDCPayloadDict = data['targetProviderVDC']
-            networkPoolReferences = targetPVDCPayloadDict['NetworkPoolReferences']
-            # if multiple network pools exist and network pool not specified in user spec
-            if isinstance(networkPoolReferences['NetworkPoolReference'], list) and not networkPoolName:
-                raise Exception('Target PVDC has multiple network pools. Please specify the NSXT Network Pool in user spec.')
-            networkPoolReferencesList = (
-                networkPoolReferences['NetworkPoolReference']
-                if isinstance(networkPoolReferences['NetworkPoolReference'], list)
-                else [networkPoolReferences['NetworkPoolReference']])
-            # if network pool passed by user doesn't exist in target then raise exception
-            if filter(lambda poolReference: poolReference['@name'] == networkPoolName, networkPoolReferencesList):
-                logger.debug('Network Pool {} exists in Target PVDC'.format(networkPoolName))
-            else:
-                raise Exception("Network Pool {} doesn't exist in Target PVDC".format(networkPoolName))
-        except Exception:
-            raise
+        data = self.rollback.apiData
+        targetPVDCPayloadDict = data['targetProviderVDC']
+        networkPoolReferences = listify(targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference'])
+
+        # if multiple network pools exist and network pool not specified in user spec
+        if len(networkPoolReferences) > 1 and not networkPoolName:
+            raise Exception('Target PVDC has multiple network pools. Please specify the NSXT Network Pool in user spec.')
+
+        # if network pool passed by user doesn't exist in target then raise exception
+        if [pool for pool in networkPoolReferences if pool['@name'] == networkPoolName]:
+            logger.debug('Network Pool {} exists in Target PVDC'.format(networkPoolName))
+        else:
+            raise Exception("Network Pool {} doesn't exist in Target PVDC".format(networkPoolName))
+
