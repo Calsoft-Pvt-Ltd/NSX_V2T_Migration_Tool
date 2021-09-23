@@ -158,7 +158,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating Source OrgVDC Direct networks': [vcdValidationObj.validateOrgVDCNetworkDirect, orgVdcNetworkList, orgVDCDict["NSXTProviderVDCName"], self.NSXTProviderVDCImportedNeworkTransportZone, nsxtObj],
                 'Validating Edge cluster for target edge gateway deployment': [vcdValidationObj.validateEdgeGatewayDeploymentEdgeCluster, edgeGatewayDeploymentEdgeCluster, nsxtObj],
                 'Validating whether the source NSX-V VNI pool is subset of target NSX-T VNI pools or not': [vcdValidationObj.validateVniPoolRanges, nsxtObj, self.nsxvObj, self.inputDict["VCloudDirector"].get("CloneOverlayIds")],
-                'Validating Target NSX-T backed Network Pools': [vcdValidationObj.validateTargetNetworkPools, orgVDCDict.get('NSXTNetworkPoolName', None)],
+                'Validating Target NSX-T backed Network Pools': [vcdValidationObj.validateTargetPvdcNetworkPools, orgVDCDict.get('NSXTNetworkPoolName', None)],
             }
             # Perform these validations only if vapps are to be migrated
             if mainConstants.MOVEVAPP_KEYWORD in self.executeList:
