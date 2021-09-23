@@ -2223,7 +2223,7 @@ class VCDMigrationValidation:
                     logger.debug('Layer2 rules are not present in distributed firewall')
 
                 # Check if network provider scope is configured as DFW is enabled
-                if not v2tAssessmentMode and not self.networkProviderScope:
+                if not v2tAssessmentMode and validation and not self.networkProviderScope:
                     # If network provider scope is not configured append error to error list
                     allErrorList.append("DFW is enabled but 'Network Provider Scope' "
                                         "is not configured on NSXT Manager in vCD")
