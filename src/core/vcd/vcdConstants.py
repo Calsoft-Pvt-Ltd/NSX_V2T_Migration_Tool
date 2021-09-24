@@ -740,3 +740,6 @@ EDGE_GATEWAY_SYSLOG_CONFIG_BY_ID = "/{}/syslog/config"
 
 # ssh settings ur for edge gateway by id
 EDGE_GATEWAY_CLISETTINGS_CONFIG_BY_ID = "/{}/clisettings"
+
+# DHCP Static Binding
+DHCP_BINDINGS = "orgVdcNetworks/{}/dhcp/bindings"

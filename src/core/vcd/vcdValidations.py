@@ -2654,6 +2654,56 @@ class VCDMigrationValidation:
             raise Exception('; '.join(errors))
 
     @isSessionExpired
+    def getIpListFromRange(self, startIpAddr, endIpAddr):
+        """
+        Description :   Get list all possible IP addresses in given range.
+        """
+        try:
+            start = list(map(int, startIpAddr.split(".")))
+            end = list(map(int, endIpAddr.split(".")))
+            temp = start
+            ipRange = []
+            ipRange.append(startIpAddr)
+            while temp != end:
+                start[3] += 1
+                for i in (3, 2, 1):
+                    if temp[i] == 256:
+                        temp[i] = 0
+                        temp[i - 1] += 1
+                    ipRange.append(".".join(map(str, temp)))
+            return ipRange
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def ValidateStaticBinding(self, staticBindingsData):
+        """
+        Description :   Verify the DHCP bindings Configuration details of the specified Edge Gateway
+        Parameters  :   Static Binding data of the specified edge gateway.
+        """
+        try:
+            logger.debug("Validating DHCP static binding.")
+            sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
+            # get the OrgVDC network details which is used in bindings.
+            for binding in staticBindingsData:
+                ipAddress = binding['ipAddress']
+                defaultGateway = binding['defaultGateway']
+                # get OrgVDC Network details.
+                orgvdcNetworks = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
+                for network in orgvdcNetworks:
+                    ipRange = network['subnets']['values'][0]['ipRanges']['values'][0]
+                    networkGateway = network['subnets']['values'][0]['gateway']
+                    networkName = network['name']
+                    if networkGateway == defaultGateway:
+                        ipList = self.getIpListFromRange(ipRange['startAddress'], ipRange['endAddress'])
+                        if ipAddress in ipList:
+                            return True, networkName, ipAddress
+            else:
+                return False, None, None
+        except Exception:
+            raise
+
+    @isSessionExpired
     def getEdgeGatewayDhcpConfig(self, edgeGatewayId, v2tAssessmentMode=False):
         """
         Description :   Gets the DHCP Configuration details of the specified Edge Gateway
@@ -2683,7 +2733,8 @@ class VCDMigrationValidation:
                 if relayresponsedict['relay'] is not None:
                     errorList.append('DHCP Relay is configured in source edge gateway\n')
             else:
-                errorList.append('Failed to retrieve DHCP Relay configuration of Source Edge Gateway with error code {} \n'.format(relayresponse.status_code))
+                errorList.append(
+                    'Failed to retrieve DHCP Relay configuration of Source Edge Gateway with error code {} \n'.format(relayresponse.status_code))
                 return errorList, None
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
@@ -2691,7 +2742,10 @@ class VCDMigrationValidation:
                     errorList.append("DHCP is enabled in source edge gateway but not supported in target\n")
                 # checking if static binding is configured in dhcp, if so raising exception
                 if responseDict.get('staticBindings', None):
-                    errorList.append("Static binding is in DHCP configuration of Source Edge Gateway\n")
+                    status, networkName, ipAddress = self.ValidateStaticBinding(responseDict['staticBindings']['staticBindings'])
+                    if status:
+                        errorList.append(
+                            "DHCP Binding IP address {} overlaps with static IP Pool range on Network {}.".format(ipAddress, networkName))
                 logger.debug("DHCP configuration of Source Edge Gateway retrieved successfully")
                 # returning the dhcp details
                 return errorList, responseDict
