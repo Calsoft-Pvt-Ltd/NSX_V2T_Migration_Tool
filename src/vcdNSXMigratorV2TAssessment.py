@@ -36,7 +36,8 @@ STATUS_CODES = OrderedDict({
     0: 'Can be migrated',
     1: 'Can be migrated with additional preparation work',
     2: 'Automated migration not supported with the current version',
-    3: 'Org VDC not accessible for assessment'
+    3: 'Org VDC not accessible for assessment',
+    4: 'Org VDC not present'
 })
 
 # VALIDATION_CODES are used to classify features mentioned in VALIDATION_CLASSIFICATION.
@@ -344,16 +345,20 @@ class VMwareCloudDirectorNSXMigratorV2T:
                         vdcName, orgName = list(userDefinedVDC.items())[0]
                         # if org vdc name and org name match is found go further
                         if vdcName == VDC['name'] and orgName == VDC['org']['name']:
+                            try:
                             # Check if the org vdc provided is NSX-V backed
-                            if isinstance(self.checkOrgVDCDetails(orgName, vdcName=vdcName), Exception):
-                                errors.append(f"{vdcName} is not NSX-V backed")
-                                matchFound = True
-                                break
-                            if any([data['Key'].endswith("-v2t")
-                                   for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'],
+                                if isinstance(self.checkOrgVDCDetails(orgName, vdcName=vdcName), Exception):  #not NSX-V backed
+                                    errors.append(f"{vdcName} is not NSX-V backed")
+                                    matchFound = True
+                                    break
+                                if any([data['Key'].endswith("-v2t")
+                                    for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'],
                                                                                        rawData=True)]):
-                                errors.append(f'Org VDC "{vdcName}" is already under migration')
-                                matchFound = True
+                                    errors.append(f'Org VDC "{vdcName}" is already under migration')
+                                    matchFound = True
+                                    break
+                            except:
+                                matchFound = False
                                 break
                             # Adding the org vdc and org to relation map
                             matchFound = True
@@ -365,24 +370,37 @@ class VMwareCloudDirectorNSXMigratorV2T:
                     elif userDefinedVDC == VDC['name']:
                         vdcName = VDC['name']
                         orgName = VDC['org']['name']
-                        # Check if org vdc provided is NSX-V backed
-                        if isinstance(self.checkOrgVDCDetails(orgName, vdcName=vdcName), Exception):
-                            errors.append(f"{vdcName} is not NSX-V backed")
-                            matchFound = True
-                            break
-                        if any([data['Key'].endswith("-v2t")
-                                for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'],
+                        try:
+                            # Check if org vdc provided is NSX-V backed
+                            if isinstance(self.checkOrgVDCDetails(orgName, vdcName=vdcName), Exception):
+                                errors.append(f"{vdcName} is not NSX-V backed")
+                                matchFound = True
+                                break
+                            if any([data['Key'].endswith("-v2t")
+                                    for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'],
                                                                                     rawData=True)]):
-                            errors.append(f'Org VDC "{vdcName}" is already under migration')
-                            matchFound = True
+                                errors.append(f'Org VDC "{vdcName}" is already under migration')
+                                matchFound = True
+                                break
+                        except:
+                            matchFound = False
                             break
+
                         # add the org vdc along with org in relation map
                         matchFound = True
                         if VDC['org']['name'] not in relationMap:
                             relationMap[VDC['org']['name']] = {}
                         relationMap[VDC['org']['name']][userDefinedVDC] = VDC['id']
                 if not matchFound:
-                    errors.append(f'Org VDC "{userDefinedVDC}" does not exist')
+                    if isinstance(userDefinedVDC, dict):
+                        if orgName not in relationMap:
+                            relationMap[orgName] = {}
+                        relationMap[orgName][vdcName] = 'NA'
+                    else:
+                        if 'NA' not in relationMap:
+                            relationMap['NA'] = {}
+                        relationMap['NA'][userDefinedVDC] = 'NA'
+                    self.consoleLogger.warning(f'Org VDC "{userDefinedVDC}" does not exist')
         # Path to follow if Organization key is provided in user input file
         elif self.inputDict.get("Organization"):
             # Iterating over the list of organizations provided in the user input file
@@ -391,7 +409,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
                 try:
                     self.vcdValidationObj.getOrgUrl(org)
                 except:
-                    errors.append(f'Organization {org} does not exist')
+                    self.consoleLogger.warning(f'Organization {org} does not exist')
+                    continue
 
             # Iterating over org vdc to fetch nsx_v backed org vdc/s
             for VDC in orgVDCs:
@@ -463,23 +482,32 @@ class VMwareCloudDirectorNSXMigratorV2T:
                     self.orgVDCResult = OrderedDict()
                     self.orgVDCResult['Org Name'] = org
                     self.orgVDCResult['Org VDC'] = VDC
-                    self.orgVDCResult['Org VDC UUID'] = VDCId.split(":")[-1]
-                    self.orgVDCResult['Status'] = STATUS_CODES[0]
-                    self.orgVDCResult['VMs'] = vmData[org][VDC]['numberOfVMs']
-                    self.orgVDCResult['ORG VDC RAM (MB)'] = vmData[org][VDC]['memoryUsedMB']
+                    orgVdcExists = True
+                    try:
+                        orgUrl = self.vcdValidationObj.getOrgUrl(org)
+                        orgVdc = self.vcdValidationObj.getOrgVDCUrl(orgUrl, VDC, saveResponse=True)
+                    except:
+                        orgVdcExists = False
+
+                    self.orgVDCResult['Org VDC UUID'] = VDCId.split(":")[-1] if orgVdcExists else 'NA'
+                    self.orgVDCResult['Status'] = STATUS_CODES[0] if orgVdcExists else STATUS_CODES[4]
+                    self.orgVDCResult['VMs'] = vmData[org][VDC]['numberOfVMs'] if orgVdcExists else 0
+                    self.orgVDCResult['ORG VDC RAM (MB)'] = vmData[org][VDC]['memoryUsedMB'] if orgVdcExists else 0
                     self.orgVDCResult['Number of Networks to Bridge'] = 0
+                    # Attribute provide count of initial columns in report which
+                    # provides summary before adding actual validation features
+                    self.summaryColumnCount = len(self.orgVDCResult)
+                    # Adding the result before executing validation
+                    for key, value in VALIDATION_CLASSIFICATION.items():
+                        self.orgVDCResult[key] = "NA"
+
+                    if not orgVdcExists:
+                        self.reportData.append(self.orgVDCResult)
+                        continue
 
                     self.consoleLogger.info(f"Evaluating Org VDC '{VDC}' of organization '{org}'")
                     # Changing log level of console logger
                     self.changeLogLevelForConsoleLog(disable=True)
-
-                    # Attribute provide count of initial columns in report which
-                    # provides summary before adding actual validation features
-                    self.summaryColumnCount = len(self.orgVDCResult)
-
-                    # Adding the result before executing validation
-                    for key, value in VALIDATION_CLASSIFICATION.items():
-                        self.orgVDCResult[key] = False
 
                     try:
                         # getting the source Org VDC networks
@@ -783,7 +811,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
             }
             for row in self.reportData:
                 for feature, value in list(row.items())[self.summaryColumnCount:]:
-                    if value:
+                    if value and value != "NA":
                         feature_data[feature]['org_vdc_count'] += 1
                         feature_data[feature]['vm_count'] += int(row['VMs'])
                         feature_data[feature]['org_vdc_ram'] += int(row['ORG VDC RAM (MB)'])

@@ -18,6 +18,18 @@ import yaml
 logger = logging.getLogger('mainLogger')
 
 
+def listify(_list):
+    """
+    Description : Converts to list if not a list
+    Parameters  : _list - data to be converted to list (ANY)
+    """
+    # If NoneType or empty value is provided return empty list
+    if not _list:
+        return []
+
+    return _list if isinstance(_list, list) else [_list]
+
+
 class Utilities():
     """
     Description :   This class provides commonly used methods for vCloud Director NSXV to NSXT

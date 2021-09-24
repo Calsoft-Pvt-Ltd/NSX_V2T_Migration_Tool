@@ -43,6 +43,7 @@ class Rollback:
         # All these tasks should be completed for all Org VDCs before deleting DC groups.
         # Hence task to delete DC groups is not included here.
         self.rollbackTaskDfw = [
+            'vcdObj.disableTargetOrgVDC(rollback=True)',
             'vcdObj.enableDFWinOrgvdcGroup(None, None, rollback=True)',
             'vcdObj.dfwGroupsRollback()',
             'vcdObj.securityTagsRollback()',
@@ -51,7 +52,6 @@ class Rollback:
         ]
 
         self.rollbackTask = [
-            'vcdObj.disableTargetOrgVDC(rollback=True)',
             'vcdObj.loadBalancerRollback()',
             'vcdObj.enableSourceOrgVdc(sourceOrgVDCId)',
             'vcdObj.directNetworkIpCleanup()',

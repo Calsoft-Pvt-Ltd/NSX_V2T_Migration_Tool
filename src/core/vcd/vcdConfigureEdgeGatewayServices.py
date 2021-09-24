@@ -23,7 +23,7 @@ import xmltodict
 
 import src.core.vcd.vcdConstants as vcdConstants
 
-from src.commonUtils.utils import Utilities
+from src.commonUtils.utils import Utilities, listify
 from src.core.vcd.vcdValidations import (
     VCDMigrationValidation, isSessionExpired, remediate, description, DfwRulesAbsentError, getSession)
 
@@ -57,23 +57,16 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # Fetching service engine group name from sampleInput
             serviceEngineGroupName = orgVDCDict.get('ServiceEngineGroupName')
 
-            metadata = self.rollback.metadata
-
             if not self.rollback.apiData['targetEdgeGateway']:
                 logger.info('Skipping services configuration as edge gateway does '
                              'not exists')
                 return
 
-            targetEdgeGatewayIdList = [edgeGateway['id'] for edgeGateway in self.rollback.apiData['targetEdgeGateway']]
-            ipsecConfigDict = self.rollback.apiData['ipsecConfigDict']
-
-            # reading data from metadata
-            data = self.rollback.apiData
-            # taking target edge gateway id from apioutput json file
-            targetOrgVdcId = data['targetOrgVDC']['@id']
+            if not self.rollback.metadata.get("configureServices"):
+                logger.info('Configuring Target Edge gateway services.')
 
             # Configuring target IPSEC
-            self.configTargetIPSEC(ipsecConfigDict)
+            self.configTargetIPSEC(nsxvObj)
             # Configuring target NAT
             self.configureTargetNAT(noSnatDestSubnet)
             # Configuring firewall
@@ -473,98 +466,136 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             self.saveMetadataInOrgVdc()
             raise
 
-    @description("configuration of Target IPSEC")
-    @remediate
-    def configTargetIPSEC(self, ipsecConfig):
+    def createCertificatesInTarget(self, nsxv):
         """
-        Description :   Configure the IPSEC service to the Target Gateway
+        Description :   Fetch certificates from NSX-V and create in VCD certificate store
         Parameters  :   ipsecConfig   -   Details of IPSEC configuration  (DICT)
         """
+        # Create Service and CA certificates in VCD certificate store
+        vcdCertificateStore = self.getCerticatesFromTenant()
+        nsxvCertificateStore = nsxv.getNsxvCertificateStore()
+        for certObjectId, caObjectId in self.rollback.apiData['ipsecSourceCertificatesCa'].items():
+            certificate = nsxv.certRetrieval(certObjectId)
+            if certObjectId not in vcdCertificateStore:
+                self.uploadCertificate(certificate, certObjectId)
+            if caObjectId not in vcdCertificateStore:
+                certificateName = self.uploadCertificate(
+                    nsxvCertificateStore.get(caObjectId), caObjectId, caCert=True)
+                self.rollback.apiData['ipsecSourceCertificatesCa'][certObjectId] = certificateName
+
+    @description("configuration of Target IPSEC")
+    @remediate
+    def configTargetIPSEC(self, nsxv):
+        """
+        Description :   Configure the IPSEC service to the Target Gateway
+        Parameters  :   nsxv   -  Object of NSXV operations class  (OBJ)
+        """
         try:
-            logger.info('Configuring Target Edge gateway services.')
             logger.debug('IPSEC is getting configured')
 
             # Acquiring lock due to vCD multiple org vdc transaction issue
             self.lock.acquire(blocking=True)
 
-            targetEdgeGateway = copy.deepcopy(self.rollback.apiData['targetEdgeGateway'])
-            targetEdgegatewayIdList = [(edgeGateway['id'], edgeGateway['name']) for edgeGateway in targetEdgeGateway]
-            data = self.rollback.apiData
-            IPsecStatus = data.get('IPsecStatus', {})
-            for t1gatewayId, targetEdgeGatewayName in targetEdgegatewayIdList:
-                # Status dict for ipsec config
-                ipsecConfigured = IPsecStatus.get(t1gatewayId, [])
-                ipsecConfigDict = ipsecConfig.get(targetEdgeGatewayName)
+            # Create certificates and CA certificates present in all IPSEC sites and fetch fresh certificates from
+            # target after creation
+            vcdCertificateStore = None
+            if self.rollback.apiData['ipsecSourceCertificatesCa']:
+                self.createCertificatesInTarget(nsxv)
+                vcdCertificateStore = self.getCerticatesFromTenant()
+
+            if not self.rollback.apiData.get('IPsecStatus'):
+                self.rollback.apiData['IPsecStatus'] = {}
+
+            IPsecStatus = self.rollback.apiData['IPsecStatus']
+            for edgeGateway in self.rollback.apiData['targetEdgeGateway']:
+                # Status dict to store configuration status on target side
+                if not IPsecStatus.get(edgeGateway['id']):
+                    IPsecStatus[edgeGateway['id']] = []
+                ipsecConfig = self.rollback.apiData['ipsecConfigDict'].get(edgeGateway['name'])
+
                 # checking if ipsec is enabled on source org vdc edge gateway, if not then returning
-                if not ipsecConfigDict or not ipsecConfigDict['enabled']:
+                if not ipsecConfig or not ipsecConfig['enabled']:
                     logger.debug('IPSec is not enabled or configured in source Org VDC for edge gateway - {}.'.format(
-                        targetEdgeGatewayName
-                    ))
+                        edgeGateway['name']))
                     continue
-                logger.debug("Configuring IPSEC Services in Target Edge Gateway - {}".format(targetEdgeGatewayName))
-                # if enabled then retrieving the list instance of source  ipsec
-                sourceIPsecSite = ipsecConfigDict['sites']['sites'] if isinstance(ipsecConfigDict['sites']['sites'], list) else [ipsecConfigDict['sites']['sites']]
+
+                logger.debug("Configuring IPSEC Services in Target Edge Gateway - {}".format(edgeGateway['name']))
                 # url to configure the ipsec rules on target edge gateway
-                url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
-                                      vcdConstants.T1_ROUTER_IPSEC_CONFIG.format(t1gatewayId))
-                # if configured ipsec rules on source org vdc edge gateway, then configuring the same on target edge gateway
-                if ipsecConfigDict['enabled']:
-                    for sourceIPsecSite in sourceIPsecSite:
-                        # if configStatus flag is already set means that the sourceIPsecSite rule is already configured, if so then skipping the configuring of same rule and moving to the next sourceIPsecSite rule
-                        if sourceIPsecSite['name'] in ipsecConfigured:
-                            continue
-                        # if the subnet is not a list converting it in the list
-                        externalIpCIDR = sourceIPsecSite['localSubnets']['subnets'] if isinstance(sourceIPsecSite['localSubnets']['subnets'], list) else [sourceIPsecSite['localSubnets']['subnets']]
-                        RemoteIpCIDR = sourceIPsecSite['peerSubnets']['subnets'] if isinstance(sourceIPsecSite['peerSubnets']['subnets'], list) else [sourceIPsecSite['peerSubnets']['subnets']]
-                        # creating payload dictionary
-                        payloadDict = {"name": sourceIPsecSite['name'],
-                                       "enabled": "true" if sourceIPsecSite['enabled'] else "false",
-                                       "localId": sourceIPsecSite['localId'],
-                                       "externalIp": sourceIPsecSite['localIp'],
-                                       "peerIp": sourceIPsecSite['peerId'],
-                                       "RemoteIp": sourceIPsecSite['peerIp'],
-                                       "psk": sourceIPsecSite['psk'],
-                                       "connectorInitiationMode": " ",
-                                       "securityType": "DEFAULT",
-                                       "logging": "true" if ipsecConfigDict['logging']['enable'] else "false"
-                                       }
-                        filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
-                        # creating payload data
-                        payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='json',
-                                                                  componentName=vcdConstants.COMPONENT_NAME,
-                                                                  templateName=vcdConstants.CREATE_IPSEC_TEMPLATE)
-                        payloadData = json.loads(payloadData)
-                        # adding external ip cidr to payload
-                        payloadData['localEndpoint']['localNetworks'] = externalIpCIDR
-                        # adding remote ip cidr to payload
-                        payloadData['remoteEndpoint']['remoteNetworks'] = RemoteIpCIDR
-                        payloadData = json.dumps(payloadData)
-                        self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-                        # post api call to configure ipsec rules on target edge gateway
-                        response = self.restClientObj.post(url, self.headers, data=payloadData)
-                        if response.status_code == requests.codes.accepted:
-                            # if successful configuration of ipsec rules
-                            taskUrl = response.headers['Location']
-                            self._checkTaskStatus(taskUrl=taskUrl)
-                            # adding a key here to make sure the rule have configured successfully and when remediation skipping this rule
-                            #self.rollback.apiData[sourceIPsecSite['name']] = True
-                            ipsecConfigured.append(sourceIPsecSite['name'])
-                            IPsecStatus.update({t1gatewayId: ipsecConfigured})
-                            data['IPsecStatus'] = IPsecStatus
-                            logger.debug('IPSEC is configured successfully on the Target Edge Gateway - {}'.format(targetEdgeGatewayName))
-                        else:
-                            # if failure configuration of ipsec rules
-                            response = response.json()
-                            raise Exception('Failed to configure configure IPSEC on Target Edge Gateway {} - {} '
-                                            .format(targetEdgeGatewayName, response['message']))
-                    # below function configures network property of ipsec rules
-                    self.connectionPropertiesConfig(t1gatewayId, ipsecConfigDict)
-                else:
-                    # if no ipsec rules are configured on source edge gateway
-                    logger.debug('No IPSEC rules configured in source edge gateway - {}'.format(targetEdgeGatewayName))
-        except Exception:
-            raise
+                url = "{}{}{}".format(
+                    vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                    vcdConstants.ALL_EDGE_GATEWAYS,
+                    vcdConstants.T1_ROUTER_IPSEC_CONFIG.format(edgeGateway['id']))
+
+                for sourceIPsecSite in listify(ipsecConfig['sites']['sites']):
+                    # if configStatus flag is already set means that the sourceIPsecSite rule is already configured,
+                    # if so then skipping the configuring of same rule and moving to the next sourceIPsecSite rule
+                    if sourceIPsecSite['name'] in IPsecStatus[edgeGateway['id']]:
+                        continue
+
+                    payload = {
+                        "name": sourceIPsecSite['name'],
+                        "description": "",
+                        "enabled": True if sourceIPsecSite['enabled'] else False,
+                        "localEndpoint": {
+                            "localId": sourceIPsecSite['localId'],
+                            "localAddress": sourceIPsecSite['localIp'],
+                            "localNetworks": listify(sourceIPsecSite['localSubnets']['subnets']),
+                        },
+                        "remoteEndpoint": {
+                            "remoteId": sourceIPsecSite['peerId'],
+                            "remoteAddress": sourceIPsecSite['peerIp'],
+                            "remoteNetworks": listify(sourceIPsecSite['peerSubnets']['subnets']),
+                        },
+                        "connectorInitiationMode": " ",
+                        "securityType": "DEFAULT",
+                        "logging": True
+                    }
+
+                    if sourceIPsecSite.get('authenticationMode') == 'x.509':
+                        objectId = sourceIPsecSite['certificate']
+                        caObjectId = self.rollback.apiData['ipsecSourceCertificatesCa'][objectId]
+                        payload.update({
+                            'authenticationMode': 'CERTIFICATE',
+                            'certificateRef': {
+                                'name': objectId,
+                                'id': vcdCertificateStore[objectId],
+                            },
+                            'caCertificateRef': {
+                                'name': caObjectId,
+                                'id': vcdCertificateStore[caObjectId],
+                            },
+                        })
+                    else:
+                        payload.update({
+                            'authenticationMode': 'PSK',
+                            'preSharedKey': sourceIPsecSite['psk'],
+                        })
+
+                    self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+                    response = self.restClientObj.post(url, self.headers, data=json.dumps(payload))
+
+                    if response.status_code == requests.codes.accepted:
+                        # if successful configuration of ipsec rules
+                        taskUrl = response.headers['Location']
+                        self._checkTaskStatus(taskUrl=taskUrl)
+                        # adding a key here to make sure the rule have configured successfully and when remediation
+                        # skipping this rule
+                        IPsecStatus[edgeGateway['id']].append(sourceIPsecSite['name'])
+                        logger.debug(
+                            f"IPSEC site '{sourceIPsecSite['name']}' is configured successfully on the Target Edge "
+                            f"Gateway '{edgeGateway['name']}'")
+                    else:
+                        # if failure configuration of ipsec rules
+                        response = response.json()
+                        raise Exception(
+                            f"Failed to configure configure IPSEC site '{sourceIPsecSite['name']}' on Target Edge "
+                            f"Gateway '{edgeGateway['name']}' - {response['message']}")
+
+                # below function configures network property of ipsec rules
+                self.connectionPropertiesConfig(edgeGateway['id'], ipsecConfig)
+
         finally:
+            self.saveMetadataInOrgVdc()
             # Releasing thread lock
             try:
                 self.lock.release()
@@ -1050,73 +1081,89 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             raise
 
     @remediate
-    def connectionPropertiesConfig(self, edgeGatewayID, ipsecConfigDict):
+    def connectionPropertiesConfig(self, edgeGatewayID, ipsecConfig):
         """
         Description : Configuring Connection properties for IPSEC rules
         Parameters : edgeGatewayID - source edge gateway ID (STRING)
         """
-        try:
-            if not ipsecConfigDict or not ipsecConfigDict['enabled']:
-                logger.debug('IPSec is not enabled or configured on source Org VDC.')
-                return
-            # url to retrive the ipsec rules on target edge gateway
-            url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
-                                  vcdConstants.T1_ROUTER_IPSEC_CONFIG.format(edgeGatewayID))
-            ipsecRulesResponse = self.restClientObj.get(url, self.headers)
-            if ipsecRulesResponse.status_code == requests.codes.ok:
-                ipsecrules = json.loads(ipsecRulesResponse.content)
-                ipesecrules = ipsecrules['values'] if isinstance(ipsecrules['values'], list) else [ipsecrules]
-                sourceIPsecSites = ipsecConfigDict['sites']['sites'] if isinstance(ipsecConfigDict['sites']['sites'], list) else [ipsecConfigDict['sites']['sites']]
-                for sourceIPsecSite in sourceIPsecSites:
-                    for ipsecrule in ipesecrules:
-                        if ipsecrule['name'] == sourceIPsecSite['name']:
-                            ruleid = ipsecrule['id']
-                            # checking whether 'ConfigStatus' key is present or not if present skipping that rule while remediation
-                            if self.rollback.apiData.get(ruleid):
-                                continue
-                            propertyUrl = "{}{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
-                                                            vcdConstants.T1_ROUTER_IPSEC_CONFIG.format(edgeGatewayID), vcdConstants.CONNECTION_PROPERTIES_CONFIG.format(ruleid))
-                            # if the source encryption algorithm is 'AES-GCM', then target Ike algorith supported is 'AES 128'
-                            if sourceIPsecSite['encryptionAlgorithm'] == 'aes-gcm':
-                                ikeEncryptionAlgorithm  = vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get('aes')
-                                tunnelDigestAlgorithm = None
-                                ikeDigestAlgorithm = vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get('sha1')
-                            else:
-                                ikeEncryptionAlgorithm = vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get(sourceIPsecSite['encryptionAlgorithm'])
-                                tunnelDigestAlgorithm = [vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(sourceIPsecSite['digestAlgorithm'])]
-                                ikeDigestAlgorithm = vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(sourceIPsecSite['digestAlgorithm'])
-                            payloadDict = {
-                                    "securityType": "CUSTOM",
-                                    "ikeConfiguration": {
-                                        "ikeVersion": vcdConstants.CONNECTION_PROPERTIES_IKE_VERSION.get(sourceIPsecSite['ikeOption']),
-                                        "dhGroups": [vcdConstants.CONNECTION_PROPERTIES_DH_GROUP.get(sourceIPsecSite['dhGroup'])],
-                                        "digestAlgorithms": [ikeDigestAlgorithm],
-                                        "encryptionAlgorithms": [ikeEncryptionAlgorithm],
-                                    },
-                                    "tunnelConfiguration": {
-                                        "perfectForwardSecrecyEnabled": "true" if sourceIPsecSite['enablePfs'] else "false",
-                                        "dhGroups": [vcdConstants.CONNECTION_PROPERTIES_DH_GROUP.get(sourceIPsecSite['dhGroup'])],
-                                        "encryptionAlgorithms": [vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get(sourceIPsecSite['encryptionAlgorithm'])],
-                                        "digestAlgorithms": tunnelDigestAlgorithm
-                                    }
-                                }
-                            payloadData = json.dumps(payloadDict)
-                            self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
-                            # put api call to configure dns
-                            apiResponse = self.restClientObj.put(propertyUrl, headers=self.headers, data=payloadData)
-                            if apiResponse.status_code == requests.codes.accepted:
-                                # successfully configured connection property of ipsec
-                                task_url = apiResponse.headers['Location']
-                                self._checkTaskStatus(taskUrl=task_url)
-                                # adding a key here to make sure the rule have configured successfully and when remediation skipping this rule
-                                self.rollback.apiData[ruleid] = True
-                                logger.debug('Connection properties successfully configured for ipsec rule {}'.format(ipsecrule['name']))
-                            else:
-                                # failure in configuring ipsec configuration properties
-                                errorResponse = apiResponse.json()
-                                raise Exception('Failed to configure connection properties for ipsec rule {} with errors - {} '.format(ipsecrule['name'], errorResponse['message']))
-        except Exception:
-            raise
+        # url to retrieve the ipsec rules on target edge gateway
+        url = "{}{}{}".format(
+            vcdConstants.OPEN_API_URL.format(self.ipAddress),
+            vcdConstants.ALL_EDGE_GATEWAYS,
+            vcdConstants.T1_ROUTER_IPSEC_CONFIG.format(edgeGatewayID))
+        ipsecRulesResponse = self.restClientObj.get(url, self.headers)
+        if not ipsecRulesResponse.status_code == requests.codes.ok:
+            return
+
+        # TODO pranshu: Check for response.json()
+        # ipsecRules = json.loads(ipsecRulesResponse.content)
+        ipsecRules = ipsecRulesResponse.json()
+        ipsecRules = {rule['name']: rule for rule in listify(ipsecRules['values'])}
+
+        for sourceIPsecSite in listify(ipsecConfig['sites']['sites']):
+            rule = ipsecRules.get(sourceIPsecSite['name'])
+            if not rule:
+                continue
+
+            # checking whether 'ConfigStatus' key is present or not if present skipping that rule while remediation
+            if self.rollback.apiData.get(rule['id']):
+                continue
+
+            propertyUrl = "{}{}{}{}".format(
+                vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                vcdConstants.ALL_EDGE_GATEWAYS,
+                vcdConstants.T1_ROUTER_IPSEC_CONFIG.format(edgeGatewayID),
+                vcdConstants.CONNECTION_PROPERTIES_CONFIG.format(rule['id']))
+
+            # if the source encryption algorithm is 'AES-GCM', then target Ike algorithm supported is 'AES 128'
+            if sourceIPsecSite['encryptionAlgorithm'] == 'aes-gcm':
+                ikeEncryptionAlgorithm = vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get('aes')
+                ikeDigestAlgorithm = vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get('sha1')
+                tunnelDigestAlgorithm = None
+            else:
+                ikeEncryptionAlgorithm = vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get(
+                    sourceIPsecSite['encryptionAlgorithm'])
+                tunnelDigestAlgorithm = [vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(
+                    sourceIPsecSite['digestAlgorithm'])]
+                ikeDigestAlgorithm = vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(
+                    sourceIPsecSite['digestAlgorithm'])
+
+            payloadDict = {
+                "securityType": "CUSTOM",
+                "ikeConfiguration": {
+                    "ikeVersion": vcdConstants.CONNECTION_PROPERTIES_IKE_VERSION.get(sourceIPsecSite['ikeOption']),
+                    "dhGroups": [vcdConstants.CONNECTION_PROPERTIES_DH_GROUP.get(sourceIPsecSite['dhGroup'])],
+                    "digestAlgorithms": [ikeDigestAlgorithm],
+                    "encryptionAlgorithms": [ikeEncryptionAlgorithm],
+                },
+                "tunnelConfiguration": {
+                    "perfectForwardSecrecyEnabled": "true" if sourceIPsecSite['enablePfs'] else "false",
+                    "dhGroups": [vcdConstants.CONNECTION_PROPERTIES_DH_GROUP.get(sourceIPsecSite['dhGroup'])],
+                    "encryptionAlgorithms": [vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get(
+                        sourceIPsecSite['encryptionAlgorithm'])],
+                    "digestAlgorithms": tunnelDigestAlgorithm
+                }
+            }
+            payloadData = json.dumps(payloadDict)
+            self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+
+            # put api call to configure dns
+            apiResponse = self.restClientObj.put(propertyUrl, headers=self.headers, data=payloadData)
+
+            if apiResponse.status_code == requests.codes.accepted:
+                # successfully configured connection property of ipsec
+                task_url = apiResponse.headers['Location']
+                self._checkTaskStatus(taskUrl=task_url)
+                # adding a key here to make sure the rule have configured successfully and when remediation
+                # skipping this rule
+                self.rollback.apiData[rule['id']] = True
+                logger.debug('Connection properties successfully configured for ipsec rule {}'.format(rule['name']))
+            else:
+                # failure in configuring ipsec configuration properties
+                errorResponse = apiResponse.json()
+                raise Exception(
+                    'Failed to configure connection properties for ipsec rule {} with errors - {} '.format(
+                        rule['name'], errorResponse['message']))
 
     def createSecurityGroup(self, networkID, firewallRule, edgeGatewayID):
         """
@@ -1686,14 +1733,18 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             raise
 
     @isSessionExpired
-    def getCerticatesFromTenant(self):
+    def getCerticatesFromTenant(self, caOnly=False, rawOutput=False):
         """
             Description :   Fetch the names of certificates present in tenant portal
             Returns     :   dictionary of names and ids of certificates present in tenant portal
         """
         try:
-            logger.debug('Getting the certificates present in vCD tenant portal')
+            # TODO pranshu: implement paging
+            # TODO pranshu: implement caching
+            logger.debug('Getting the certificates present in VCD tenant certificate store')
             url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.CERTIFICATE_URL)
+            if caOnly:
+                url = f"{url}?filterEncoded=true&filter=(privateKey!=******)"
 
             # updating headers for get request
             self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
@@ -1701,46 +1752,54 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             response = self.restClientObj.get(url=url, headers=self.headers)
             if response.status_code == requests.codes.ok:
-                logger.debug('Successfully retrieved load balancer certificates')
+                logger.debug('Successfully retrieved VCD tenant certificate store')
                 responseDict = response.json()
+                if rawOutput:
+                    return responseDict.get('values', [])
                 # Retrieving certificate names from certificates
-                certificateNameIdDict = {certificate['alias']: certificate['id'] for certificate in responseDict.get('values', [])}
+                return {
+                    certificate['alias']: certificate['id']
+                    for certificate in responseDict.get('values', [])
+                }
 
-                # removing tenant context header after retrieving certificate from tenant portal
-                del self.headers['X-VMWARE-VCLOUD-TENANT-CONTEXT']
-
-                return certificateNameIdDict
             else:
                 errorResponseDict = response.json()
-                raise Exception("Failed to retrieve certificates from vcd due to error - {}".format(errorResponseDict[
-                                                                                                        'message']))
-        except:
-            raise
-
+                raise Exception(
+                    "Failed to retrieve certificates from vcd due to error - {}".format(errorResponseDict['message']))
+        finally:
+            # removing tenant context header after uploading certificate to tenant portal
+            if self.headers.get('X-VMWARE-VCLOUD-TENANT-CONTEXT'):
+                del self.headers['X-VMWARE-VCLOUD-TENANT-CONTEXT']
 
     @isSessionExpired
-    def uploadCertificate(self, certificate, certificateName):
+    def uploadCertificate(self, certificate, certificateName, caCert=False):
         """
         Description :   Upload the certificate for load balancer HTTPS configuration
         Params      :   certificate - certificate to be uploaded in vCD (STRING)
                         certificateName - name of certificate that if required (STRING)
         """
         try:
-            logger.debug('Upload the certificate for load balancer HTTPS configuration')
+            logger.debug(f'Upload the certificate {certificateName} in VCD certificate store')
             pkcs8PemFileName = 'privateKeyPKCS8.pem'
             url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.CERTIFICATE_URL)
-
-            # reading pkcs8 format private key from file
-            with open(pkcs8PemFileName, 'r', encoding='utf-8') as privateFile:
-                privateKey = privateFile.read()
-
             payloadData = {
                 "alias": certificateName,
-                "privateKey": privateKey,
-                "privateKeyPassphrase": "",
                 "certificate": certificate,
                 "description": ""
             }
+            if caCert:
+                vcdCertificateStore = self.getCerticatesFromTenant(caOnly=True, rawOutput=True)
+                for vcdCert in vcdCertificateStore:
+                    if vcdCert['certificate'] == certificate:
+                        return vcdCert['alias']
+            else:
+                # reading pkcs8 format private key from file
+                with open(pkcs8PemFileName, 'r', encoding='utf-8') as privateFile:
+                    privateKey = privateFile.read()
+                payloadData.update({
+                    "privateKey": privateKey,
+                    "privateKeyPassphrase": "",
+                })
             payloadData = json.dumps(payloadData)
 
             # updating headers for post request
@@ -1749,19 +1808,20 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             response = self.restClientObj.post(url=url, headers=self.headers, data=payloadData)
             if response.status_code == requests.codes.created:
-                logger.debug('Successfully uploaded load balancer certificate')
+                logger.debug(f'Successfully uploaded certificate {certificateName} in VCD certificate store')
+                return certificateName
             else:
                 errorResponseDict = response.json()
-                raise Exception("Failed to upload certificate '{}' in vcd due to error - {}".format(certificateName, errorResponseDict['message']))
-
-            # removing tenant context header after uploding certificate to tenant portal
-            del self.headers['X-VMWARE-VCLOUD-TENANT-CONTEXT']
-        except:
-            raise
+                raise Exception(
+                    f"Failed to upload certificate {certificateName} in VCD certificate store due to error - "
+                    f"{errorResponseDict['message']}")
         finally:
             # Removing the pem file afte operation
             if os.path.exists(pkcs8PemFileName):
                 os.remove(pkcs8PemFileName)
+            # removing tenant context header after uploading certificate to tenant portal
+            if self.headers.get('X-VMWARE-VCLOUD-TENANT-CONTEXT'):
+                del self.headers['X-VMWARE-VCLOUD-TENANT-CONTEXT']
 
     @isSessionExpired
     def getPoolSumaryDetails(self, edgeGatewayId):
