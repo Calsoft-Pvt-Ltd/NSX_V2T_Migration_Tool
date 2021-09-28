@@ -1779,7 +1779,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 logger.debug('Isolated OrgVDC networks not present on source OrgVDC')
 
             # Configure DHCP relay on target edge gateway.
-            if self.version > vcdConstants.API_VERSION_ANDROMEDA:
+            if self.version >= vcdConstants.API_VERSION_ANDROMEDA_10_3_1:
                 self.configureDHCPRelayService()
         except:
             raise

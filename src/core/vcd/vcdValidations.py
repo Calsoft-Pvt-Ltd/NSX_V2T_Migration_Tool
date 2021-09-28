@@ -2681,12 +2681,19 @@ class VCDMigrationValidation:
                 relayresponsedict = xmltodict.parse(relayresponse.content)
                 # checking if relay is configured in dhcp, if so raising exception
                 if relayresponsedict['relay'] is not None:
-                    if 'fqdn' in relayresponsedict['relay']['relayServer'].keys():
-                        errorList.append('Domain names are configured as a DHCP servers in DHCP Relay configuration in source edge gateway.\n')
-                    if 'groupingObjectId' in relayresponsedict['relay']['relayServer'].keys():
-                        errorList.append('IP sets are configured as a DHCP servers in DHCP Relay configuration in source edge gateway.\n')
+                    if self.version >= vcdConstants.API_VERSION_ANDROMEDA_10_3_1:
+                        if 'fqdn' in relayresponsedict['relay']['relayServer']:
+                            errorList.append(
+                                'Domain names are configured as a DHCP servers in DHCP Relay configuration in source edge gateway.\n')
+                        if 'groupingObjectId' in relayresponsedict['relay']['relayServer']:
+                            errorList.append(
+                                'IP sets are configured as a DHCP servers in DHCP Relay configuration in source edge gateway.\n')
+                    else:
+                        errorList.append(
+                            'DHCP Relay is configured in source edge gateway\n')
             else:
-                errorList.append('Failed to retrieve DHCP Relay configuration of Source Edge Gateway with error code {} \n'.format(relayresponse.status_code))
+                errorList.append(
+                    'Failed to retrieve DHCP Relay configuration of Source Edge Gateway with error code {} \n'.format(relayresponse.status_code))
                 return errorList, None
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
@@ -4254,13 +4261,13 @@ class VCDMigrationValidation:
         try:
             logger.debug("Getting configuration of DHCP Relay service on source edge gateway.")
             relayConfigData = self.rollback.apiData['sourceEdgeGatewayDHCP'][edgeGatewayId]
-            if 'relay' in relayConfigData.keys():
+            if 'relay' in relayConfigData:
                 # checking if domain names/Ip sets are configured in dhcp relay, if so raising an exception.
                 if relayConfigData['relay'] is not None:
-                    if 'fqdn' in relayConfigData['relay']['relayServer'].keys():
+                    if 'fqdn' in relayConfigData['relay']['relayServer']:
                         raise Exception(
                             'Domain names are configured as a DHCP servers in DHCP Relay configuration in source edge gateway.\n')
-                    if 'groupingObjectId' in relayConfigData['relay']['relayServer'].keys():
+                    if 'groupingObjectId' in relayConfigData['relay']['relayServer']:
                         raise Exception(
                             'IP sets are configured as a DHCP servers in DHCP Relay configuration in source edge gateway.\n')
             else:

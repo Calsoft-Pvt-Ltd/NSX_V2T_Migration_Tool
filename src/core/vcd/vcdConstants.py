@@ -18,6 +18,7 @@ XML_ADMIN_API_URL = "https://{}/api/admin/"
 
 # API version for Andromeda builds
 API_VERSION_ANDROMEDA = "36.0"
+API_VERSION_ANDROMEDA_10_3_1 = "36.1"
 
 # API version for Zeus builds
 API_VERSION_ZEUS = "35.0"
