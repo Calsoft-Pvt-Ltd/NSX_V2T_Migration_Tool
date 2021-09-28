@@ -521,7 +521,7 @@ CONNECTION_PROPERTIES_IKE_VERSION = {"ikev1": "IKE_V1", "ikev2": "IKE_V2", "ike-
 CONNECTION_PROPERTIES_DH_GROUP = {"dh2": "GROUP2", "dh5": "GROUP5", "dh14": "GROUP14", "dh15": "GROUP15", "dh16": "GROUP16", "dh19": "GROUP19", "dh20": "GROUP20", "dh21": "GROUP21"}
 
 # digest algorithm dict ipsec
-CONNECTION_PROPERTIES_DIGEST_ALGORITHM = {"sha1": "SHA1"}
+CONNECTION_PROPERTIES_DIGEST_ALGORITHM = {"sha1": "SHA1", "sha-256": "SHA2_256"}
 
 # encryption algorithm ipsec
 CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM = {"aes256": "AES_256", "aes": "AES_128", "aes-gcm": "AES_GCM_128"}

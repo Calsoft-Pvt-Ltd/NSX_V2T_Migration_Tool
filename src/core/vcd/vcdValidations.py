@@ -22,12 +22,11 @@ import ipaddress
 import requests
 import xmltodict
 
-import src.constants as mainConstants
 import src.core.vcd.vcdConstants as vcdConstants
 
 from src.commonUtils.restClient import RestAPIClient
-from src.commonUtils.threadUtils import Thread
-from src.commonUtils.utils import Utilities
+from src.commonUtils.certUtils import verifyCertificateAgainstCa
+from src.commonUtils.utils import Utilities, listify
 
 METADATA_SAVE_FALSE = False
 
@@ -2224,7 +2223,7 @@ class VCDMigrationValidation:
                     logger.debug('Layer2 rules are not present in distributed firewall')
 
                 # Check if network provider scope is configured as DFW is enabled
-                if not v2tAssessmentMode and not self.networkProviderScope:
+                if not v2tAssessmentMode and validation and not self.networkProviderScope:
                     # If network provider scope is not configured append error to error list
                     allErrorList.append("DFW is enabled but 'Network Provider Scope' "
                                         "is not configured on NSXT Manager in vCD")
@@ -2330,7 +2329,11 @@ class VCDMigrationValidation:
                          'Syslog': [],
                          'SSH': []}
             self.rollback.apiData['sourceEdgeGatewayDHCP'] = {}
-            ipsecConfigDict = {}
+            if not self.rollback.apiData.get('ipsecConfigDict'):
+                self.rollback.apiData['ipsecConfigDict'] = {}
+            if not self.rollback.apiData.get('ipsecSourceCertificatesCa'):
+                self.rollback.apiData['ipsecSourceCertificatesCa'] = {}
+
             allErrorList = list()
             edgeGatewayCount = 0
             for edgeGateway in self.rollback.apiData['sourceEdgeGateway']:
@@ -2350,7 +2353,7 @@ class VCDMigrationValidation:
                 self.thread.spawnThread(self.getEdgeGatewayNatConfig, gatewayId)
                 time.sleep(2)
                 # getting the ipsec config details of specified edge gateway
-                self.thread.spawnThread(self.getEdgeGatewayIpsecConfig, gatewayId)
+                self.thread.spawnThread(self.getEdgeGatewayIpsecConfig, gatewayId, gatewayName, nsxvObj)
                 time.sleep(2)
                 # getting the bgp config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgegatewayBGPconfig, gatewayId, validation=True, nsxtObj=nsxtObj, v2tAssessmentMode=v2tAssessmentMode)
@@ -2384,7 +2387,7 @@ class VCDMigrationValidation:
                 dhcpErrorList, dhcpConfigOut = self.thread.returnValues['getEdgeGatewayDhcpConfig']
                 firewallErrorList = self.thread.returnValues['getEdgeGatewayFirewallConfig']
                 natErrorList, ifNatRulesPresent = self.thread.returnValues['getEdgeGatewayNatConfig']
-                ipsecErrorList, ipsecConfigOut = self.thread.returnValues['getEdgeGatewayIpsecConfig']
+                ipsecErrorList = self.thread.returnValues['getEdgeGatewayIpsecConfig']
                 bgpErrorList, bgpStatus = self.thread.returnValues['getEdgegatewayBGPconfig']
                 routingErrorList, routingDetails = self.thread.returnValues['getEdgeGatewayRoutingConfig']
                 loadBalancingErrorList = self.thread.returnValues['getEdgeGatewayLoadBalancerConfig']
@@ -2430,8 +2433,6 @@ class VCDMigrationValidation:
                         logger.warning('BGP learnt routes route via non-default GW external interface present but NoSnatDestinationSubnet is not configured. For each SNAT rule on the default GW interface SNAT rule will be created')
                     self.rollback.apiData['sourceEdgeGatewayDHCP'][edgeGateway['id']] = dhcpConfigOut
                     logger.debug("Source Edge Gateway - {} services configuration retrieved successfully".format(gatewayName))
-                    ipsecConfigDict[gatewayName] = ipsecConfigOut
-
 
                 errorData['DHCP'] = errorData.get('DHCP', []) + dhcpErrorList
                 errorData['Firewall'] = errorData.get('Firewall', []) + firewallErrorList
@@ -2449,7 +2450,7 @@ class VCDMigrationValidation:
                 return errorData
             if allErrorList:
                 raise Exception(''.join(allErrorList))
-            return ipsecConfigDict
+
         except Exception:
             raise
 
@@ -3002,7 +3003,6 @@ class VCDMigrationValidation:
         except Exception:
             raise
 
-
     @isSessionExpired
     def isStaticRouteAutoCreated(self, edgeGatewayID, nextHopeIp):
         """
@@ -3106,58 +3106,71 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getEdgeGatewayIpsecConfig(self, edgeGatewayId):
+    def getEdgeGatewayIpsecConfig(self, edgeGatewayId, edgeGatewayName, nsxv):
         """
         Description :   Gets the IPSEC Configuration details on the Edge Gateway
         Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
+                        edgeGatewayName -   Id of the Edge Gateway  (STRING)
+                        nsxv            -   NSX-V class object (OBJECT)
         """
-        try:
-            errorList = list()
-            logger.debug("Getting IPSEC Services Configuration Details of Source Edge Gateway")
-            # url to retrieve the ipsec config info
-            url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
-                                  vcdConstants.NETWORK_EDGES,
-                                  vcdConstants.EDGE_GATEWAY_IPSEC_CONFIG.format(edgeGatewayId))
-            headers = {'Authorization': self.headers['Authorization'], 'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
-            # get api call to retrieve the ipsec config info
-            response = self.restClientObj.get(url, headers)
-            if response.status_code == requests.codes.ok:
-                responseDict = response.json()
-                if responseDict['enabled']:
-                    if responseDict['sites']:
-                        sites = responseDict['sites']['sites']
-                        sourceIPsecSite = sites if isinstance(sites, list) else [sites]
-                        # iterating over source ipsec sites
-                        for eachsourceIPsecSite in sourceIPsecSite:
-                            # raising exception if ipsecSessionType is not equal to policybasedsession
-                            if eachsourceIPsecSite['ipsecSessionType'] != "policybasedsession":
-                                errorList.append(
-                                    'Source IPSEC rule is having routebased session type which is not supported\n')
-                            # raising exception if the ipsec encryption algorithm in the source ipsec rule  is not present in the target
-                            if eachsourceIPsecSite['encryptionAlgorithm'] not in ["aes", "aes256", "aes-gcm"]:
-                                errorList.append(
-                                    'Source IPSEC rule is configured with unsupported encryption algorithm {}\n'.format(
-                                        eachsourceIPsecSite['encryptionAlgorithm']))
-                            # raising exception if the authentication mode is not psk
-                            if eachsourceIPsecSite['authenticationMode'] != "psk":
-                                errorList.append(
-                                    'Authentication mode as Certificate is not supported in target edge gateway\n')
-                            # raising exception if the digest algorithm is not supported in target
-                            if eachsourceIPsecSite['digestAlgorithm'] != "sha1":
-                                errorList.append(
-                                    'The specified digest algorithm {} is not supported in target edge gateway\n'.format(
-                                        eachsourceIPsecSite['digestAlgorithm']))
-                        logger.debug("IPSEC configuration of Source Edge Gateway retrieved successfully")
-                        return errorList, responseDict
+        logger.debug("Getting IPSEC Services Configuration Details of Source Edge Gateway")
+        # url to retrieve the ipsec config info
+        url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                              vcdConstants.NETWORK_EDGES,
+                              vcdConstants.EDGE_GATEWAY_IPSEC_CONFIG.format(edgeGatewayId))
+        headers = {
+            'Authorization': self.headers['Authorization'],
+            'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE
+        }
+        # get api call to retrieve the ipsec config info
+        response = self.restClientObj.get(url, headers)
+        if not response.status_code == requests.codes.ok:
+            return ["Failed to retrieve the IPSEC Configurations of Source Edge Gateway with error code {} \n".format(
+                response.status_code)]
+
+        responseDict = response.json()
+        self.rollback.apiData['ipsecConfigDict'][edgeGatewayName] = responseDict
+        nsxvCertificateStore = nsxv.getNsxvCertificateStore()
+
+        if not responseDict['enabled'] or not responseDict['sites']:
+            return []
+
+        errorList = list()
+        for site in listify(responseDict['sites']['sites']):
+            if site['ipsecSessionType'] != "policybasedsession":
+                errorList.append(
+                    'Source IPSEC rule is having routebased session type which is not supported\n')
+
+            if site['encryptionAlgorithm'] not in vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM:
+                errorList.append('Source IPSEC rule is configured with unsupported encryption algorithm {}\n'.format(
+                    site['encryptionAlgorithm']))
+
+            if (
+                    float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1)
+                    and site['authenticationMode'] == 'x.509'):
+                # Identify CA certificate for service certificate
+                certObjectId = site['certificate']
+                if certObjectId not in self.rollback.apiData['ipsecSourceCertificatesCa']:
+                    for caObjectId in listify(
+                            responseDict['global'].get('caCertificates', {}).get('caCertificate')):
+                        if verifyCertificateAgainstCa(
+                                nsxvCertificateStore.get(certObjectId), nsxvCertificateStore.get(caObjectId)):
+                            self.rollback.apiData['ipsecSourceCertificatesCa'][certObjectId] = caObjectId
+                            break
                     else:
-                        return errorList, responseDict
-                else:
-                    return errorList, responseDict
-            else:
-                errorList.append("Failed to retrieve the IPSEC Configurations of Source Edge Gateway with error code {} \n".format(response.status_code))
-                return errorList, None
-        except Exception:
-            raise
+                        errorList.append(
+                            f"CA certificate not found for {certObjectId}. Please upload CA certificate in ipsec global"
+                            f" config")
+
+            elif site['authenticationMode'] != "psk":
+                errorList.append('Authentication mode as Certificate is not supported in target edge gateway\n')
+
+            if site['digestAlgorithm'] not in vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM:
+                errorList.append('The specified digest algorithm {} is not supported in target edge gateway\n'.format(
+                    site['digestAlgorithm']))
+
+        logger.debug("IPSEC configuration of Source Edge Gateway retrieved successfully")
+        return errorList
 
     @isSessionExpired
     def getEdgegatewayBGPconfig(self, edgeGatewayId, validation=True, nsxtObj=None, v2tAssessmentMode=False):
@@ -4045,6 +4058,10 @@ class VCDMigrationValidation:
             logger.info('Validating whether the source NSX-V VNI pool is subset of target NSX-T VNI pools or not')
             self.validateVniPoolRanges(nsxtObj, nsxvObj, cloneOverlayIds=inputDict['VCloudDirector'].get('CloneOverlayIds'))
 
+            # validating target external network pools
+            nsxtNetworkPoolName = vdcDict.get('NSXTNetworkPoolName', None)
+            logger.info('Validating Target NSXT backed Network Pools')
+            self.validateTargetPvdcNetworkPools(nsxtNetworkPoolName)
         except:
             # Enabling source Org VDC if premigration validation fails
             if disableOrgVDC:
@@ -4076,11 +4093,8 @@ class VCDMigrationValidation:
                 raise dfwConfigReturn
 
             # get the list of services configured on source Edge Gateway
-            ipsecConfigDict = self.getEdgeGatewayServices(nsxtObj, nsxvObj, noSnatDestSubnet,
-                                                          ServiceEngineGroupName=ServiceEngineGroupName)
-
-            # Writing ipsec config to api data dict for further use
-            self.rollback.apiData['ipsecConfigDict'] = ipsecConfigDict
+            self.getEdgeGatewayServices(
+                nsxtObj, nsxvObj, noSnatDestSubnet, ServiceEngineGroupName=ServiceEngineGroupName)
         except:
             raise
         else:
@@ -4746,9 +4760,12 @@ class VCDMigrationValidation:
         try:
             # Fetching networks details from metadata dict
             orgVdcNetworks = self.getOrgVDCNetworks(orgVdcId, 'sourceOrgVDCNetworks', saveResponse=False, sharedNetwork=True)
-            orgVdcNetworks = {network['name']: network for network in orgVdcNetworks}
+            # Converting list into dict for faster access in subsequent for loops
+            orgVdcNetworks = {
+                network['parentNetworkId']['name'] if network['networkType'] == "DIRECT" else network['name']: network
+                for network in orgVdcNetworks
+            }
 
-            conflictNetworkNames = list()
             errorList = list()
             if not conflictIDs:
                 logger.debug('No overlapping network present in the orgVDC')
@@ -4795,7 +4812,7 @@ class VCDMigrationValidation:
 
                 sourceDFWNetworkDict = {}
                 for dfwRuleNetwork, origin in dfwRuleNetworks:
-                    orgVdcNetwork = orgVdcNetworks.get(dfwRuleNetwork)
+                    orgVdcNetwork = orgVdcNetworks[dfwRuleNetwork]
                     if orgVdcNetwork['networkType'] == "DIRECT" and orgVdcNetwork['parentNetworkId']['name'] == dfwRuleNetwork:
                         errorList.append("Rule: {} has invalid objects: {}.".format(rule['name'], dfwRuleNetwork))
                     elif orgVdcNetwork['name'] == dfwRuleNetwork and orgVdcNetwork['networkType'] == 'NAT_ROUTED':
@@ -5385,3 +5402,27 @@ class VCDMigrationValidation:
                     response.status_code)]
         except Exception:
             raise
+
+    @isSessionExpired
+    def validateTargetPvdcNetworkPools(self, networkPoolName):
+        """
+        Description: Validate NSXT backed Target network pools
+        Parameters: networkPoolName - NSXT network pool name
+        """
+        data = self.rollback.apiData
+        targetPVDCPayloadDict = data['targetProviderVDC']
+        networkPoolReferences = listify(targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference'])
+        # No validation required for single network pool
+        if len(networkPoolReferences) == 1:
+            return
+
+        # if multiple network pools exist and network pool not specified in user spec
+        if not networkPoolName:
+            raise Exception('Target PVDC has multiple network pools. Please specify the NSXT Network Pool in user spec.')
+
+        # if network pool passed by user doesn't exist in target then raise exception
+        if [pool for pool in networkPoolReferences if pool['@name'] == networkPoolName]:
+            logger.debug('Network Pool {} exists in Target PVDC'.format(networkPoolName))
+        else:
+            raise Exception("Network Pool {} doesn't exist in Target PVDC".format(networkPoolName))
+

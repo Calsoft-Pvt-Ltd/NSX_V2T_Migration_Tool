@@ -59,6 +59,29 @@ class NSXVOperations():
         except Exception:
             raise
 
+    def getNsxvCertificateStore(self):
+        """
+        Description :   Get all certificated from NSX-V
+        Returns     :   certificates from NSX-V (DICT)
+        """
+        logger.debug('Getting NSX-V SSL certificates')
+        url = nsxvConstants.NSXV_HOST_API_URL.format(
+            self.ipAddress, nsxvConstants.NSXV_CERTIFICATE_RETRIEVAL_URL)
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        # TODO pranshu: implement paging
+        certResponse = self.restClientObj.get(url, headers=headers, auth=self.restClientObj.auth)
+        if not certResponse.status_code == requests.codes.ok:
+            raise Exception('Failed to retrieve certificates from nsx-v')
+
+        logger.debug('Successfully retrieved certificates from nsx-v')
+        return {
+            cert['objectId']: cert['pemEncoding']
+            for cert in certResponse.json()['trustObjects']
+        }
+
     def postPublicKeyAndRetreiveCertNSXV(self, publicKey, objectId):
         """
             Description :   posts public to NSXV and retrieves certificate details

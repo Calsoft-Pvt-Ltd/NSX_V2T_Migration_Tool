@@ -1758,6 +1758,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 newStartIpAddress[-1] = str(int(newStartIpAddress[-1]) + 1)
                                 currentPoolDict["ipRange"] = {"startAddress": '.'.join(newStartIpAddress),
                                                               "endAddress": eachDhcpPool['ipRange']['endAddress']}
+                                payload['ipAddress'] = ipToBeRemoved
                                 firstPoolIndex += 1
                             else:
                                 currentPoolDict["ipRange"] = {"startAddress": eachDhcpPool['ipRange']['startAddress'],
@@ -1766,7 +1767,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             currentPoolDict["defaultLeaseTime"] = eachDhcpPool['defaultLeaseTime']
                             payload["dhcpPools"].append(currentPoolDict)
                         payload['mode'] = "NETWORK"
-                        payload['ipAddress'] = ipToBeRemoved
                     else:
                         logger.debug('DHCP pools not present in OrgVDC Network: {}'.format(orgVDCNetworkName))
                         continue
@@ -1993,7 +1993,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             orgVdcNetworkList = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
 
             # creating target Org VDC
-            self.createOrgVDC()
+            self.createOrgVDC(vdcDict)
 
             # applying the vm placement policy on target org vdc
             self.applyVDCPlacementPolicy()
@@ -4163,7 +4163,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description("creation of target Org VDC")
     @remediate
-    def createOrgVDC(self):
+    def createOrgVDC(self, vdcDict):
         """
         Description :   Creates an Organization VDC
         """
@@ -4212,6 +4212,23 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                                             componentName=vcdConstants.COMPONENT_NAME,
                                                                             templateName=vcdConstants.STORAGE_PROFILE_TEMPLATE_NAME)
                 vdcStorageProfilePayloadData += eachStorageProfilePayloadData.strip("\"")
+            nsxtNetworkPoolName = vdcDict.get('NSXTNetworkPoolName', None)
+            networkPoolReferences = targetPVDCPayloadDict['NetworkPoolReferences']
+            # if multiple network pools exist, take the network pool references passed in user spec
+            if isinstance(networkPoolReferences['NetworkPoolReference'], list):
+                networkPoolReferencesList = networkPoolReferences['NetworkPoolReference']
+                networkPoolExists = list(filter(lambda poolReference: poolReference['@name'] == nsxtNetworkPoolName, networkPoolReferencesList))
+                if networkPoolExists:
+                    networkPoolHref = networkPoolExists[0]['@href']
+                    networkPoolId = networkPoolExists[0]['@id']
+                    networkPoolName = networkPoolExists[0]['@name']
+                    networkPoolType = networkPoolExists[0]['@type']
+            # if no multiple network pools exist then take the default one already there in target pvdc
+            else:
+                networkPoolHref = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@href']
+                networkPoolId = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@id']
+                networkPoolName = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@name']
+                networkPoolType = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@type']
             # creating the payload dict
             orgVdcPayloadDict = {'orgVDCName': data["sourceOrgVDC"]["@name"] + '-v2t',
                                  'vdcDescription': data['sourceOrgVDC']['Description'] if data['sourceOrgVDC'].get(
@@ -4236,14 +4253,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                  'resourceGuaranteedCpu': data['sourceOrgVDC']['ResourceGuaranteedCpu'],
                                  'vCpuInMhz': data['sourceOrgVDC']['VCpuInMhz'],
                                  'isThinProvision': data['sourceOrgVDC']['IsThinProvision'],
-                                 'networkPoolHref':
-                                     targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@href'],
-                                 'networkPoolId':
-                                     targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@id'],
-                                 'networkPoolName':
-                                     targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@name'],
-                                 'networkPoolType':
-                                     targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@type'],
+                                 'networkPoolHref': networkPoolHref,
+                                 'networkPoolId': networkPoolId,
+                                 'networkPoolName': networkPoolName,
+                                 'networkPoolType': networkPoolType,
                                  'providerVdcHref': targetPVDCPayloadDict['@href'],
                                  'providerVdcId': targetPVDCPayloadDict['@id'],
                                  'providerVdcName': targetPVDCPayloadDict['@name'],
