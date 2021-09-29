@@ -1793,6 +1793,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 newStartIpAddress[-1] = str(int(newStartIpAddress[-1]) + 1)
                                 currentPoolDict["ipRange"] = {"startAddress": '.'.join(newStartIpAddress),
                                                               "endAddress": eachDhcpPool['ipRange']['endAddress']}
+                                payload['ipAddress'] = ipToBeRemoved
                                 firstPoolIndex += 1
                             else:
                                 currentPoolDict["ipRange"] = {"startAddress": eachDhcpPool['ipRange']['startAddress'],
@@ -1801,7 +1802,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             currentPoolDict["defaultLeaseTime"] = eachDhcpPool['defaultLeaseTime']
                             payload["dhcpPools"].append(currentPoolDict)
                         payload['mode'] = "NETWORK"
-                        payload['ipAddress'] = ipToBeRemoved
                     else:
                         logger.debug('DHCP pools not present in OrgVDC Network: {}'.format(orgVDCNetworkName))
                         continue
