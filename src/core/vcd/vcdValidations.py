@@ -2655,28 +2655,6 @@ class VCDMigrationValidation:
             raise Exception('; '.join(errors))
 
     @isSessionExpired
-    def getIpListFromRange(self, startIpAddr, endIpAddr):
-        """
-        Description :   Get list all possible IP addresses in given range.
-        """
-        try:
-            start = list(map(int, startIpAddr.split(".")))
-            end = list(map(int, endIpAddr.split(".")))
-            temp = start
-            ipRange = []
-            ipRange.append(startIpAddr)
-            while temp != end:
-                start[3] += 1
-                for i in (3, 2, 1):
-                    if temp[i] == 256:
-                        temp[i] = 0
-                        temp[i - 1] += 1
-                    ipRange.append(".".join(map(str, temp)))
-            return ipRange
-        except Exception:
-            raise
-
-    @isSessionExpired
     def ValidateStaticBinding(self, staticBindingsData):
         """
         Description :   Verify the DHCP bindings Configuration details of the specified Edge Gateway
@@ -2685,19 +2663,23 @@ class VCDMigrationValidation:
         try:
             logger.debug("Validating DHCP static binding.")
             sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
+            # get OrgVDC Network details.
+            orgvdcNetworks = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
+
             # get the OrgVDC network details which is used in bindings.
             for binding in staticBindingsData:
                 ipAddress = binding['ipAddress']
                 defaultGateway = binding['defaultGateway']
                 # get OrgVDC Network details.
-                orgvdcNetworks = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
                 for network in orgvdcNetworks:
                     ipRange = network['subnets']['values'][0]['ipRanges']['values'][0]
                     networkGateway = network['subnets']['values'][0]['gateway']
                     networkName = network['name']
                     if networkGateway == defaultGateway:
-                        ipList = self.getIpListFromRange(ipRange['startAddress'], ipRange['endAddress'])
-                        if ipAddress in ipList:
+                        ipRangeAddresses = [str(ipaddress.IPv4Address(ip)) for ip in
+                                            range(int(ipaddress.IPv4Address(ipRange['startAddress'])),
+                                                  int(ipaddress.IPv4Address(ipRange['endAddress']) + 1))]
+                        if ipAddress in ipRangeAddresses:
                             return True, networkName, ipAddress
             else:
                 return False, None, None

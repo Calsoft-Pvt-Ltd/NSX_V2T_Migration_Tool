@@ -30,6 +30,7 @@ from src.core.vcd.vcdValidations import (
 logger = logging.getLogger('mainLogger')
 chunksOfList = Utilities.chunksOfList
 
+
 class ConfigureEdgeGatewayServices(VCDMigrationValidation):
     """
     Description : Class having edge gateway services configuration operations
@@ -963,6 +964,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         try:
             logger.debug('DHCP Static Bindings Service is getting configured')
             targetOrgVDCId = self.rollback.apiData['targetOrgVDC']['@id']
+
+            # get taregt OrgVDC Network details.
+            orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
             for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
                 targetEdgeGatewayID = list(
                     filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
@@ -980,11 +984,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
                 # get the details of DHCP static bindings configured on edge gateway.
                 # If we configures more than one bindings we are getting list, so we handled the scenario here.
-                if isinstance(DHCPData['staticBindings']['staticBindings'], list):
-                    staticBindings = DHCPData['staticBindings']['staticBindings']
-                else:
-                    staticBindings = [DHCPData['staticBindings']['staticBindings']]
-
+                staticBindings = listify(DHCPData['staticBindings']['staticBindings'])
                 # get the OrgVDC network details which is used in bindings.
                 for binding in staticBindings:
                     defaultGateway = binding['defaultGateway']
@@ -992,7 +992,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     networkName = None
 
                     # get taregt OrgVDC Network details.
-                    orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
                     for network in orgvdcNetworks:
                         networkGateway = network['subnets']['values'][0]['gateway']
                         if networkGateway == defaultGateway:
@@ -1020,7 +1019,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             payloadData = json.dumps(payloadData)
                             # Call for PUT API to configure DHCP on OrgVDC network, which used in DHCP bindings.
                             apiResponse = self.restClientObj.put(DHCPurl, headers=self.headers, data=payloadData)
-                            if apiResponse.status_code == requests.codes.ok or apiResponse.status_code == requests.codes.accepted:
+                            if apiResponse.status_code == requests.codes.accepted:
                                 task_url = apiResponse.headers['Location']
                                 self._checkTaskStatus(taskUrl=task_url)
                                 logger.info(
@@ -1042,7 +1041,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     payloadData = {
                         "id": binding['bindingId'],
                         "name": binding['hostname'],
-                        "description": "null",
                         "macAddress": binding['macAddress'],
                         "ipAddress": binding['ipAddress'],
                         "leaseTime": binding['leaseTime'],
@@ -1065,7 +1063,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     payloadData = json.dumps(payloadData)
                     # Call for POST API to configure DHCP Binding service
                     apiResponse = self.restClientObj.post(DHCPBindingUrl, headers=self.headers, data=payloadData)
-                    if apiResponse.status_code == requests.codes.ok or apiResponse.status_code == requests.codes.accepted:
+                    if apiResponse.status_code == requests.codes.accepted:
                         task_url = apiResponse.headers['Location']
                         self._checkTaskStatus(taskUrl=task_url)
                         logger.info("DHCP Bindings successfully configured on OrgVDC Network {}.".
@@ -1655,7 +1653,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                       vcdConstants.NETWORK_EDGES,
                                       vcdConstants.EDGE_GATEWAY_DHCP_CONFIG_BY_ID .format(edgeGatewayId))
                 # if DHCP pool was present in the source
-                if data[sourceEdgeGatewayId]['ipPools'] or data[sourceEdgeGatewayId].get('staticBindings', None):
+                if data[sourceEdgeGatewayId]['ipPools'] or data[sourceEdgeGatewayId].get('staticBindings'):
                     del data[sourceEdgeGatewayId]['version']
                     payloadData = json.dumps(data[sourceEdgeGatewayId])
                     self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE

@@ -1813,7 +1813,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             else:
                 logger.debug('Isolated OrgVDC networks not present on source OrgVDC')
 
-            if self.version > vcdConstants.API_VERSION_ANDROMEDA:
+            if self.version >= vcdConstants.API_VERSION_ANDROMEDA_10_3_1:
                 self.configureDHCPBindingService()
         except:
             raise
