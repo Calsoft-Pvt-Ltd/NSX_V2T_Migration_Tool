@@ -2347,8 +2347,8 @@ class VCDMigrationValidation:
                 self.thread.spawnThread(self.getEdgeGatewayNatConfig, gatewayId)
                 time.sleep(2)
                 # getting the ipsec config details of specified edge gateway
-                self.thread.spawnThread(self.getEdgeGatewayIpsecConfig, gatewayId, gatewayName, nsxvObj)
-                time.sleep(2)
+                # self.thread.spawnThread(self.getEdgeGatewayIpsecConfig, gatewayId, gatewayName, nsxvObj)
+                # time.sleep(2)
                 # getting the bgp config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgegatewayBGPconfig, gatewayId, validation=True, nsxtObj=nsxtObj, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
@@ -2381,7 +2381,8 @@ class VCDMigrationValidation:
                 dhcpErrorList, dhcpConfigOut = self.thread.returnValues['getEdgeGatewayDhcpConfig']
                 firewallErrorList = self.thread.returnValues['getEdgeGatewayFirewallConfig']
                 natErrorList, ifNatRulesPresent = self.thread.returnValues['getEdgeGatewayNatConfig']
-                ipsecErrorList = self.thread.returnValues['getEdgeGatewayIpsecConfig']
+                #ipsecErrorList = self.thread.returnValues['getEdgeGatewayIpsecConfig']
+                ipsecErrorList = []
                 bgpErrorList, bgpStatus = self.thread.returnValues['getEdgegatewayBGPconfig']
                 routingErrorList, routingDetails = self.thread.returnValues['getEdgeGatewayRoutingConfig']
                 loadBalancingErrorList = self.thread.returnValues['getEdgeGatewayLoadBalancerConfig']
@@ -2654,31 +2655,29 @@ class VCDMigrationValidation:
         Description :   Verify the DHCP bindings Configuration details of the specified Edge Gateway
         Parameters  :   Static Binding data of the specified edge gateway.
         """
-        try:
-            logger.debug("Validating DHCP static binding.")
-            sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
-            # get OrgVDC Network details.
-            orgvdcNetworks = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
+        logger.debug("Validating DHCP static binding.")
+        sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
+        # get OrgVDC Network details.
+        orgvdcNetworks = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
 
-            # get the OrgVDC network details which is used in bindings.
-            for binding in staticBindingsData:
-                ipAddress = binding['ipAddress']
-                defaultGateway = binding['defaultGateway']
-                # get OrgVDC Network details.
-                for network in orgvdcNetworks:
-                    ipRange = network['subnets']['values'][0]['ipRanges']['values'][0]
-                    networkGateway = network['subnets']['values'][0]['gateway']
-                    networkName = network['name']
-                    if networkGateway == defaultGateway:
+        # get the OrgVDC network details which is used in bindings.
+        for binding in staticBindingsData:
+            ipAddress = binding['ipAddress']
+            defaultGateway = binding['defaultGateway']
+            # get OrgVDC Network details.
+            for network in orgvdcNetworks:
+                ipRanges = network['subnets']['values'][0]['ipRanges']['values']
+                networkGateway = network['subnets']['values'][0]['gateway']
+                networkName = network['name']
+                if networkGateway == defaultGateway:
+                    for ipRange in ipRanges:
                         ipRangeAddresses = [str(ipaddress.IPv4Address(ip)) for ip in
                                             range(int(ipaddress.IPv4Address(ipRange['startAddress'])),
                                                   int(ipaddress.IPv4Address(ipRange['endAddress']) + 1))]
                         if ipAddress in ipRangeAddresses:
-                            return True, networkName, ipAddress
-            else:
-                return False, None, None
-        except Exception:
-            raise
+                            return networkName, ipAddress
+        else:
+            return None, None
 
     @isSessionExpired
     def getEdgeGatewayDhcpConfig(self, edgeGatewayId, v2tAssessmentMode=False):
@@ -2717,12 +2716,22 @@ class VCDMigrationValidation:
                 responseDict = response.json()
                 if not v2tAssessmentMode and float(self.version) >= float(vcdConstants.API_VERSION_ZEUS) and self.nsxVersion.startswith('2.5.2') and responseDict['enabled']:
                     errorList.append("DHCP is enabled in source edge gateway but not supported in target\n")
-                # checking if static binding is configured in dhcp, if so raising exception
+                # checking if static binding is configured in dhcp, if so raising exception if DHCP Binding IP
+                # address overlaps with static IP Pool range on Network
                 if responseDict.get('staticBindings', None):
-                    status, networkName, ipAddress = self.ValidateStaticBinding(responseDict['staticBindings']['staticBindings'])
-                    if status:
+                    networkName, ipAddress = self.ValidateStaticBinding(responseDict['staticBindings']['staticBindings'])
+                    if not v2tAssessmentMode and float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
                         errorList.append(
-                            "DHCP Binding IP address {} overlaps with static IP Pool range on Network {}.".format(ipAddress, networkName))
+                            "Static binding is in DHCP configuration of Source Edge Gateway, But not supported.\n")
+                    if networkName:
+                        if v2tAssessmentMode:
+                            errorList.append(
+                                "DHCP Binding IP address {} overlaps with static IP Pool range on Network {}.".format(
+                                    ipAddress, networkName))
+                        elif float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
+                            errorList.append(
+                                "DHCP Binding IP address {} overlaps with static IP Pool range on Network {}.".format(
+                                    ipAddress, networkName))
                 logger.debug("DHCP configuration of Source Edge Gateway retrieved successfully")
                 # returning the dhcp details
                 return errorList, responseDict

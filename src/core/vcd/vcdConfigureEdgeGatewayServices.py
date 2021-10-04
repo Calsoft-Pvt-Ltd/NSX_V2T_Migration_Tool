@@ -1010,10 +1010,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     if response.status_code == requests.codes.ok:
                         responsedict = response.json()
                         # checking if configured is dhcp, if not then configure.
-                        if responsedict['enabled'] != 'true':
+                        if not responsedict['enabled']:
                             # Creating Payload
                             payloadData = {
-                                "enabled": "true",
+                                "enabled": True,
                                 "mode": "EDGE"
                             }
                             payloadData = json.dumps(payloadData)
@@ -1027,9 +1027,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             else:
                                 # Failed to Enable DHCP with in EDGE mode on Org VDC network..
                                 errorResponse = apiResponse.json()
-                                logger.debug(
-                                    "Failed to enable DHCP in EDGE mode on OrgVDC network {}, error : {}.".format(
-                                        networkName, errorResponse))
                                 raise Exception(
                                     "Failed to enable DHCP in EDGE mode on OrgVDC network {}, error : {}.".format(
                                         networkName, errorResponse))
@@ -1071,8 +1068,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     else:
                         # Failed to configure DHCP Bindings.
                         errorResponse = apiResponse.json()
-                        logger.debug("Failed to configure DHCP Bindings on OrgVDC Network {}, error : {}.".
-                                     format(networkName, errorResponse))
                         raise Exception("Failed to configure DHCP Bindings on OrgVDC Network {}, error : {}.".
                                         format(networkName, errorResponse))
         except Exception:

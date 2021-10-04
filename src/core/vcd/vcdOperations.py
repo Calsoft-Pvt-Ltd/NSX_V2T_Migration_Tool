@@ -444,29 +444,26 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         source    -   Defaults to True meaning delete the NSX-V backed Org VDC Networks (BOOL)
                                       If set to False meaning delete the NSX-t backed Org VDC Networks (BOOL)
         """
-        try:
-            logger.debug("checking DHCP binding status")
-            # Enables the DHCP bindings on OrgVDC network.
-            DHCPBindingUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                           vcdConstants.DHCP_BINDINGS.format(networkId))
-            # call to get api to get dhcp binding config details of specified networkId
-            response = self.restClientObj.get(DHCPBindingUrl, self.headers)
-            if response.status_code == requests.codes.ok:
-                responsedict = response.json()
-                # checking DHCP bindings configuration
-                for bindings in responsedict['values']:
-                    deleteDHCPBindingURL = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                           vcdConstants.DHCP_BINDINGS.format(networkId), bindings['id'])
-                    response = self.restClientObj.delete(deleteDHCPBindingURL, self.headers)
-                    if response.status_code == requests.codes.accepted:
-                        taskUrl = response.headers['Location']
-                        self._checkTaskStatus(taskUrl=taskUrl)
-                        logger.debug('Organization VDC Network DHCP Bindings deleted successfully.')
-                    else:
-                        logger.debug(
-                            'Failed to delete Organization VDC Network DHCP bindings {}.{}'.format(networkId, response.json()['message']))
-        except Exception:
-            raise
+        logger.debug("checking DHCP binding status")
+        # Enables the DHCP bindings on OrgVDC network.
+        DHCPBindingUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                       vcdConstants.DHCP_BINDINGS.format(networkId))
+        # call to get api to get dhcp binding config details of specified networkId
+        response = self.restClientObj.get(DHCPBindingUrl, self.headers)
+        if response.status_code == requests.codes.ok:
+            responsedict = response.json()
+            # checking DHCP bindings configuration
+            for bindings in responsedict['values']:
+                deleteDHCPBindingURL = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                       vcdConstants.DHCP_BINDINGS.format(networkId), bindings['id'])
+                response = self.restClientObj.delete(deleteDHCPBindingURL, self.headers)
+                if response.status_code == requests.codes.accepted:
+                    taskUrl = response.headers['Location']
+                    self._checkTaskStatus(taskUrl=taskUrl)
+                    logger.debug('Organization VDC Network DHCP Bindings deleted successfully.')
+                else:
+                    logger.debug(
+                        'Failed to delete Organization VDC Network DHCP bindings {}.{}'.format(networkId, response.json()['message']))
 
 
     @isSessionExpired
