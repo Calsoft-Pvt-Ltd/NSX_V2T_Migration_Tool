@@ -584,9 +584,6 @@ VAPP_TEMPLATE_PAGE_SIZE = 50
 # get media of organization uri
 GET_MEDIA_INFO = 'query?type=media'
 
-# maximum lease time of dhcp IP pool
-MAX_LEASE_TIME = 7200
-
 # page size for media
 MEDIA_PAGE_SIZE = 50
 

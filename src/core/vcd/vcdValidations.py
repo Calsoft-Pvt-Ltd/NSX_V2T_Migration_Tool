@@ -1682,7 +1682,6 @@ class VCDMigrationValidation:
         try:
             allOrgVDCNetworkDHCPList = list()
             if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
-                dhcpErrorList = list()
                 logger.debug('Validating Isolated OrgVDCNetwork DHCP configuration')
                 for orgVDCNetwork in orgVDCNetworksList:
                     disabledDhcpPools = bool()
@@ -1704,9 +1703,6 @@ class VCDMigrationValidation:
                                             disabledDhcpPools = True
                                         else:
                                             tempDhcpPoolList.append(eachDhcpPool)
-                                        if int(eachDhcpPool['maxLeaseTime']) > vcdConstants.MAX_LEASE_TIME:
-                                            dhcpErrorList.append(orgVDCNetwork['name'])
-                                            break
                                     responseDict['dhcpPools'] = tempDhcpPoolList
                                 else:
                                     logger.warning("DHCP pools not present on OrgVDC Network: {}".format(orgVDCNetwork['name']))
@@ -1716,8 +1712,6 @@ class VCDMigrationValidation:
                         allOrgVDCNetworkDHCPList.append(eachOrgVDCNetworkDict)
                     if disabledDhcpPools is True:
                         logger.warning("DHCP pools in OrgVDC network: {} are in disabled state and will not be migrated to target".format(orgVDCNetwork['name']))
-                if dhcpErrorList:
-                    raise Exception('OrgVDC Network: {} has lease time more than {}.\nReconfigure the original max lease time after migration is complete'.format(dhcpErrorList, vcdConstants.MAX_LEASE_TIME))
                 self.rollback.apiData['OrgVDCIsolatedNetworkDHCP'] = allOrgVDCNetworkDHCPList
             else:
                 self.rollback.apiData['OrgVDCIsolatedNetworkDHCP'] = allOrgVDCNetworkDHCPList

@@ -1783,6 +1783,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     payload["leaseTime"] = OrgVDCIsolatedNetworkDHCPDetails['leaseTime']
                     payload["dhcpPools"] = list()
                     firstPoolIndex = 0
+                    maxLeaseTimeDhcp = []
                     if OrgVDCIsolatedNetworkDHCPDetails["dhcpPools"]:
                         for eachDhcpPool in OrgVDCIsolatedNetworkDHCPDetails["dhcpPools"]:
                             currentPoolDict = dict()
@@ -1800,8 +1801,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                               "endAddress": eachDhcpPool['ipRange']['endAddress']}
                             currentPoolDict["maxLeaseTime"] = eachDhcpPool['maxLeaseTime']
                             currentPoolDict["defaultLeaseTime"] = eachDhcpPool['defaultLeaseTime']
+                            maxLeaseTimeDhcp.append(eachDhcpPool['maxLeaseTime'])
                             payload["dhcpPools"].append(currentPoolDict)
                         payload['mode'] = "NETWORK"
+                        payload['leaseTime'] = min(maxLeaseTimeDhcp)
                     else:
                         logger.debug('DHCP pools not present in OrgVDC Network: {}'.format(orgVDCNetworkName))
                         continue
