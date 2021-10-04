@@ -82,7 +82,7 @@ class NSXTOperations():
         self.rollback = rollback
         self.vcdObj = vcdObj
 
-    def getComponentData(self, componentApi, componentName=None):
+    def getComponentData(self, componentApi, componentName=None, usePolicyApi=False):
         """
         Description   : This function validates the presence of the component in NSX-T
         Parameters    : componentApi    -   API to get the details of the component (STRING)
@@ -92,7 +92,10 @@ class NSXTOperations():
         try:
             logger.debug("Fetching NSXT component data")
             componentData = {}
-            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, componentApi)
+            if usePolicyApi:
+                url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), componentApi)
+            else:
+                url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, componentApi)
             response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
             if response.status_code == requests.codes.ok:
                 responseData = json.loads(response.content)
@@ -123,13 +126,14 @@ class NSXTOperations():
         Returns       : componentData if the component with the same display name is already present (DICTIONARY)
         """
         try:
-            if str(nsxtVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                componentApi = nsxtConstants.SEGMENT_DETAILS
-            else:
-                componentApi = nsxtConstants.CREATE_LOGICAL_SWITCH_API
-
             logger.debug("Fetching NSXT Logical-Segment data")
-            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, componentApi)
+            if str(nsxtVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
+                url = "{}{}".format(
+                    nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                    nsxtConstants.SEGMENT_DETAILS)
+            else:
+                url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.CREATE_LOGICAL_SWITCH_API)
+
             response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
             if response.status_code == requests.codes.ok:
                 responseData = json.loads(response.content)
@@ -157,7 +161,9 @@ class NSXTOperations():
                 Returns       : It returns the Version of API supported by NSX-T
                 """
         try:
-            url = nsxtConstants.API_VERSION.format(self.ipAddress)
+            url = "{}{}".format(
+                nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                nsxtConstants.API_VERSION)
             response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
                                               auth=self.restClientObj.auth)
             api_data = json.loads(response.content)
@@ -185,6 +191,47 @@ class NSXTOperations():
         except Exception:
             raise
 
+    def checkRealizedState(self, intent_path, markedForDelete=False, timeoutForTask=300):
+        """
+        Description :   Check realization state after policy API is executed
+        Parameters  :   intent_path - Path of object operated by executed API (STR)
+                        markedForDelete - Set if DELETE method is executed (BOOL)
+                        timeoutForTask - time in seconds to wait till realization of object (INT)
+        """
+
+        timeout = 0.0
+        url = "{}{}".format(
+            nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+            nsxtConstants.REALIZED_STATE_API.format(intent_path)
+        )
+        while timeout < timeoutForTask:
+            logger.debug(f'Checking realization state of {intent_path}')
+            response = self.restClientObj.get(
+                url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
+
+            if response.status_code == requests.codes.ok:
+                responseContent = response.json()
+                if responseContent['publish_status'] == 'REALIZED' and not markedForDelete:
+                    return
+
+                if responseContent['publish_status'] == 'ERROR':
+                    raise Exception(f'Realization of {intent_path} is in ERROR state')
+
+            elif response.status_code == requests.codes.not_found:
+                if markedForDelete:
+                    return
+
+                responseContent = response.json()
+                raise Exception(responseContent['error_message'])
+
+            else:
+                raise Exception(f'Realization status failed with {response.status_code}')
+
+            time.sleep(10)
+            timeout += 10
+
+        raise Exception(f'Timeout occurred while checking realization status for {intent_path}')
+
     @description("creation of Bridge Endpoint Profile", threadName="Bridging")
     @remediate
     def createBridgeEndpointProfile(self, edgeClusterNameList, portgroupList):
@@ -204,9 +251,11 @@ class NSXTOperations():
             for edgeClusterName in edgeClusterNameList:
                 # checks API version for Interoperability.
                 if str(version).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                    edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API,
-                                                            edgeClusterName)
-                    url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.EDGE_PATH.format(nsxtConstants.DEFAULT_POLICY_API_PATH.format(edgeClusterData['path'])))
+                    edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API, edgeClusterName, usePolicyApi=True)
+                    url = "{}{}{}".format(
+                        nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                        edgeClusterData['path'],
+                        nsxtConstants.EDGE_PATH)
                     response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
                     if response.status_code == requests.codes.ok:
                         responseData = json.loads(response.content)
@@ -234,8 +283,8 @@ class NSXTOperations():
             for data, _ in edgeNodePortgroupList:
                 # checks API version for Interoperability.
                 if str(version).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                    url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
-                                                                 nsxtConstants.CREATE_BRIDGE_ENDPOINT_PROFILE_POLICY_API.format(data['transport_node_id']))
+                    intent_path = nsxtConstants.BRIDGE_ENDPOINT_PROFILE_POLICY_PATH.format(data['transport_node_id'])
+                    url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
                     edgePath = data['edgePath']
                     payloadDict = {
                         'bridgeEndpointProfileName': 'Bridge-Endpoint-Profile-{}'.format(data['transport_node_id'])
@@ -248,6 +297,9 @@ class NSXTOperations():
                     payloadData = json.dumps(payloadData)
                     response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER,
                                                       auth=self.restClientObj.auth, data=payloadData)
+                    if response.status_code == requests.codes.ok or response.status_code == requests.codes.created:
+                        self.checkRealizedState(intent_path)
+
                 else:
                     url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
                                                                  nsxtConstants.CREATE_BRIDGE_ENDPOINT_PROFILE)
@@ -339,9 +391,11 @@ class NSXTOperations():
             for edgeClusterName in edgeClusterNameList:
                 # checks API version for Interoperability.
                 if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                    edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API,
-                                                            edgeClusterName)
-                    url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.EDGE_PATH.format(nsxtConstants.DEFAULT_POLICY_API_PATH.format(edgeClusterData['path'])))
+                    edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API, edgeClusterName, usePolicyApi=True)
+                    url = "{}{}{}".format(
+                        nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                        edgeClusterData['path'],
+                        nsxtConstants.EDGE_PATH)
                     response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
                     if response.status_code == requests.codes.ok:
                         responseData = json.loads(response.content)
@@ -430,8 +484,9 @@ class NSXTOperations():
             # Adding a timeout for 10 min, until the realisation on transport zone by Policy APIs.
             timeout = time.time() + nsxtConstants.TRANSPORT_ZONE_DETAILS_TIMEOUT
             while True:
-                tranzportZoneDetailsUrl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
-                                                                           nsxtConstants.TRANSPORT_ZONE_DETAILS_URL.format(transportZoneID))
+                tranzportZoneDetailsUrl = "{}{}".format(
+                    nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                    nsxtConstants.TRANSPORT_ZONE_DETAILS_URL.format(transportZoneID))
                 response = self.restClientObj.get(url=tranzportZoneDetailsUrl, headers=nsxtConstants.NSXT_API_HEADER,
                                                   auth=self.restClientObj.auth)
                 if response.status_code == requests.codes.ok:
@@ -497,10 +552,11 @@ class NSXTOperations():
             for edgeClusterName in edgeClusterNameList:
                 # checks API version for Interoperability.
                 if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                    edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API,
-                                                            edgeClusterName)
-                    url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.EDGE_PATH.format(
-                        nsxtConstants.DEFAULT_POLICY_API_PATH.format(edgeClusterData['path'])))
+                    edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API, edgeClusterName, usePolicyApi=True)
+                    url = "{}{}{}".format(
+                        nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                        edgeClusterData['path'],
+                        nsxtConstants.EDGE_PATH)
                     response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
                                                       auth=self.restClientObj.auth)
                     if response.status_code == requests.codes.ok:
@@ -525,9 +581,9 @@ class NSXTOperations():
                 edgeNodeId = data['transport_node_id']
                 # checks API version for Interoperability.
                 if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                    bridgeProfileDict = self.getComponentData(componentApi=nsxtConstants.BRIDGE_EDGE_PROFILE_DETAILS)
-                    bridgeProfile = [bridgeProfile for bridgeProfile in bridgeProfileDict if
-                                     edgeNodeId in bridgeProfile['display_name']]
+                    bridgeProfileDict = self.getComponentData(
+                        componentApi=nsxtConstants.BRIDGE_EDGE_PROFILE_DETAILS, usePolicyApi=True)
+                    bridgeProfile = [bridgeProfile for bridgeProfile in bridgeProfileDict if edgeNodeId in bridgeProfile['display_name']]
                 else:
                     bridgeProfileDict = self.getComponentData(componentApi=nsxtConstants.CREATE_BRIDGE_ENDPOINT_PROFILE)
                     bridgeProfile = [bridgeProfile for bridgeProfile in bridgeProfileDict if edgeNodeId in bridgeProfile['display_name']]
@@ -535,7 +591,9 @@ class NSXTOperations():
                     continue
                 # checks API version for Interoperability.
                 if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                    bridgeAttachUrl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.ATTACH_SEGMENTS.format(geneveLogicalSwitch[1]))
+                    intent_path = nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(geneveLogicalSwitch[1])
+                    segmentDetailsUrl = "{}{}".format(
+                        nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
                     bridgeProfiles= []
                     for profile in bridgeProfile:
                         temp_dict = {"bridge_profile_path": profile['path'],
@@ -543,17 +601,16 @@ class NSXTOperations():
                                      "vlan_ids": [geneveLogicalSwitch[0]['vlanId']]
                                      }
                         bridgeProfiles.append(temp_dict)
-                    segmentDetailsUrl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
-                                                                               nsxtConstants.ATTACH_SEGMENTS.format(geneveLogicalSwitch[1]))
                     response = self.restClientObj.get(url=segmentDetailsUrl, headers=nsxtConstants.NSXT_API_HEADER,
                                                       auth=self.restClientObj.auth)
                     if response.status_code == requests.codes.ok:
                         segmentData = json.loads(response.content)
                         segmentData['bridge_profiles'] = bridgeProfiles
                         payloadData = json.dumps(segmentData)
-                        response = self.restClientObj.patch(url=bridgeAttachUrl, headers=nsxtConstants.NSXT_API_HEADER,
+                        response = self.restClientObj.patch(url=segmentDetailsUrl, headers=nsxtConstants.NSXT_API_HEADER,
                                                             auth=self.restClientObj.auth, data=str(payloadData))
                         if response.status_code == requests.codes.ok or response.status_code == requests.codes.created:
+                            self.checkRealizedState(intent_path)
                             logger.debug('Bridge Endpoint profile attached to Logical switch {}'.format(geneveLogicalSwitch[1]))
                             if geneveLogicalSwitch[2] == 'NAT_ROUTED':
                                 edgeNodeList.append(edgeNodeId)
@@ -769,30 +826,36 @@ class NSXTOperations():
             if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                 # for each segment present in switchList, we are calling detach segment API.
                 for segment in switchList:
-                    segmentDetailsUrl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.ATTACH_SEGMENTS.format(segment[1]))
-                    response = self.restClientObj.get(url=segmentDetailsUrl, headers=nsxtConstants.NSXT_API_HEADER,
+                    intent_path = nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(segment[1])
+                    segmentUrl = "{}{}".format(
+                        nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
+                    response = self.restClientObj.get(url=segmentUrl, headers=nsxtConstants.NSXT_API_HEADER,
                                                       auth=self.restClientObj.auth)
-                    if response.status_code == requests.codes.ok:
-                        segmentData = json.loads(response.content)
-                        if 'bridge_profiles' in segmentData.keys():
-                            del segmentData['bridge_profiles']
-                        del segmentData['_create_user']
-                        del segmentData['_create_time']
-                        del segmentData['_last_modified_user']
-                        del segmentData['_last_modified_time']
-                        del segmentData['_system_owned']
-                        del segmentData['_protection']
-                        del segmentData['_revision']
-                        segementDettachUrl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.DETACH_SEGMENT.format(segment[3]))
-                        payloadData = json.dumps(segmentData)
-                        response = self.restClientObj.patch(url=segementDettachUrl, headers=nsxtConstants.NSXT_API_HEADER,
-                                                            auth=self.restClientObj.auth, data=str(payloadData))
-                        if response.status_code == requests.codes.ok or response.status_code == requests.codes.created :
-                            logger.debug('Logical segment {} is detached from bridge successfully.'.format(segment[0]))
-                        else:
-                            responseData = json.loads(response.content)
-                            msg = 'Failed to detach Logical segment {} from Edge-Bridge - {}'.format(segment, responseData['error_message'])
-                            raise Exception(msg)
+                    if not response.status_code == requests.codes.ok:
+                        raise Exception(f"Falied to get details of logical segment {segment[0]}")
+
+                    segmentData = json.loads(response.content)
+                    if 'bridge_profiles' in segmentData.keys():
+                        del segmentData['bridge_profiles']
+                    del segmentData['_create_user']
+                    del segmentData['_create_time']
+                    del segmentData['_last_modified_user']
+                    del segmentData['_last_modified_time']
+                    del segmentData['_system_owned']
+                    del segmentData['_protection']
+                    del segmentData['_revision']
+                    payloadData = json.dumps(segmentData)
+
+                    # Detach logical segment by removing bridge_profiles
+                    response = self.restClientObj.patch(url=segmentUrl, headers=nsxtConstants.NSXT_API_HEADER,
+                                                        auth=self.restClientObj.auth, data=str(payloadData))
+                    if response.status_code == requests.codes.ok or response.status_code == requests.codes.created:
+                        self.checkRealizedState(intent_path)
+                        logger.debug('Logical segment {} is detached from bridge successfully.'.format(segment[0]))
+                    else:
+                        responseData = json.loads(response.content)
+                        msg = 'Failed to detach Logical segment {} from Edge-Bridge - {}'.format(segment, responseData['error_message'])
+                        raise Exception(msg)
             else:
                 # detach the logical switch port
                 for logicalSwitchPort in logicalPortList:
@@ -830,12 +893,13 @@ class NSXTOperations():
                 # delete edge bridge profile with policy API.
                 for edgeBridge in edgeBridgeList:
                     edgeBridgeProfileName = edgeBridge.split('/')[-1]
-                    deleteEdgeBridgeUrl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
-                                                                                 nsxtConstants.DETACH_SEGMENT.format(edgeBridge))
+                    deleteEdgeBridgeUrl = "{}{}".format(
+                        nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), edgeBridge)
                     response = self.restClientObj.delete(url=deleteEdgeBridgeUrl,
                                                          headers=nsxtConstants.NSXT_API_HEADER,
                                                          auth=self.restClientObj.auth)
                     if response.status_code == requests.codes.ok:
+                        self.checkRealizedState(edgeBridge, markedForDelete=True)
                         logger.debug('Edge Bridge profile {} deleted Successfully'.format(edgeBridgeProfileName))
                     else:
                         responseData = json.loads(response.content)
@@ -1076,7 +1140,8 @@ class NSXTOperations():
             # checks API version for Interoperability.
             if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                 # Fetching bridge endpoint profiles from NSXT
-                bridgeProfileDict = self.getComponentData(componentApi=nsxtConstants.BRIDGE_EDGE_PROFILE_DETAILS)
+                bridgeProfileDict = self.getComponentData(
+                    componentApi=nsxtConstants.BRIDGE_EDGE_PROFILE_DETAILS, usePolicyApi=True)
             else:
                 # Fetching bridge endpoint profiles from NSXT
                 bridgeProfileDict = self.getComponentData(componentApi=nsxtConstants.CREATE_BRIDGE_ENDPOINT_PROFILE)
@@ -1394,7 +1459,9 @@ class NSXTOperations():
 
     def getTier0LocaleServicesDetails(self, tier0GatewayName):
         try:
-            localeServicesUrl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.GET_LOCALE_SERVICES_API.format(tier0GatewayName))
+            localeServicesUrl = "{}{}".format(
+                nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                nsxtConstants.GET_LOCALE_SERVICES_API.format(tier0GatewayName))
             response = self.restClientObj.get(url=localeServicesUrl, headers=nsxtConstants.NSXT_API_HEADER,
                                               auth=self.restClientObj.auth)
             if response.status_code == requests.codes.ok:
@@ -1415,7 +1482,9 @@ class NSXTOperations():
         """
         try:
             tier0localeServices = self.getTier0LocaleServicesDetails(tier0GatewayName)
-            bgpRoutingConfigUrl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.BGP_ROUTING_CONFIG_API.format(tier0GatewayName,tier0localeServices['id']))
+            bgpRoutingConfigUrl = "{}{}".format(
+                nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                nsxtConstants.BGP_ROUTING_CONFIG_API.format(tier0GatewayName, tier0localeServices['id']))
             response = self.restClientObj.get(url=bgpRoutingConfigUrl, headers=nsxtConstants.NSXT_API_HEADER,
                                               auth=self.restClientObj.auth)
             if response.status_code == requests.codes.ok:
@@ -1462,7 +1531,9 @@ class NSXTOperations():
             else:
                 segmentName = vdcNetworkName+'-'+vdcNetworkId
             segmentId = segmentName.replace(' ', '_')
-            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.CREATE_LOGICAL_SEGMENTS_ENDPOINT.format(segmentId))
+            url = "{}{}".format(
+                nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(segmentId))
             urlTZ = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.TRANSPORT_ZONE_API)
             responseTZ = self.restClientObj.get(url=urlTZ, headers=nsxtConstants.NSXT_API_HEADER,
                                               auth=self.restClientObj.auth)
@@ -1506,7 +1577,9 @@ class NSXTOperations():
             if logicalsegments:
                 logger.info('Rollback: Deleting logical segments')
                 for segments in logicalsegments:
-                    url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.CREATE_LOGICAL_SEGMENTS_ENDPOINT.format(segments))
+                    url = "{}{}".format(
+                        nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                        nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(segments))
                     response = self.restClientObj.delete(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
                     if response.status_code == requests.codes.ok:
                         logger.debug('Logical segment - {} deleted successfully'.format(segments))
