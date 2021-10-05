@@ -10,6 +10,7 @@ import os
 
 # NSXT HOST AND API URL FORMAT
 NSXT_HOST_API_URL = "https://{}/{}"
+NSXT_HOST_POLICY_API = "https://{}/policy/api/v1"
 
 # results key that exists in the successful response of getComponentData api
 NSX_API_RESULTS_KEY = "results"
@@ -29,26 +30,23 @@ LOGICAL_ROUTER_API = "api/v1/logical-routers"
 # max limit of bridge endpoint profiles in NSX-T
 MAX_LIMIT_OF_BRIDGE_ENDPOINT_PROFILES = 128
 
-# Defauly Policy V1 Api path
-DEFAULT_POLICY_API_PATH = "policy/api/v1{}"
-
 # nsx-t bridge endpoint profile uri
 CREATE_BRIDGE_ENDPOINT_PROFILE = "api/v1/bridge-endpoint-profiles"
 
 # nsx-t Edeg bridge profile with policy API
-CREATE_BRIDGE_ENDPOINT_PROFILE_POLICY_API = "policy/api/v1/infra/sites/default/enforcement-points/default/edge-bridge-profiles/Bridge-Edge-Profile{}"
+BRIDGE_ENDPOINT_PROFILE_POLICY_PATH = "/infra/sites/default/enforcement-points/default/edge-bridge-profiles/Bridge-Edge-Profile{}"
 
 # nsx-t edge profile details with Policy API.
-BRIDGE_EDGE_PROFILE_DETAILS = "policy/api/v1/infra/sites/default/enforcement-points/default/edge-bridge-profiles"
+BRIDGE_EDGE_PROFILE_DETAILS = "/infra/sites/default/enforcement-points/default/edge-bridge-profiles"
 
 # NSX-T get edge clusters
-GET_EDGE_CLUSTERS_API = "policy/api/v1/infra/sites/default/enforcement-points/default/edge-clusters"
+GET_EDGE_CLUSTERS_API = "/infra/sites/default/enforcement-points/default/edge-clusters"
 
 # nsx-r Edge Path for create Edge Bride Profile with policy API.
-EDGE_PATH = "{}/edge-nodes"
+EDGE_PATH = "/edge-nodes"
 
 # nsx-t API version
-API_VERSION = "https://{}/policy/api/v1/spec/openapi/nsx_policy_api.json"
+API_VERSION = "/spec/openapi/nsx_policy_api.json"
 
 # root directory constant which fetches the absolute path of this module i.e D:/vcd-migration/src/core/nsxt
 NSXT_ROOT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
@@ -120,20 +118,14 @@ DELETE_HOST_SWITCH_PROFILE_API = "api/v1/host-switch-profiles/{}"
 LIST_COMPUTE_MANAGERS = "api/v1/fabric/compute-managers"
 
 # BGP ROUTING CONFIG uri
-BGP_ROUTING_CONFIG_API = "policy/api/v1/infra/tier-0s/{}/locale-services/{}/bgp"
+BGP_ROUTING_CONFIG_API = "/infra/tier-0s/{}/locale-services/{}/bgp"
 
 # Tier0 locale serivces uri
-GET_LOCALE_SERVICES_API = 'policy/api/v1/infra/tier-0s/{}/locale-services'
+GET_LOCALE_SERVICES_API = '/infra/tier-0s/{}/locale-services'
 
-# create logical segments endpoints
-CREATE_LOGICAL_SEGMENTS_ENDPOINT = 'policy/api/v1/infra/segments/{}'
-
-# Attach segment using policy API
-ATTACH_SEGMENTS = "policy/api/v1/infra/segments/{}"
-SEGMENT_DETAILS = "policy/api/v1/infra/segments"
-
-# Detach segment
-DETACH_SEGMENT = "policy/api/v1{}"
+# Logical segment using policy API
+LOGICAL_SEGMENTS_ENDPOINT = "/infra/segments/{}"
+SEGMENT_DETAILS = "/infra/segments"
 
 # policy API version startswith '3.' onwards.
 API_VERSION_STARTWITH = "3."
@@ -148,8 +140,10 @@ FETCH_VNI_POOL = "api/v1/pools/vni-pools"
 TRANSPORT_ZONE_PATH = "/infra/sites/default/enforcement-points/default/transport-zones/{}"
 
 # Get transport zone details
-TRANSPORT_ZONE_DETAILS = "policy/api/v1/infra/sites/default/enforcement-points/default/transport-zones"
-TRANSPORT_ZONE_DETAILS_URL = "policy/api/v1/infra/sites/default/enforcement-points/default/transport-zones/{}"
+TRANSPORT_ZONE_DETAILS_URL = "/infra/sites/default/enforcement-points/default/transport-zones/{}"
 
 # Timeout to get Transport Zone details.
 TRANSPORT_ZONE_DETAILS_TIMEOUT = 60 * 10
+
+# API to check realization state after policy API is executed
+REALIZED_STATE_API = "/infra/realized-state/status?intent_path={}"
