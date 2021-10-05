@@ -4675,30 +4675,31 @@ class VCDMigrationValidation:
     def fetchAllExternalNetworks(self):
         try:
             # url to get all the external networks
-            url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                vcdConstants.ALL_EXTERNAL_NETWORKS)
+            url = "{}{}?sortAsc=name".format(
+                vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EXTERNAL_NETWORKS)
             # get api call to get all the external networks
             response = self.restClientObj.get(url, self.headers)
             responseDict = response.json()
             if response.status_code == requests.codes.ok:
                 logger.debug("External network details retrieved successfully.")
                 resultTotal = responseDict['resultTotal']
-                extNetData = copy.deepcopy(responseDict)
-                extNetData['values'] = []
+                extNetData = []
             else:
                 raise Exception('Failed to retrieve External network details due to: {}'.format(responseDict['message']))
             pageNo = 1
             pageSizeCount = 0
-            resultList = []
+            # TODO pranshu: remove uniqueResults in release 1.3.1
+            uniqueResults = set()
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                        vcdConstants.ALL_EXTERNAL_NETWORKS, pageNo,
-                                                        15)
+                url = "{}{}?page={}&pageSize={}&sortAsc=name".format(
+                    vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EXTERNAL_NETWORKS, pageNo, 15)
                 getSession(self)
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
-                    extNetData['values'].extend(responseDict['values'])
+                    for net in responseDict['values']:
+                        uniqueResults.add(net['id'])
+                    extNetData.extend(responseDict['values'])
                     pageSizeCount += len(responseDict['values'])
                     logger.debug('External network result pageSize = {}'.format(pageSizeCount))
                     pageNo += 1
@@ -4706,9 +4707,10 @@ class VCDMigrationValidation:
                 else:
                     responseDict = response.json()
                     raise Exception('Failed to get External network details due to: {}'.format(responseDict['message']))
-            logger.debug('Total External network result count = {}'.format(len(resultList)))
+            logger.debug('Total External network result count = {}'.format(len(extNetData)))
+            logger.debug('[Beta] Total External network result count (Unique) = {}'.format(len(uniqueResults)))
             logger.debug('All External network successfully retrieved')
-            return extNetData['values']
+            return extNetData
         except:
             raise
 
