@@ -1772,7 +1772,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             responseValues = self.getPaginatedResults("VCD tenant certificate store", url, self.headers)
             if rawOutput:
                 return responseValues
-            
+
             # Retrieving certificate names from certificates
             return {
                 certificate['alias']: certificate['id']
@@ -3212,13 +3212,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 return
 
             logger.info('Configuring DFW default rule')
-            sharedNetwork = self.isSharedNetworkPresent(sourceOrgVDCId)
-
             payloadDict = {
                 'name': 'Default',
-                'enabled': 'true' if rule['@disabled'] == 'false' else 'false',
+                'enabled': True if rule['@disabled'] == 'false' else False,
                 'action': 'ALLOW' if rule['action'] == 'allow' else 'DROP',
-                'logging': 'true' if rule['@logged'] == 'true' else 'false',
+                'logging': True if rule['@logged'] == 'true' else False,
                 'ipProtocol':
                     'IPV4' if rule['packetType'] == 'ipv4'
                     else 'IPV6' if rule['packetType'] == 'ipv6'
@@ -3242,20 +3240,24 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     vcdConstants.ENABLE_DFW_POLICY,
                     vcdConstants.GET_DFW_RULES.format(policyResponseDict['defaultPolicy']['id']))
 
-                self.putDfwPolicyRules(dfwURL, payloadDict, 'Default', dcGroupId, defaultRule=True)
-
-                # If shared network is enabled, update metadata for each participating VDC
-                if sharedNetwork:
-                    for vcdObj in vcdObjList:
-                        if not vcdObj.rollback.apiData.get('DfwDefaultRule'):
-                            vcdObj.rollback.apiData['DfwDefaultRule'] = dict()
-                        vcdObj.rollback.apiData['DfwDefaultRule'][dcGroupId] = True
-                        vcdObj.saveMetadataInOrgVdc(force=True)
+                userDefinedRules = self.getDfwPolicyRules(dfwURL)
+                if len(userDefinedRules) > 1:
+                    raise Exception("Distributed firewall rules are present. Not adding default rule")
+                elif len(userDefinedRules) == 1:
+                    if all(
+                            userDefinedRules[0].get(param) == payloadDict.get(param)
+                            for param in
+                            ['enabled', 'action', 'direction', 'sources', 'destinations', 'applicationPortProfiles']):
+                        logger.debug(f'Default rule already configured on {dcGroupId}')
+                    else:
+                        self.putDfwPolicyRules(dfwURL, payloadDict, 'Default', dcGroupId, defaultRule=True)
                 else:
-                    if not self.rollback.apiData.get('DfwDefaultRule'):
-                        self.rollback.apiData['DfwDefaultRule'] = dict()
-                    self.rollback.apiData['DfwDefaultRule'][dcGroupId] = True
-                    self.saveMetadataInOrgVdc(force=True)
+                    self.putDfwPolicyRules(dfwURL, payloadDict, 'Default', dcGroupId, defaultRule=True)
+
+                if not self.rollback.apiData.get('DfwDefaultRule'):
+                    self.rollback.apiData['DfwDefaultRule'] = dict()
+                self.rollback.apiData['DfwDefaultRule'][dcGroupId] = True
+                self.saveMetadataInOrgVdc(force=True)
 
         except DfwRulesAbsentError as e:
             logger.debug(e)
