@@ -466,22 +466,40 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             self.saveMetadataInOrgVdc()
             raise
 
-    def createCertificatesInTarget(self, nsxv):
+    def createCertificatesInTarget(self, nsxv, nsxvCertificateStore, vcdCertificateStore, certName, ca=False):
         """
-        Description :   Fetch certificates from NSX-V and create in VCD certificate store
-        Parameters  :   ipsecConfig   -   Details of IPSEC configuration  (DICT)
+        Description :   Fetch certificates from NSX-V and create in VCD certificate store in not present
+        Parameters  :   nsxv - Object of NSX-V operations class (Obj)
+                        nsxvCertificateStore - All certificates from NSX-V, with key as certificate name (DICT)
+                        vcdCertificateStore - All certificates from VCD tenant, with key as certificate PEM (DICT)
+                        certName - Name of the certificate obj in source edge GW (STR)
+                        ca - Set if requested certificate is CA/issuer (BOOL)
+        Returns     :   Name and ID of certificate in VCD tenant certificate store (DICT)
         """
-        # Create Service and CA certificates in VCD certificate store
-        vcdCertificateStore = self.getCerticatesFromTenant()
-        nsxvCertificateStore = nsxv.getNsxvCertificateStore()
-        for certObjectId, caObjectId in self.rollback.apiData['ipsecSourceCertificatesCa'].items():
-            certificate = nsxv.certRetrieval(certObjectId)
-            if certObjectId not in vcdCertificateStore:
-                self.uploadCertificate(certificate, certObjectId)
-            if caObjectId not in vcdCertificateStore:
-                certificateName = self.uploadCertificate(
-                    nsxvCertificateStore.get(caObjectId), caObjectId, caCert=True)
-                self.rollback.apiData['ipsecSourceCertificatesCa'][certObjectId] = certificateName
+        # Get certificate(PEM) from NSX-V and verify if that is present in VCD tenant store
+        nsxvCertPem = nsxvCertificateStore.get(certName)
+        vcdCert = vcdCertificateStore.get(nsxvCertPem)
+
+        # If certificate(PEM) is present then return else upload certificate in VCD
+        if vcdCert:
+            logger.debug(
+                f"Certificate {certName} is already present in VCD tenant certificate store with name "
+                f"{vcdCert['name']}")
+        else:
+            # Do not retrieve private key for CA certificate
+            if not ca:
+                nsxvCertPem = nsxv.certRetrieval(certName)
+
+            certificate = self.uploadCertificate(nsxvCertPem, certName, caCert=ca)
+            vcdCert = {
+                'id': certificate['id'],
+                'name': certificate['alias'],
+            }
+
+            # Save certificate details in certificate store so that we will not required to fetch certificates again
+            vcdCertificateStore[nsxvCertPem] = vcdCert
+
+        return vcdCert
 
     @description("configuration of Target IPSEC")
     @remediate
@@ -496,12 +514,15 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # Acquiring lock due to vCD multiple org vdc transaction issue
             self.lock.acquire(blocking=True)
 
-            # Create certificates and CA certificates present in all IPSEC sites and fetch fresh certificates from
-            # target after creation
-            vcdCertificateStore = None
-            if self.rollback.apiData['ipsecSourceCertificatesCa']:
-                self.createCertificatesInTarget(nsxv)
-                vcdCertificateStore = self.getCerticatesFromTenant()
+            # Get certificates present in NSX-V and VCD
+            nsxvCertificateStore = nsxv.getNsxvCertificateStore()
+            vcdCertificateStore = {
+                certificate['certificate']: {
+                    'id': certificate['id'],
+                    'name': certificate['alias'],
+                }
+                for certificate in self.getCertificatesFromTenant(rawOutput=True)
+            }
 
             if not self.rollback.apiData.get('IPsecStatus'):
                 self.rollback.apiData['IPsecStatus'] = {}
@@ -552,18 +573,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     }
 
                     if sourceIPsecSite.get('authenticationMode') == 'x.509':
-                        objectId = sourceIPsecSite['certificate']
-                        caObjectId = self.rollback.apiData['ipsecSourceCertificatesCa'][objectId]
                         payload.update({
                             'authenticationMode': 'CERTIFICATE',
-                            'certificateRef': {
-                                'name': objectId,
-                                'id': vcdCertificateStore[objectId],
-                            },
-                            'caCertificateRef': {
-                                'name': caObjectId,
-                                'id': vcdCertificateStore[caObjectId],
-                            },
+                            'certificateRef': self.createCertificatesInTarget(
+                                nsxv, nsxvCertificateStore, vcdCertificateStore, sourceIPsecSite['certificate']),
+                            'caCertificateRef': self.createCertificatesInTarget(
+                                nsxv, nsxvCertificateStore, vcdCertificateStore, sourceIPsecSite['caCertificate'],
+                                ca=True),
                         })
                     else:
                         payload.update({
@@ -965,42 +981,41 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             vcdConstants.OPEN_API_URL.format(self.ipAddress),
             vcdConstants.ALL_EDGE_GATEWAYS,
             vcdConstants.T1_ROUTER_IPSEC_CONFIG.format(edgeGatewayID))
-        ipsecRulesResponse = self.restClientObj.get(url, self.headers)
-        if not ipsecRulesResponse.status_code == requests.codes.ok:
+        targetIpsecSites = self.restClientObj.get(url, self.headers)
+        if not targetIpsecSites.status_code == requests.codes.ok:
             return
 
-        # TODO pranshu: Check for response.json()
-        # ipsecRules = json.loads(ipsecRulesResponse.content)
-        ipsecRules = ipsecRulesResponse.json()
-        ipsecRules = {rule['name']: rule for rule in listify(ipsecRules['values'])}
+        targetIpsecSites = targetIpsecSites.json()
+        targetIpsecSites = {rule['name']: rule for rule in listify(targetIpsecSites['values'])}
 
         for sourceIPsecSite in listify(ipsecConfig['sites']['sites']):
-            rule = ipsecRules.get(sourceIPsecSite['name'])
-            if not rule:
+            targetIPsecSite = targetIpsecSites.get(sourceIPsecSite['name'])
+            if not targetIPsecSite:
                 continue
 
-            # checking whether 'ConfigStatus' key is present or not if present skipping that rule while remediation
-            if self.rollback.apiData.get(rule['id']):
+            # checking whether 'ConfigStatus' key is present or not if present skipping that targetIPsecSite while remediation
+            if self.rollback.apiData.get(targetIPsecSite['id']):
                 continue
 
             propertyUrl = "{}{}{}{}".format(
                 vcdConstants.OPEN_API_URL.format(self.ipAddress),
                 vcdConstants.ALL_EDGE_GATEWAYS,
                 vcdConstants.T1_ROUTER_IPSEC_CONFIG.format(edgeGatewayID),
-                vcdConstants.CONNECTION_PROPERTIES_CONFIG.format(rule['id']))
+                vcdConstants.CONNECTION_PROPERTIES_CONFIG.format(targetIPsecSite['id']))
 
             # if the source encryption algorithm is 'AES-GCM', then target Ike algorithm supported is 'AES 128'
             if sourceIPsecSite['encryptionAlgorithm'] == 'aes-gcm':
                 ikeEncryptionAlgorithm = vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get('aes')
-                ikeDigestAlgorithm = vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get('sha1')
+                ikeDigestAlgorithm = vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(
+                    sourceIPsecSite['digestAlgorithm'])
                 tunnelDigestAlgorithm = None
             else:
                 ikeEncryptionAlgorithm = vcdConstants.CONNECTION_PROPERTIES_ENCRYPTION_ALGORITHM.get(
                     sourceIPsecSite['encryptionAlgorithm'])
-                tunnelDigestAlgorithm = [vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(
-                    sourceIPsecSite['digestAlgorithm'])]
                 ikeDigestAlgorithm = vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(
                     sourceIPsecSite['digestAlgorithm'])
+                tunnelDigestAlgorithm = [vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM.get(
+                    sourceIPsecSite['digestAlgorithm'])]
 
             payloadDict = {
                 "securityType": "CUSTOM",
@@ -1028,16 +1043,17 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 # successfully configured connection property of ipsec
                 task_url = apiResponse.headers['Location']
                 self._checkTaskStatus(taskUrl=task_url)
-                # adding a key here to make sure the rule have configured successfully and when remediation
-                # skipping this rule
-                self.rollback.apiData[rule['id']] = True
-                logger.debug('Connection properties successfully configured for ipsec rule {}'.format(rule['name']))
+                # adding a key here to make sure the targetIPsecSite have configured successfully and when remediation
+                # skipping this targetIPsecSite
+                self.rollback.apiData[targetIPsecSite['id']] = True
+                logger.debug('Connection properties successfully configured for ipsec rule {}'.format(
+                    targetIPsecSite['name']))
             else:
                 # failure in configuring ipsec configuration properties
                 errorResponse = apiResponse.json()
                 raise Exception(
                     'Failed to configure connection properties for ipsec rule {} with errors - {} '.format(
-                        rule['name'], errorResponse['message']))
+                        targetIPsecSite['name'], errorResponse['message']))
 
     def createSecurityGroup(self, networkID, firewallRule, edgeGatewayID):
         """
@@ -1607,39 +1623,30 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             raise
 
     @isSessionExpired
-    def getCerticatesFromTenant(self, caOnly=False, rawOutput=False):
+    def getCertificatesFromTenant(self, rawOutput=False):
         """
             Description :   Fetch the names of certificates present in tenant portal
+            Parameters  :   rawOutput - Returns output of API as it is.
             Returns     :   dictionary of names and ids of certificates present in tenant portal
         """
         try:
-            # TODO pranshu: implement paging
-            # TODO pranshu: implement caching
             logger.debug('Getting the certificates present in VCD tenant certificate store')
             url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.CERTIFICATE_URL)
-            if caOnly:
-                url = f"{url}?filterEncoded=true&filter=(privateKey!=******)"
 
             # updating headers for get request
             self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
             self.headers['X-VMWARE-VCLOUD-TENANT-CONTEXT'] = self.rollback.apiData['Organization']['@id'].split(':')[-1]
 
-            response = self.restClientObj.get(url=url, headers=self.headers)
-            if response.status_code == requests.codes.ok:
-                logger.debug('Successfully retrieved VCD tenant certificate store')
-                responseDict = response.json()
-                if rawOutput:
-                    return responseDict.get('values', [])
-                # Retrieving certificate names from certificates
-                return {
-                    certificate['alias']: certificate['id']
-                    for certificate in responseDict.get('values', [])
-                }
+            responseValues = self.getPaginatedResults("VCD tenant certificate store", url, self.headers)
+            if rawOutput:
+                return responseValues
+            
+            # Retrieving certificate names from certificates
+            return {
+                certificate['alias']: certificate['id']
+                for certificate in responseValues
+            }
 
-            else:
-                errorResponseDict = response.json()
-                raise Exception(
-                    "Failed to retrieve certificates from vcd due to error - {}".format(errorResponseDict['message']))
         finally:
             # removing tenant context header after uploading certificate to tenant portal
             if self.headers.get('X-VMWARE-VCLOUD-TENANT-CONTEXT'):
@@ -1661,12 +1668,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 "certificate": certificate,
                 "description": ""
             }
-            if caCert:
-                vcdCertificateStore = self.getCerticatesFromTenant(caOnly=True, rawOutput=True)
-                for vcdCert in vcdCertificateStore:
-                    if vcdCert['certificate'] == certificate:
-                        return vcdCert['alias']
-            else:
+            if not caCert:
                 # reading pkcs8 format private key from file
                 with open(pkcs8PemFileName, 'r', encoding='utf-8') as privateFile:
                     privateKey = privateFile.read()
@@ -1683,7 +1685,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             response = self.restClientObj.post(url=url, headers=self.headers, data=payloadData)
             if response.status_code == requests.codes.created:
                 logger.debug(f'Successfully uploaded certificate {certificateName} in VCD certificate store')
-                return certificateName
+                return response.json()
             else:
                 errorResponseDict = response.json()
                 raise Exception(
@@ -1948,7 +1950,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
                 # Deleting certificates from vCD tenant portal
                 # Getting certificates from org vdc tenant portal
-                lbCertificates = self.getCerticatesFromTenant()
+                lbCertificates = self.getCertificatesFromTenant()
                 # Deleting the certificates used in pool configuration
                 for certId in certificatesIds:
                     if certId not in lbCertificates.values():
@@ -2233,7 +2235,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
                         if certificateObjectId:
                             # Getting certificates from org vdc tenant portal
-                            lbCertificates = self.getCerticatesFromTenant()
+                            lbCertificates = self.getCertificatesFromTenant()
 
                             # Certificates payload
                             certificatePayload = {
@@ -2330,7 +2332,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             objectIdsOfCertificates = [profile['clientSsl']['serviceCertificate'] for profile in applicationProfiles if profile.get('clientSsl')]
 
             # Getting certificates from org vdc tenant portal
-            lbCertificates = self.getCerticatesFromTenant()
+            lbCertificates = self.getCertificatesFromTenant()
 
             # Uploading certificate to org vdc tenant portal
             for objectId in objectIdsOfCertificates:
@@ -2434,7 +2436,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
                 # Adding certificates in pool payload if https config is present
                 if healthMonitorUsedInPool and healthMonitorUsedInPool[0]['type'] == 'https':
-                    lbCertificates = self.getCerticatesFromTenant()
+                    lbCertificates = self.getCertificatesFromTenant()
                     certificatePayload = [{'name': objectId, 'id': lbCertificates[objectId]}for objectId in objectIdsOfCertificates]
                     payloadData["caCertificateRefs"] = certificatePayload
                 else:
