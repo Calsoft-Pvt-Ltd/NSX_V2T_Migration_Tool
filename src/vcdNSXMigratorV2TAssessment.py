@@ -71,8 +71,7 @@ VALIDATION_CLASSIFICATION = {
     'NAT: Range of IPs or network in DNAT rule': 1,
     'IPsec: Route based session type': 2,
     'IPsec: Unsupported Encryption Algorithm': 1,
-    'IPsec: Authentication mode as Certificate': 2,
-    'IPsec: Unsupported Digest Algorithm': 1,
+    'IPsec: CA certificate is missing': 1,
     'OSPF routing protocol': 2,
     'User-defined Static Routes': 1,
     'LoadBalancer: Transparent Mode': 2,
@@ -619,14 +618,10 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 self.orgVDCResult["IPsec: Unsupported Encryption Algorithm"] = True
                                             else:
                                                 self.orgVDCResult["IPsec: Unsupported Encryption Algorithm"] = False
-                                            if "Authentication mode as Certificate" in ''.join(result):
-                                                self.orgVDCResult["IPsec: Authentication mode as Certificate"] = True
+                                            if "CA certificate not found" in ''.join(result):
+                                                self.orgVDCResult["IPsec: CA certificate is missing"] = True
                                             else:
-                                                self.orgVDCResult["IPsec: Authentication mode as Certificate"] = False
-                                            if "digest algorithm" in ''.join(result):
-                                                self.orgVDCResult["IPsec: Unsupported Digest Algorithm"] = True
-                                            else:
-                                                self.orgVDCResult["IPsec: Unsupported Digest Algorithm"] = False
+                                                self.orgVDCResult["IPsec: CA certificate is missing"] = False
                                         if serviceName == "Routing":
                                             if "OSPF routing protocol" in ''.join(result):
                                                 self.orgVDCResult["OSPF routing protocol"] = True

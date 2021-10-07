@@ -9,6 +9,7 @@ Description: Module which holds all the methods for decrpyting the session key a
 import ast
 import base64
 import os
+import uuid
 import subprocess
 
 from Crypto.Cipher import AES
@@ -61,8 +62,10 @@ def verifyCertificateAgainstCa(certPem, caPem):
                     caPem - CA certificate is PEM format (STR)
     Returns     :   True if service certificate is signed by CA certificate (BOOL)
     """
-    caFile = 'ca.pem'
-    certFile = 'cert.pem'
+    # suffix is applied to distinguish file name when multiple org VDCs are migrating at the same time
+    suffix = uuid.uuid4()
+    caFile = f'ca-{suffix}.pem'
+    certFile = f'cert-{suffix}.pem'
     try:
         with open(certFile, 'w', encoding='utf-8') as cert:
             cert.write(certPem)

@@ -244,6 +244,65 @@ class VCDMigrationValidation:
         except Exception:
             raise
 
+    @isSessionExpired
+    def getPaginatedResults(
+            self, entity, baseUrl, headers=None, urlFilter=None, pageSize=vcdConstants.DEFAULT_QUERY_PAGE_SIZE):
+        """
+        Description: Fetch all results from a paginated API
+        Parameters  :   entity - Name of the entity to be fetched (STR)
+                        baseUrl - URL without any filters and paging information (STR)
+                        headers - headers for GET request (STR)
+                        urlFilter - any filter or query parameters to be provided without paging information (STR)
+                        pageSize - Number of results to be fetched per page (INT)
+        Returns     :   Consolidated results from all pages (LIST)
+
+        """
+        logger.debug(f"Getting {entity} details")
+        headers = headers or self.headers
+        url = f"{baseUrl}?page=1&pageSize={pageSize}"
+        if urlFilter:
+            url = f"{url}&{urlFilter}"
+
+        # Get first page of results
+        response = self.restClientObj.get(url, headers)
+        responseDict = response.json()
+
+        if not response.status_code == requests.codes.ok:
+            raise Exception(f"Failed to get {entity}: {responseDict['message']}")
+
+        resultTotal = responseDict['resultTotal']
+        resultItems = responseDict['values']
+
+        # Return values if total results are less than page size i.e. only single page of results
+        if resultTotal <= pageSize:
+            logger.debug(f"Total {entity} details result count = {len(resultItems)}")
+            logger.debug(f"'{entity} details successfully retrieved")
+            return resultItems
+
+        # Get second page onwards
+        pageNo = 2
+        pageSizeCount = len(responseDict['values'])
+        while resultTotal > 0 and pageSizeCount < resultTotal:
+            url = f"{baseUrl}?page={pageNo}&pageSize={pageSize}"
+            if urlFilter:
+                url = f"{url}&{urlFilter}"
+
+            getSession(self)
+            response = self.restClientObj.get(url, headers)
+            if not response.status_code == requests.codes.ok:
+                raise Exception(f"Failed to get {entity}, page {pageNo}: {responseDict['message']}")
+
+            responseDict = response.json()
+            resultItems.extend(responseDict['values'])
+            pageSizeCount += len(responseDict['values'])
+            logger.debug(f"{entity} details result pageSize = {pageSizeCount}")
+            pageNo += 1
+            resultTotal = responseDict['resultTotal']
+
+        logger.debug(f"Total {entity} details result count = {resultItems}")
+        logger.debug(f"'{entity} details successfully retrieved")
+        return resultItems
+
     @description("Migrating metadata from source Org VDC to target Org VDC")
     @remediate
     def migrateMetadata(self):
@@ -2325,8 +2384,6 @@ class VCDMigrationValidation:
             self.rollback.apiData['sourceEdgeGatewayDHCP'] = {}
             if not self.rollback.apiData.get('ipsecConfigDict'):
                 self.rollback.apiData['ipsecConfigDict'] = {}
-            if not self.rollback.apiData.get('ipsecSourceCertificatesCa'):
-                self.rollback.apiData['ipsecSourceCertificatesCa'] = {}
 
             allErrorList = list()
             edgeGatewayCount = 0
@@ -2347,7 +2404,9 @@ class VCDMigrationValidation:
                 self.thread.spawnThread(self.getEdgeGatewayNatConfig, gatewayId)
                 time.sleep(2)
                 # getting the ipsec config details of specified edge gateway
-                self.thread.spawnThread(self.getEdgeGatewayIpsecConfig, gatewayId, gatewayName, nsxvObj)
+                self.thread.spawnThread(
+                    self.getEdgeGatewayIpsecConfig, gatewayId, gatewayName, nsxvObj=nsxvObj,
+                    v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the bgp config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgegatewayBGPconfig, gatewayId, validation=True, nsxtObj=nsxtObj, v2tAssessmentMode=v2tAssessmentMode)
@@ -3090,7 +3149,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getEdgeGatewayIpsecConfig(self, edgeGatewayId, edgeGatewayName, nsxv):
+    def getEdgeGatewayIpsecConfig(self, edgeGatewayId, edgeGatewayName, nsxvObj, v2tAssessmentMode=False):
         """
         Description :   Gets the IPSEC Configuration details on the Edge Gateway
         Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
@@ -3114,12 +3173,12 @@ class VCDMigrationValidation:
 
         responseDict = response.json()
         self.rollback.apiData['ipsecConfigDict'][edgeGatewayName] = responseDict
-        nsxvCertificateStore = nsxv.getNsxvCertificateStore()
 
         if not responseDict['enabled'] or not responseDict['sites']:
             return []
 
         errorList = list()
+        nsxvCertificateStore = None
         for site in listify(responseDict['sites']['sites']):
             if site['ipsecSessionType'] != "policybasedsession":
                 errorList.append(
@@ -3129,29 +3188,33 @@ class VCDMigrationValidation:
                 errorList.append('Source IPSEC rule is configured with unsupported encryption algorithm {}\n'.format(
                     site['encryptionAlgorithm']))
 
-            if (
-                    float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1)
-                    and site['authenticationMode'] == 'x.509'):
-                # Identify CA certificate for service certificate
-                certObjectId = site['certificate']
-                if certObjectId not in self.rollback.apiData['ipsecSourceCertificatesCa']:
-                    for caObjectId in listify(
-                            responseDict['global'].get('caCertificates', {}).get('caCertificate')):
+            if site['authenticationMode'] == 'x.509' and not v2tAssessmentMode:
+                if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
+                    errorList.append('Authentication mode as Certificate is not supported in target edge gateway\n')
+
+                elif not nsxvObj.ipAddress and not nsxvObj.username:
+                    errorList.append(
+                        "IPSEC Certificate based authentication is used on Source Edge Gateway {}, but NSX-V details "
+                        "are not provided in user input file\n".format(edgeGatewayId))
+
+                else:
+                    # This validation is included in the precheck even though it is CA configuration pre-requisite for
+                    # tunnel to work properly because source edge gateway does allow creation of ipsec site without CA.
+                    # This is not included in v2tAssessment mode as CA certificate must be configured for tunnel to be
+                    # up on source side as well. so it is implicit condition that must be satisfied.
+                    if not nsxvCertificateStore:
+                        nsxvCertificateStore = nsxvObj.getNsxvCertificateStore()
+                    # Identify CA certificate for service certificate
+                    certObjectId = site['certificate']
+                    for caObjectId in listify(responseDict['global'].get('caCertificates', {}).get('caCertificate')):
                         if verifyCertificateAgainstCa(
                                 nsxvCertificateStore.get(certObjectId), nsxvCertificateStore.get(caObjectId)):
-                            self.rollback.apiData['ipsecSourceCertificatesCa'][certObjectId] = caObjectId
+                            site['caCertificate'] = caObjectId
                             break
                     else:
                         errorList.append(
-                            f"CA certificate not found for {certObjectId}. Please upload CA certificate in ipsec global"
-                            f" config")
-
-            elif site['authenticationMode'] != "psk":
-                errorList.append('Authentication mode as Certificate is not supported in target edge gateway\n')
-
-            if site['digestAlgorithm'] not in vcdConstants.CONNECTION_PROPERTIES_DIGEST_ALGORITHM:
-                errorList.append('The specified digest algorithm {} is not supported in target edge gateway\n'.format(
-                    site['digestAlgorithm']))
+                            f"CA certificate not found for {certObjectId}. Please upload CA certificate in ipsec "
+                            f"global config\n")
 
         logger.debug("IPSEC configuration of Source Edge Gateway retrieved successfully")
         return errorList
