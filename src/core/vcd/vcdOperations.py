@@ -815,15 +815,23 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     resultTotal = responseDict['total']
             logger.debug('Total Portgroup details result count = {}'.format(len(resultList)))
             logger.debug('Portgroup details successfully retrieved')
-            networkList = [response for response in resultList if
-                           response['networkName'] != '--']
-            updatedNetworkList = [response for response in networkList if response['scopeType'] not in ['-1', '1']]
-            portGroupList = [elem for elem in updatedNetworkList if
-                             elem['networkName'] in list(value['name'] for value in orgVdcNetworkList) and
-                             elem['network'].split('/')[-1] in list(value['id'].split(":")[-1]
-                                                                    for value in orgVdcNetworkList)]
 
-            data['portGroupList'] = portGroupList
+            # Fetching name and ids of all the org vdc networks
+            networkIdList, networkNameList = set(), set()
+            for orgVdcNetwork in orgVdcNetworkList:
+                networkIdList.add(orgVdcNetwork['id'].split(":")[-1])
+                networkNameList.add(orgVdcNetwork['name'])
+
+            # Iterating over all the port groups to find the portgroups linked to org vdc network
+            portGroupDict = {portGroup['network'].split('/')[-1]: portGroup
+                             for portGroup in resultList
+                             if portGroup['networkName'] != '--' and
+                             portGroup['scopeType'] not in ['-1', '1'] and
+                             portGroup['networkName'] in networkNameList and
+                             portGroup['network'].split('/')[-1] in networkIdList}
+
+            # Saving portgroups data to metadata data structure
+            data['portGroupList'] = list(portGroupDict.values())
             logger.info('Retrieved the portgroup of source org vdc networks.')
             return
         except:
@@ -4381,11 +4389,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
                     # if enable call then setting the mode True
-                    responseDict['dvpgProperties'][0]['promiscuousMode'] = True
-                    responseDict['dvpgProperties'][0]['forgedTransmit'] = True
+                    for portGroupData in responseDict['dvpgProperties']:
+                        portGroupData['promiscuousMode'] = True
+                        portGroupData['forgedTransmit'] = True
+
                     payloadData = json.dumps(responseDict)
-                    payloadData = json.loads(payloadData)
-                    payloadData = json.dumps(payloadData)
                     # updating the org vdc network dvportgroup properties
                     self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
                     # put api call to update the promiscuous mode and forged mode
@@ -4429,16 +4437,15 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
-                    # disable call then setting the mode to its initial state by retrieving from apiOutput.json
-                    if not orgVdcNetwork['promiscForge']['dvpgProperties'][0]['promiscuousMode']:
-                        responseDict['dvpgProperties'][0][
-                            'promiscuousMode'] = False  # orgVdcNetwork['promiscForge']['dvpgProperties'][0]['promiscuousMode']
-                    if not orgVdcNetwork['promiscForge']['dvpgProperties'][0]['forgedTransmit']:
-                        responseDict['dvpgProperties'][0][
-                            'forgedTransmit'] = False  # orgVdcNetwork['promiscForge']['dvpgProperties'][0]['forgedTransmit']
+
+                    # Iterating over all the portgroups to reset the promiscous and forged-transmit value
+                    for index, portGroupData in enumerate(orgVdcNetwork['promiscForge']['dvpgProperties']):
+                        # disable call then setting the mode to its initial state by retrieving from metadata
+                        responseDict['dvpgProperties'][index]['promiscuousMode'] = portGroupData['promiscuousMode']
+                        responseDict['dvpgProperties'][index]['forgedTransmit'] = portGroupData['forgedTransmit']
+
                     payloadData = json.dumps(responseDict)
-                    payloadData = json.loads(payloadData)
-                    payloadData = json.dumps(payloadData)
+
                     # updating the org vdc network dvportgroup properties
                     self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
                     # put api call to update the promiscuous mode and forged mode

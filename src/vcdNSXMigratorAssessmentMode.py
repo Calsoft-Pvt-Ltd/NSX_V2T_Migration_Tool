@@ -435,7 +435,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                     # Storing the assessment table output in string format
                     sharedNetworkCheckTable = getSharedNetworkExceptionObj.get_string()
                     precheckLogger.info('Validation Checks Failed for Shared Networks\n{}\n'.format(sharedNetworkCheckTable))
-                elif float(self.vcdObjList[0].version) >= float(vcdConstants.API_VERSION_ANDROMEDA):
+                elif float(self.vcdObjList[0].version) >= float(vcdConstants.API_VERSION_ANDROMEDA) and not orgExceptionList:
                     precheckLogger.info(f'All shared networks related validations successfully for org vdc/s - {", ".join([vdc["OrgVDCName"] for vdc in self.inputDict["VCloudDirector"]["SourceOrgVDC"]])}.\n')
 
                 # Check if any org vdc encountered any error in validations
