@@ -87,7 +87,8 @@ VALIDATION_CLASSIFICATION = {
     'Distributed Firewall: Layer 2 Rule': 1,
     'Distributed Firewall: Invalid Security Group objects in rule': 1,
     'Syslog service': 1,
-    'SSH service': 1
+    'SSH service': 1,
+    'Cross VDC Networking': 2,
 }
 
 
@@ -254,7 +255,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
                 'Edge Gateway Rate Limit': [self.vcdValidationObj.validateEdgeGatewayRateLimit, self.edgeGatewayIdList],
                 'Independent Disks': [self.vcdValidationObj.validateIndependentDisks, vdcId, OrgId, True],
                 'Validating Source Edge gateway services': [self.vcdValidationObj.getEdgeGatewayServices, None, None, None, True, None, True],
-                'Unsupported DFW configuration': [self.vcdValidationObj.getDistributedFirewallConfig, vdcId, True, True, True]
+                'Unsupported DFW configuration': [self.vcdValidationObj.getDistributedFirewallConfig, vdcId, True, True, True],
+                'Cross VDC Networking': [self.vcdValidationObj.validateCrossVdcNetworking, vdcId]
             }
         except Exception:
             raise

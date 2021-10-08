@@ -3877,7 +3877,9 @@ class VCDMigrationValidation:
             data.append({
                         "name": orgVDC["name"],
                         "id": f"urn:vcloud:vdc:{orgVDC['href'].split('/')[-1]}",
-                        "org": {"name": orgVDC["orgName"]}})
+                        "org": {"name": orgVDC["orgName"]},
+                        "vcName": orgVDC['vcName']
+                        })
         return data
 
     @isSessionExpired
@@ -4109,6 +4111,10 @@ class VCDMigrationValidation:
             nsxtNetworkPoolName = vdcDict.get('NSXTNetworkPoolName', None)
             logger.info('Validating Target NSXT backed Network Pools')
             self.validateTargetPvdcNetworkPools(nsxtNetworkPoolName)
+
+            # validating cross vdc networking
+            logger.info('Validating Cross VDC Networking is enabled or not')
+            self.validateCrossVdcNetworking(sourceOrgVDCId)
         except:
             # Enabling source Org VDC if premigration validation fails
             if disableOrgVDC:
@@ -5447,3 +5453,56 @@ class VCDMigrationValidation:
         else:
             raise Exception("Network Pool {} doesn't exist in Target PVDC".format(networkPoolName))
 
+    @isSessionExpired
+    def getVcenterNSXVSettings(self, vCenterId):
+        """
+        Description : Method that returns NSXV settings of vCenter passed as parameter
+        Parameters  : vCenterId - ID of vCenter (STRING)
+        Returns     : NSXV Settings of vCenter (DICT)
+        """
+        logger.debug(f"Getting NSXV Settings of vCenter id {vCenterId}.")
+        # url to get NSXV settings for vCenter
+        url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                            vcdConstants.FETCH_VC_NSXV_SETTINGS.format(vCenterId))
+        # get api call to retrieve NSXV settings
+        response = self.restClientObj.get(url, self.headers)
+        responseDict = response.json()
+        if not response.status_code == requests.codes.ok:
+            raise Exception("Failed to get vCenter NSXV settings - {}".format(responseDict['message']))
+        return responseDict
+
+    def validateCrossVdcNetworking(self, orgVdcId):
+        """
+        Description : Method that validates whether cross vdc networking is configured or not
+        Parameters  : orgVdcId - ID of org vdc for which the validation is to be performed
+        """
+        # Fetch all vCenters registered in vCD
+        baseUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                vcdConstants.GET_VIRTUAL_CENTERS)
+        vCentersRegisteredInVcd = self.getPaginatedResults('vCenters registered in VCD', baseUrl,
+                                                           urlFilter='sortAsc=name')
+
+        # Fetch org vdc details
+        orgVdcData = list(filter(lambda vdc: vdc["id"].split(":")[-1] == orgVdcId.split(":")[-1],
+                                 self.getAllOrgVdc()))
+
+        if not orgVdcData:
+            raise Exception(f"Org VDC with id {orgVdcId} is not present in vCD")
+
+        # Fetching vCenter name used by org vdc
+        vCenterUsedByOrgVdc = orgVdcData[0]['vcName']
+
+        # Filter vCenter used by org vdc to fetch vCenter data
+        vCenter = list(filter(lambda vc: vCenterUsedByOrgVdc.strip() == vc['name'],
+                               vCentersRegisteredInVcd))[0]
+
+        # Get NSXV settings for specific vCenter
+        nsxvSettings = self.getVcenterNSXVSettings(vCenter['vcId'])
+        # If Cross VDC networking is configured raise an exception
+        if nsxvSettings.get('controlVmResourcePoolVcPath') \
+                or nsxvSettings.get('controlVmDatastoreName') \
+                or nsxvSettings.get('controlVmManagementInterfaceName'):
+            raise Exception(f"Cross VDC Networking is enabled for vCenter - "
+                            f"'{vCenterUsedByOrgVdc}/{vCenter['url'].split('/')[-1]}' "
+                            f"but not supported by migration tool")
+        logger.debug(f"Validated successfully Cross VDC Networking is not enabled for vCenter {vCenterUsedByOrgVdc}")
