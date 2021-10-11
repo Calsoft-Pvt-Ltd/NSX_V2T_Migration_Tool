@@ -24,35 +24,9 @@ vCloudDirector:
   moveVapp:
     <root:MoveVAppParams xmlns:root="http://www.vmware.com/vcloud/v1.5" xmlns:ns7="http://schemas.dmtf.org/ovf/envelope/1" xmlns:ns8="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData" xmlns:ns9="http://www.vmware.com/schema/ovf">
       <root:Source href="{{vAppHref}}"/>
-      <root:NetworkConfigSection>
-        <ns7:Info>The configuration parameters for logical networks</ns7:Info>
-        {{networkConfig}}
-      </root:NetworkConfigSection>
+      {{networkConfig}}
       {{vmDetails}}
     </root:MoveVAppParams>
-  moveVappNetworkConfig:
-    <root:NetworkConfig networkName="{{networkName}}">
-      <root:Description>{{networkDescription}}</root:Description>
-      <root:Configuration>
-        <root:ParentNetwork href="{{parentNetwork}}"/>
-        <root:FenceMode>{{fenceMode}}</root:FenceMode>
-      </root:Configuration>
-      <root:IsDeployed>true</root:IsDeployed>
-    </root:NetworkConfig>
-  moveVappNetworkConfigFeatures:
-    <root:Features>
-      {{dhcpConfig}}
-    </root:Features>
-  moveVappNetworkConfigFeaturesDhcp:
-    <root:DhcpService xmlns:root="http://www.vmware.com/vcloud/v1.5">
-      <root:IsEnabled>{{isEnabled}}</root:IsEnabled>
-      <root:DefaultLeaseTime>{{defaultLeaseTime}}</root:DefaultLeaseTime>
-      <root:MaxLeaseTime>{{maxLeaseTime}}</root:MaxLeaseTime>
-      <root:IpRange>
-        <root:StartAddress>{{ipRangeStartAddress}}</root:StartAddress>
-        <root:EndAddress>{{ipRangeEndAddress}}</root:EndAddress>
-      </root:IpRange>
-    </root:DhcpService>
   moveVappVm:
     <root:SourcedItem>
       <root:Source href="{{vmHref}}"></root:Source>
@@ -123,39 +97,6 @@ vCloudDirector:
         <root:VmSizingPolicy href="{{sizingPolicyHref}}"/>
       </root:ComputePolicy>
     </root:SourcedItem>
-  moveVappNoNetworkVM:
-    <root:MoveVAppParams xmlns:root="http://www.vmware.com/vcloud/v1.5" xmlns:ns7="http://schemas.dmtf.org/ovf/envelope/1" xmlns:ns8="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData" xmlns:ns9="http://www.vmware.com/schema/ovf">
-      <root:Source href="{{vAppHref}}"/>
-      <root:NetworkConfigSection>
-        <ns7:Info>The configuration parameters for logical networks</ns7:Info>
-        <root:NetworkConfig networkName="none">
-          <root:Description/>
-          <root:Configuration>
-           <root:FenceMode>bridged</root:FenceMode>
-          </root:Configuration>
-          <root:IsDeployed>true</root:IsDeployed>
-        </root:NetworkConfig>
-      </root:NetworkConfigSection>
-      {{vmDetails}}
-    </root:MoveVAppParams>
-  moveVappNoNetworkConfig:
-    <root:NetworkConfig networkName="{{networkName}}">
-      <root:Description>{{networkDescription}}</root:Description>
-      <root:Configuration>
-        <root:IpScopes>
-          <root:IpScope>
-            <root:IsInherited>{{isInherited}}</root:IsInherited>
-            <root:Gateway>{{gateway}}</root:Gateway>
-            <root:Netmask>{{netmask}}</root:Netmask>
-            <root:SubnetPrefixLength>{{subnet}}</root:SubnetPrefixLength>
-            <root:Dns1>{{dns1}}</root:Dns1>
-          </root:IpScope>
-          </root:IpScopes>
-        <root:FenceMode>{{fenceMode}}</root:FenceMode>
-        {{featuresConfig}}
-      </root:Configuration>
-      <root:IsDeployed>{{isDeployed}}</root:IsDeployed>
-    </root:NetworkConfig>
   enableDisableAffinityRules:
     <root:VmAffinityRule xmlns:root="http://www.vmware.com/vcloud/v1.5">
       <root:Name>{{affinityRuleName}}</root:Name>
@@ -245,27 +186,71 @@ vCloudDirector:
       <root:IpAddressAllocationMode>{{allocationModel}}</root:IpAddressAllocationMode>
       <root:NetworkAdapterType>{{adapterType}}</root:NetworkAdapterType>
     </root:NetworkConnection>
-  moveVappNoNetworkIpPoolConfig:
-    <root:NetworkConfig networkName="{{networkName}}">
-      <root:Description>{{networkDescription}}</root:Description>
-      <root:Configuration>
-        <root:IpScopes>
-          <root:IpScope>
-            <root:IsInherited>{{isInherited}}</root:IsInherited>
-            <root:Gateway>{{gateway}}</root:Gateway>
-            <root:Netmask>{{netmask}}</root:Netmask>
-            <root:SubnetPrefixLength>{{subnet}}</root:SubnetPrefixLength>
-            <root:Dns1>{{dns1}}</root:Dns1>
-            <root:IpRanges>
+  moveVappNetworkConfig:
+    <root:NetworkConfigSection>
+      <ns7:Info>The configuration parameters for logical networks</ns7:Info>
+      {% for network in networkConfig %}
+      <root:NetworkConfig networkName="{{ network.name }}">
+        <root:Description>{{ network.description }}</root:Description>
+        <root:Configuration>
+          {% if 'ipScopes' in network and network.ipScopes %}
+          <root:IpScopes>
+            <root:IpScope>
+              <root:IsInherited>{{ network.ipScopes.isInherited }}</root:IsInherited>
+              <root:Gateway>{{ network.ipScopes.gateway }}</root:Gateway>
+              <root:Netmask>{{ network.ipScopes.netmask }}</root:Netmask>
+              {% if network.ipScopes.subnet %}
+              <root:SubnetPrefixLength>{{ network.ipScopes.subnet }}</root:SubnetPrefixLength>
+              {% endif %}
+              {% if network.ipScopes.dns1 %}
+              <root:Dns1>{{ network.ipScopes.dns1 }}</root:Dns1>
+              {% endif %}
+              {% if network.ipScopes.dns2 %}
+              <root:Dns2>{{ network.ipScopes.dns2 }}</root:Dns2>
+              {% endif %}
+              {% if network.ipScopes.dnsSuffix %}
+              <root:DnsSuffix>{{ network.ipScopes.dnsSuffix }}</root:DnsSuffix>
+              {% endif %}
+              {% if network.ipScopes.ipRanges %}
+              <root:IpRanges>
+                {% for ipRange in network.ipScopes.ipRanges %}
+                <root:IpRange>
+                  <root:StartAddress>{{ ipRange.StartAddress }}</root:StartAddress>
+                  <root:EndAddress>{{ ipRange.EndAddress }}</root:EndAddress>
+                </root:IpRange>
+                {% endfor %} {# for ipRange in ipRanges \#}
+              </root:IpRanges>
+              {% endif %} {# if network.ipScopes.ipRanges \#}
+            </root:IpScope>
+          </root:IpScopes>
+          {% endif %} {# if 'ipScopes' in network and network.ipScopes \#}
+          {% if 'parentNetwork' in network and network.parentNetwork %}
+          <root:ParentNetwork href="{{ network.parentNetwork }}"/>
+          {% endif %}
+          <root:FenceMode>{{ network.fenceMode }}</root:FenceMode>
+          {% if 'features' in network and network.features %}
+          <root:Features>
+            {% if 'dhcpConfig' in network.features %}
+              {% set dhcpConfig = network.features.dhcpConfig %}
+            <root:DhcpService>
+              <root:IsEnabled>{{ dhcpConfig.IsEnabled }}</root:IsEnabled>
+              <root:DefaultLeaseTime>{{ dhcpConfig.DefaultLeaseTime if 'DefaultLeaseTime' in dhcpConfig else 0 }}</root:DefaultLeaseTime>
+              <root:MaxLeaseTime>{{ dhcpConfig.MaxLeaseTime }}</root:MaxLeaseTime>
               <root:IpRange>
-              <root:StartAddress>{{startAddress}}</root:StartAddress>
-              <root:EndAddress>{{endAddress}}</root:EndAddress>
+                <root:StartAddress>{{ dhcpConfig.IpRange.StartAddress }}</root:StartAddress>
+                <root:EndAddress>{{ dhcpConfig.IpRange.EndAddress }}</root:EndAddress>
               </root:IpRange>
-            </root:IpRanges>
-          </root:IpScope>
-        </root:IpScopes>
-        <root:FenceMode>{{fenceMode}}</root:FenceMode>
-        {{featuresConfig}}
-      </root:Configuration>
-      <root:IsDeployed>{{isDeployed}}</root:IsDeployed>
-    </root:NetworkConfig>
+            </root:DhcpService>
+            {% endif %} {# if dhcpConfig in network.features \#}
+          </root:Features>
+          {% endif %} {# if 'features' in network and network.features \#}
+          {% if 'routerExternalIp' in network and network.routerExternalIp %}
+          <root:RouterInfo>
+            <root:ExternalIp>{{ network.routerExternalIp }}</root:ExternalIp>
+          </root:RouterInfo>
+          {% endif %}
+        </root:Configuration>
+        <root:IsDeployed>{{ network.isDeployed }}</root:IsDeployed>
+      </root:NetworkConfig>
+      {% endfor %} {# for network in networkConfig \#}
+    </root:NetworkConfigSection>

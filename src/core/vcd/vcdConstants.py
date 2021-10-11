@@ -569,12 +569,6 @@ MOVE_VAPP_TASK_NAME = 'vdcMoveVapp'
 # xml content type for move vApp
 XML_MOVE_VAPP = 'application/vnd.vmware.vcloud.moveVAppParams+xml'
 
-# move vapp no network but vm template
-MOVE_VAPP_NO_NETWORK_VM_TEMPLATE = 'moveVappNoNetworkVM'
-
-# move vapp with no network or vapp network without ip pool config template
-MOVE_VAPP_NO_NETWORK_CONFIG_TEMPLATE = 'moveVappNoNetworkConfig'
-
 # vapp template type string
 TYPE_VAPP_TEMPLATE = 'application/vnd.vmware.vcloud.vAppTemplate+xml'
 
@@ -637,9 +631,6 @@ NSX_JOBS = '/jobs/{}'
 
 # content type to update the vapp network
 VAPP_NETWORK_CONTENT_TYPE = 'application/vnd.vmware.vcloud.vAppNetwork+json'
-
-# move vapp with no network or vapp network with ip pool config template
-MOVE_VAPP_NO_NETWORK_IP_POOL_CONFIG_TEMPLATE = 'moveVappNoNetworkIpPoolConfig'
 
 # get service engine group uri
 GET_SERVICE_ENGINE_GROUP_URI = 'loadBalancer/serviceEngineGroups'
