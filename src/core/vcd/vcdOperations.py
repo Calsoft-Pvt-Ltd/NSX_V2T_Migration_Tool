@@ -197,7 +197,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 payloadData['edgeGatewayUplinks'][0]['subnets']['values'] = subnetData
 
                 # Checking if edge cluster is specified in user input yaml
-                if vdcDict.get('EdgeGatewayDeploymentEdgeCluster') != 'None':
+                if vdcDict.get('EdgeGatewayDeploymentEdgeCluster'):
                     # Fetch edge cluster id
                     edgeClusterId = nsxObj.fetchEdgeClusterDetails(vdcDict["EdgeGatewayDeploymentEdgeCluster"]).get('id')
                 else:
