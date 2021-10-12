@@ -61,7 +61,8 @@ VALIDATION_CLASSIFICATION = {
     'Edge Gateway Rate Limit': 1,
     'Independent Disks: Shared disk present': 2,
     'Independent Disks: Attached VMs are not powered off': 1,
-    'DHCP Relay': 2,
+    'DHCP Relay: Domain names are configured': 1,
+    'DHCP Relay: IP sets are configured': 1,
     'DHCP: Static binding': 2,
     'Gateway Firewall: Any as TCP/UDP port': 1,
     'Gateway Firewall: Gateway Interfaces in rule': 1,
@@ -594,10 +595,14 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                             else:
                                                 self.orgVDCResult["LoadBalancer: Unsupported algorithm"] = False
                                         if serviceName == "DHCP":
-                                            if "DHCP Relay is configured" in ''.join(result):
-                                                self.orgVDCResult["DHCP Relay"] = True
+                                            if "Domain names are configured as a DHCP servers" in ''.join(result):
+                                                self.orgVDCResult["DHCP Relay: Domain names are configured"] = True
                                             else:
-                                                self.orgVDCResult["DHCP Relay"] = False
+                                                self.orgVDCResult["DHCP Relay: Domain names are configured"] = False
+                                            if "IP sets are configured as a DHCP servers" in ''.join(result):
+                                                self.orgVDCResult["DHCP Relay: IP sets are configured"] = True
+                                            else:
+                                                self.orgVDCResult["DHCP Relay: IP sets are configured"] = False
                                             if "Static binding is in DHCP configuration" in ''.join(result):
                                                 self.orgVDCResult["DHCP: Static binding"] = True
                                             else:
