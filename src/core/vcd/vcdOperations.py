@@ -1719,11 +1719,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                             },
                                             "defaultLeaseTime": 0
                                         }]
-                                        for pool in payloaddict['dhcpPools']:
-                                            if iprange['leaseTime'] == "infinite":
-                                                pool['maxLeaseTime'] = 4294967
-                                            else:
-                                                pool['maxLeaseTime'] = iprange['leaseTime']
+                                        payloaddict['leaseTime'] = 4294967295 if iprange['leaseTime'] == "infinite" \
+                                            else iprange['leaseTime']
                                         # url to configure dhcp on target org vdc networks
                                         url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                                vcdConstants.ALL_ORG_VDC_NETWORKS,
@@ -1735,10 +1732,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                             dhcpPools = responseDict['dhcpPools'] + payloaddict['dhcpPools'] if \
                                                 responseDict['dhcpPools'] else payloaddict['dhcpPools']
                                             payloaddict['dhcpPools'] = dhcpPools
+                                            payloaddict['leaseTime'] = payloaddict['leaseTime'] if \
+                                                not responseDict['dhcpPools'] else min(int(responseDict['leaseTime']), int(payloaddict['leaseTime']))
                                             # payloadData = json.dumps(payloaddict)
                                             # put api call to configure dhcp on target org vdc networks
                                             self._updateDhcpInOrgVdcNetworks(url, payloaddict)
-                                            # setting the configStatus flag meaning the particular DHCP rule is configured successfully in order to skip its reconfiguration
+                                            # setting the configStatus,flag meaning the particular DHCP rule is configured successfully in order to skip its reconfiguration
                                             iprange['configStatus'] = True
                                         else:
                                             errorResponse = response.json()
