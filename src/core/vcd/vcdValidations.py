@@ -190,6 +190,7 @@ class VCDMigrationValidation:
         self.namedDisks = dict()
         self.l3DfwRules = None
         self.dfwSecurityTags = dict()
+        self._isSharedNetworkPresent = None
         vcdConstants.VCD_API_HEADER = vcdConstants.VCD_API_HEADER.format(self.version)
         vcdConstants.GENERAL_JSON_CONTENT_TYPE = vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version)
         vcdConstants.OPEN_API_CONTENT_TYPE = vcdConstants.OPEN_API_CONTENT_TYPE.format(self.version)
@@ -2221,7 +2222,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getDistributedFirewallConfig(self, orgVdcId, validation=False, validateRules=True, v2tAssessmentMode=False):
+    def getDistributedFirewallConfig(self, orgVdcId=None, validation=False, validateRules=True, v2tAssessmentMode=False):
         """
             Description :   Get DFW configuration
             Parameters  :   orgVdcId   -   OrgVDC ID  (STRING)
@@ -2233,6 +2234,7 @@ class VCDMigrationValidation:
         try:
             logger.debug("Getting Org VDC Distributed Firewall details")
             allErrorList = list()
+            orgVdcId = orgVdcId or self.rollback.apiData['sourceOrgVDC']['@id']
             orgVdcIdStr = orgVdcId.split(':')[-1]
             url = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                             vcdConstants.GET_DISTRIBUTED_FIREWALL.format(orgVdcIdStr))
@@ -3765,37 +3767,115 @@ class VCDMigrationValidation:
         except Exception:
             raise
 
+    @isSessionExpired
+    def fetchAllPortGroups(self):
+        """
+            Description :   Fetch all the port groups that are present in vCenter
+            Returns     :   List of port groups(LIST)
+        """
+        # url to get the port group details
+        url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                            vcdConstants.GET_PORTGROUP_INFO)
+        acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+        headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
+        # retrieving the details of the port group
+        response = self.restClientObj.get(url, headers)
+        responseDict = response.json()
+        if response.status_code == requests.codes.ok:
+            resultTotal = responseDict['total']
+        else:
+            raise Exception('Failed to retrieve PortGroup details due to: {}'.format(responseDict['message']))
+        pageNo = 1
+        pageSizeCount = 0
+        resultList = []
+        logger.debug('Getting portgroup details')
+        while resultTotal > 0 and pageSizeCount < resultTotal:
+            url = "{}{}&page={}&pageSize={}&format=records".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                                                                   vcdConstants.GET_PORTGROUP_INFO, pageNo,
+                                                                   vcdConstants.PORT_GROUP_PAGE_SIZE)
+            getSession(self)
+            response = self.restClientObj.get(url, headers)
+            responseDict = response.json()
+            if response.status_code == requests.codes.ok:
+                resultList.extend(responseDict['record'])
+                pageSizeCount += len(responseDict['record'])
+                logger.debug('Portgroup details result pageSize = {}'.format(pageSizeCount))
+                pageNo += 1
+                resultTotal = responseDict['total']
+            else:
+                raise Exception('Failed to retrieve PortGroup details due to: {}'.format(responseDict['message']))
+        logger.debug('Total Portgroup details result count = {}'.format(len(resultList)))
+        logger.debug('Portgroup details successfully retrieved')
+        return resultList
+
+    @isSessionExpired
+    def getSourceNetworkPoolDetails(self):
+        """
+        Description :  Get source org vdc network pool details
+        """
+        # source org vdc network pool reference dict
+        networkPool = self.rollback.apiData['sourceOrgVDC'].get('NetworkPoolReference')
+
+        # If no network pool is present return an empty dictionary
+        if not networkPool:
+            return dict()
+
+        # get api call to retrieve the info of source org vdc network pool
+        networkPoolResponse = self.restClientObj.get(networkPool['@href'], self.headers)
+        if networkPoolResponse.status_code != requests.codes.ok:
+            raise Exception("Failed to fetch source network pool data")
+
+        networkPoolDict = xmltodict.parse(networkPoolResponse.content)
+        return networkPoolDict
+
+    @isSessionExpired
     def validateSourceNetworkPools(self, cloneOverlayIds=False):
         """
-        Description :  Validates the source network pool is VXLAN or VLAN backed
+        Description :  Validates the source network pool backing
         Parameters  :  cloneOverlayIds - Flag that decides whether the overlay id's will be cloned or not (BOOLEAN)
         """
         try:
-            # reading data from metadata
-            data = self.rollback.apiData
-            # checking for the network pool associated with source org vdc
-            if data['sourceOrgVDC'].get('NetworkPoolReference'):
-                # source org vdc network pool reference dict
-                networkPool = data['sourceOrgVDC']['NetworkPoolReference']
-                # get api call to retrieve the info of source org vdc network pool
-                networkPoolResponse = self.restClientObj.get(networkPool['@href'], self.headers)
-                networkPoolDict = xmltodict.parse(networkPoolResponse.content)
-                networkPoolType = networkPoolDict['vmext:VMWNetworkPool']['@xsi:type']
+            # Getting source network pool details
+            networkPoolDict = self.getSourceNetworkPoolDetails()
 
-                # checking if the source network pool is VXLAN backed if cloneOverlayIds parameter is set to true
-                if cloneOverlayIds and networkPoolType != vcdConstants.VXLAN_NETWORK_POOL_TYPE:
-                    raise Exception("'cloneOverlayIds' parameter is set to 'True' but "
-                                    "source network pool is not VXLAN backed")
-                # checking if the source network pool is VXLAN or VLAN backed
-                elif networkPoolType not in [vcdConstants.VXLAN_NETWORK_POOL_TYPE,
-                                             vcdConstants.VLAN_NETWORK_POOL_TYPE]:
-                    raise Exception("Source org VDC network pool {} is not VXLAN/VLAN backed".format(
-                        networkPoolDict['vmext:VMWNetworkPool']['@name']))
-                else:
-                    logger.debug("Validated successfully, source org VDC network pool "
-                                 "{} is VXLAN or VLAN backed".format(networkPoolDict['vmext:VMWNetworkPool']['@name']))
-            else:
-                raise Exception("No Network pool is associated with Source Org VDC")
+            # checking for the network pool associated with source org vdc
+            if not networkPoolDict:
+                return
+
+            networkPoolType = networkPoolDict['vmext:VMWNetworkPool']['@xsi:type']
+
+            # checking if the source network pool is VXLAN backed if cloneOverlayIds parameter is set to true
+            if cloneOverlayIds and networkPoolType != vcdConstants.VXLAN_NETWORK_POOL_TYPE:
+                raise Exception("'cloneOverlayIds' parameter is set to 'True' but "
+                                "source network pool is not VXLAN backed")
+            # checking if the source network pool is PortGroup backed
+            if networkPoolDict['vmext:VMWNetworkPool']['@xsi:type'] == vcdConstants.PORTGROUP_NETWORK_POOL_TYPE:
+                # Fetching the moref and type of all the port groups backing the network pool
+                portGroupMoref = {portGroup['vmext:MoRef']: portGroup['vmext:VimObjectType']
+                                  for portGroup in listify(
+                        networkPoolDict['vmext:VMWNetworkPool']['vmext:PortGroupRefs']['vmext:VimObjectRef'])}
+
+                # Filtering standard port groups
+                standardPortGroups = [moref for moref, portGroupType in portGroupMoref.items()
+                                      if portGroupType != 'DV_PORTGROUP']
+                # If standard port groups are present raise an exception
+                if standardPortGroups:
+                    raise Exception(f"Port Groups - '{', '.join(standardPortGroups)}' backing the source "
+                                    f"network pool '{networkPoolDict['vmext:VMWNetworkPool']['@name']}' "
+                                    f"are not Distributed Port Group")
+
+                # Fetching all port groups present in vCenter
+                allPortGroups = self.fetchAllPortGroups()
+
+                # Filtering port groups without VLAN
+                portGroupsWithoutVlan = [moref for moref, portGroupType in portGroupMoref.items()
+                                         for portGroup in allPortGroups
+                                         if portGroup['moref'] == moref and not portGroup['vlanId']]
+                # If port groups without VLAN are present raise an exception
+                if portGroupsWithoutVlan:
+                    raise Exception(f"Port Groups - '{', '.join(portGroupsWithoutVlan)}' backing the source "
+                                    f"network pool '{networkPoolDict['vmext:VMWNetworkPool']['@name']}' "
+                                    f"don't have VLAN configured.")
         except Exception:
             raise
 
@@ -3959,13 +4039,29 @@ class VCDMigrationValidation:
 
     @description("Checking Bridging Components")
     @remediate
-    def checkBridgingComponents(self, orgVDCIDList, edgeClusterNameList, nsxtObj, vcenterObj):
+    def checkBridgingComponents(self, orgVDCIDList, edgeClusterNameList, nsxtObj, vcenterObj, vcdObjList):
+        """
+        Description : Pre migration validation tasks related to bridging
+        Parameters  : orgVDCIDList  -  List of URN of all the org vdc undergoing migration (LIST)
+                      edgeClusterNameList  -  Names of NSXT edge clusters to be used for bridging (LIST)
+                      nsxtObj  -  Object of NSXT operations class holding all functions related to NSXT (OBJECT)
+                      vcenterObj  -  Object of vCenter operations class holding all functions related to vCenter (OBJECT)
+                      vcdObjList  -  Objects of vCD operations class holding all functions related to vCD (OBJECT)
+        """
         try:
             orgVdcNetworkList = list()
             for sourceOrgVDCId in orgVDCIDList:
                 orgVdcNetworkList += self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
             orgVdcNetworkList = list(filter(lambda network: network['networkType'] != 'DIRECT', orgVdcNetworkList))
             if orgVdcNetworkList:
+                # Checking if any org vdc has network pool with VXLAN backing
+                vxlanBackingPresent = any([True if
+                                           vcdObj.getSourceNetworkPoolDetails().get(
+                                               'vmext:VMWNetworkPool', {}).get(
+                                               '@xsi:type') == vcdConstants.VXLAN_NETWORK_POOL_TYPE
+                                           else False
+                                           for vcdObj in vcdObjList])
+
                 threading.current_thread().name = "BridgingChecks"
                 logger.info("Checking for Bridging Components")
                 logger.info('Validating NSX-T Bridge Uplink Profile does not exist')
@@ -3980,7 +4076,7 @@ class VCDMigrationValidation:
                 nsxtObj.validateIfEdgeTransportNodesAreAccessibleViaSSH(edgeClusterNameList)
 
                 logger.info("Validating whether the edge transport nodes are deployed on v-cluster or not")
-                nsxtObj.validateEdgeNodesDeployedOnVCluster(edgeClusterNameList, vcenterObj)
+                nsxtObj.validateEdgeNodesDeployedOnVCluster(edgeClusterNameList, vcenterObj, vxlanBackingPresent)
 
                 logger.info("Validating the max limit of bridge endpoint profiles in NSX-T")
                 nsxtObj.validateLimitOfBridgeEndpointProfile(orgVdcNetworkList)
@@ -4033,8 +4129,8 @@ class VCDMigrationValidation:
             sourceProviderVDCId, isNSXTbacked = self.getProviderVDCId(vdcDict["NSXVProviderVDCName"])
             self.getProviderVDCDetails(sourceProviderVDCId, isNSXTbacked)
 
-            # validating the source network pool is VXLAN or VLAN backed
-            logger.info("Validating Source Network Pool is VXLAN or VLAN backed")
+            # validating the source network pool backing
+            logger.info("Validating Source Network Pool backing")
             self.validateSourceNetworkPools(cloneOverlayIds=inputDict["VCloudDirector"].get("CloneOverlayIds"))
 
             # validating whether source org vdc is NSX-V backed
@@ -5354,6 +5450,9 @@ class VCDMigrationValidation:
 
     @isSessionExpired
     def getSourceDfwSecurityGroups(self):
+        """
+        Description: Get DFW security groups present in Source Org VDC
+        """
         url = "{}{}".format(
             vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
             'services/securitygroup/scope/{}'.format(self.rollback.apiData['sourceOrgVDC']['@id'].split(':')[-1])
@@ -5546,3 +5645,40 @@ class VCDMigrationValidation:
         else:
             return ['Unable to get GRE tunnel Configuration Details with error code {}\n'.format(
                 response.status_code)]
+
+    def isSharedNetworkPresent(self, sourceOrgVDCId=None):
+        """
+        Description : Identifies if shared network is used in any of the provided Org
+                        VDCs
+        Parameters  : sourceOrgVDCId -  ID of source org vdc (STR)
+        """
+        if isinstance(self._isSharedNetworkPresent, bool):
+            return self._isSharedNetworkPresent
+
+        sourceOrgVDCId = sourceOrgVDCId or self.rollback.apiData['sourceOrgVDC']['@id']
+        networks = self.getOrgVDCNetworks(
+            sourceOrgVDCId, orgVDCNetworkType='sourceOrgVDCNetworks',
+            sharedNetwork=True, dfwStatus=True, saveResponse=False)
+        for network in networks:
+            if network['shared']:
+                self._isSharedNetworkPresent = True
+                return self._isSharedNetworkPresent
+
+        self._isSharedNetworkPresent = False
+        return self._isSharedNetworkPresent
+
+    def isDirectNetworkPresent(self, sourceOrgVDCId=None, sharedNetwork=False):
+        """
+        Description : Identifies if direct network is used by the provided Org VDCs
+        Parameters  : sourceOrgVDCId -  ID of source org vdc (STR)
+                      sharedNetwork -  Check for shared direct networks used by Org
+                        VDC and owned by another Org VDC (BOOL)
+        """
+        sourceOrgVDCId = sourceOrgVDCId or self.rollback.apiData['sourceOrgVDC']['@id']
+        networks = self.getOrgVDCNetworks(
+            sourceOrgVDCId, orgVDCNetworkType='sourceOrgVDCNetworks',
+            sharedNetwork=sharedNetwork, dfwStatus=True, saveResponse=False)
+        for network in networks:
+            if network['networkType'] == 'DIRECT':
+                return True
+        return False

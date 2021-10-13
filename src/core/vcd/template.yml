@@ -197,7 +197,9 @@ vCloudDirector:
       <ResourceGuaranteedCpu>{{resourceGuaranteedCpu}}</ResourceGuaranteedCpu>
       <VCpuInMhz>{{vCpuInMhz}}</VCpuInMhz>
       <IsThinProvision>{{isThinProvision}}</IsThinProvision>
+      {% if networkPoolHref %}
       <NetworkPoolReference href="{{networkPoolHref}}" id="{{networkPoolId}}" name="{{networkPoolName}}" type="{{networkPoolType}}" />
+      {% endif %}
       <ProviderVdcReference href="{{providerVdcHref}}" id="{{providerVdcId}}" name="{{providerVdcName}}" type="{{providerVdcType}}" />
       <UsesFastProvisioning>{{usesFastProvisioning}}</UsesFastProvisioning>
       {{defaultComputePolicy}}

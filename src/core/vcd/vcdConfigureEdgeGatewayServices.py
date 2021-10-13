@@ -3212,14 +3212,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 return
 
             logger.info('Configuring DFW default rule')
-            sharedNetwork = False
-            networks = self.getOrgVDCNetworks(
-                sourceOrgVDCId, orgVDCNetworkType='sourceOrgVDCNetworks', sharedNetwork=True, dfwStatus=True,
-                saveResponse=False)
-            for network in networks:
-                if network['shared']:
-                    sharedNetwork = True
-                    break
+            sharedNetwork = self.isSharedNetworkPresent(sourceOrgVDCId)
 
             payloadDict = {
                 'name': 'Default',
@@ -3503,6 +3496,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         Create source Security tags on target side
         """
         if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
+            return
+
+        if not self.rollback.apiData.get('OrgVDCGroupID'):
             return
 
         logger.info('Creating DFW security tags')
