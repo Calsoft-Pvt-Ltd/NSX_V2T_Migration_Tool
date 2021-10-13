@@ -90,6 +90,7 @@ VALIDATION_CLASSIFICATION = {
     'Syslog service': 1,
     'SSH service': 1,
     'Cross VDC Networking': 2,
+    'GRE Tunnel': 2,
 }
 
 
@@ -675,6 +676,11 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 self.orgVDCResult["SSH service"] = True
                                             else:
                                                 self.orgVDCResult["SSH service"] = False
+                                        if serviceName == "GRETUNNEL":
+                                            if 'GRE tunnel is configured' in ''.join(result):
+                                                self.orgVDCResult["GRE Tunnel"] = True
+                                            else:
+                                                self.orgVDCResult["GRE Tunnel"] = False
                                 if desc == "Independent Disks":
                                     del self.orgVDCResult["Independent Disks"]
                                     diskResult = ''.join(output)
