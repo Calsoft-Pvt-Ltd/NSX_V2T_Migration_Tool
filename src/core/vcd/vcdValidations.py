@@ -2380,7 +2380,8 @@ class VCDMigrationValidation:
                          'SSLVPN': [],
                          'DNS': [],
                          'Syslog': [],
-                         'SSH': []}
+                         'SSH': [],
+                         'GRETUNNEL' : []}
             self.rollback.apiData['sourceEdgeGatewayDHCP'] = {}
             if not self.rollback.apiData.get('ipsecConfigDict'):
                 self.rollback.apiData['ipsecConfigDict'] = {}
@@ -2432,6 +2433,8 @@ class VCDMigrationValidation:
                 # getting the ssh config of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewaySSHConfig, gatewayId, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
+                # getting gre tunnel configuration of specified edge gateway
+                self.thread.spawnThread(self.getEdgeGatewayGreTunnel, gatewayId)
 
                 # Halting the main thread till all the threads have completed their execution
                 self.thread.joinThreads()
@@ -2449,11 +2452,12 @@ class VCDMigrationValidation:
                 dnsErrorList = self.thread.returnValues['getEdgeGatewayDnsConfig']
                 syslogErrorList = self.thread.returnValues['getEdgeGatewaySyslogConfig']
                 sshErrorList = self.thread.returnValues['getEdgeGatewaySSHConfig']
+                greTunnelErrorList = self.thread.returnValues['getEdgeGatewayGreTunnel']
                 if bgpStatus is True and edgeGatewayCount > 1:
                     bgpErrorList.append('BGP is enabled on: {} and more than 1 edge gateway present'.format(gatewayName))
                 currentErrorList = currentErrorList + dhcpErrorList + firewallErrorList + natErrorList + ipsecErrorList \
                                + bgpErrorList + routingErrorList + loadBalancingErrorList + L2VpnErrorList \
-                               + SslVpnErrorList + dnsErrorList + syslogErrorList + sshErrorList
+                               + SslVpnErrorList + dnsErrorList + syslogErrorList + sshErrorList + greTunnelErrorList
                 defaultGatewayDetails = self.getEdgeGatewayAdminApiDetails(gatewayId, returnDefaultGateway=True)
                 if isinstance(defaultGatewayDetails, list):
                     currentErrorList = currentErrorList + defaultGatewayDetails
@@ -2499,6 +2503,7 @@ class VCDMigrationValidation:
                 errorData['DNS'] = errorData.get('DNS', []) + dnsErrorList
                 errorData['Syslog'] = errorData.get('Syslog', []) + syslogErrorList
                 errorData['SSH'] = errorData.get('SSH', []) + sshErrorList
+                errorData['GRETUNNEL'] = errorData.get('GRETUNNEL', []) + greTunnelErrorList
             if v2tAssessmentMode:
                 return errorData
             if allErrorList:
@@ -5518,3 +5523,26 @@ class VCDMigrationValidation:
                             f"'{vCenterUsedByOrgVdc}/{vCenter['url'].split('/')[-1]}' "
                             f"but not supported by migration tool")
         logger.debug(f"Validated successfully Cross VDC Networking is not enabled for vCenter {vCenterUsedByOrgVdc}")
+
+    @isSessionExpired
+    def getEdgeGatewayGreTunnel(self, edgeGatewayId):
+        """
+        Description :   Gets the GRE tunnel Configuration details of the specified Edge Gateway
+        Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
+        """
+        url = '{}{}'.format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                    'edges/{}'.format(edgeGatewayId))
+        headers = {'Authorization': self.headers['Authorization'],
+                    'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+        # call get api to get gre tunnel config details of specified edge gateway
+        response = self.restClientObj.get(url, headers)
+        if response.status_code == requests.codes.ok:
+            result = response.json()
+            if not result.get('tunnels'):
+                return []
+            for tunnel in result['tunnels']['tunnels']:
+                if tunnel['type'] == "gre":
+                    return ['GRE tunnel is configured in the Source but not supported in the Target\n']
+        else:
+            return ['Unable to get GRE tunnel Configuration Details with error code {}\n'.format(
+                response.status_code)]
