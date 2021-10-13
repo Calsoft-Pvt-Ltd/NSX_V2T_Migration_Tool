@@ -786,35 +786,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         try:
             logger.info('Getting the portgroup of source org vdc networks.')
             data = self.rollback.apiData
-            # url to get the port group details
-            url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                vcdConstants.GET_PORTGROUP_INFO)
-            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
-            headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
-            # retrieving the details of the port group
-            response = self.restClientObj.get(url, headers)
-            if response.status_code == requests.codes.ok:
-                responseDict = response.json()
-                resultTotal = responseDict['total']
-            pageNo = 1
-            pageSizeCount = 0
-            resultList = []
-            logger.debug('Getting portgroup details')
-            while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}&page={}&pageSize={}&format=records".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                                                       vcdConstants.GET_PORTGROUP_INFO, pageNo,
-                                                                       vcdConstants.PORT_GROUP_PAGE_SIZE)
-                getSession(self)
-                response = self.restClientObj.get(url, headers)
-                if response.status_code == requests.codes.ok:
-                    responseDict = response.json()
-                    resultList.extend(responseDict['record'])
-                    pageSizeCount += len(responseDict['record'])
-                    logger.debug('Portgroup details result pageSize = {}'.format(pageSizeCount))
-                    pageNo += 1
-                    resultTotal = responseDict['total']
-            logger.debug('Total Portgroup details result count = {}'.format(len(resultList)))
-            logger.debug('Portgroup details successfully retrieved')
 
             # Fetching name and ids of all the org vdc networks
             networkIdList, networkNameList = set(), set()
@@ -822,9 +793,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 networkIdList.add(orgVdcNetwork['id'].split(":")[-1])
                 networkNameList.add(orgVdcNetwork['name'])
 
+            allPortGroups = self.fetchAllPortGroups()
             # Iterating over all the port groups to find the portgroups linked to org vdc network
             portGroupDict = {portGroup['network'].split('/')[-1]: portGroup
-                             for portGroup in resultList
+                             for portGroup in allPortGroups
                              if portGroup['networkName'] != '--' and
                              portGroup['scopeType'] not in ['-1', '1'] and
                              portGroup['networkName'] in networkNameList and
@@ -4222,23 +4194,46 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                                             componentName=vcdConstants.COMPONENT_NAME,
                                                                             templateName=vcdConstants.STORAGE_PROFILE_TEMPLATE_NAME)
                 vdcStorageProfilePayloadData += eachStorageProfilePayloadData.strip("\"")
-            nsxtNetworkPoolName = vdcDict.get('NSXTNetworkPoolName', None)
-            networkPoolReferences = targetPVDCPayloadDict['NetworkPoolReferences']
-            # if multiple network pools exist, take the network pool references passed in user spec
-            if isinstance(networkPoolReferences['NetworkPoolReference'], list):
-                networkPoolReferencesList = networkPoolReferences['NetworkPoolReference']
-                networkPoolExists = list(filter(lambda poolReference: poolReference['@name'] == nsxtNetworkPoolName, networkPoolReferencesList))
-                if networkPoolExists:
-                    networkPoolHref = networkPoolExists[0]['@href']
-                    networkPoolId = networkPoolExists[0]['@id']
-                    networkPoolName = networkPoolExists[0]['@name']
-                    networkPoolType = networkPoolExists[0]['@type']
-            # if no multiple network pools exist then take the default one already there in target pvdc
+
+            # Shared network and DFW need target org VDC to be part of DC group. If org VDC is created without network
+            # pool, it cannot be part of DC group. Hence if shared network or DFW is present, assign default or user
+            # provided network pool of target PVDC to target Org VDC.
+            if (data['sourceOrgVDC'].get('NetworkPoolReference')
+                    or self.isSharedNetworkPresent()
+                    or self.getDistributedFirewallConfig()):
+                networkPoolReferences = targetPVDCPayloadDict['NetworkPoolReferences']
+
+                # if multiple network pools exist, take the network pool references passed in user spec
+                if isinstance(networkPoolReferences['NetworkPoolReference'], list):
+                    tpvdcNetworkPool = [
+                        pool
+                        for pool in networkPoolReferences['NetworkPoolReference']
+                        if pool['@name'] == vdcDict.get('NSXTNetworkPoolName')
+                    ]
+                    if tpvdcNetworkPool:
+                        networkPoolHref = tpvdcNetworkPool[0]['@href']
+                        networkPoolId = tpvdcNetworkPool[0]['@id']
+                        networkPoolName = tpvdcNetworkPool[0]['@name']
+                        networkPoolType = tpvdcNetworkPool[0]['@type']
+                    else:
+                        raise Exception(
+                            f"Network Pool {vdcDict.get('NSXTNetworkPoolName')} doesn't exist in Target PVDC")
+
+                # if PVDC has a single network pool, take it
+                else:
+                    networkPoolHref = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@href']
+                    networkPoolId = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@id']
+                    networkPoolName = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@name']
+                    networkPoolType = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@type']
+
             else:
-                networkPoolHref = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@href']
-                networkPoolId = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@id']
-                networkPoolName = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@name']
-                networkPoolType = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@type']
+                logger.debug(
+                    'Network pool not present and Org VDC is not using shared network or distributed firewall')
+                networkPoolHref = None
+                networkPoolId = None
+                networkPoolName = None
+                networkPoolType = None
+
             # creating the payload dict
             orgVdcPayloadDict = {'orgVDCName': data["sourceOrgVDC"]["@name"] + '-v2t',
                                  'vdcDescription': data['sourceOrgVDC']['Description'] if data['sourceOrgVDC'].get(

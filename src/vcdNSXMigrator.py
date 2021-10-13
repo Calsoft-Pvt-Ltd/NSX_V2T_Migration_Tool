@@ -843,7 +843,7 @@ class VMwareCloudDirectorNSXMigrator():
                 # Perform checks related to bridging
                 orgVDCIDList = [data["id"] for data in self.orgVDCData.values()]
                 self.vcdObjList[0].checkBridgingComponents(orgVDCIDList, self.inputDict["NSXT"]["EdgeClusterName"],
-                                                           self.nsxtObjList[0], self.vcenterObj)
+                                                           self.nsxtObjList[0], self.vcenterObj, self.vcdObjList)
 
             # Perform check for sharedNetwork.
             self.vcdObjList[0].sharedNetworkChecks(self.inputDict, self.vcdObjList, self.orgVDCData)

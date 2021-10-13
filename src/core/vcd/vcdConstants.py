@@ -460,7 +460,10 @@ CHECK_STRING_FOR_EMPTY_VAPPS = 'The requested operation could not be executed si
 VXLAN_NETWORK_POOL_TYPE = 'vmext:VxlanPoolType'
 
 # source network pool type VLAN
-VLAN_NETWORK_POOL_TYPE =  'vmext:VlanPoolType'
+VLAN_NETWORK_POOL_TYPE = 'vmext:VlanPoolType'
+
+# source network pool type PortGroup
+PORTGROUP_NETWORK_POOL_TYPE = 'vmext:PortGroupPoolType'
 
 # target network pool type
 GENEVE_NETWORK_POOL_TYPE = 'vmext:GenevePoolType'
