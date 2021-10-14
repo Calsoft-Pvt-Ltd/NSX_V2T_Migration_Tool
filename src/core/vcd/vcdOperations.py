@@ -537,6 +537,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Parameters  :   orgVDCId  -   Id of the Organization VDC (STRING)
         """
         try:
+            # Locking thread. When Edge gateways from multiple org VDC having IPSEC enabled are rolled back at the same
+            # time, target edge gateway deletion fails.
+            self.lock.acquire(blocking=True)
+
             # Check if org vdc edge gateways were created or not
             if not self.rollback.metadata.get("prepareTargetVDC", {}).get("createEdgeGateway"):
                 return
@@ -563,6 +567,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 logger.warning('Target Edge Gateway do not exist')
         except Exception:
             raise
+        finally:
+            # Releasing thread lock
+            try:
+                self.lock.release()
+            except RuntimeError:
+                pass
 
     @description("disconnection of source routed Org VDC Networks from source Edge gateway")
     @remediate
