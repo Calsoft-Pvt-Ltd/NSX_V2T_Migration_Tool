@@ -3199,7 +3199,14 @@ class VCDMigrationValidation:
         errorList = list()
         nsxvCertificateStore = None
         for site in listify(responseDict['sites']['sites']):
-            if site['ipsecSessionType'] != "policybasedsession":
+            if site['ipsecSessionType'] == "policybasedsession":
+                natErrorList, natRulesPresent = self.getEdgeGatewayNatConfig(edgeGatewayId)
+                for natrule in natRulesPresent:
+                    if natrule['action'] == 'dnat' and natrule['ruleType'] == 'user':
+                        errorList.append(
+                                'DNAT is not supported on a tier-1 gateway where policy-based IPSec VPN is configured\n')
+                        break
+            else:
                 errorList.append(
                     'Source IPSEC rule is having routebased session type which is not supported\n')
 
