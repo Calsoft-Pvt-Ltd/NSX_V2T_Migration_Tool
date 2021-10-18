@@ -92,11 +92,6 @@ DFW_VALIDATIONS = {
     'Distributed Firewall: Invalid Security Group objects in rule': 1,
 }
 
-NAMED_DISK_VALIDATIONS = {
-    'Independent Disks: Shared disk present': 2,
-    'Independent Disks: Attached VMs are not powered off': 1,
-}
-
 VALIDATION_CLASSIFICATION = {
     'Empty vApps': 1,
     'Suspended VMs': 1,
@@ -108,7 +103,6 @@ VALIDATION_CLASSIFICATION = {
     'Cross VDC Networking': 2,
     **EDGE_GW_SERVICES_VALIDATIONS,
     **DFW_VALIDATIONS,
-    **NAMED_DISK_VALIDATIONS,
 }
 
 GENERIC_EXCEPTION_TEXT = 'ERROR'
@@ -273,7 +267,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                 'No free interface on edge gateways': [self.vcdValidationObj.validateEdgeGatewayUplinks,
                                                      vdcId, self.edgeGatewayIdList],
                 'Edge Gateway Rate Limit': [self.vcdValidationObj.validateEdgeGatewayRateLimit, self.edgeGatewayIdList],
-                'Independent Disks': [self.vcdValidationObj.validateIndependentDisks, vdcId, OrgId, True],
+                'Shared Independent Disks': [self.vcdValidationObj.validateIndependentDisks, vdcId, OrgId, True],
                 'Validating Source Edge gateway services': [self.vcdValidationObj.getEdgeGatewayServices, None, None, None, True, None, True],
                 'Unsupported DFW configuration': [self.vcdValidationObj.getDistributedFirewallConfig, vdcId, True, True, True],
                 'Cross VDC Networking': [self.vcdValidationObj.validateCrossVdcNetworking, vdcId]
@@ -722,22 +716,6 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 orgVDCResult["GRE Tunnel"] = True
                                             else:
                                                 orgVDCResult["GRE Tunnel"] = False
-
-                                elif desc == "Independent Disks":
-                                    if status is GENERIC_EXCEPTION_TEXT:
-                                        for validation in NAMED_DISK_VALIDATIONS:
-                                            orgVDCResult[validation] = GENERIC_EXCEPTION_TEXT
-                                        continue
-
-                                    diskResult = ''.join(output)
-                                    orgVDCResult["Independent Disks: Shared disk present"] = (
-                                        True
-                                        if "Independent Disks in Org VDC are shared" in diskResult
-                                        else False)
-                                    orgVDCResult["Independent Disks: Attached VMs are not powered off"] = (
-                                        True
-                                        if "VMs attached to disks are not powered off" in diskResult
-                                        else False)
 
                                 else:
                                     orgVDCResult[desc] = status
