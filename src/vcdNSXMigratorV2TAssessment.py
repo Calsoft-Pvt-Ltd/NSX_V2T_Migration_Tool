@@ -72,6 +72,7 @@ VALIDATION_CLASSIFICATION = {
     'IPsec: Route based session type': 2,
     'IPsec: Unsupported Encryption Algorithm': 1,
     'IPsec: CA certificate is missing': 1,
+    'IPsec: DNAT rules not supported with Policy-based session type': 2,
     'OSPF routing protocol': 2,
     'User-defined Static Routes': 1,
     'LoadBalancer: Transparent Mode': 2,
@@ -628,6 +629,10 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 self.orgVDCResult["IPsec: CA certificate is missing"] = True
                                             else:
                                                 self.orgVDCResult["IPsec: CA certificate is missing"] = False
+                                            if 'DNAT is not supported on a tier-1' in ''.join(result):
+                                                self.orgVDCResult["IPsec: DNAT rules not supported with Policy-based session type"] = True
+                                            else:
+                                                self.orgVDCResult["IPsec: DNAT rules not supported with Policy-based session type"] = False
                                         if serviceName == "Routing":
                                             if "OSPF routing protocol" in ''.join(result):
                                                 self.orgVDCResult["OSPF routing protocol"] = True
