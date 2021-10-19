@@ -19,8 +19,7 @@ import traceback
 from collections import OrderedDict
 from src import constants
 from src.commonUtils import utils
-from src.core.vcd import vcdConstants
-from src.core.vcd.vcdValidations import VCDMigrationValidation
+from src.core.vcd.vcdValidations import VCDMigrationValidation, ValidationError
 from src.rollback import Rollback
 
 # Set path till src folder in PYTHONPATH
@@ -33,33 +32,30 @@ from src.commonUtils.threadUtils import Thread, waitForThreadToComplete
 # e. g.: if any single validations from 'Blocking' category failed, status will be
 # assigned as 'Cannot be migrated'(2)
 STATUS_CODES = OrderedDict({
+    # Codes for successful evaluation of Org VDC
     0: 'Can be migrated',
     1: 'Can be migrated with additional preparation work',
     2: 'Automated migration not supported with the current version',
-    3: 'Org VDC not accessible for assessment',
-    4: 'Org VDC not present'
+
+    # Codes for failed/partial evaluation of Org VDC
+    40: 'Org VDC not accessible for assessment',
+
+    # Codes for not-available Org VDC
+    50: 'Org VDC not present',
+
+    # Default
+    99: 'Not evaluated',
 })
+NOT_EVALUATED_STATUS_CODES = (50, 99)
 
 # VALIDATION_CODES are used to classify features mentioned in VALIDATION_CLASSIFICATION.
-# If any feature is not mentioned in VALIDATION_CLASSIFICATION, status code from
-# NOT_CATEGORIZED_VALIDATION_CODE will be applicable
-NOT_CATEGORIZED_VALIDATION_CODE = 99
 VALIDATION_CODES = {
     1: 'Can be mitigated',
     2: 'Blocking',
-    NOT_CATEGORIZED_VALIDATION_CODE: 'Blocking',
 }
 
 # Each validation is assigned a code from VALIDATION_CODES based upon its mitigation effort
-VALIDATION_CLASSIFICATION = {
-    'Empty vApps': 1,
-    'Suspended VMs': 1,
-    'Routed vApp Networks': 2,
-    'Fencing enabled on vApps': 2,
-    'No free interface on edge gateways': 1,
-    'Edge Gateway Rate Limit': 1,
-    'Independent Disks: Shared disk present': 2,
-    'Independent Disks: Attached VMs are not powered off': 1,
+EDGE_GW_SERVICES_VALIDATIONS = {
     'DHCP Binding: Binding IP addresses overlaps with static IP Pool range': 1,
     'DHCP Relay: Domain names are configured': 1,
     'DHCP Relay: More than 8 DHCP servers configured': 1,
@@ -83,16 +79,39 @@ VALIDATION_CLASSIFICATION = {
     'LoadBalancer: Application profile is not configured': 1,
     'L2VPN service': 2,
     'SSLVPN service': 2,
+    'Syslog service': 1,
+    'SSH service': 1,
+    'GRE Tunnel': 2,
+}
+
+DFW_VALIDATIONS = {
     'Distributed Firewall: Invalid objects in rule': 1,
     'Distributed Firewall: Unsupported type in applied to section': 1,
     'Distributed Firewall: Networks connected to different edge gateway used': 1,
     'Distributed Firewall: Layer 2 Rule': 1,
     'Distributed Firewall: Invalid Security Group objects in rule': 1,
-    'Syslog service': 1,
-    'SSH service': 1,
-    'Cross VDC Networking': 2,
-    'GRE Tunnel': 2,
 }
+
+NAMED_DISK_VALIDATIONS = {
+    'Independent Disks: Shared disk present': 2,
+    'Independent Disks: Attached VMs are not powered off': 1,
+}
+
+VALIDATION_CLASSIFICATION = {
+    'Empty vApps': 1,
+    'Suspended VMs': 1,
+    'Routed vApp Networks': 2,
+    'Fencing enabled on vApps': 2,
+    'No free interface on edge gateways': 1,
+    'Edge Gateway Rate Limit': 1,
+    'Shared Independent Disks': 2,
+    'Cross VDC Networking': 2,
+    **EDGE_GW_SERVICES_VALIDATIONS,
+    **DFW_VALIDATIONS,
+    **NAMED_DISK_VALIDATIONS,
+}
+
+GENERIC_EXCEPTION_TEXT = 'ERROR'
 
 
 class VMwareCloudDirectorNSXMigratorV2T:
@@ -239,9 +258,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
             # Fetching and saving data of orgVDC to be validated in apiData
             self.checkOrgVDCDetails(orgName, vdcName=vdcName)
 
-            getEdgeGatewayDesc = 'Getting details of source edge gateway list'
             # fetch details of edge gateway
-            self.consoleLogger.info(getEdgeGatewayDesc)
+            self.consoleLogger.info('Getting details of source edge gateway list')
             self.edgeGatewayIdList = self.vcdValidationObj.getOrgVDCEdgeGatewayId(vdcId, saveResponse=True)
             if isinstance(self.edgeGatewayIdList, Exception):
                 raise self.edgeGatewayIdList
@@ -330,6 +348,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
             Description : Creates a mapping of org vdc to its corresponding organization
             Return: Dictionary holding the org vdc to organization mapping along with the org vdc id (DICT)
         """
+        self.logger.debug("Screening Org VDCs to be evaluated")
         # List to get all the error related to user input
         errors = []
         # Dict that holds relation map for org vdc to organization
@@ -453,6 +472,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
         if errors:
             raise Exception("Cannot continue due to the following error/s: "+"\n"+"\n".join(errors))
 
+        self.logger.debug(f"Org VDCs to be evaluated: {relationMap}")
         return relationMap
 
     def run(self):
@@ -482,46 +502,46 @@ class VMwareCloudDirectorNSXMigratorV2T:
                     self.vcdValidationObj.rollback.apiData = {}
 
                     # Dict to store org vdc result, populating the pre-fetched data for this org vdc
-                    self.orgVDCResult = OrderedDict()
-                    self.orgVDCResult['Org Name'] = org
-                    self.orgVDCResult['Org VDC'] = VDC
-                    orgVdcExists = True
-                    try:
-                        orgUrl = self.vcdValidationObj.getOrgUrl(org)
-                        orgVdc = self.vcdValidationObj.getOrgVDCUrl(orgUrl, VDC, saveResponse=True)
-                    except:
-                        orgVdcExists = False
-
-                    self.orgVDCResult['Org VDC UUID'] = VDCId.split(":")[-1] if orgVdcExists else 'NA'
-                    self.orgVDCResult['Status'] = STATUS_CODES[0] if orgVdcExists else STATUS_CODES[4]
-                    self.orgVDCResult['VMs'] = vmData[org][VDC]['numberOfVMs'] if orgVdcExists else 0
-                    self.orgVDCResult['ORG VDC RAM (MB)'] = vmData[org][VDC]['memoryUsedMB'] if orgVdcExists else 0
-                    self.orgVDCResult['Number of Networks to Bridge'] = 0
+                    orgVDCResult = OrderedDict({
+                        'Org Name': org,
+                        'Org VDC': VDC,
+                        'Org VDC UUID': VDCId.split(":")[-1],
+                        'Status': STATUS_CODES[99],
+                        'VMs': 0,
+                        'ORG VDC RAM (MB)': 0,
+                        'Number of Networks to Bridge': 'NA',
+                    })
                     # Attribute provide count of initial columns in report which
                     # provides summary before adding actual validation features
-                    self.summaryColumnCount = len(self.orgVDCResult)
+                    self.summaryColumnCount = len(orgVDCResult)
+
                     # Adding the result before executing validation
                     for key, value in VALIDATION_CLASSIFICATION.items():
-                        self.orgVDCResult[key] = "NA"
+                        orgVDCResult[key] = "NA"
 
-                    if not orgVdcExists:
-                        self.reportData.append(self.orgVDCResult)
+                    # If Org VDC is not present when its turn came, skip VDC silently.
+                    try:
+                        orgUrl = self.vcdValidationObj.getOrgUrl(org)
+                        self.vcdValidationObj.getOrgVDCUrl(orgUrl, VDC, saveResponse=True)
+                    except:
+                        # TODO pranshu: capture specific error which suggest orgVDC not present
+                        orgVDCResult['Status'] = STATUS_CODES[50]
                         continue
+
+                    orgVDCResult['VMs'] = vmData[org][VDC]['numberOfVMs']
+                    orgVDCResult['ORG VDC RAM (MB)'] = vmData[org][VDC]['memoryUsedMB']
 
                     self.consoleLogger.info(f"Evaluating Org VDC '{VDC}' of organization '{org}'")
                     # Changing log level of console logger
                     self.changeLogLevelForConsoleLog(disable=True)
 
                     try:
-                        # getting the source Org VDC networks
+                        # getting the source Org VDC networks and identifying # of bridge nodes required
                         self.consoleLogger.debug('Getting the Org VDC networks of source Org VDC {}'.format(VDC))
-                        self.orgVdcNetworkList = self.vcdValidationObj.getOrgVDCNetworks(VDCId, 'sourceOrgVDCNetworks')
-                        # Filtering networks to get networks that require briding
-                        filteredList = copy.deepcopy(self.orgVdcNetworkList)
+                        orgVdcNetworkList = self.vcdValidationObj.getOrgVDCNetworks(VDCId, 'sourceOrgVDCNetworks')
+                        filteredList = copy.deepcopy(orgVdcNetworkList)
                         filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', filteredList))
-
-                        # Adding number of networks to be bridged in the detailed report
-                        self.orgVDCResult['Number of Networks to Bridge'] = len(filteredList)
+                        orgVDCResult['Number of Networks to Bridge'] = len(filteredList)
 
                         # Initializing the necessities for validation of a org vdc
                         orgId = self.vcdValidationObj.getOrgId(org)
@@ -540,61 +560,70 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                 continue
                             else:
                                 # Run method
-                                output = self.runV2TValidations(desc, methodName, argsList)
+                                status, output = self.runV2TValidations(methodName, argsList)
+
                                 # If the method is validating edgegateway services get the output and process for report
                                 if desc == "Unsupported DFW configuration":
-                                    del self.orgVDCResult["Unsupported DFW configuration"]
+                                    if status is GENERIC_EXCEPTION_TEXT:
+                                        for validation in DFW_VALIDATIONS:
+                                            orgVDCResult[validation] = GENERIC_EXCEPTION_TEXT
+                                        continue
+
                                     dfwResult = output
                                     if "has invalid objects" in ''.join(dfwResult):
-                                        self.orgVDCResult["Distributed Firewall: Invalid objects in rule"] = True
+                                        orgVDCResult["Distributed Firewall: Invalid objects in rule"] = True
                                     else:
-                                        self.orgVDCResult["Distributed Firewall: Invalid objects in rule"] = False
+                                        orgVDCResult["Distributed Firewall: Invalid objects in rule"] = False
 
                                     if "has invalid security group objects" in ''.join(dfwResult) and 'Security Group' in ''.join(dfwResult):
-                                        self.orgVDCResult["Distributed Firewall: Invalid Security Group objects in rule"] = True
+                                        orgVDCResult["Distributed Firewall: Invalid Security Group objects in rule"] = True
                                     else:
-                                        self.orgVDCResult["Distributed Firewall: Invalid Security Group objects in rule"] = False
+                                        orgVDCResult["Distributed Firewall: Invalid Security Group objects in rule"] = False
 
                                     if "provided in applied to section in rule" in ''.join(dfwResult):
-                                        self.orgVDCResult["Distributed Firewall: Unsupported type in applied to section"] = True
+                                        orgVDCResult["Distributed Firewall: Unsupported type in applied to section"] = True
                                     else:
-                                        self.orgVDCResult["Distributed Firewall: Unsupported type in applied to section"] = False
+                                        orgVDCResult["Distributed Firewall: Unsupported type in applied to section"] = False
 
                                     if "are connected to different edge gateways" in ''.join(dfwResult):
-                                        self.orgVDCResult["Distributed Firewall: Networks connected to different edge gateway used"] = True
+                                        orgVDCResult["Distributed Firewall: Networks connected to different edge gateway used"] = True
                                     else:
-                                        self.orgVDCResult["Distributed Firewall: Networks connected to different edge gateway used"] = False
+                                        orgVDCResult["Distributed Firewall: Networks connected to different edge gateway used"] = False
 
                                     if "Layer2 rule present" in ''.join(dfwResult):
-                                        self.orgVDCResult["Distributed Firewall: Layer 2 Rule"] = True
+                                        orgVDCResult["Distributed Firewall: Layer 2 Rule"] = True
                                     else:
-                                        self.orgVDCResult["Distributed Firewall: Layer 2 Rule"] = False
+                                        orgVDCResult["Distributed Firewall: Layer 2 Rule"] = False
 
-                                if desc == "Validating Source Edge gateway services":
-                                    del self.orgVDCResult["Validating Source Edge gateway services"]
+                                elif desc == "Validating Source Edge gateway services":
+                                    if status is GENERIC_EXCEPTION_TEXT:
+                                        for validation in EDGE_GW_SERVICES_VALIDATIONS:
+                                            orgVDCResult[validation] = GENERIC_EXCEPTION_TEXT
+                                        continue
+
                                     servicesResult = output
                                     for serviceName, result in servicesResult.items():
                                         if serviceName == "LoadBalancer":
                                             if "transparent mode enabled" in ''.join(result):
-                                                self.orgVDCResult["LoadBalancer: Transparent Mode"] = True
+                                                orgVDCResult["LoadBalancer: Transparent Mode"] = True
                                             else:
-                                                self.orgVDCResult["LoadBalancer: Transparent Mode"] = False
+                                                orgVDCResult["LoadBalancer: Transparent Mode"] = False
                                             if "Application rules" in ''.join(result):
-                                                self.orgVDCResult["LoadBalancer: Application Rules"] = True
+                                                orgVDCResult["LoadBalancer: Application Rules"] = True
                                             else:
-                                                self.orgVDCResult["LoadBalancer: Application Rules"] = False
+                                                orgVDCResult["LoadBalancer: Application Rules"] = False
                                             if "Default pool is not configured" in ''.join(result):
-                                                self.orgVDCResult["LoadBalancer: Default pool not configured"] = True
+                                                orgVDCResult["LoadBalancer: Default pool not configured"] = True
                                             else:
-                                                self.orgVDCResult["LoadBalancer: Default pool not configured"] = False
+                                                orgVDCResult["LoadBalancer: Default pool not configured"] = False
                                             if "Unsupported persistence" in ''.join(result):
-                                                self.orgVDCResult["LoadBalancer: Unsupported persistence"] = True
+                                                orgVDCResult["LoadBalancer: Unsupported persistence"] = True
                                             else:
-                                                self.orgVDCResult["LoadBalancer: Unsupported persistence"] = False
+                                                orgVDCResult["LoadBalancer: Unsupported persistence"] = False
                                             if "Unsupported algorithm" in ''.join(result):
-                                                self.orgVDCResult["LoadBalancer: Unsupported algorithm"] = True
+                                                orgVDCResult["LoadBalancer: Unsupported algorithm"] = True
                                             else:
-                                                self.orgVDCResult["LoadBalancer: Unsupported algorithm"] = False
+                                                orgVDCResult["LoadBalancer: Unsupported algorithm"] = False
                                             if "Application profile is not configured" in ''.join(result):
                                                 self.orgVDCResult[
                                                     "LoadBalancer: Application profile is not configured"] = True
@@ -603,116 +632,124 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                     "LoadBalancer: Application profile is not configured"] = False
                                         if serviceName == "DHCP":
                                             if "Domain names are configured as a DHCP servers" in ''.join(result):
-                                                self.orgVDCResult["DHCP Relay: Domain names are configured"] = True
+                                                orgVDCResult["DHCP Relay: Domain names are configured"] = True
                                             else:
-                                                self.orgVDCResult["DHCP Relay: Domain names are configured"] = False
+                                                orgVDCResult["DHCP Relay: Domain names are configured"] = False
                                             if "More than 8 DHCP servers configured" in ''.join(result):
-                                                self.orgVDCResult["DHCP Relay: More than 8 DHCP servers configured"] = True
+                                                orgVDCResult["DHCP Relay: More than 8 DHCP servers configured"] = True
                                             else:
-                                                self.orgVDCResult["DHCP Relay: More than 8 DHCP servers configured"] = False
+                                                orgVDCResult["DHCP Relay: More than 8 DHCP servers configured"] = False
                                             if "DHCP Binding IP addresses overlaps" in ''.join(result):
-                                                self.orgVDCResult[
+                                                orgVDCResult[
                                                     "DHCP Binding: Binding IP addresses overlaps with static IP Pool range"] = True
                                             else:
-                                                self.orgVDCResult[
+                                                orgVDCResult[
                                                     "DHCP Binding: Binding IP addresses overlaps with static IP Pool range"] = False
                                         if serviceName == "NAT":
                                             if "Nat64 rule is configured" in ''.join(result):
-                                                self.orgVDCResult["NAT: NAT64 rule"] = True
+                                                orgVDCResult["NAT: NAT64 rule"] = True
                                             else:
-                                                self.orgVDCResult["NAT: NAT64 rule"] = False
+                                                orgVDCResult["NAT: NAT64 rule"] = False
                                             if "Range of IPs or network found in this DNAT rule" in ''.join(result):
-                                                self.orgVDCResult["NAT: Range of IPs or network in DNAT rule"] = True
+                                                orgVDCResult["NAT: Range of IPs or network in DNAT rule"] = True
                                             else:
-                                                self.orgVDCResult["NAT: Range of IPs or network in DNAT rule"] = False
+                                                orgVDCResult["NAT: Range of IPs or network in DNAT rule"] = False
                                         if serviceName == "IPsec":
                                             if "routebased session type" in ''.join(result):
-                                                self.orgVDCResult["IPsec: Route based session type"] = True
+                                                orgVDCResult["IPsec: Route based session type"] = True
                                             else:
-                                                self.orgVDCResult["IPsec: Route based session type"] = False
+                                                orgVDCResult["IPsec: Route based session type"] = False
                                             if "unsupported encryption algorithm" in ''.join(result):
-                                                self.orgVDCResult["IPsec: Unsupported Encryption Algorithm"] = True
+                                                orgVDCResult["IPsec: Unsupported Encryption Algorithm"] = True
                                             else:
-                                                self.orgVDCResult["IPsec: Unsupported Encryption Algorithm"] = False
+                                                orgVDCResult["IPsec: Unsupported Encryption Algorithm"] = False
                                             if "CA certificate not found" in ''.join(result):
-                                                self.orgVDCResult["IPsec: CA certificate is missing"] = True
+                                                orgVDCResult["IPsec: CA certificate is missing"] = True
                                             else:
-                                                self.orgVDCResult["IPsec: CA certificate is missing"] = False
+                                                orgVDCResult["IPsec: CA certificate is missing"] = False
                                             if 'DNAT is not supported on a tier-1' in ''.join(result):
-                                                self.orgVDCResult["IPsec: DNAT rules not supported with Policy-based session type"] = True
+                                                orgVDCResult["IPsec: DNAT rules not supported with Policy-based session type"] = True
                                             else:
-                                                self.orgVDCResult["IPsec: DNAT rules not supported with Policy-based session type"] = False
+                                                orgVDCResult["IPsec: DNAT rules not supported with Policy-based session type"] = False
                                         if serviceName == "Routing":
                                             if "OSPF routing protocol" in ''.join(result):
-                                                self.orgVDCResult["OSPF routing protocol"] = True
+                                                orgVDCResult["OSPF routing protocol"] = True
                                             else:
-                                                self.orgVDCResult["OSPF routing protocol"] = False
+                                                orgVDCResult["OSPF routing protocol"] = False
                                             if "static routes configured" in ''.join(result):
-                                                self.orgVDCResult['User-defined Static Routes'] = True
+                                                orgVDCResult['User-defined Static Routes'] = True
                                             else:
-                                                self.orgVDCResult['User-defined Static Routes'] = False
+                                                orgVDCResult['User-defined Static Routes'] = False
                                         if serviceName == "L2VPN":
                                             if "L2VPN service is configured" in ''.join(result):
-                                                self.orgVDCResult["L2VPN service"] = True
+                                                orgVDCResult["L2VPN service"] = True
                                             else:
-                                                self.orgVDCResult["L2VPN service"] = False
+                                                orgVDCResult["L2VPN service"] = False
                                         if serviceName == "SSLVPN":
                                             if "SSLVPN service is configured" in ''.join(result):
-                                                self.orgVDCResult["SSLVPN service"] = True
+                                                orgVDCResult["SSLVPN service"] = True
                                             else:
-                                                self.orgVDCResult["SSLVPN service"] = False
+                                                orgVDCResult["SSLVPN service"] = False
                                         if serviceName == "Firewall":
                                             if "Any as a TCP/UDP port present" in ''.join(result):
-                                                self.orgVDCResult["Gateway Firewall: Any as TCP/UDP port"] = True
+                                                orgVDCResult["Gateway Firewall: Any as TCP/UDP port"] = True
                                             else:
-                                                self.orgVDCResult["Gateway Firewall: Any as TCP/UDP port"] = False
+                                                orgVDCResult["Gateway Firewall: Any as TCP/UDP port"] = False
                                             if "vNicGroupId" in ''.join(result):
-                                                self.orgVDCResult["Gateway Firewall: Gateway Interfaces in rule"] = True
+                                                orgVDCResult["Gateway Firewall: Gateway Interfaces in rule"] = True
                                             else:
-                                                self.orgVDCResult["Gateway Firewall: Gateway Interfaces in rule"] = False
+                                                orgVDCResult["Gateway Firewall: Gateway Interfaces in rule"] = False
                                             if "is connected to different edge gateway" in ''.join(result):
-                                                self.orgVDCResult["Gateway Firewall: Networks connected to different edge gateway used"] = True
+                                                orgVDCResult["Gateway Firewall: Networks connected to different edge gateway used"] = True
                                             else:
-                                                self.orgVDCResult["Gateway Firewall: Networks connected to different edge gateway used"] = False
+                                                orgVDCResult["Gateway Firewall: Networks connected to different edge gateway used"] = False
                                             if "grouping object type" in ''.join(result):
-                                                self.orgVDCResult["Gateway Firewall: Unsupported grouping object"] = True
+                                                orgVDCResult["Gateway Firewall: Unsupported grouping object"] = True
                                             else:
-                                                self.orgVDCResult["Gateway Firewall: Unsupported grouping object"] = False
+                                                orgVDCResult["Gateway Firewall: Unsupported grouping object"] = False
                                         if serviceName == 'Syslog':
                                             if 'Syslog service is configured' in ''.join(result):
-                                                self.orgVDCResult["Syslog service"] = True
+                                                orgVDCResult["Syslog service"] = True
                                             else:
-                                                self.orgVDCResult["Syslog service"] = False
+                                                orgVDCResult["Syslog service"] = False
                                         if serviceName == 'SSH':
                                             if 'SSH service is configured' in ''.join(result):
-                                                self.orgVDCResult["SSH service"] = True
+                                                orgVDCResult["SSH service"] = True
                                             else:
-                                                self.orgVDCResult["SSH service"] = False
+                                                orgVDCResult["SSH service"] = False
                                         if serviceName == "GRETUNNEL":
                                             if 'GRE tunnel is configured' in ''.join(result):
-                                                self.orgVDCResult["GRE Tunnel"] = True
+                                                orgVDCResult["GRE Tunnel"] = True
                                             else:
-                                                self.orgVDCResult["GRE Tunnel"] = False
-                                if desc == "Independent Disks":
-                                    del self.orgVDCResult["Independent Disks"]
+                                                orgVDCResult["GRE Tunnel"] = False
+
+                                elif desc == "Independent Disks":
+                                    if status is GENERIC_EXCEPTION_TEXT:
+                                        for validation in NAMED_DISK_VALIDATIONS:
+                                            orgVDCResult[validation] = GENERIC_EXCEPTION_TEXT
+                                        continue
+
                                     diskResult = ''.join(output)
-                                    self.orgVDCResult["Independent Disks: Shared disk present"] = (
+                                    orgVDCResult["Independent Disks: Shared disk present"] = (
                                         True
                                         if "Independent Disks in Org VDC are shared" in diskResult
                                         else False)
-                                    self.orgVDCResult["Independent Disks: Attached VMs are not powered off"] = (
+                                    orgVDCResult["Independent Disks: Attached VMs are not powered off"] = (
                                         True
                                         if "VMs attached to disks are not powered off" in diskResult
                                         else False)
 
+                                else:
+                                    orgVDCResult[desc] = status
+
                     except Exception as err:
                         self.logger.debug(f"Failed to evaluate Org VDC '{VDC}' of organization '{org}' due to error - '{str(err)}'")
                         self.logger.debug(traceback.format_exc())
-                        self.orgVDCResult['Status'] = STATUS_CODES[3]
+                        orgVDCResult['Status'] = STATUS_CODES[40]
                         # Restoring log level of console logger
                         self.changeLogLevelForConsoleLog(disable=False)
                         self.consoleLogger.error(f"Failed to evaluate Org VDC '{VDC}' of organization '{org}'")
-                        self.reportData.append(self.orgVDCResult)
+                        self.reportData.append(orgVDCResult)
                         continue
 
                     # Restore logging format
@@ -722,22 +759,32 @@ class VMwareCloudDirectorNSXMigratorV2T:
                     # Status of orgVDC assessment will updated based upon failed
                     # validations to respective STATUS_CODES
                     validation_severities = set(
-                        VALIDATION_CLASSIFICATION[key]
-                        for key, value in self.orgVDCResult.items()
-                        if key in VALIDATION_CLASSIFICATION and value
+                        GENERIC_EXCEPTION_TEXT if value is GENERIC_EXCEPTION_TEXT
+                        else VALIDATION_CLASSIFICATION[key] if value is True
+                        else 0
+                        for key, value in orgVDCResult.items()
+                        if key in VALIDATION_CLASSIFICATION
                     )
-                    if 2 in validation_severities:
-                        self.orgVDCResult['Status'] = STATUS_CODES[2]
+                    if GENERIC_EXCEPTION_TEXT in validation_severities:
+                        orgVDCResult['Status'] = STATUS_CODES[40]
+                    elif 2 in validation_severities:
+                        orgVDCResult['Status'] = STATUS_CODES[2]
                     elif 1 in validation_severities:
-                        self.orgVDCResult['Status'] = STATUS_CODES[1]
+                        orgVDCResult['Status'] = STATUS_CODES[1]
+                    else:
+                        orgVDCResult['Status'] = STATUS_CODES[0]
 
                     # Adding the data after validating to report data
-                    self.reportData.append(self.orgVDCResult)
+                    self.reportData.append(orgVDCResult)
 
                     # Restoring log level of console logger
                     self.changeLogLevelForConsoleLog(disable=False)
+                    if orgVDCResult['Status'] == STATUS_CODES[40]:
+                        self.consoleLogger.error(
+                            f"Failed to validate some of the scenarios for Org VDC '{VDC}' of organization '{org}'")
+                    else:
+                        self.consoleLogger.info(f"Successfully evaluated Org VDC '{VDC}' of organization '{org}'")
 
-                    self.consoleLogger.info(f"Successfully evaluated Org VDC '{VDC}' of organization '{org}'")
             # deleting the current user api session of vmware cloud director
             self.vcdValidationObj.deleteSession()
         except Exception:
@@ -746,7 +793,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
             # Restore logging format
             self.changeLoggingFormat(restore=True)
 
-    def runV2TValidations(self, desc, method, args):
+    def runV2TValidations(self, method, args):
         """
         Description : Executes the validation method and arguments passed as parameters as stores exceptions raised
         Parameters : desc - Description of the method to be executed (STRING)
@@ -755,15 +802,21 @@ class VMwareCloudDirectorNSXMigratorV2T:
         """
         try:
             output = method(*args)
-        except Exception as err:
-            self.logger.debug(f"Error: {str(err)}")
+
+        except ValidationError as err:
+            self.logger.debug(f"Validation Error: {str(err)}")
             self.logger.debug(traceback.format_exc())
-            self.orgVDCResult[desc] = True
+            return True, None
+
+        except Exception as err:
+            self.logger.error(f"Error: {str(err)}")
+            self.logger.debug(traceback.format_exc())
+            return GENERIC_EXCEPTION_TEXT, None
+
         else:
             if output:
-                self.logger.debug(f"Error: {output}")
-            self.orgVDCResult[desc] = False
-            return output
+                self.logger.debug(f"Output: {output}")
+            return False, output
 
     def createReport(self):
         """
@@ -786,7 +839,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
             summaryReportfilename = os.path.join(self.reportBasePath,
                                                  f'{self.vcdUUID}-v2tAssessmentReport-Summary-{self.currentDateTime}.csv')
 
-            # List that holds data for summary report
+            # Adding "Summary" block headers to report file rows
             summaryData = [["Summary", "Org VDCs", "VMs", "ORG VDC RAM (MB)"]]
 
             # Computation for org vdc/s data that can be migrated
@@ -800,11 +853,14 @@ class VMwareCloudDirectorNSXMigratorV2T:
             }
             for row in self.reportData:
                 status_data[row['Status']]['org_vdc_count'] += 1
-                status_data[row['Status']]['vm_count'] += int(row['VMs'])
-                status_data[row['Status']]['org_vdc_ram'] += int(row['ORG VDC RAM (MB)'])
 
-            # Adding data to summary data list
-            for code, status in sorted(STATUS_CODES.items(), key=lambda x: x[0]):
+                # Update VM/RAM info only if VDC is evaluated or partially evaluated
+                if row['Status'] not in NOT_EVALUATED_STATUS_CODES:
+                    status_data[row['Status']]['vm_count'] += int(row['VMs'])
+                    status_data[row['Status']]['org_vdc_ram'] += int(row['ORG VDC RAM (MB)'])
+
+            # Adding "Summary" block contents to report file rows
+            for status in STATUS_CODES.values():
                 summaryData.append([
                     status,
                     status_data[status]['org_vdc_count'],
@@ -812,7 +868,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                     status_data[status]['org_vdc_ram'],
                 ])
 
-            # Performing computation for feature wise org vdc data
+            # Performing computation for feature wise org vdc data for "Additional Info" section
             summaryData.append([])
             summaryData.append(["Additional Info"])
             summaryData.append(["Validation Task", "Org VDCs", "VMs", "ORG VDC RAM (MB)", "Severity"])
@@ -824,15 +880,13 @@ class VMwareCloudDirectorNSXMigratorV2T:
                     'org_vdc_count': 0,
                     'vm_count': 0,
                     'org_vdc_ram': 0,
-                    'severity': VALIDATION_CODES[VALIDATION_CLASSIFICATION.get(
-                        feature, NOT_CATEGORIZED_VALIDATION_CODE)]
+                    'severity': VALIDATION_CODES[VALIDATION_CLASSIFICATION[feature]]
                 }
-                for feature in list(
-                    self.reportData[0].keys())[self.summaryColumnCount:]
+                for feature in list(self.reportData[0].keys())[self.summaryColumnCount:]
             }
             for row in self.reportData:
                 for feature, value in list(row.items())[self.summaryColumnCount:]:
-                    if value and value != "NA":
+                    if value is True:
                         feature_data[feature]['org_vdc_count'] += 1
                         feature_data[feature]['vm_count'] += int(row['VMs'])
                         feature_data[feature]['org_vdc_ram'] += int(row['ORG VDC RAM (MB)'])
@@ -840,8 +894,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
             # Adding data to summary data list
             for feature, data in sorted(
                     feature_data.items(),
-                    key=lambda x: VALIDATION_CLASSIFICATION.get(
-                        x[0], NOT_CATEGORIZED_VALIDATION_CODE)):
+                    key=lambda x: VALIDATION_CLASSIFICATION[x[0]]):
                 summaryData.append([
                     feature,
                     data['org_vdc_count'],
@@ -868,7 +921,13 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
             numberOfORGsEvaluated = len(set(row['Org Name'] for row in self.reportData))
             numberOfVDCsEvaluated = len([row['Org VDC'] for row in self.reportData])
-            maximumNumberOfNetworksToBeBridged = max([row["Number of Networks to Bridge"] for row in self.reportData])
+
+            networksToBeBridged = [
+                row["Number of Networks to Bridge"]
+                for row in self.reportData
+                if isinstance(row["Number of Networks to Bridge"], int)
+            ]
+            maximumNumberOfNetworksToBeBridged = max(networksToBeBridged) if networksToBeBridged else "NA"
 
             # Adding the time stamps and summary data to summary report
             summaryData.insert(0, ["Build Version", self.buildVersion])

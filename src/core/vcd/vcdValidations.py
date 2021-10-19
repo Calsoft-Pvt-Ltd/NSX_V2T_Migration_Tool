@@ -156,6 +156,13 @@ class DfwRulesAbsentError(Exception):
     pass
 
 
+class ValidationError(Exception):
+    """
+    Raise this exception when error is to be captured in precheck, pre-migration validation or assessment mode
+    """
+    pass
+
+
 class ConfigurationError(Exception):
     """
     Raise this error when
@@ -1093,7 +1100,7 @@ class VCDMigrationValidation:
                 else:
                     raise Exception('Error occurred while retrieving fencing details due to {}'.format(responseDict['error']['@message']))
             if vAppFencingList:
-                raise Exception('Fencing mode is enabled on vApp: {}'.format(', '.join(set(vAppFencingList))))
+                raise ValidationError('Fencing mode is enabled on vApp: {}'.format(', '.join(set(vAppFencingList))))
             else:
                 logger.debug('vApp fencing is disabled on all vApps')
         except Exception:
@@ -1969,7 +1976,7 @@ class VCDMigrationValidation:
                     rateLimitEnabledInterfaces = [interface for interface in gatewayInterfaces if
                                                   interface.get('applyRateLimit', None)]
                     if rateLimitEnabledInterfaces:
-                        raise Exception("Rate Limit is configured on edge gateway")
+                        raise ValidationError("Rate Limit is configured on edge gateway")
         except Exception:
             raise
 
@@ -1998,8 +2005,8 @@ class VCDMigrationValidation:
                 headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
                 # retrieving the details of the edge gateway
                 response = self.restClientObj.get(url, headers)
+                responseDict = response.json()
                 if response.status_code == requests.codes.ok:
-                    responseDict = response.json()
                     gatewayInterfaces = responseDict['configuration']['gatewayInterfaces']['gatewayInterface']
                     if len(gatewayInterfaces) > 9 and not networkList:
                         errorList.append('No more uplinks present on source Edge Gateway to connect dummy External Uplink')
@@ -2013,9 +2020,10 @@ class VCDMigrationValidation:
                                        "After migration apply equivalent Gateway QOS Profile "
                                        "to Tier-1 GW backing the target Org VDC Edge Gateway directly in NSX-T.")
                 else:
-                    errorList.append('Failed to get Edge Gateway:{} Uplink details'.format(edgeGatewayId))
+                    raise Exception('Failed to get Edge Gateway:{} Uplink details: {}'.format(
+                        edgeGatewayId, responseDict['message']))
             if errorList:
-                raise Exception(',\n'.join(errorList))
+                raise ValidationError(',\n'.join(errorList))
         except Exception:
             raise
 
@@ -3578,7 +3586,8 @@ class VCDMigrationValidation:
             if self.thread.stop():
                 raise Exception("Failed to validate vapp for suspended VM. Check log file for errors")
             if self.suspendedVMList:
-                raise Exception("VM: {} is in suspended state, Unable to migrate".format(','.join(self.suspendedVMList)))
+                raise ValidationError(
+                    "VMs: {} are in suspended state, Unable to migrate".format(','.join(self.suspendedVMList)))
             logger.debug("Validated Successfully, No Suspended VMs in Source Vapps")
         except Exception:
             raise
@@ -3643,7 +3652,8 @@ class VCDMigrationValidation:
             if self.vAppNetworkDict:
                 for key, value in self.vAppNetworkDict.items():
                     vAppNetworkList.append('vAppName: ' + key + ' : NetworkName: ' + ', '.join(value))
-                raise Exception("vApp Routed Network: '{}' exist in Source Org VDC".format(', '.join(vAppNetworkList)))
+                raise ValidationError(
+                    "vApp Routed Network: '{}' exist in Source Org VDC".format(', '.join(vAppNetworkList)))
         except Exception:
             raise
 
@@ -4642,7 +4652,10 @@ class VCDMigrationValidation:
                     if not responseDict['VApp'].get('Children'):
                         return True
                 else:
-                    raise Exception("Failed to get vApp details.")
+                    raise Exception(f"Failed to get vApp {vApp['@name']} details.")
+            else:
+                raise Exception(f"Failed to get vApp {vApp['@name']} details.")
+
         except Exception:
             raise
 
@@ -4669,7 +4682,7 @@ class VCDMigrationValidation:
                 if status == True:
                     emptyvAppList.append(vAppName)
             if emptyvAppList:
-                raise Exception('No VM exist in vApp: {}'.format(','.join(emptyvAppList)))
+                raise ValidationError('No VM exist in vApp: {}'.format(','.join(emptyvAppList)))
             else:
                 logger.debug("Validated successfully, no empty vapps exist in Source Org VDC")
         except Exception:
@@ -5745,9 +5758,10 @@ class VCDMigrationValidation:
         if nsxvSettings.get('controlVmResourcePoolVcPath') \
                 or nsxvSettings.get('controlVmDatastoreName') \
                 or nsxvSettings.get('controlVmManagementInterfaceName'):
-            raise Exception(f"Cross VDC Networking is enabled for vCenter - "
-                            f"'{vCenterUsedByOrgVdc}'"
-                            f"but not supported by migration tool")
+            raise ValidationError(
+                f"Cross VDC Networking is enabled for vCenter - "
+                f"'{vCenterUsedByOrgVdc}'"
+                f"but not supported by migration tool")
         logger.debug(f"Validated successfully Cross VDC Networking is not enabled for vCenter {vCenterUsedByOrgVdc}")
 
     @isSessionExpired
