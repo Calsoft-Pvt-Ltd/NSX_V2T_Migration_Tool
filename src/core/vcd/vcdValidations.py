@@ -3297,10 +3297,6 @@ class VCDMigrationValidation:
         Parameters  :   sourceOrgVdcId  -   id of the source org vdc (STRING)
         """
         try:
-            # Check if source org vdc was disabled
-            if not self.rollback.metadata.get("preMigrationValidation", {}).get("orgVDCValidations"):
-                return
-
             # reading data from metadata
             data = self.rollback.apiData
             # enabling the source org vdc only if it was previously enabled, else not
