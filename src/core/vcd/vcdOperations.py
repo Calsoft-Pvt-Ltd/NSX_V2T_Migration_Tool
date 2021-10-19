@@ -432,6 +432,33 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
+    def removeDHCPBinding(self, networkId):
+        """
+        Description :   Deletes the DHCP binding on OrgVDC network if present
+        Parameters  :   networkId  -  Id of the Org VDC network. (STRING)
+        """
+        logger.debug("checking DHCP binding status")
+        # Enables the DHCP bindings on OrgVDC network.
+        DHCPBindingUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                       vcdConstants.DHCP_BINDINGS.format(networkId))
+        # call to get api to get dhcp binding config details of specified networkId
+        response = self.restClientObj.get(DHCPBindingUrl, self.headers)
+        if response.status_code == requests.codes.ok:
+            responsedict = response.json()
+            # checking DHCP bindings configuration, if present then deleting the DHCP Binding config.
+            for bindings in responsedict['values']:
+                deleteDHCPBindingURL = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                       vcdConstants.DHCP_BINDINGS.format(networkId), bindings['id'])
+                response = self.restClientObj.delete(deleteDHCPBindingURL, self.headers)
+                if response.status_code == requests.codes.accepted:
+                    taskUrl = response.headers['Location']
+                    self._checkTaskStatus(taskUrl=taskUrl)
+                    logger.debug('Organization VDC Network DHCP Bindings deleted successfully.')
+                else:
+                    logger.debug(
+                        'Failed to delete Organization VDC Network DHCP bindings {}.{}'.format(networkId, response.json()['message']))
+
+    @isSessionExpired
     def deleteOrgVDCNetworks(self, orgVDCId, source=True, rollback=False):
         """
         Description :   Deletes all Organization VDC Networks from the specified OrgVDC
@@ -455,6 +482,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             orgVDCNetworksList = self.getOrgVDCNetworks(orgVDCId, 'sourceOrgVDCNetworks', dfwStatus=dfwStatus, saveResponse=False)
             # iterating over the org vdc network list
             for orgVDCNetwork in orgVDCNetworksList:
+                # Check if DHCP Binding enabled on Network, if enabled then delete binding first.
+                if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
+                    self.removeDHCPBinding(orgVDCNetwork['id'])
                 # url to delete the org vdc network
                 url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                     vcdConstants.DELETE_ORG_VDC_NETWORK_BY_ID.format(orgVDCNetwork['id']))
@@ -1765,9 +1795,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             else:
                 logger.debug('Isolated OrgVDC networks not present on source OrgVDC')
 
-            # Configure DHCP relay on target edge gateway.
+            # Configure DHCP relay and Binding on target edge gateway.
             if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
                 self.configureDHCPRelayService()
+                self.configureDHCPBindingService()
         except:
             raise
 
