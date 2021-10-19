@@ -58,10 +58,11 @@ VALIDATION_CLASSIFICATION = {
     'Fencing enabled on vApps': 2,
     'No free interface on edge gateways': 1,
     'Edge Gateway Rate Limit': 1,
-    'Shared Independent Disks': 2,
+    'Independent Disks: Shared disk present': 2,
+    'Independent Disks: Attached VMs are not powered off': 1,
+    'DHCP Binding: Binding IP addresses overlaps with static IP Pool range': 1,
     'DHCP Relay: Domain names are configured': 1,
     'DHCP Relay: IP sets are configured': 1,
-    'DHCP: Static binding': 2,
     'Gateway Firewall: Any as TCP/UDP port': 1,
     'Gateway Firewall: Gateway Interfaces in rule': 1,
     'Gateway Firewall: Networks connected to different edge gateway used': 1,
@@ -602,10 +603,10 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 self.orgVDCResult["DHCP Relay: IP sets are configured"] = True
                                             else:
                                                 self.orgVDCResult["DHCP Relay: IP sets are configured"] = False
-                                            if "Static binding is in DHCP configuration" in ''.join(result):
-                                                self.orgVDCResult["DHCP: Static binding"] = True
+                                            if "DHCP Binding IP addresses overlaps" in ''.join(result):
+                                                self.orgVDCResult["DHCP Binding: Binding IP addresses overlaps with static IP Pool range"] = True
                                             else:
-                                                self.orgVDCResult["DHCP: Static binding"] = False
+                                                self.orgVDCResult["DHCP Binding: Binding IP addresses overlaps with static IP Pool range"] = False
                                         if serviceName == "NAT":
                                             if "Nat64 rule is configured" in ''.join(result):
                                                 self.orgVDCResult["NAT: NAT64 rule"] = True

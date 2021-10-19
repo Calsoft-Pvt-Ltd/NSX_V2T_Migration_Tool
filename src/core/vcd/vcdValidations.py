@@ -2625,6 +2625,37 @@ class VCDMigrationValidation:
         logger.debug("Validated Successfully, Independent Disks in Source Org VDC are not shared")
 
     @isSessionExpired
+    def ValidateStaticBinding(self, staticBindingsData):
+        """
+        Description :   Verify the DHCP bindings Configuration details of the specified Edge Gateway
+        Parameters  :   Static Binding data of the specified edge gateway.
+        """
+        logger.debug("Validating DHCP static binding.")
+        sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
+        # get OrgVDC Network details.
+        orgvdcNetworks = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
+
+        # get the OrgVDC network details which is used in bindings.
+        networkInfo = dict()
+        for binding in staticBindingsData:
+            ipAddress = binding['ipAddress']
+            defaultGateway = binding['defaultGateway']
+            # get OrgVDC Network details.
+            for network in orgvdcNetworks:
+                ipRanges = network['subnets']['values'][0]['ipRanges']['values']
+                networkGateway = network['subnets']['values'][0]['gateway']
+                networkName = network['name']
+                if networkGateway == defaultGateway:
+                    for ipRange in ipRanges:
+                        ipRangeAddresses = [str(ipaddress.IPv4Address(ip)) for ip in
+                                            range(int(ipaddress.IPv4Address(ipRange['startAddress'])),
+                                                  int(ipaddress.IPv4Address(ipRange['endAddress']) + 1))]
+                        if ipAddress in ipRangeAddresses:
+                            networkInfo[networkName] = ipAddress
+
+        return networkInfo
+
+    @isSessionExpired
     def getEdgeGatewayDhcpConfig(self, edgeGatewayId, v2tAssessmentMode=False):
         """
         Description :   Gets the DHCP Configuration details of the specified Edge Gateway
@@ -2672,9 +2703,22 @@ class VCDMigrationValidation:
                 responseDict = response.json()
                 if not v2tAssessmentMode and float(self.version) >= float(vcdConstants.API_VERSION_ZEUS) and self.nsxVersion.startswith('2.5.2') and responseDict['enabled']:
                     errorList.append("DHCP is enabled in source edge gateway but not supported in target\n")
-                # checking if static binding is configured in dhcp, if so raising exception
-                if responseDict.get('staticBindings', None):
-                    errorList.append("Static binding is in DHCP configuration of Source Edge Gateway\n")
+                # checking if static binding is configured in dhcp, if so raising exception if DHCP Binding IP
+                # address overlaps with static IP Pool range on Network
+                if responseDict.get('staticBindings'):
+                    if not v2tAssessmentMode and float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
+                        errorList.append(
+                            "Static binding is in DHCP configuration of Source Edge Gateway, But not supported.\n")
+                        return errorList, None
+
+                    networkInfo = self.ValidateStaticBinding(responseDict['staticBindings']['staticBindings'])
+
+                    if networkInfo:
+                        if v2tAssessmentMode or float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
+                            errorList.append(
+                                "DHCP Binding IP addresses overlaps with static IP Pool range on OrgVDC Network names, having details : {}.".format(
+                                    networkInfo))
+
                 logger.debug("DHCP configuration of Source Edge Gateway retrieved successfully")
                 # returning the dhcp details
                 return errorList, responseDict
