@@ -1690,9 +1690,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     logger.debug('DHCP service is not enabled or configured in Source Edge Gateway')
                 else:
                     # retrieving the dhcp rules of the source edge gateway
-                    dhcpRules = sourceEdgeGatewayDHCP['ipPools']['ipPools'] if isinstance(
-                        sourceEdgeGatewayDHCP['ipPools']['ipPools'], list) else [
-                        sourceEdgeGatewayDHCP['ipPools']['ipPools']]
+                    dhcpRules = sourceEdgeGatewayDHCP['ipPools'].get('ipPools') if isinstance(
+                        sourceEdgeGatewayDHCP['ipPools'].get('ipPools'), list) else [
+                        sourceEdgeGatewayDHCP['ipPools'].get('ipPools')]
+                    dhcpRules = [rules for rules in dhcpRules if rules]
                     payloaddict = {}
                     # iterating over the source edge gateway dhcp rules
                     for iprange in dhcpRules:
@@ -1763,7 +1764,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     payload["dhcpPools"] = list()
                     firstPoolIndex = 0
                     maxLeaseTimeDhcp = []
-                    if OrgVDCIsolatedNetworkDHCPDetails["dhcpPools"]:
+                    if OrgVDCIsolatedNetworkDHCPDetails.get("dhcpPools"):
                         for eachDhcpPool in OrgVDCIsolatedNetworkDHCPDetails["dhcpPools"]:
                             currentPoolDict = dict()
                             currentPoolDict["enabled"] = eachDhcpPool['enabled']
