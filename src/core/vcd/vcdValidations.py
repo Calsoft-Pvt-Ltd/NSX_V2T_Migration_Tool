@@ -2643,6 +2643,10 @@ class VCDMigrationValidation:
             # get OrgVDC Network details.
             for network in orgvdcNetworks:
                 ipRanges = network['subnets']['values'][0]['ipRanges']['values']
+                # if IP pools not configured on OrfVDC network then we getting ipRanges as a 'None', so continue
+                # validation for next OrgVDC Network.
+                if not ipRanges:
+                    continue
                 networkGateway = network['subnets']['values'][0]['gateway']
                 networkName = network['name']
                 if networkGateway == defaultGateway:

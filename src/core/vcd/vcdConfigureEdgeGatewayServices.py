@@ -989,7 +989,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             DHCPData = self.rollback.apiData['sourceEdgeGatewayDHCP'][sourceEdgeGateway['id']]
             # configure DHCP Binding on target only if source edge gateway has DHCP Binding configured.
-            if not DHCPData['staticBindings']:
+            if not DHCPData.get('staticBindings'):
                 logger.debug(
                     "DHCP static bindings service not configured on source edge gateway : {}.".format(sourceEdgeGateway))
                 continue
@@ -1025,7 +1025,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 if response.status_code == requests.codes.ok:
                     responsedict = response.json()
                     # checking if configured is dhcp, if not then configure.
-                    if not responsedict['enabled']:
+                    if not responsedict.get('enabled'):
                         # Creating Payload
                         payloadData = {
                             "enabled": True,
@@ -1067,7 +1067,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     }
                 }
                 dnsServers = []
-                if not binding['autoConfigureDNS']:
+                if not binding.get('autoConfigureDNS'):
                     dnsServers.append(binding.get('primaryNameServer'))
                     dnsServers.append(binding.get('secondaryNameServer'))
                     payloadData['dnsServers'] = dnsServers
