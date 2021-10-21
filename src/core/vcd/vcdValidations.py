@@ -154,6 +154,16 @@ class DfwRulesAbsentError(Exception):
     pass
 
 
+class ConfigurationError(Exception):
+    """
+    Raise this error when
+    - error/exception is out of scope for migration tool to handle/fix or to raise validation error
+    - AND migration cannot proceed with this error/exception
+    - AND configuration is not correct as per operational perspective which user has to fix manually
+    """
+    pass
+
+
 class VCDMigrationValidation:
     """
     Description : Class performing VMware Cloud Director NSX-V To NSX-T Migration validation

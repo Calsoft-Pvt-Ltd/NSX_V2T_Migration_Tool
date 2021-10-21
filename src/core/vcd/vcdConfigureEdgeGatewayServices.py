@@ -25,7 +25,8 @@ import src.core.vcd.vcdConstants as vcdConstants
 
 from src.commonUtils.utils import Utilities, listify
 from src.core.vcd.vcdValidations import (
-    VCDMigrationValidation, isSessionExpired, remediate, description, DfwRulesAbsentError, getSession)
+    VCDMigrationValidation, isSessionExpired, remediate, description, DfwRulesAbsentError, getSession,
+    ConfigurationError)
 
 logger = logging.getLogger('mainLogger')
 chunksOfList = Utilities.chunksOfList
@@ -1683,6 +1684,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     if ipsetresponse.status_code == requests.codes.ok:
                         # successful retrieval of ipset group info
                         ipsetresponseDict = xmltodict.parse(ipsetresponse.content)
+
+                        if not ipsetresponseDict['ipset'].get('value'):
+                            logger.debug(
+                                f"Ignoring IPset '{ipsetgroup['name']}' that does not have IP addresses present in it.")
+
                         # storing the ip-address and range present in the IPSET
                         ipsetipaddress = ipsetresponseDict['ipset']['value']
 
