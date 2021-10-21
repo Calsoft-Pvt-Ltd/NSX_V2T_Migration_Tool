@@ -2135,7 +2135,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # # increase in scope of Target ORG VDC networks
                 self.increaseScopeforNetworks()
                 # Enable DFW in the orgVDC groups
-                self.enableDFWinOrgvdcGroup(vcdObjList, sourceOrgVDCId)
+                self.enableDFWinOrgvdcGroup()
 
                 # Variable to set that the thread has reached here
                 self.__done__ = True
@@ -4604,7 +4604,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description('Enable DFW in Orgvdc group')
     @remediate
-    def enableDFWinOrgvdcGroup(self, vcdObjList, sourceOrgVDCId, rollback=False):
+    def enableDFWinOrgvdcGroup(self, rollback=False):
         """
         Description :   Enable DFW in Orgvdc group
         Parameters  :   rollback- True to disable DFW in ORG VDC group
@@ -4651,7 +4651,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         errorDict = response.json()
                         raise Exception("Failed to enable DFW '{}' ".format(errorDict['message']))
                 if not rollback:
-                    self.configureDfwDefaultRule(vcdObjList, sourceOrgVDCId)
+                    self.configureDfwDefaultRule(sourceOrgVDCId)
 
         except Exception:
             raise
