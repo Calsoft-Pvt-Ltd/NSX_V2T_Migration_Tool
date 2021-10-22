@@ -2469,7 +2469,9 @@ class VCDMigrationValidation:
                 self.thread.spawnThread(self.getEdgeGatewayGreTunnel, gatewayId)
 
                 # Halting the main thread till all the threads have completed their execution
-                self.thread.joinThreads()
+                self.thread.joinThreads(logException=not v2tAssessmentMode)
+                if self.thread.stop():
+                    raise Exception('Failed to get edge gateway services')
 
                 # Fetching saved values from thread class of all the threads
                 dhcpErrorList, dhcpConfigOut = self.thread.returnValues['getEdgeGatewayDhcpConfig']
