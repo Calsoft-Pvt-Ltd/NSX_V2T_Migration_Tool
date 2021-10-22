@@ -3800,7 +3800,7 @@ class VCDMigrationValidation:
             # checking if the source network pool is VXLAN backed if cloneOverlayIds parameter is set to true
             if cloneOverlayIds and networkPoolType != vcdConstants.VXLAN_NETWORK_POOL_TYPE:
                 raise Exception("'cloneOverlayIds' parameter is set to 'True' but "
-                                "source network pool is not VXLAN backed")
+                                "source Org VDC network pool is not VXLAN backed")
             # checking if the source network pool is PortGroup backed
             if networkPoolDict['vmext:VMWNetworkPool']['@xsi:type'] == vcdConstants.PORTGROUP_NETWORK_POOL_TYPE:
                 # Fetching the moref and type of all the port groups backing the network pool
@@ -3984,7 +3984,7 @@ class VCDMigrationValidation:
 
             # If source NSXV VNI pool id's are not subset of
             if not sourceVNIPoolIds.issubset(targetVNIPoolIds):
-                raise Exception("All the source NSX-V VNI pool ID's are not present in target NSX-T VNI pools")
+                raise Exception("All the source NSX-V Segment IDs are not present in target NSX-T VNI pools")
             else:
                 logger.debug('Validated successfully that the source NSX-V VNI pool is subset of target NSX-T VNI pools')
         except:
@@ -4171,8 +4171,9 @@ class VCDMigrationValidation:
                                              providerVDCImportedNeworkTransportZone, nsxtObj)
 
             # validating NSX-V and NSX-T VNI pool ranges
-            logger.info('Validating whether the source NSX-V VNI pool is subset of target NSX-T VNI pools or not')
-            self.validateVniPoolRanges(nsxtObj, nsxvObj, cloneOverlayIds=inputDict['VCloudDirector'].get('CloneOverlayIds'))
+            logger.info('Validating whether the source NSX-V Segment ID Pool is subset of target NSX-T VNI pool or not')
+            self.validateVniPoolRanges(nsxtObj, nsxvObj,
+                                       cloneOverlayIds=inputDict['VCloudDirector'].get('CloneOverlayIds'))
 
             # validating target external network pools
             nsxtNetworkPoolName = vdcDict.get('NSXTNetworkPoolName', None)
