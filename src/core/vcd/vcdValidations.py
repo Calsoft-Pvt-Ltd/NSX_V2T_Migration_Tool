@@ -2648,8 +2648,8 @@ class VCDMigrationValidation:
         # get the OrgVDC network details which is used in bindings.
         networkInfo = dict()
         for binding in staticBindingsData:
-            ipAddress = binding['ipAddress']
-            defaultGateway = binding['defaultGateway']
+            ipAddress = binding.get('ipAddress')
+            defaultGateway = binding.get('defaultGateway')
             # get OrgVDC Network details.
             for network in orgvdcNetworks:
                 ipRanges = network['subnets']['values'][0]['ipRanges']['values']
