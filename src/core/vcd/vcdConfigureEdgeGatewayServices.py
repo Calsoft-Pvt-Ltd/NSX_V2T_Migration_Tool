@@ -6,23 +6,21 @@
 Description : Configuring Edge Gateway Services
 """
 
-import logging
+import copy
+import ipaddress
 import json
+import logging
 import os
 import random
-import time
-import ipaddress
-import copy
 import threading
+import time
 import traceback
-
 from collections import OrderedDict, defaultdict
 
 import requests
 import xmltodict
 
 import src.core.vcd.vcdConstants as vcdConstants
-
 from src.commonUtils.utils import Utilities, listify
 from src.core.vcd.vcdValidations import (
     VCDMigrationValidation, isSessionExpired, remediate, description, DfwRulesAbsentError, getSession,
@@ -75,6 +73,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             self.configureFirewall(networktype=False, configureIPSET=True)
             # Configuring BGP
             self.configBGP()
+            # Configuring Route Advertisement
+            self.configureRouteAdvertisement(orgVDCDict.get("AdvertiseRoutedNetworks"))
             # Configuring DNS
             self.configureDNS()
             # configuring loadbalancer
@@ -777,7 +777,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     # get details of BGP configuration
                     bgpConfigDetails = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
                     #get routing config details
-                    routingConfigDetails = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId, validation=False)
+                    routingConfigDetails = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId,
+                                                                            sourceEdgeGateway['name'],
+                                                                            validation=False)
                     # get details of all Non default gateway subnet, default gateway and noSnatRules
                     allnonDefaultGatewaySubnetList, defaultGatewayDict, noSnatRulesList = self.getEdgeGatewayAdminApiDetails(
                         sourceEdgeGatewayId, staticRouteDetails=staticRoutingConfig)
@@ -844,19 +846,24 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
                 logger.debug("Configuring BGP Services in Target Edge Gateway - {}".format(sourceEdgeGateway['name']))
                 sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
-                edgeGatewayID = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
-                                     self.rollback.apiData['targetEdgeGateway']))[0]['id']
+                edgeGatewayID = list(filter(
+                    lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
+                    self.rollback.apiData['targetEdgeGateway']))[0]['id']
 
                 bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
-                data = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId, validation=False)
-                # checking whether bgp rule is enabled or present in the source edge  gateway; returning if no bgp in source edge gateway
+                data = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId, sourceEdgeGateway['name'],
+                                                        validation=False)
+                # checking whether bgp rule is enabled or present in the source edge  gateway;
+                # returning if no bgp in source edge gateway
                 if not isinstance(bgpConfigDict, dict) or bgpConfigDict['enabled'] == 'false':
-                    logger.debug('BGP service is disabled or not configured in Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
+                    logger.debug('BGP service is disabled or not configured in '
+                                 'Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
                     return
                 logger.debug('BGP is getting configured in Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
                 ecmp = "true" if data['routingGlobalConfig']['ecmp'] == "true" else "false"
                 # url to get the details of the bgp configuration on T1 router i.e target edge gateway
-                bgpurl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
+                bgpurl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                         vcdConstants.ALL_EDGE_GATEWAYS,
                                          vcdConstants.T1_ROUTER_BGP_CONFIG.format(edgeGatewayID))
                 # get api call to retrieve the T1 router bgp details
                 versionresponse = self.restClientObj.get(bgpurl, self.headers)
@@ -895,15 +902,200 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                     .format(sourceEdgeGateway['name'], response['message']))
                 # checking if bgp neighbours exist in source edge gateway; else returning
                 if bgpConfigDict.get('bgpNeighbours'):
-                    bgpNeighbours = bgpConfigDict['bgpNeighbours']['bgpNeighbour'] if isinstance(bgpConfigDict['bgpNeighbours']['bgpNeighbour'], list) else [bgpConfigDict['bgpNeighbours']['bgpNeighbour']]
+                    bgpNeighbours = bgpConfigDict['bgpNeighbours']['bgpNeighbour'] \
+                        if isinstance(bgpConfigDict['bgpNeighbours']['bgpNeighbour'], list) \
+                        else [bgpConfigDict['bgpNeighbours']['bgpNeighbour']]
                     self.createBGPNeighbours(bgpNeighbours, edgeGatewayID)
-                    logger.debug('Successfully configured BGP in Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
+                    logger.debug('Successfully configured BGP in '
+                                 'Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
                 else:
                     logger.debug('No BGP neighbours configured in source BGP')
-                    return
+
+                # Fetching source org vdc BGP route redistribution data
+                bgpRedistributionData = data['bgp'].get('redistribution') or {}
+                # Fetching source org vdc IP Prefix data
+                sourceIpPrefixData = (data['routingGlobalConfig'].get('ipPrefixes') or {}).get('ipPrefix')
+                # Configuring IP Prefixes in target if both BGP route redistribution and
+                # IP Prefixes are configured in source edge gateway
+                if bgpRedistributionData and sourceIpPrefixData:
+                    # Create IP Prefix on target edge gateway
+                    self.createIpPrefixes(sourceIpPrefixData, bgpRedistributionData, edgeGatewayID)
+                else:
+                    logger.debug(f"Skipping IP Prefixes migration as IP Prefixes or Route advertisement rules "
+                                 f"are not configured on source edge gateway {sourceEdgeGateway['name']}")
         except Exception:
             raise
 
+    @isSessionExpired
+    def getTargetEdgeGatewayIpPrefixData(self, targetEdgeGatewayId):
+        """
+        Description : Fetch IP Prefix data from target edge gateway
+        Parameters :  targetEdgeGatewayId - target edge gateway ID (STRING)
+        """
+        logger.debug(f"Fetching IP Prefix data from target edge gateway {targetEdgeGatewayId}")
+        # Fetching IpPrefix data from target edge gateway
+        ipPrefixUrl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                      vcdConstants.ALL_EDGE_GATEWAYS,
+                                      vcdConstants.CREATE_PREFIX_LISTS_BGP.format(targetEdgeGatewayId))
+        self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+        # get api call to configure ip prefix in target
+        response = self.restClientObj.get(ipPrefixUrl, headers=self.headers)
+        responseDict = response.json()
+        if response.status_code != requests.codes.ok:
+            raise Exception(f'Failed to fetch IP Prefix data from target edge gateway {responseDict["message"]}')
+        logger.debug(f'Successfully fetched IP Prefix from target edge gateway {targetEdgeGatewayId}')
+        return responseDict.get('values')
+
+    @isSessionExpired
+    def createIpPrefixes(self, ipPrefixes, bgpRedistributionData, targetEdgeGatewayId):
+        """
+        Description : Configure IP Prefix in target edge gateway
+        Parameters :  ipPrefixes - ipPrefix data of source edge gateway (Dict)
+                      bgpRedistributionData - BGP redistribution config of source edge gateway (Dict)
+                      targetEdgeGatewayId - target edge gateway ID (STRING)
+        """
+        # Checking if IP Prefix list is already present on target edge gateway or not
+        for ipPrefix in self.getTargetEdgeGatewayIpPrefixData(targetEdgeGatewayId):
+            if ipPrefix['name'] == vcdConstants.TARGET_BGP_IP_PREFIX_NAME:
+                logger.debug("IP Prefix list already created on target edge gateway")
+                return
+
+        # Creating IpPrefix and subnet mapping
+        ipPrefixSubnetMapping = {
+            ipPrefix['name']: str(ipaddress.ip_network(ipPrefix['ipAddress'], strict=False))
+            for ipPrefix in listify(ipPrefixes)
+        }
+
+        # Creating IP Prefix payload
+        ipPrefixPayloadData = {
+            "name": vcdConstants.TARGET_BGP_IP_PREFIX_NAME,
+            "prefixes": list()
+        }
+
+        subnetAlreadyAdded = set()
+        # Iterating over all the source route distribution rule to create a target prefix
+        for bgpRedistributionRule in listify((bgpRedistributionData.get('rules') or {}).get('rule')):
+            if bgpRedistributionRule.get('prefixName') and \
+                    ipPrefixSubnetMapping.get(bgpRedistributionRule.get('prefixName')) not in subnetAlreadyAdded:
+                ipPrefixPayloadData['prefixes'].append(
+                    {"network": ipPrefixSubnetMapping.get(bgpRedistributionRule.get('prefixName')),
+                     "action": 'PERMIT' if bgpRedistributionRule['action'] == 'permit' else 'DENY',
+                     "greaterThanEqualTo": None,
+                     "lessThanEqualTo": None
+                     })
+                subnetAlreadyAdded.add(ipPrefixSubnetMapping.get(bgpRedistributionRule.get('prefixName')))
+
+        if not ipPrefixPayloadData['prefixes']:
+            logger.debug(f"No Prefixes present to migrate to target edge gateway {targetEdgeGatewayId}")
+            return
+
+        # Create IpPrefix in target edge gateway
+        ipPrefixUrl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                      vcdConstants.ALL_EDGE_GATEWAYS,
+                                      vcdConstants.CREATE_PREFIX_LISTS_BGP.format(targetEdgeGatewayId))
+        self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+        ipPrefixPayloadData = json.dumps(ipPrefixPayloadData)
+        # post api call to configure ip prefix in target
+        response = self.restClientObj.post(ipPrefixUrl, headers=self.headers,
+                                           data=ipPrefixPayloadData)
+
+        if response.status_code == requests.codes.accepted:
+            # successful configuration of ip prefix list
+            taskUrl = response.headers['Location']
+            self._checkTaskStatus(taskUrl=taskUrl)
+            logger.debug(f'Successfully created IP Prefix on target edge gateway {targetEdgeGatewayId}')
+        else:
+            raise Exception('Failed to create IP Prefix on target edge gateway {}'.format(response.json()['message']))
+
+    @description("configuration of Route Advertisement")
+    @remediate
+    def configureRouteAdvertisement(self, advertiseRoutedNetworks=False):
+        """
+        Description :  Configure Route Advertisement on the Target Edge Gateway
+        Parameters  :  advertiseRoutedNetworks - Flag the informs whether to advertise routed networks or not
+        """
+        logger.debug('Route Advertisement is getting configured')
+        for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
+            subnetsToAdvertise = list()
+            logger.debug(f"Configuring Route Advertisement on Target Edge Gateway - {sourceEdgeGateway['name']}")
+            sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
+            targetEdgeGatewayId = list(filter(
+                lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
+                self.rollback.apiData['targetEdgeGateway']))[0]['id']
+
+            # Fetching source org vdc id
+            sourceOrgVDCId = self.rollback.apiData.get('sourceOrgVDC', {}).get('@id', str())
+
+            # Fetching subnets of all the routed network connected to source edge gateway
+            allRoutedNetworkSubnets = [
+                str(ipaddress.ip_network(f"{subnet['gateway']}/{subnet['prefixLength']}", strict=False))
+                for network in self.retrieveNetworkListFromMetadata(sourceOrgVDCId)
+                for subnet in network["subnets"]["values"]
+                if network["networkType"] == "NAT_ROUTED" and
+                network["connection"]["routerRef"]["id"].split(':')[-1] == sourceEdgeGatewayId.split(':')[-1]]
+
+            # Flag to decide whether to enable route advertisement or not
+            enableRouteAdvertisment = True
+
+            # Fetching source org vdc routing configuration
+            routingConfig = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId, sourceEdgeGateway['name'],
+                                                             validation=False)
+
+            # If BGP was not enabled on source edge gateway, target edge gateway will not have routing config
+            if (routingConfig.get('bgp') or {}).get('enabled') == "true":
+                bgpRedistribution = routingConfig['bgp'].get('redistribution') or {}
+                # Route advertisement will be enabled only if it was enabled in source
+                if bgpRedistribution.get("enabled") != 'true':
+                    enableRouteAdvertisment = False
+                # Iterating over all the source route distribution rules to check,
+                # if there is permitted rule with from type "Connected" rule with prefix type "Any"
+                for bgpRedistributionRule in listify(
+                        (bgpRedistribution.get('rules') or {}).get('rule', [])):
+                    if not bgpRedistributionRule.get('prefixName') and \
+                            bgpRedistributionRule['from']['connected'] == 'true' and \
+                            bgpRedistributionRule['action'] == 'permit':
+                        # If permitted rule with from type "Connected" rule with prefix type "Any" is present,
+                        # advertise all routed network subnets connected to this edge gateway
+                        subnetsToAdvertise += allRoutedNetworkSubnets
+                        break
+                # Fetching all the permitted prefixes from target edge gateway config
+                for ipPrefix in self.getTargetEdgeGatewayIpPrefixData(targetEdgeGatewayId):
+                    if ipPrefix['name'] == vcdConstants.TARGET_BGP_IP_PREFIX_NAME:
+                        subnetsToAdvertise += [subnet['network'] for subnet in ipPrefix['prefixes']
+                                               if subnet['action'] == 'PERMIT']
+                        break
+            elif advertiseRoutedNetworks:
+                # If advertiseRoutedNetworks param is True,
+                # advertise all routed networks subnets connected to this edge gateway
+                subnetsToAdvertise += allRoutedNetworkSubnets
+            elif not subnetsToAdvertise:
+                logger.debug(f"Skipping Route Advertisement for target edge gateway '{sourceEdgeGateway['name']}' "
+                             f"as there is no subnet present for Route Advertisement")
+
+            # Creating route advertisement payload
+            routeAdvertisementPayload = json.dumps({
+                "enable": enableRouteAdvertisment,
+                "subnets": list(set(subnetsToAdvertise))
+            })
+
+            # URL to configure Route Advertisement in target edge gateway
+            routeAdvertisementUrl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                          vcdConstants.ALL_EDGE_GATEWAYS,
+                                          vcdConstants.CONFIG_ROUTE_ADVERTISEMENT.format(targetEdgeGatewayId))
+            self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+            # put api call to configure route advertisement in target
+            response = self.restClientObj.put(routeAdvertisementUrl, headers=self.headers,
+                                              data=routeAdvertisementPayload)
+            if response.status_code == requests.codes.accepted:
+                # successful configuration of route advertisement in target
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug(f'Successfully configured route advertisement '
+                             f'on target edge gateway {sourceEdgeGateway["name"]}')
+            else:
+                raise Exception(
+                    'Failed to configure route advertisement '
+                    'on target edge gateway {}'.format(response.json()['message']))
 
     @description("configuration of DNS")
     @remediate

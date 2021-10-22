@@ -152,7 +152,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                'nsxtManagerId': externalDict['networkBackings']['values'][0]['networkProvider']['id']
                                }
 
-                if (isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or not bgpConfigDict or bgpConfigDict['enabled'] != "true":
+                # Use dedicated external network if BGP is configured
+                # or AdvertiseRoutedNetworks parameter is set to True
+                if ((isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or
+                        not bgpConfigDict or
+                        bgpConfigDict['enabled'] != "true") and \
+                        not vdcDict.get('AdvertiseRoutedNetworks'):
                     payloadDict['dedicated'] = False
                 else:
                     payloadDict['dedicated'] = True
@@ -3161,7 +3166,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     else:
                         errorDict = apiResponse.json()
                         raise Exception(
-                            "Failed to reset the target external network '{}' to its initial state: {}".format(
+                            "Failed to update source external network '{}': {}".format(
                                 networkName,
                                 errorDict['message']))
         except Exception:
