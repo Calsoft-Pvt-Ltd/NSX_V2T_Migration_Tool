@@ -971,7 +971,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         except Exception:
             raise
 
-    @description("configuration of DHCP Static Binding service on target edge gateway")
     @remediate
     def configureDHCPBindingService(self):
         """
@@ -1049,7 +1048,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 # Enables the DHCP bindings on OrgVDC network.
                 DHCPBindingUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                   vcdConstants.DHCP_BINDINGS.format(networkId))
-
                 payloadData = {
                     "id": binding['bindingId'],
                     "name": binding['hostname'],
@@ -1072,8 +1070,22 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     dnsServers.append(binding.get('secondaryNameServer'))
                     payloadData['dnsServers'] = dnsServers
 
-                payloadData = json.dumps(payloadData)
+                # Skip same Binding to configure again on edge gateway on remediation.
+                isMigrated = False
+                # Call for GET API to get DHCP Binding service.
+                response = self.restClientObj.get(DHCPBindingUrl, headers=self.headers)
+                if response.status_code == requests.codes.ok:
+                    responsedict = response.json()
+                    for value in responsedict['values']:
+                        if value['macAddress'] == payloadData['macAddress']:
+                            isMigrated = True
+                            break
+                if isMigrated:
+                    logger.debug("Migration of binding ID {} , completed on last run.".format(binding['bindingId']))
+                    continue
+
                 # Call for POST API to configure DHCP Binding service
+                payloadData = json.dumps(payloadData)
                 apiResponse = self.restClientObj.post(DHCPBindingUrl, headers=self.headers, data=payloadData)
                 if apiResponse.status_code == requests.codes.accepted:
                     task_url = apiResponse.headers['Location']
@@ -1086,7 +1098,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     raise Exception("Failed to configure DHCP Bindings on OrgVDC Network {}, error : {}.".
                                     format(networkName, errorResponse))
 
-    @description("configuration of DHCP relay service on target edge gateway")
     @remediate
     def configureDHCPRelayService(self):
         """

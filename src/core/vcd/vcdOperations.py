@@ -1794,11 +1794,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         self._updateDhcpInOrgVdcNetworks(url, payload)
             else:
                 logger.debug('Isolated OrgVDC networks not present on source OrgVDC')
-
-            # Configure DHCP relay and Binding on target edge gateway.
-            if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
-                self.configureDHCPRelayService()
-                self.configureDHCPBindingService()
         except:
             raise
 
@@ -2128,6 +2123,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             # configuring dhcp service target Org VDC networks
             self.configureDHCP(targetOrgVDCId, edgeGatewayDeploymentEdgeCluster, nsxtObj)
+
+            # Configure DHCP relay and Binding on target edge gateway.
+            if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
+                self.configureDHCPRelayService()
+                self.configureDHCPBindingService()
 
             if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
                 # increase in scope of Target edgegateways
