@@ -25,7 +25,8 @@ import src.core.vcd.vcdConstants as vcdConstants
 
 from src.commonUtils.utils import Utilities, listify
 from src.core.vcd.vcdValidations import (
-    VCDMigrationValidation, isSessionExpired, remediate, description, DfwRulesAbsentError, getSession)
+    VCDMigrationValidation, isSessionExpired, remediate, description, DfwRulesAbsentError, getSession,
+    ConfigurationError)
 
 logger = logging.getLogger('mainLogger')
 chunksOfList = Utilities.chunksOfList
@@ -1694,6 +1695,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     if ipsetresponse.status_code == requests.codes.ok:
                         # successful retrieval of ipset group info
                         ipsetresponseDict = xmltodict.parse(ipsetresponse.content)
+
+                        if not ipsetresponseDict['ipset'].get('value'):
+                            logger.debug(
+                                f"Ignoring IPset '{ipsetgroup['name']}' that does not have IP addresses present in it.")
+
                         # storing the ip-address and range present in the IPSET
                         ipsetipaddress = ipsetresponseDict['ipset']['value']
 
@@ -3319,11 +3325,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         self._checkTaskStatus(taskUrl=response.headers['Location'])
         logger.debug(f"All DFW rules deleted from {dcGroupId}")
 
-    def configureDfwDefaultRule(self, vcdObjList, sourceOrgVDCId):
+    def configureDfwDefaultRule(self, sourceOrgVDCId):
         """
         Description :   Configure DFW default rule on DC groups associated with Org VDC.
-        Parameters  :   vcdObjList - List of objects of vcd operations class (LIST)
-                        sourceOrgVDCId - ID of source orgVDC(NSX ID format not URN) (STR)
+        Parameters  :   sourceOrgVDCId - ID of source orgVDC(NSX ID format not URN) (STR)
         """
         try:
             if not self.rollback.apiData.get('OrgVDCGroupID'):
@@ -3373,8 +3378,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 elif len(userDefinedRules) == 1:
                     if all(
                             userDefinedRules[0].get(param) == payloadDict.get(param)
-                            for param in
-                            ['enabled', 'action', 'direction', 'sources', 'destinations', 'applicationPortProfiles']):
+                            for param in [
+                                'enabled', 'action', 'direction', 'ipProtocol', 'sourceFirewallGroups',
+                                'destinationFirewallGroups', 'applicationPortProfiles', 'networkContextProfiles'
+                            ]):
                         logger.debug(f'Default rule already configured on {dcGroupId}')
                     else:
                         self.putDfwPolicyRules(dfwURL, payloadDict, 'Default', dcGroupId, defaultRule=True)
