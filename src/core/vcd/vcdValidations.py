@@ -2422,7 +2422,7 @@ class VCDMigrationValidation:
                 self.thread.spawnThread(self.getEdgegatewayBGPconfig, gatewayId, validation=True, nsxtObj=nsxtObj, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the routing config details of specified edge gateway
-                self.thread.spawnThread(self.getEdgeGatewayRoutingConfig, gatewayName, gatewayId, precheck=preCheckMode)
+                self.thread.spawnThread(self.getEdgeGatewayRoutingConfig, gatewayId, gatewayName, precheck=preCheckMode)
                 time.sleep(2)
                 # getting the load balancer config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewayLoadBalancerConfig, gatewayId, ServiceEngineGroupName, nsxvObj=nsxvObj, v2tAssessmentMode=v2tAssessmentMode)
