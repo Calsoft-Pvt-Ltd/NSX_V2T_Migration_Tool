@@ -142,7 +142,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             vcdValidationMapping = {
                 'Validating NSX-T manager Ip Address and version': [vcdValidationObj.getNsxDetails, self.inputDict["NSXT"]["Common"]["ipAddress"]],
                 'Validating if target OrgVDC do not exists': [vcdValidationObj.validateNoTargetOrgVDCExists, orgVDCDict["OrgVDCName"]],
-                'Validating whether other Edge gateways are using dedicated external network': [vcdValidationObj.validateDedicatedExternalNetwork, self.inputDict, edgeGatewayIdList],
+                'Validating whether other Edge gateways are using dedicated external network': [vcdValidationObj.validateDedicatedExternalNetwork, self.inputDict, edgeGatewayIdList, orgVDCDict.get("AdvertiseRoutedNetworks")],
                 'Validating Source Network Pool backing': [vcdValidationObj.validateSourceNetworkPools, self.inputDict["VCloudDirector"].get("CloneOverlayIds")],
                 'Validating whether source Org VDC is NSX-V backed': [vcdValidationObj.validateOrgVDCNSXbacking, sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked],
                 'Validating Target Provider VDC is enabled': [vcdValidationObj.validateTargetProviderVdc],
