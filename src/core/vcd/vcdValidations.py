@@ -2650,6 +2650,8 @@ class VCDMigrationValidation:
         for binding in staticBindingsData:
             ipAddress = binding.get('ipAddress')
             defaultGateway = binding.get('defaultGateway')
+            if not defaultGateway:
+                raise Exception(" default gateway is not configured/missing in DHCP binding configuration.")
             # get OrgVDC Network details.
             for network in orgvdcNetworks:
                 ipRanges = network['subnets']['values'][0]['ipRanges']['values']
