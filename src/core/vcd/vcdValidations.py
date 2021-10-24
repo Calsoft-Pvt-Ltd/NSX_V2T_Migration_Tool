@@ -154,6 +154,16 @@ class DfwRulesAbsentError(Exception):
     pass
 
 
+class ConfigurationError(Exception):
+    """
+    Raise this error when
+    - error/exception is out of scope for migration tool to handle/fix or to raise validation error
+    - AND migration cannot proceed with this error/exception
+    - AND configuration is not correct as per operational perspective which user has to fix manually
+    """
+    pass
+
+
 class VCDMigrationValidation:
     """
     Description : Class performing VMware Cloud Director NSX-V To NSX-T Migration validation
@@ -2412,7 +2422,7 @@ class VCDMigrationValidation:
                 self.thread.spawnThread(self.getEdgegatewayBGPconfig, gatewayId, validation=True, nsxtObj=nsxtObj, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the routing config details of specified edge gateway
-                self.thread.spawnThread(self.getEdgeGatewayRoutingConfig, gatewayId, precheck=preCheckMode)
+                self.thread.spawnThread(self.getEdgeGatewayRoutingConfig, gatewayId, gatewayName, precheck=preCheckMode)
                 time.sleep(2)
                 # getting the load balancer config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewayLoadBalancerConfig, gatewayId, ServiceEngineGroupName, nsxvObj=nsxvObj, v2tAssessmentMode=v2tAssessmentMode)
@@ -3053,7 +3063,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getEdgeGatewayRoutingConfig(self, edgeGatewayId, validation=True, precheck=False):
+    def getEdgeGatewayRoutingConfig(self, edgeGatewayId, edgeGatewayName, validation=True, precheck=False):
         """
         Description :   Gets the Routing Configuration details on the Edge Gateway
         Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
@@ -3069,42 +3079,28 @@ class VCDMigrationValidation:
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
                 responseDict = xmltodict.parse(response.content)
+
                 if not validation:
                     return responseDict['routing']
+
                 # checking if static routes present in edgeGateways.
                 # If Pre-Check then raise error, or else raise warning.
                 try:
-                    edgeGatewayName = ''
-                    data = self.rollback.apiData[vcdConstants.SOURCE_EDGE_GW]
-                    for item in data:
-                        if item['id'].split(':')[-1] == edgeGatewayId:
-                            edgeGatewayName = item['name']
-                    if responseDict['routing']['staticRouting']['staticRoutes'] and not precheck:
-                        if type(responseDict['routing']['staticRouting']['staticRoutes']['route']) is list:
-                            for staticRoute in responseDict['routing']['staticRouting']['staticRoutes']['route']:
-                                nextHopIp = staticRoute['nextHop']
-                                if not self.isStaticRouteAutoCreated(edgeGatewayId, nextHopIp):
-                                    logger.warning("Source OrgVDC EdgeGateway {} has static routes configured. Please "
-                                                   "configure equivalent rules directly on external network Tier-0/VRF.\n".format(edgeGatewayName))
-                                    break
-                        elif type(responseDict['routing']['staticRouting']['staticRoutes']['route']) is dict or type(responseDict['routing']['staticRouting']['staticRoutes']['route']) is OrderedDict:
-                            nextHopeIp = responseDict['routing']['staticRouting']['staticRoutes']['route']['nextHop']
-                            if not self.isStaticRouteAutoCreated(edgeGatewayId, nextHopeIp):
-                                logger.warning(("Source OrgVDC EdgeGateway {} has static routes configured. Please "
-                                                "configure equivalent rules directly on external network Tier-0/VRF.\n".format(edgeGatewayName)))
-                    elif responseDict['routing']['staticRouting']['staticRoutes'] and precheck:
-                        if type(responseDict['routing']['staticRouting']['staticRoutes']['route']) is list:
-                            for staticRoute in responseDict['routing']['staticRouting']['staticRoutes']['route']:
-                                nextHopIp = staticRoute['nextHop']
-                                if not self.isStaticRouteAutoCreated(edgeGatewayId, nextHopIp):
-                                    errorList.append("WARNING : Source OrgVDC EdgeGateway {} has static routes configured. Please "
-                                                     "configure equivalent rules directly on external network Tier-0/VRF.\n".format(edgeGatewayName))
-                                    break
-                        elif type(responseDict['routing']['staticRouting']['staticRoutes']['route']) is dict or type(responseDict['routing']['staticRouting']['staticRoutes']['route']) is OrderedDict:
-                            nextHopeIp = responseDict['routing']['staticRouting']['staticRoutes']['route']['nextHop']
-                            if not self.isStaticRouteAutoCreated(edgeGatewayId, nextHopeIp):
-                                errorList.append(("WARNING : Source OrgVDC EdgeGateway {} has static routes configured."
-                                                  " Please configure equivalent rules directly on external network Tier-0/VRF.\n".format(edgeGatewayName)))
+                    if responseDict['routing']['staticRouting']['staticRoutes']:
+                        for staticRoute in listify(
+                                responseDict['routing']['staticRouting']['staticRoutes']['route']):
+                            nextHopIp = staticRoute['nextHop']
+                            if not self.isStaticRouteAutoCreated(edgeGatewayId, nextHopIp):
+                                if not precheck:
+                                    logger.warning(f"Source OrgVDC EdgeGateway {edgeGatewayName} has static routes "
+                                                   f"configured. Please configure equivalent rules directly on "
+                                                   f"external network Tier-0/VRF.\n")
+                                else:
+                                    errorList.append(
+                                        f"WARNING : Source OrgVDC EdgeGateway {edgeGatewayName} has static routes "
+                                        f"configured. Please configure equivalent rules directly on external "
+                                        f"network Tier-0/VRF.\n")
+                                break
                 except KeyError:
                     logger.debug('Static routes not present in edgeGateway configuration.\n')
                 # checking if routing is enabled, if so raising exception
@@ -3240,11 +3236,11 @@ class VCDMigrationValidation:
                                 else:
                                     tier0GracefulRestartMode = 'true'
                                 if responseDict['bgp']['localASNumber'] != tier0localASnum:
-                                    errorList.append('Source Edge gateway & Target Tier-0 Gateway - {} localAS number should be always same.'.format(tier0RouterName))
+                                    errorList.append('Source Edge gateway & Target Tier-0 Gateway - {} localAS number should be always same.\n'.format(tier0RouterName))
                                 if responseDict['bgp']['gracefulRestart'] != tier0GracefulRestartMode:
-                                    errorList.append('Source Edge gateway & Target Tier-0 Gateway - {} graceful restart mode should always be same and disabled.'.format(tier0RouterName))
+                                    errorList.append('Source Edge gateway & Target Tier-0 Gateway - {} graceful restart mode should always be same and disabled.\n'.format(tier0RouterName))
                                 if tier0GracefulRestartMode == 'true':
-                                    errorList.append('Target Tier-0 Gateway - {} graceful restart mode should always be disabled.'.format(tier0RouterName))
+                                    errorList.append('Target Tier-0 Gateway - {} graceful restart mode should always be disabled.\n'.format(tier0RouterName))
                             logger.debug("BGP configuration of Source Edge Gateway retrieved successfully")
                             # returning bdp config details dict
                             return errorList, True
@@ -3341,10 +3337,6 @@ class VCDMigrationValidation:
         Parameters  :   sourceOrgVdcId  -   id of the source org vdc (STRING)
         """
         try:
-            # Check if source org vdc was disabled
-            if not self.rollback.metadata.get("preMigrationValidation", {}).get("orgVDCValidations"):
-                return
-
             # reading data from metadata
             data = self.rollback.apiData
             # enabling the source org vdc only if it was previously enabled, else not
@@ -3808,7 +3800,7 @@ class VCDMigrationValidation:
             # checking if the source network pool is VXLAN backed if cloneOverlayIds parameter is set to true
             if cloneOverlayIds and networkPoolType != vcdConstants.VXLAN_NETWORK_POOL_TYPE:
                 raise Exception("'cloneOverlayIds' parameter is set to 'True' but "
-                                "source network pool is not VXLAN backed")
+                                "source Org VDC network pool is not VXLAN backed")
             # checking if the source network pool is PortGroup backed
             if networkPoolDict['vmext:VMWNetworkPool']['@xsi:type'] == vcdConstants.PORTGROUP_NETWORK_POOL_TYPE:
                 # Fetching the moref and type of all the port groups backing the network pool
@@ -3992,7 +3984,7 @@ class VCDMigrationValidation:
 
             # If source NSXV VNI pool id's are not subset of
             if not sourceVNIPoolIds.issubset(targetVNIPoolIds):
-                raise Exception("All the source NSX-V VNI pool ID's are not present in target NSX-T VNI pools")
+                raise Exception("All the source NSX-V Segment IDs are not present in target NSX-T VNI pools")
             else:
                 logger.debug('Validated successfully that the source NSX-V VNI pool is subset of target NSX-T VNI pools')
         except:
@@ -4153,7 +4145,8 @@ class VCDMigrationValidation:
 
             # validating whether edge gateway have dedicated external network
             logger.info('Validating whether other Edge gateways are using dedicated external network')
-            self.validateDedicatedExternalNetwork(inputDict, sourceEdgeGatewayIdList)
+            self.validateDedicatedExternalNetwork(inputDict, sourceEdgeGatewayIdList,
+                                                  vdcDict.get("AdvertiseRoutedNetworks"))
 
             # getting the source Org VDC networks
             logger.info('Getting the Org VDC networks of source Org VDC {}'.format(vdcDict["OrgVDCName"]))
@@ -4178,8 +4171,9 @@ class VCDMigrationValidation:
                                              providerVDCImportedNeworkTransportZone, nsxtObj)
 
             # validating NSX-V and NSX-T VNI pool ranges
-            logger.info('Validating whether the source NSX-V VNI pool is subset of target NSX-T VNI pools or not')
-            self.validateVniPoolRanges(nsxtObj, nsxvObj, cloneOverlayIds=inputDict['VCloudDirector'].get('CloneOverlayIds'))
+            logger.info('Validating whether the source NSX-V Segment ID Pool is subset of target NSX-T VNI pool or not')
+            self.validateVniPoolRanges(nsxtObj, nsxvObj,
+                                       cloneOverlayIds=inputDict['VCloudDirector'].get('CloneOverlayIds'))
 
             # validating target external network pools
             nsxtNetworkPoolName = vdcDict.get('NSXTNetworkPoolName', None)
@@ -4307,7 +4301,7 @@ class VCDMigrationValidation:
     @isSessionExpired
     def checkSameExternalNetworkUsedByOtherVDC(self,sourceOrgVDC, inputDict, externalNetworkName):
         """
-                Description :   Validate if the External network is dedicatedly used by any other Org VDC edge gateway mentioned in the user specs file.
+        Description :   Validate if the External network is dedicatedly used by any other Org VDC edge gateway mentioned in the user specs file.
         """
         try:
             orgVdcList = inputDict['VCloudDirector']['SourceOrgVDC']
@@ -4324,7 +4318,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def validateDedicatedExternalNetwork(self, inputDict, sourceEdgeGatewayIdList):
+    def validateDedicatedExternalNetwork(self, inputDict, sourceEdgeGatewayIdList, advertiseRoutedNetworks=False):
         """
         Description :   Validate if the External network is dedicatedly used by any other edge gateway
         """
@@ -4340,14 +4334,30 @@ class VCDMigrationValidation:
                 sourceEdgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
                 bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
                 externalNetworkName = data['targetExternalNetwork']['name']
+                orgVdcNameList = self.checkSameExternalNetworkUsedByOtherVDC(sourceOrgVDC, inputDict,
+                                                                             externalNetworkName)
                 if bgpConfigDict and isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == 'true':
-                    orgVdcNameList= self.checkSameExternalNetworkUsedByOtherVDC(sourceOrgVDC, inputDict, externalNetworkName)
-                    if len(orgVdcNameList) > 0:
-                        raise Exception("BGP is not supported if multiple Org VDCs {} are using the same target external network {}.".format(orgVdcNameList, externalNetworkName))
+                    if orgVdcNameList:
+                        raise Exception(f"BGP is not supported if multiple Org VDCs {orgVdcNameList} are using "
+                                        f"the same target external network {externalNetworkName}.")
                     if len(sourceEdgeGatewayIdList) > 1:
                         raise Exception('BGP is not supported in case of multiple edge gateways')
                     if data['targetExternalNetwork']['usedIpCount'] > 0:
-                        raise Exception('Dedicated target external network is required as BGP is configured on source edge gateway')
+                        raise Exception('Dedicated target external network is required as BGP is configured on '
+                                        'source edge gateway')
+
+                if advertiseRoutedNetworks:
+                    if orgVdcNameList:
+                        raise Exception(f"'AdvertiseRoutedNetworks' is set to 'True' but multiple Org VDCs "
+                                        f"{orgVdcNameList} are using the same "
+                                        f"target external network {externalNetworkName}.")
+                    if len(sourceEdgeGatewayIdList) > 1:
+                        raise Exception(f"'AdvertiseRoutedNetworks' is set to 'True' but route advertisement is not"
+                                        f"supported in case of multiple edge gateways")
+                    if data['targetExternalNetwork']['usedIpCount'] > 0:
+                        raise Exception(f"'AdvertiseRoutedNetworks' is set to 'True', so Dedicated target external "
+                                        f"network is required. But another edge gateway is already connected "
+                                        f"to {externalNetworkName}")
 
             # Only validate dedicated ext-net if source edge gateways are present
             if sourceEdgeGatewayIdList:

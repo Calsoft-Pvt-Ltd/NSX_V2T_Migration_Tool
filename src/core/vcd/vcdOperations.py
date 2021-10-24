@@ -152,7 +152,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                'nsxtManagerId': externalDict['networkBackings']['values'][0]['networkProvider']['id']
                                }
 
-                if (isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or not bgpConfigDict or bgpConfigDict['enabled'] != "true":
+                # Use dedicated external network if BGP is configured
+                # or AdvertiseRoutedNetworks parameter is set to True
+                if ((isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or
+                        not bgpConfigDict or
+                        bgpConfigDict['enabled'] != "true") and \
+                        not vdcDict.get('AdvertiseRoutedNetworks'):
                     payloadDict['dedicated'] = False
                 else:
                     payloadDict['dedicated'] = True
@@ -2136,7 +2141,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # # increase in scope of Target ORG VDC networks
                 self.increaseScopeforNetworks()
                 # Enable DFW in the orgVDC groups
-                self.enableDFWinOrgvdcGroup(vcdObjList, sourceOrgVDCId)
+                self.enableDFWinOrgvdcGroup()
 
                 # Variable to set that the thread has reached here
                 self.__done__ = True
@@ -3162,7 +3167,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     else:
                         errorDict = apiResponse.json()
                         raise Exception(
-                            "Failed to reset the target external network '{}' to its initial state: {}".format(
+                            "Failed to update source external network '{}': {}".format(
                                 networkName,
                                 errorDict['message']))
         except Exception:
@@ -4605,7 +4610,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description('Enable DFW in Orgvdc group')
     @remediate
-    def enableDFWinOrgvdcGroup(self, vcdObjList, sourceOrgVDCId, rollback=False):
+    def enableDFWinOrgvdcGroup(self, rollback=False):
         """
         Description :   Enable DFW in Orgvdc group
         Parameters  :   rollback- True to disable DFW in ORG VDC group
@@ -4652,7 +4657,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         errorDict = response.json()
                         raise Exception("Failed to enable DFW '{}' ".format(errorDict['message']))
                 if not rollback:
-                    self.configureDfwDefaultRule(vcdObjList, sourceOrgVDCId)
+                    self.configureDfwDefaultRule(sourceOrgVDCId)
 
         except Exception:
             raise

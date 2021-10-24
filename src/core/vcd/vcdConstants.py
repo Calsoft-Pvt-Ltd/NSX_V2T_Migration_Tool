@@ -187,6 +187,9 @@ CREATE_BGP_NEIGHBOR_CONFIG = "/{}/routing/bgp/neighbors"
 # create prefixLists uri
 CREATE_PREFIX_LISTS_BGP = '/{}/routing/bgp/prefixLists'
 
+# config route advertisement
+CONFIG_ROUTE_ADVERTISEMENT = '/{}/routing/advertisement'
+
 # create org vdc uri for specific organization
 CREATE_ORG_VDC = "org/{}/vdcsparams"
 
@@ -746,3 +749,6 @@ GET_VIRTUAL_CENTERS = "virtualCenters"
 
 # Fetch NSXV settings of vCenter
 FETCH_VC_NSXV_SETTINGS = "virtualCenters/{}/nsxVSettings"
+
+# IP Prefix list name
+TARGET_BGP_IP_PREFIX_NAME = "v-t migrated IP prefix list"
