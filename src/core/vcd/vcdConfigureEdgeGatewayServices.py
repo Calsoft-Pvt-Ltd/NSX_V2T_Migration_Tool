@@ -1164,6 +1164,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         except Exception:
             raise
 
+    @description("configuration of DHCP Static Binding service on target edge gateway")
     @remediate
     def configureDHCPBindingService(self):
         """
@@ -1273,6 +1274,12 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         if value['macAddress'] == payloadData['macAddress']:
                             isMigrated = True
                             break
+                else:
+                    # Failed to get DHCP Bindings.
+                    errorResponse = response.json()
+                    raise Exception("Failed to get DHCP Bindings on OrgVDC Network {}, error : {}.".
+                                    format(networkName, errorResponse))
+
                 if isMigrated:
                     logger.debug("Migration of binding ID {} , completed on last run.".format(binding['bindingId']))
                     continue
@@ -1291,6 +1298,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     raise Exception("Failed to configure DHCP Bindings on OrgVDC Network {}, error : {}.".
                                     format(networkName, errorResponse))
 
+    @description("configuration of DHCP relay service on target edge gateway")
     @remediate
     def configureDHCPRelayService(self):
         """
