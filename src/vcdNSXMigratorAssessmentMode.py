@@ -142,7 +142,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             vcdValidationMapping = {
                 'Validating NSX-T manager Ip Address and version': [vcdValidationObj.getNsxDetails, self.inputDict["NSXT"]["Common"]["ipAddress"]],
                 'Validating if target OrgVDC do not exists': [vcdValidationObj.validateNoTargetOrgVDCExists, orgVDCDict["OrgVDCName"]],
-                'Validating whether other Edge gateways are using dedicated external network': [vcdValidationObj.validateDedicatedExternalNetwork, self.inputDict, edgeGatewayIdList],
+                'Validating whether other Edge gateways are using dedicated external network': [vcdValidationObj.validateDedicatedExternalNetwork, self.inputDict, edgeGatewayIdList, orgVDCDict.get("AdvertiseRoutedNetworks")],
                 'Validating Source Network Pool backing': [vcdValidationObj.validateSourceNetworkPools, self.inputDict["VCloudDirector"].get("CloneOverlayIds")],
                 'Validating whether source Org VDC is NSX-V backed': [vcdValidationObj.validateOrgVDCNSXbacking, sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked],
                 'Validating Target Provider VDC is enabled': [vcdValidationObj.validateTargetProviderVdc],
@@ -157,7 +157,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating whether shared networks are supported or not': [vcdValidationObj.validateOrgVDCNetworkShared, sourceOrgVDCId],
                 'Validating Source OrgVDC Direct networks': [vcdValidationObj.validateOrgVDCNetworkDirect, orgVdcNetworkList, orgVDCDict["NSXTProviderVDCName"], self.NSXTProviderVDCImportedNeworkTransportZone, nsxtObj],
                 'Validating Edge cluster for target edge gateway deployment': [vcdValidationObj.validateEdgeGatewayDeploymentEdgeCluster, edgeGatewayDeploymentEdgeCluster, nsxtObj],
-                'Validating whether the source NSX-V VNI pool is subset of target NSX-T VNI pools or not': [vcdValidationObj.validateVniPoolRanges, nsxtObj, self.nsxvObj, self.inputDict["VCloudDirector"].get("CloneOverlayIds")],
+                'Validating whether the source NSX-V Segment ID Pool is subset of target NSX-T VNI pool or not': [vcdValidationObj.validateVniPoolRanges, nsxtObj, self.nsxvObj, self.inputDict["VCloudDirector"].get("CloneOverlayIds")],
                 'Validating Target NSX-T backed Network Pools': [vcdValidationObj.validateTargetPvdcNetworkPools, orgVDCDict.get('NSXTNetworkPoolName', None)],
                 'Validating Cross VDC Networking is enabled or not': [vcdValidationObj.validateCrossVdcNetworking, sourceOrgVDCId],
             }
