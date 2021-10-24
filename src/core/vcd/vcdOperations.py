@@ -22,7 +22,7 @@ import xmltodict
 from itertools import zip_longest
 from functools import reduce
 import src.core.vcd.vcdConstants as vcdConstants
-
+from src.commonUtils.utils import Utilities, listify
 from src.core.vcd.vcdValidations import (
     isSessionExpired, description, remediate, remediate_threaded, getSession)
 from src.core.vcd.vcdConfigureEdgeGatewayServices import ConfigureEdgeGatewayServices
@@ -1695,9 +1695,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     logger.debug('DHCP service is not enabled or configured in Source Edge Gateway')
                 else:
                     # retrieving the dhcp rules of the source edge gateway
-                    dhcpRules = sourceEdgeGatewayDHCP['ipPools'].get('ipPools') if isinstance(
-                        sourceEdgeGatewayDHCP['ipPools'].get('ipPools'), list) else [
-                        sourceEdgeGatewayDHCP['ipPools'].get('ipPools')]
+                    dhcpRules = listify(sourceEdgeGatewayDHCP['ipPools'].get('ipPools'))
                     dhcpRules = [rules for rules in dhcpRules if rules]
                     payloaddict = {}
                     # iterating over the source edge gateway dhcp rules
