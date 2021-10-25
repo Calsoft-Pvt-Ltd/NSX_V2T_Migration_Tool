@@ -1182,7 +1182,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             DHCPData = self.rollback.apiData['sourceEdgeGatewayDHCP'][sourceEdgeGateway['id']]
             # configure DHCP Binding on target only if source edge gateway has DHCP Binding configured.
-            if not DHCPData['staticBindings']:
+            if not DHCPData.get('staticBindings'):
                 logger.debug(
                     "DHCP static bindings service not configured on source edge gateway : {}.".format(sourceEdgeGateway))
                 continue
@@ -1195,14 +1195,16 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             staticBindings = listify(DHCPData['staticBindings']['staticBindings'])
             # get the OrgVDC network details which is used in bindings.
             for binding in staticBindings:
-                defaultGateway = binding['defaultGateway']
+                bindingIp = binding['ipAddress']
                 networkId = None
                 networkName = None
 
                 # get taregt OrgVDC Network details.
                 for network in orgvdcNetworks:
-                    networkGateway = network['subnets']['values'][0]['gateway']
-                    if networkGateway == defaultGateway:
+                    networkSubnet = "{}/{}".format(network['subnets']['values'][0]['gateway'],
+                                                   network['subnets']['values'][0]['prefixLength'])
+                    ipNetwork = ipaddress.ip_network(networkSubnet, strict=False)
+                    if ipaddress.ip_address(bindingIp) in ipNetwork:
                         networkId = network['id']
                         networkName = network['name']
                         break
@@ -1218,7 +1220,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 if response.status_code == requests.codes.ok:
                     responsedict = response.json()
                     # checking if configured is dhcp, if not then configure.
-                    if not responsedict['enabled']:
+                    if not responsedict.get('enabled'):
                         # Creating Payload
                         payloadData = {
                             "enabled": True,
@@ -1247,10 +1249,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     "name": binding['hostname'],
                     "macAddress": binding['macAddress'],
                     "ipAddress": binding['ipAddress'],
-                    "leaseTime": binding['leaseTime'],
+                    "leaseTime": binding['leaseTime'] if binding['leaseTime'] != 'infinite' else '4294967295',
                     "bindingType": "IPV4",
                     "dhcpV4BindingConfig": {
-                        "gatewayIpAddress": binding['defaultGateway'],
                         "hostName": binding['hostname']
                     },
                     "dhcpV6BindingConfig": None,
@@ -1259,10 +1260,14 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     }
                 }
                 dnsServers = []
-                if not binding['autoConfigureDNS']:
-                    dnsServers.append(binding.get('primaryNameServer'))
-                    dnsServers.append(binding.get('secondaryNameServer'))
+                if not binding.get('autoConfigureDNS'):
+                    if binding.get('primaryNameServer'):
+                        dnsServers.append(binding['primaryNameServer'])
+                    if binding.get('secondaryNameServer'):
+                        dnsServers.append(binding['secondaryNameServer'])
                     payloadData['dnsServers'] = dnsServers
+                if binding.get('defaultGateway'):
+                    payloadData['dhcpV4BindingConfig']['gatewayIpAddress'] = binding['defaultGateway']
 
                 # Skip same Binding to configure again on edge gateway on remediation.
                 isMigrated = False

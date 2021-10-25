@@ -2648,22 +2648,21 @@ class VCDMigrationValidation:
         # get the OrgVDC network details which is used in bindings.
         networkInfo = dict()
         for binding in staticBindingsData:
-            ipAddress = binding.get('ipAddress')
-            defaultGateway = binding.get('defaultGateway')
-            if not defaultGateway:
-                raise Exception(" default gateway is not configured/missing in DHCP binding configuration.")
+            bindingIp = binding.get('ipAddress')
             # get OrgVDC Network details.
             for network in orgvdcNetworks:
                 ipRanges = network['subnets']['values'][0]['ipRanges']['values']
-                networkGateway = network['subnets']['values'][0]['gateway']
+                networkSubnet = "{}/{}".format(network['subnets']['values'][0]['gateway'],
+                                               network['subnets']['values'][0]['prefixLength'])
+                ipNetwork = ipaddress.ip_network(networkSubnet, strict=False)
                 networkName = network['name']
-                if networkGateway == defaultGateway:
+                if ipaddress.ip_address(bindingIp) in ipNetwork:
                     for ipRange in ipRanges:
                         ipRangeAddresses = [str(ipaddress.IPv4Address(ip)) for ip in
                                             range(int(ipaddress.IPv4Address(ipRange['startAddress'])),
                                                   int(ipaddress.IPv4Address(ipRange['endAddress']) + 1))]
-                        if ipAddress in ipRangeAddresses:
-                            networkInfo[networkName] = ipAddress
+                        if bindingIp in ipRangeAddresses:
+                            networkInfo[networkName] = bindingIp
 
         return networkInfo
 
