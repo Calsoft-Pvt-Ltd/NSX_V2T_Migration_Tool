@@ -1696,7 +1696,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 else:
                     # retrieving the dhcp rules of the source edge gateway
                     dhcpRules = listify(sourceEdgeGatewayDHCP['ipPools'].get('ipPools'))
-                    dhcpRules = [rules for rules in dhcpRules if rules]
                     payloaddict = {}
                     # iterating over the source edge gateway dhcp rules
                     for iprange in dhcpRules:
