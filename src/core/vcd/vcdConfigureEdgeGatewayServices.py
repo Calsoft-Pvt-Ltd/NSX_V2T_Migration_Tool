@@ -1283,7 +1283,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 else:
                     # Failed to get DHCP Bindings.
                     raise Exception("Failed to get DHCP Bindings on OrgVDC Network {}, error : {}.".
-                                    format(networkName, responsedict))
+                                    format(networkName, responsedict['message']))
 
                 if isMigrated:
                     logger.debug("Migration of binding ID {} , completed on last run.".format(binding['bindingId']))
@@ -1301,7 +1301,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     # Failed to configure DHCP Bindings.
                     errorResponse = apiResponse.json()
                     raise Exception("Failed to configure DHCP Bindings on OrgVDC Network {}, error : {}.".
-                                    format(networkName, errorResponse))
+                                    format(networkName, errorResponse['message']))
 
     @description("configuration of DHCP relay service on target edge gateway")
     @remediate
@@ -1358,7 +1358,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 # Failed to configure DHCP forwarder.
                 errorResponse = apiResponse.json()
                 raise Exception(
-                    "Failed to configure DHCP forwarder on edge gateway {}, error : {}.".format(targetEdgeGatewayID, errorResponse))
+                    "Failed to configure DHCP forwarder on edge gateway {}, error : {}.".format(targetEdgeGatewayID, errorResponse['message']))
 
             # get info of networks and configure DHCP in relay mode, if the network is used as relay agent.
             for network in orgvdcNetworks:
@@ -1388,7 +1388,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     # Failed to Enable DHCP with in relay mode on Org VDC network..
                     errorResponse = apiResponse.json()
                     raise Exception(
-                        "Failed to enable DHCP in relay mode on OrgVDC network {}, error : {}.".format(network['name'], errorResponse))
+                        "Failed to enable DHCP in relay mode on OrgVDC network {}, error : {}.".format(network['name'], errorResponse['message']))
 
     @remediate
     def connectionPropertiesConfig(self, edgeGatewayID, ipsecConfig):
