@@ -1274,17 +1274,16 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 isMigrated = False
                 # Call for GET API to get DHCP Binding service.
                 response = self.restClientObj.get(DHCPBindingUrl, headers=self.headers)
+                responsedict = response.json()
                 if response.status_code == requests.codes.ok:
-                    responsedict = response.json()
                     for value in responsedict['values']:
                         if value['macAddress'] == payloadData['macAddress']:
                             isMigrated = True
                             break
                 else:
                     # Failed to get DHCP Bindings.
-                    errorResponse = response.json()
                     raise Exception("Failed to get DHCP Bindings on OrgVDC Network {}, error : {}.".
-                                    format(networkName, errorResponse))
+                                    format(networkName, responsedict))
 
                 if isMigrated:
                     logger.debug("Migration of binding ID {} , completed on last run.".format(binding['bindingId']))

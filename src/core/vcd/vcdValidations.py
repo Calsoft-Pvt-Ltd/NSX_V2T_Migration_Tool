@@ -2727,7 +2727,7 @@ class VCDMigrationValidation:
                     if networkInfo:
                         if v2tAssessmentMode or float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
                             errorList.append(
-                                "DHCP Binding IP addresses overlaps with static IP Pool range on OrgVDC Network names, having details : {}.".format(
+                                "DHCP Binding IP address overlap with static IP Pool range on OrgVDC Network having details : {}.".format(
                                     networkInfo))
 
                 logger.debug("DHCP configuration of Source Edge Gateway retrieved successfully")
