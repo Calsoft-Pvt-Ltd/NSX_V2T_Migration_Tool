@@ -1068,9 +1068,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 # If advertiseRoutedNetworks param is True,
                 # advertise all routed networks subnets connected to this edge gateway
                 subnetsToAdvertise += allRoutedNetworkSubnets
-            elif not subnetsToAdvertise:
+            if not subnetsToAdvertise:
                 logger.debug(f"Skipping Route Advertisement for target edge gateway '{sourceEdgeGateway['name']}' "
                              f"as there is no subnet present for Route Advertisement")
+                continue
 
             # Creating route advertisement payload
             routeAdvertisementPayload = json.dumps({
