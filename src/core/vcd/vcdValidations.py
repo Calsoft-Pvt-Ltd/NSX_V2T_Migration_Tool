@@ -2646,7 +2646,7 @@ class VCDMigrationValidation:
         orgvdcNetworks = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
 
         # get the OrgVDC network details which is used in bindings.
-        networkInfo = dict()
+        networkInfo = list()
         for binding in staticBindingsData:
             bindingIp = binding.get('ipAddress')
             # get OrgVDC Network details.
@@ -2662,9 +2662,9 @@ class VCDMigrationValidation:
                                             range(int(ipaddress.IPv4Address(ipRange['startAddress'])),
                                                   int(ipaddress.IPv4Address(ipRange['endAddress']) + 1))]
                         if bindingIp in ipRangeAddresses:
-                            networkInfo[networkName] = bindingIp
+                            networkInfo.append(networkName)
 
-        return networkInfo
+        return list(set(networkInfo))
 
     @isSessionExpired
     def getEdgeGatewayDhcpConfig(self, edgeGatewayId, v2tAssessmentMode=False):
@@ -2727,8 +2727,8 @@ class VCDMigrationValidation:
                     if networkInfo:
                         if v2tAssessmentMode or float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
                             errorList.append(
-                                "DHCP Binding IP address overlap with static IP Pool range on OrgVDC Network having details : {}.".format(
-                                    networkInfo))
+                                "DHCP Binding IP address overlaps with static IP Pool range on OrgVDC Networks {} and is not supported on target.".format(
+                                    ', '.join(networkInfo)))
 
                 logger.debug("DHCP configuration of Source Edge Gateway retrieved successfully")
                 # returning the dhcp details

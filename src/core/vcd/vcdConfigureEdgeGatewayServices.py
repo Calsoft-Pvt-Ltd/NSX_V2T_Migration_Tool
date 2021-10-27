@@ -1233,7 +1233,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         if apiResponse.status_code == requests.codes.accepted:
                             task_url = apiResponse.headers['Location']
                             self._checkTaskStatus(taskUrl=task_url)
-                            logger.info(
+                            logger.debug(
                                 "DHCP Enabled successfully in EDGE mode on OrgVDC network: {}.".format(networkName))
                         else:
                             # Failed to Enable DHCP with in EDGE mode on Org VDC network..
@@ -1295,7 +1295,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 if apiResponse.status_code == requests.codes.accepted:
                     task_url = apiResponse.headers['Location']
                     self._checkTaskStatus(taskUrl=task_url)
-                    logger.info("DHCP Bindings successfully configured on OrgVDC Network {}.".
+                    logger.debug("DHCP Bindings successfully configured on OrgVDC Network {}.".
                                 format(networkName))
                 else:
                     # Failed to configure DHCP Bindings.
@@ -1352,7 +1352,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             if apiResponse.status_code == requests.codes.accepted:
                 task_url = apiResponse.headers['Location']
                 self._checkTaskStatus(taskUrl=task_url)
-                logger.info(
+                logger.debug(
                     "DHCP forwarder successfully configured on target edge gateway {}.".format(targetEdgeGatewayID))
             else:
                 # Failed to configure DHCP forwarder.
@@ -1382,7 +1382,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 if apiResponse.status_code == requests.codes.accepted:
                     task_url = apiResponse.headers['Location']
                     self._checkTaskStatus(taskUrl=task_url)
-                    logger.info(
+                    logger.debug(
                         "DHCP Enabled successfully in relay mode on OrgVDC network: {}.".format(network['name']))
                 else:
                     # Failed to Enable DHCP with in relay mode on Org VDC network..
