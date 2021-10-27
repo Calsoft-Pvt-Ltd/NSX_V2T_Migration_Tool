@@ -947,6 +947,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         ipAddress = networkConnection['IpAddress']
                     else:
                         ipAddress = ""
+                    # Check ip allocation mode for vm's
+                    if networkConnection['IpAddressAllocationMode'] == 'POOL' and \
+                            float(self.version) <= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
+                        networkConnection['IpAddressAllocationMode'] = 'MANUAL'
                     payloadDict = {'networkName': networkName, 'ipAddress': ipAddress,
                                    'connected': networkConnection['IsConnected'],
                                    'macAddress': networkConnection['MACAddress'],
