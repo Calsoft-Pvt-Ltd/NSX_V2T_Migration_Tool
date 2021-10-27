@@ -818,9 +818,10 @@ class VMwareCloudDirectorNSXMigrator():
                     futures.append(executor.submit(vcdObj.prepareTargetVDC, self.vcdObjList,
                                                    self.orgVDCData[orgVDCDict["OrgVDCName"]]["id"],
                                                    self.inputDict, orgVDCDict, nsxtObj, orgVDCDict["OrgVDCName"],
-                                                   orgVDCIDList,
+                                                   orgVDCIDList, self.vcenterObj,
                                                    configureBridging=mainConstants.BRIDGING_KEYWORD in self.executeList,
-                                                   configureServices=mainConstants.SERVICES_KEYWORD in self.executeList))
+                                                   configureServices=mainConstants.SERVICES_KEYWORD in self.executeList)
+                                   )
                 waitForThreadToComplete(futures)
 
             # Check if bridging is to be performed or not
