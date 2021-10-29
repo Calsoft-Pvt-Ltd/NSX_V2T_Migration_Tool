@@ -748,7 +748,7 @@ DHCP_BINDINGS = "orgVdcNetworks/{}/dhcp/bindings"
 GET_VIRTUAL_CENTERS = "virtualCenters"
 
 # Fetch NSXV settings of vCenter
-FETCH_VC_NSXV_SETTINGS = "virtualCenters/{}/nsxVSettings"
+FETCH_VC_NSXV_SETTINGS = "extension/vsm/{}"
 
 # IP Prefix list name
 TARGET_BGP_IP_PREFIX_NAME = "v-t migrated IP prefix list"

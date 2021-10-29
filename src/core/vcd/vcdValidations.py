@@ -254,7 +254,8 @@ class VCDMigrationValidation:
 
     @isSessionExpired
     def getPaginatedResults(
-            self, entity, baseUrl, headers=None, urlFilter=None, pageSize=vcdConstants.DEFAULT_QUERY_PAGE_SIZE):
+            self, entity, baseUrl, headers=None, urlFilter=None, pageSize=vcdConstants.DEFAULT_QUERY_PAGE_SIZE,
+            queryApi=False):
         """
         Description: Fetch all results from a paginated API
         Parameters  :   entity - Name of the entity to be fetched (STR)
@@ -273,13 +274,14 @@ class VCDMigrationValidation:
 
         # Get first page of results
         response = self.restClientObj.get(url, headers)
+
         responseDict = response.json()
 
         if not response.status_code == requests.codes.ok:
             raise Exception(f"Failed to get {entity}: {responseDict['message']}")
 
-        resultTotal = responseDict['resultTotal']
-        resultItems = responseDict['values']
+        resultTotal = responseDict['resultTotal'] if not queryApi else responseDict['total']
+        resultItems = responseDict['values'] if not queryApi else responseDict['record']
 
         # Return values if total results are less than page size i.e. only single page of results
         if resultTotal <= pageSize:
@@ -289,7 +291,7 @@ class VCDMigrationValidation:
 
         # Get second page onwards
         pageNo = 2
-        pageSizeCount = len(responseDict['values'])
+        pageSizeCount = len(responseDict['values']) if not queryApi else responseDict['record']
         while resultTotal > 0 and pageSizeCount < resultTotal:
             url = f"{baseUrl}?page={pageNo}&pageSize={pageSize}"
             if urlFilter:
@@ -301,11 +303,11 @@ class VCDMigrationValidation:
                 raise Exception(f"Failed to get {entity}, page {pageNo}: {responseDict['message']}")
 
             responseDict = response.json()
-            resultItems.extend(responseDict['values'])
-            pageSizeCount += len(responseDict['values'])
+            resultItems.extend(responseDict['values'] if not queryApi else responseDict['record'])
+            pageSizeCount += len(responseDict['values'] if not queryApi else responseDict['record'])
             logger.debug(f"{entity} details result pageSize = {pageSizeCount}")
             pageNo += 1
-            resultTotal = responseDict['resultTotal']
+            resultTotal = responseDict['resultTotal'] if not queryApi else responseDict['total']
 
         logger.debug(f"Total {entity} details result count = {resultItems}")
         logger.debug(f"'{entity} details successfully retrieved")
@@ -5538,18 +5540,22 @@ class VCDMigrationValidation:
             raise Exception("Network Pool {} doesn't exist in Target PVDC".format(networkPoolName))
 
     @isSessionExpired
-    def getVcenterNSXVSettings(self, vCenterId):
+    def getVcenterNSXVSettings(self, vShieldManagerId):
         """
-        Description : Method that returns NSXV settings of vCenter passed as parameter
-        Parameters  : vCenterId - ID of vCenter (STRING)
-        Returns     : NSXV Settings of vCenter (DICT)
+        Description : Method that returns NSXV settings of VSM passed as parameter
+        Parameters  : vShieldManagerId - ID of vShieldManager Linked to vCenter (STRING)
+        Returns     : NSXV Settings(DICT)
         """
-        logger.debug(f"Getting NSXV Settings of vCenter id {vCenterId}.")
+        logger.debug(f"Getting NSXV Settings of vShield Manager {vShieldManagerId}.")
         # url to get NSXV settings for vCenter
-        url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                            vcdConstants.FETCH_VC_NSXV_SETTINGS.format(vCenterId))
+        url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                            vcdConstants.FETCH_VC_NSXV_SETTINGS.format(vShieldManagerId))
+
+        headers = copy.deepcopy(self.headers)
+        headers['Accept'] = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+
         # get api call to retrieve NSXV settings
-        response = self.restClientObj.get(url, self.headers)
+        response = self.restClientObj.get(url, headers)
         responseDict = response.json()
         if not response.status_code == requests.codes.ok:
             raise Exception("Failed to get vCenter NSXV settings - {}".format(responseDict['message']))
@@ -5561,10 +5567,20 @@ class VCDMigrationValidation:
         Parameters  : orgVdcId - ID of org vdc for which the validation is to be performed
         """
         # Fetch all vCenters registered in vCD
-        baseUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                vcdConstants.GET_VIRTUAL_CENTERS)
+        baseUrl = f"https://{self.ipAddress}/api/query"
+
+        headers = copy.deepcopy(self.headers)
+        headers['Accept'] = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+
         vCentersRegisteredInVcd = self.getPaginatedResults('vCenters registered in VCD', baseUrl,
-                                                           urlFilter='sortAsc=name')
+                                                           urlFilter='type=virtualCenter&format=records&'
+                                                                     'sortAsc=name&links=true',
+                                                           headers=headers, queryApi=True)
+
+        for vCenter in vCentersRegisteredInVcd:
+            for link in vCenter['link']:
+                if link['type'] and "vshieldmanager" in link['type'].lower():
+                    vCenter['vshieldmanagerId'] = link['href'].split('/')[-1]
 
         # Fetch org vdc details
         orgVdcData = list(filter(lambda vdc: vdc["id"].split(":")[-1] == orgVdcId.split(":")[-1],
@@ -5577,17 +5593,19 @@ class VCDMigrationValidation:
         vCenterUsedByOrgVdc = orgVdcData[0]['vcName']
 
         # Filter vCenter used by org vdc to fetch vCenter data
-        vCenter = list(filter(lambda vc: vCenterUsedByOrgVdc.strip() == vc['name'],
+        vCenter = list(filter(lambda vc: vCenterUsedByOrgVdc.strip() == vc['name'].strip(),
                                vCentersRegisteredInVcd))[0]
 
         # Get NSXV settings for specific vCenter
-        nsxvSettings = self.getVcenterNSXVSettings(vCenter['vcId'])
+        nsxvSettings = self.getVcenterNSXVSettings(vCenter['vshieldmanagerId']) \
+            if vCenter.get('vshieldmanagerId') else {}
+
         # If Cross VDC networking is configured raise an exception
         if nsxvSettings.get('controlVmResourcePoolVcPath') \
                 or nsxvSettings.get('controlVmDatastoreName') \
                 or nsxvSettings.get('controlVmManagementInterfaceName'):
             raise Exception(f"Cross VDC Networking is enabled for vCenter - "
-                            f"'{vCenterUsedByOrgVdc}/{vCenter['url'].split('/')[-1]}' "
+                            f"'{vCenterUsedByOrgVdc}'"
                             f"but not supported by migration tool")
         logger.debug(f"Validated successfully Cross VDC Networking is not enabled for vCenter {vCenterUsedByOrgVdc}")
 
