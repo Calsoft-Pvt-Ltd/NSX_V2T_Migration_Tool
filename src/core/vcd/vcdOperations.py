@@ -21,10 +21,13 @@ import traceback
 import xmltodict
 from itertools import zip_longest
 from functools import reduce
+from collections import defaultdict
+from src.commonUtils.utils import Utilities
+import src.constants as mainConstants
 import src.core.vcd.vcdConstants as vcdConstants
 
 from src.core.vcd.vcdValidations import (
-    isSessionExpired, description, remediate, remediate_threaded, getSession)
+    isSessionExpired, description, remediate, remediate_threaded, METADATA_SAVE_FALSE, getSession)
 from src.core.vcd.vcdConfigureEdgeGatewayServices import ConfigureEdgeGatewayServices
 logger = logging.getLogger('mainLogger')
 
@@ -36,6 +39,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.targetStorageProfileMap = dict()
+        self.sourceDisksData = None
+        self.targetDisksData = None
         vcdConstants.VCD_API_HEADER = vcdConstants.VCD_API_HEADER.format(self.version)
         vcdConstants.GENERAL_JSON_CONTENT_TYPE = vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version)
         vcdConstants.OPEN_API_CONTENT_TYPE = vcdConstants.OPEN_API_CONTENT_TYPE.format(self.version)
@@ -2703,6 +2708,89 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         }
 
     @isSessionExpired
+    def detachVmDisk(self, disks, vmHref, vmName, timeout=None):
+        """
+        Description : Detach a disk from VM
+        Parameters  : disks -  List of disks attached to a VM (LIST)
+                      vmHref  -  VM href (STR)
+                      vmName  -  VM name (STR)
+                      timeout  -  Timeout to be used for detach VM process(INT)
+        """
+        # Get attached VMs using API and perform following operation
+        # 1. If VM is not attached, skip further processing
+        # 2. If VM is attached and VM href do not match with metadata, raise
+        for disk in disks:
+            attached_vms = self.getAttachedVms(disk)
+            if not attached_vms:
+                logger.debug(f'Disk {disk["name"]} is already detached')
+                return
+            if vmHref != attached_vms["href"]:
+                raise Exception('VM attached to disk is changed after starting migration')
+
+            # Start Detachment process
+            logger.info(f'Detaching disk {disk["name"]} from VM {vmName}')
+            url = f'{vmHref}/{vcdConstants.VM_DETACH_DISK}'
+            payload = json.dumps({
+                'disk': {'href': disk["href"]}
+            })
+            headers = {
+                'Authorization': self.headers['Authorization'],
+                'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version),
+                'Content-Type': vcdConstants.GENERAL_JSON_ONLY_CONTENT_TYPE,
+            }
+            response = self.restClientObj.post(url, headers, data=payload)
+            if response.status_code == requests.codes.accepted:
+                for link in response.json()['link']:
+                    if link['type'] == vcdConstants.JSON_TASK_TYPE:
+                        self._checkTaskStatus(link['href'], timeoutForTask=timeout)
+                logger.info(f'Successfully detached disk {disk["name"]} from VM {vmName}')
+
+            else:
+                raise Exception(f'Error occurred while detaching disk {disk["name"]} from VM {vmName}: '
+                                f'{response.json()["message"]}')
+
+    @isSessionExpired
+    def attachVmDisk(self, disks, vmHref, vmName, timeout=None):
+        """
+        Description : Attach a disk from VM
+        Parameters  : disks -  List of disks attached to a VM (LIST)
+                      vmHref  -  VM href (STR)
+                      vmName  -  VM name (STR)
+                      timeout  -  Timeout to be used for attach VM process(INT)
+        """
+        # Get attached VMs using API and perform following operation
+        # 1. If VM is attached, check if attached VM is same as requested
+        # 2. If Attached VM is different, raise
+        for disk in disks:
+            present_attached_vm = self.getAttachedVms(disk)
+            if present_attached_vm:
+                if vmHref == present_attached_vm["href"]:
+                    logger.debug(f'Disk {disk["name"]} is already attached to {vmName}')
+                    return
+                else:
+                    raise Exception('VM attached to disk is changed after starting migration')
+
+            logger.info(f'Attaching disk {disk["name"]} to VM {vmName}')
+            url = f'{vmHref}/{vcdConstants.VM_ATTACH_DISK}'
+            payload = json.dumps({
+                'disk': {'href': disk["href"]}
+            })
+            headers = {
+                'Authorization': self.headers['Authorization'],
+                'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version),
+                'Content-Type': vcdConstants.GENERAL_JSON_ONLY_CONTENT_TYPE,
+            }
+            response = self.restClientObj.post(url, headers, data=payload)
+            if response.status_code == requests.codes.accepted:
+                for link in response.json()['link']:
+                    if link['type'] == vcdConstants.JSON_TASK_TYPE:
+                        self._checkTaskStatus(link['href'], timeoutForTask=timeout)
+                logger.info(f'Successfully attached disk {disk["name"]} to VM {vmName}')
+            else:
+                raise Exception(f'Error occurred while attaching disk {disk["name"]} to VM {vmName}: '
+                                f'{response.json()["message"]}')
+
+    @isSessionExpired
     def moveDisk(self, disk, target_vdc_href, timeout=None):
         """
         Description : Move disk from its current VDC to target VDC
@@ -2724,7 +2812,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             'Content-Type': vcdConstants.GENERAL_JSON_ONLY_CONTENT_TYPE,
             'X-VMWARE-VCLOUD-TENANT-CONTEXT': self.rollback.apiData['Organization']['@id'],
         }
-
         response = self.restClientObj.post(url, headers, data=payload)
         same_vdc_error = 'The destination VDC must be different from the VDC the disk is already in.'
         if response.status_code == requests.codes.accepted:
@@ -2739,88 +2826,413 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         else:
             raise Exception(f'Move disk {disk["name"]} failed with error: {response.json()["message"]}')
 
-    def _moveNamedDisks(self, vcdObjList, sourceVdcForDisk, targetVdcForDisk, timeout=None):
+    @isSessionExpired
+    def getVmVdc(self, vm, pageSize=vcdConstants.DEFAULT_QUERY_PAGE_SIZE):
+        """
+        Description : Executes a query API and iterate over all pages to generate result
+        Parameters  : base_url - url with query filter and without paging info (STRING)
+                      entity - Type of entity queried (STRING)
+                      pageSize - no of query results to be included in single page (INT)
+        Returns     : List of all query results (LIST)
+        """
+        base_url = f"{vcdConstants.XML_API_URL.format(self.ipAddress)}query?type=vm&filter=(((href=={vm['href']})))"
+        logger.debug(f'Getting VM details')
+        # Get first page of query
+        url = f"{base_url}&page=1&pageSize={pageSize}&format=records"
+        headers = {
+            'Authorization': self.headers['Authorization'],
+            'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE,
+            'X-VMWARE-VCLOUD-TENANT-CONTEXT':
+                self.rollback.apiData['Organization']['@id'],
+        }
+        response = self.restClientObj.get(url, headers)
+        if not response.status_code == requests.codes.ok:
+            logger.error(f'Error occurred while retrieving VM details: {response.json()["message"]}')
+            raise Exception(f'Error occurred while retrieving VM details: {response.json()["message"]}')
+
+        resultFetched = response.json()['record']
+        if len(resultFetched) == 1:
+            return resultFetched[0].get('vdc').split('/')[-1]
+        else:
+            logger.debug('Cannot find VDC for VM')
+
+    def _getSourceDisksData(self, vcdObjList):
+        """Description : Get disk details from all source org VDCs"""
+        return self.sourceDisksData or [
+            (vcdObj, disk)
+            for vcdObj in vcdObjList
+            for disk in vcdObj.namedDisks.get(vcdObj.rollback.apiData['sourceOrgVDC']['@id'], [])
+        ]
+
+    def _getTargetDisksData(self, vcdObjList):
+        """Description : Get disk details from all target org VDCs"""
+        return self.targetDisksData or [
+            (vcdObj, disk)
+            for vcdObj in vcdObjList
+            for disk in vcdObj.namedDisks.get(vcdObj.rollback.apiData['targetOrgVDC']['@id'], [])
+        ]
+
+    @staticmethod
+    def _getVmToDisks(disksData, rollback=False):
+        """
+        Description :   Filter disks that are attached to VM as per VM
+        Parameters  :   disksData -  List of disks with vcdObj (LIST)
+                        rollback  - Timeout to be used for attach VM process(INT)
+        Returns     :   Mapping of VM to its attached disks
+        """
+        vmToDisks = defaultdict(list)
+        for vcdObj, disk in disksData:
+            vm = disk['metadata'].get('attached_vm')
+            if vm:
+                vmToDisks[(vcdObj, vm['href'], vm['name'])].append(disk)
+            else:
+                if rollback:
+                    logger.debug(f'Disk {disk["name"]} was not attached to any VM')
+                else:
+                    logger.debug(f'Disk {disk["name"]} is not attached to any VM')
+
+        return vmToDisks
+
+    @description("Detaching disks from VM")
+    @remediate_threaded
+    def detachNamedDisks(self, vcdObjList, timeout=None, threadCount=75):
+        """
+        Description :   Detach all named disks from their respective VM. Attach back if any error occurred
+                        while detaching
+        Parameters  :   vcdObjList - List of objects of vcd operations class (LIST)
+                        timeout    - timeout for disk operation (INT)
+                        threadCount- Thread count for disk operation (INT)
+        """
+        # 1. Check if disk is attached to any VM(using metadata)
+        # 2. Detach disk from VM
+        # 3. If any detach fails, attach back all disk to VM as mentioned in metadata
+        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
+            return
+
+        try:
+            self.sourceDisksData = self._getSourceDisksData(vcdObjList)
+            if not self.sourceDisksData:
+                return
+
+            threading.current_thread().name = "MainThread"
+            logger.info('Detaching disks from VMs')
+
+            for (vcdObj, vmHref, vmName), disks in self._getVmToDisks(self.sourceDisksData).items():
+                self.thread.spawnThread(vcdObj.detachVmDisk, disks, vmHref, vmName, timeout)
+
+            # Blocking the main thread until all the threads complete execution
+            self.thread.joinThreads()
+            threading.current_thread().name = "MainThread"
+            if self.thread.stop():
+                raise Exception('Failed to detach independent disks')
+
+            logger.info('Successfully detached independent disks')
+
+        except Exception as e:
+            logger.error(f'Exception occurred while detaching disk: {e}')
+            self.attachNamedDisks(self.sourceDisksData, timeout=timeout, threadCount=threadCount)
+            raise
+
+    @remediate_threaded
+    def detachNamedDisksRollback(self, vcdObjList, timeout=None, threadCount=75):
+        """
+        Description :   Rollback method to Detach all named disks from their respective VM. Attach back if any error
+                        occurred while detaching
+        Parameters  :   vcdObjList - List of objects of vcd operations class (LIST)
+                        timeout    - timeout for disk operation (INT)
+                        threadCount- Thread count for simultaneous disk operation (INT)
+        """
+        # 1. Check if disk is attached to any VM(using metadata)
+        # 2. Detach disk from VM
+        # 3. If any detach fails, attach back all disk to VM as mentioned in metadata
+        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
+            return
+
+        # Check if disk operations was performed or not
+        if not isinstance(self.rollback.metadata.get('moveAndAttachNamedDisks'), bool):
+            return
+
+        # If rollback of one of the org vdc is complete then return
+        try:
+            [vcdObj.rollback.apiData['targetOrgVDC']['@id'] for vcdObj in vcdObjList]
+        except:
+            return
+
+        try:
+            self.targetDisksData = self._getTargetDisksData(vcdObjList)
+            if not self.targetDisksData:
+                return
+
+            self.rollback.executionResult['moveAndAttachNamedDisks'] = False
+            self.saveMetadataInOrgVdc()
+
+            threading.current_thread().name = "MainThread"
+            logger.info('Rollback: Detaching disks from VMs')
+
+            for (vcdObj, vmHref, vmName), disks in self._getVmToDisks(self.targetDisksData).items():
+                self.thread.spawnThread(vcdObj.detachVmDisk, disks, vmHref, vmName, timeout)
+
+            # Blocking the main thread until all the threads complete execution
+            self.thread.joinThreads()
+            threading.current_thread().name = "MainThread"
+            if self.thread.stop():
+                raise Exception('Failed to detach independent disks')
+
+            logger.info('Rollback: Successfully detached independent disks')
+
+        except Exception as e:
+            logger.error(f'Exception occurred while detaching disk: {e}')
+            self.attachNamedDisks(self.targetDisksData, timeout=timeout, threadCount=threadCount)
+            raise
+        finally:
+            # Restoring thread name
+            threading.current_thread().name = "MainThread"
+
+    def attachNamedDisks(self, disksData, timeout=None, threadCount=75, rollback=True):
+        """
+        Description : attach all named disks from their respective VM. VM details are
+         fetched from disk metadata
+        Parameters  : disksData -  List of disk to be attached (LIST)
+                      timeout  - Timeout to be used for attach VM process(INT)
+                      threadCount- Thread count for simultaneous disk operation (INT)
+                      rollback - Set to True for logging purpose
+        """
+        # 1. Get attached attached VM from metadata
+        # 2. Attach disk to VM
+        # 2.1. If disk is attached to same VM as the one mentioned in metadata, skip
+        # 2.2. If disk is attached to different VM as the one mentioned in metadata,
+        #      raise
+        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
+            return
+
+        if not disksData:
+            return
+
+        # Saving current number of threads
+        currentThreadCount = self.thread.numOfThread
+        try:
+            # Setting new thread count
+            self.thread.numOfThread = threadCount
+            threading.current_thread().name = "MainThread"
+
+            if rollback:
+                logger.info('Rollback: Attaching VMs to disks')
+            else:
+                logger.info('Attaching VMs to disks')
+
+            for (vcdObj, vmHref, vmName), disks in self._getVmToDisks(disksData, rollback=True).items():
+                self.thread.spawnThread(vcdObj.attachVmDisk, disks, vmHref, vmName, timeout)
+
+            # Blocking the main thread until all the threads complete execution
+            self.thread.joinThreads()
+            threading.current_thread().name = "MainThread"
+            if self.thread.stop():
+                raise Exception('Rollback: Failed to attach independent disks')
+
+        except:
+            raise
+
+        finally:
+            # Restoring thread count
+            self.thread.numOfThread = currentThreadCount
+
+    def moveNamedDisk(self, disk, timeout, rollback, partialMove):
+        """
+        Description :   Move disk to target VDC
+        Parameters  :   disk        - disk to be moved (DICT)
+                        timeout     - timeout for disk operation (INT)
+                        rollback    - whether to rollback from T2V (BOOL)
+                        partialMove - It set True, move operation of VM to be attached to disk will be verified.
+                                      If VM has not been moved, disk will not be moved.
+
+        """
+        if rollback:
+            targetVdc = self.rollback.apiData['sourceOrgVDC']
+        else:
+            targetVdc = self.rollback.apiData['targetOrgVDC']
+        targetVdcId = targetVdc['@id'].split(':')[-1]
+
+        # When disk is not attached to VM, only move disk
+        if not disk['metadata'].get('attached_vm'):
+            self.moveDisk(disk, targetVdc['@href'], timeout=timeout)
+            return
+
+        if partialMove:
+            # When disk is attacked to VM, check current VDC of of VM. If it
+            # matches with target VDC for disk(i.e. VM is moved), move disk.
+            # If VM is not moved, do not move disk. It will be attached back to
+            # source VM.
+            if targetVdcId == self.getVmVdc(disk['metadata']["attached_vm"]):
+                self.moveDisk(disk, targetVdc['@href'], timeout=timeout)
+            else:
+                logger.info(f'Skipping disk {disk["name"]} movement as attached VM is not moved')
+        else:
+            self.moveDisk(disk, targetVdc['@href'], timeout=timeout)
+
+    @description("Moving disks to Target VDC and re-attaching to VM")
+    @remediate_threaded
+    def moveAndAttachNamedDisks(self, vcdObjList, timeout=None, threadCount=75, partialMove=False):
         """
         Description :   Move all named disks. attach all named disks from their
                         respective VM. VM details are fetched from disk metadata
-        Parameters  :   vcdObjList - List of objects of vcd operations class (LIST)
-                        sourceVdcForDisk - Source (w.r.t. disk movement) Org VDC details (STR)
-                        targetVdcForDisk - Target (w.r.t. disk movement) Org VDC details (STR)
-                        timeout - timeout for disk operation (INT)
+        Parameters  :   vcdObjList  - List of objects of vcd operations class (LIST)
+                        timeout     - timeout for disk operation (INT)
+                        rollback    - whether to rollback from T2V (BOOL)
+                        threadCount - Thread count for simultaneous disk operation
+                                      (used in remediate_threaded decorator)(INT)
+                        partialMove - It set True, move operation of VM to be attached to disk will be verified.
+                                      If VM has not been moved, disk will not be moved and metadata will not be updated
+
         """
         if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
             return
 
         try:
-            # As all attached disks are moved with moveVapp call, we should only get non-attached disks
-            disks = [
-                (vcdObj, disk)
-                for vcdObj in vcdObjList
-                for disk in vcdObj.getNamedDiskInOrgVDC(vcdObj.rollback.apiData[sourceVdcForDisk]['@id'])
-                if not disk['isAttached']
-            ]
-            if not disks:
-                logger.debug('No non-attached independent disks present')
+            self.sourceDisksData = self._getSourceDisksData(vcdObjList)
+            self.targetDisksData = self._getTargetDisksData(vcdObjList)
+            if not self.sourceDisksData and not self.targetDisksData:
+                logger.debug('No independent disks found')
                 return
 
-            threading.current_thread().name = "MainThread"
-            logger.info("Moving non-attached independent disks")
+            # If any disk and its attached VM are not moved during migration, attach disk back to its VM during rollback
+            if self.targetDisksData:
+                threading.current_thread().name = "MainThread"
+                logger.info("Verifying disks already present in Target Org VDC are attached to respective VMs")
+                for (vcdObj, vmHref, vmName), disks in self._getVmToDisks(self.targetDisksData, rollback=True).items():
+                    self.thread.spawnThread(vcdObj.attachVmDisk, disks, vmHref, vmName, timeout)
 
-            for vcdObj in vcdObjList:
-                vcdObj.fetchTargetStorageProfiles(vcdObj.rollback.apiData[targetVdcForDisk])
+            if self.sourceDisksData:
+                threading.current_thread().name = "MainThread"
+                logger.info("Moving disks and re-attaching to VM")
 
-            # Start disk movement
-            for vcdObj, disk in disks:
-                self.thread.spawnThread(
-                    vcdObj.moveDisk, disk, vcdObj.rollback.apiData[targetVdcForDisk]['@href'], timeout)
+                for vcdObj in vcdObjList:
+                    vcdObj.fetchTargetStorageProfiles(vcdObj.rollback.apiData['targetOrgVDC'])
+
+                # Start disk movement
+                for vcdObj, disk in self.sourceDisksData:
+                    self.thread.spawnThread(vcdObj.moveNamedDisk, disk, timeout, False, partialMove)
 
             # Blocking the main thread until all the threads complete execution
             self.thread.joinThreads()
             if self.thread.stop():
-                raise Exception('Failed to move non-attached independent disks')
+                raise Exception('Failed to move independent disks')
+
+            # Attach disk to VM
+            if self.sourceDisksData:
+                for (vcdObj, vmHref, vmName), disks in self._getVmToDisks(self.sourceDisksData, rollback=True).items():
+                    self.thread.spawnThread(vcdObj.attachVmDisk, disks, vmHref, vmName, timeout)
+
+            # Blocking the main thread until all the threads complete execution
+            self.thread.joinThreads()
+            if self.thread.stop():
+                raise Exception('Failed to attach independent disks')
 
             threading.current_thread().name = "MainThread"
-            logger.info('Successfully moved non-attached independent disks')
+            if partialMove:
+                logger.info('Moved non-attached disks and disks attached to VMs that are moved')
+                return METADATA_SAVE_FALSE
+
+            if self.sourceDisksData:
+                logger.info('Successfully moved and attached independent disks')
 
         except Exception as e:
-            logger.error(f'Exception occurred while moving disk: {e}')
+            logger.error(f'Exception occurred while moving or attaching disk: {e}')
             raise
 
-    @description("Moving disks to Target VDC and re-attaching to VM")
     @remediate_threaded
-    def moveNamedDisks(self, vcdObjList, timeout=None, threadCount=75):
+    def moveAndAttachNamedDisksRollback(self, vcdObjList, timeout=None, threadCount=75, partialMove=False):
         """
-        Description :   Move all named disks. attach all named disks from their
+        Description :   Rollback operation to move all named disks. attach all named disks from their
                         respective VM. VM details are fetched from disk metadata
         Parameters  :   vcdObjList  - List of objects of vcd operations class (LIST)
                         timeout     - timeout for disk operation (INT)
+                        rollback    - whether to rollback from T2V (BOOL)
                         threadCount - Thread count for simultaneous disk operation
                                       (used in remediate_threaded decorator)(INT)
-        """
-        self._moveNamedDisks(
-            vcdObjList, sourceVdcForDisk='sourceOrgVDC', targetVdcForDisk='targetOrgVDC', timeout=timeout)
+                        partialMove - It set True, move operation of VM to be attached to disk will be verified.
+                                      If VM has not been moved, disk will not be moved and metadata will not be updated
 
-    @remediate_threaded
-    def moveNamedDisksRollback(self, vcdObjList, timeout=None, threadCount=75):
         """
-        Description :   Move all named disks. attach all named disks from their
-                        respective VM. VM details are fetched from disk metadata
-        Parameters  :   vcdObjList  - List of objects of vcd operations class (LIST)
-                        timeout     - timeout for disk operation (INT)
-                        threadCount - Thread count for simultaneous disk operation
-                                      (used in remediate_threaded decorator)(INT)
-        """
-        # Check if moveNamedDisks was performed or not
-        if not isinstance(self.rollback.metadata.get('moveNamedDisks'), bool):
+        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
             return
 
-        self._moveNamedDisks(
-            vcdObjList, sourceVdcForDisk='targetOrgVDC', targetVdcForDisk='sourceOrgVDC', timeout=timeout)
+        # Check if disk operations was performed or not
+        if not isinstance(self.rollback.metadata.get('detachNamedDisks'), bool):
+            return
 
-        if isinstance(self.rollback.metadata.get('moveNamedDisks'), bool):
-            # If NamedDisks rollback is successful, remove the moveNamedDisks key from metadata
-            self.deleteMetadataApiCall(
-                key='moveNamedDisks-system-v2t', orgVDCId=self.rollback.apiData.get('sourceOrgVDC', {}).get('@id'))
+        # If rollback of one of the org vdc is complete then return
+        try:
+            [vcdObj.rollback.apiData['targetOrgVDC']['@id'] for vcdObj in vcdObjList]
+        except:
+            return
+
+        try:
+            self.sourceDisksData = self._getSourceDisksData(vcdObjList)
+            self.targetDisksData = self._getTargetDisksData(vcdObjList)
+            if not self.sourceDisksData and not self.targetDisksData:
+                logger.debug('Rollback: No independent disks found')
+                return
+
+            self.rollback.executionResult['detachNamedDisks'] = False
+            self.saveMetadataInOrgVdc()
+
+            # If any disk and its attached VM are not moved during migration, attach disk back to its VM during rollback
+            if self.sourceDisksData:
+                threading.current_thread().name = "MainThread"
+                logger.info(
+                    "Rollback: Verifying disks already present in Source Org VDC are attached to respective VMs")
+                for (vcdObj, vmHref, vmName), disks in self._getVmToDisks(self.sourceDisksData, rollback=True).items():
+                    self.thread.spawnThread(vcdObj.attachVmDisk, disks, vmHref, vmName, timeout)
+
+            # Start disk movement
+            if self.targetDisksData:
+                for vcdObj in vcdObjList:
+                    vcdObj.fetchTargetStorageProfiles(vcdObj.rollback.apiData['sourceOrgVDC'])
+
+                threading.current_thread().name = "MainThread"
+                logger.info("Rollback: Moving disks and re-attaching to VM")
+                for vcdObj, disk in self.targetDisksData:
+                    self.thread.spawnThread(vcdObj.moveNamedDisk, disk, timeout, True, partialMove)
+
+            # Blocking the main thread until all the threads complete execution
+            self.thread.joinThreads()
+            if self.thread.stop():
+                raise Exception('Failed to move independent disks')
+
+            # Attach disk to VM
+            if self.targetDisksData:
+                for (vcdObj, vmHref, vmName), disks in self._getVmToDisks(self.targetDisksData, rollback=True).items():
+                    self.thread.spawnThread(vcdObj.attachVmDisk, disks, vmHref, vmName, timeout)
+
+            # Blocking the main thread until all the threads complete execution
+            self.thread.joinThreads()
+            if self.thread.stop():
+                raise Exception('Failed to attach independent disks')
+
+            threading.current_thread().name = "MainThread"
+            if partialMove:
+                logger.info('Rollback: Moved non-attached disks and disks attached to VMs that are moved')
+                return
+
+            if self.targetDisksData:
+                logger.info('Rollback: Successfully moved and attached independent disks')
+
+        except Exception as e:
+            logger.error(f'Rollback: Exception occurred while moving or attaching disk: {e}')
+            raise
+
+        else:
+            threading.current_thread().name = "MainThread"
+            if not partialMove:
+                # If disks rollback is successful, remove the metadata keys from metadata
+                if isinstance(self.rollback.metadata.get('moveAndAttachNamedDisks'), bool):
+                    self.deleteMetadataApiCall(
+                        key='moveAndAttachNamedDisks-system-v2t',
+                        orgVDCId=self.rollback.apiData.get('sourceOrgVDC', {}).get('@id'))
+                if isinstance(self.rollback.metadata.get('detachNamedDisks'), bool):
+                    self.deleteMetadataApiCall(
+                        key='detachNamedDisks-system-v2t',
+                        orgVDCId=self.rollback.apiData.get('sourceOrgVDC', {}).get('@id'))
 
     def migrateVapps(self, vcdObjList, inputDict, timeout=None, threadCount=75):
         """
@@ -2870,6 +3282,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     logger.info('Successfully migrated source vApps.')
                     self.rollback.executionResult['moveVapp'] = True
         except Exception:
+            self.rollback.executionResult['detachNamedDisks'] = False
+            self.moveAndAttachNamedDisks(vcdObjList, timeout, threadCount, partialMove=True)
             raise
         finally:
             # Restoring thread count
@@ -2922,6 +3336,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # move vapp from target to source org vdc
             self.moveVapp(targetOrgVDCIdList, sourceOrgVDCIdList, orgVDCNetworkList, timeout, vcdObjList, sourceOrgVDCNameList, rollback=True)
         except Exception:
+            self.moveAndAttachNamedDisksRollback(vcdObjList, timeout, threadCount, partialMove=True)
             raise
         else:
             if isinstance(self.rollback.metadata.get('moveVapp'), bool):

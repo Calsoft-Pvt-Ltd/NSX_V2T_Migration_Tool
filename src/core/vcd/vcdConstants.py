@@ -695,6 +695,15 @@ DEFAULT_QUERY_PAGE_SIZE = 25
 # Query API and Page size for named disk
 GET_NAMED_DISK_BY_VDC = 'query?type=disk&filter=(((vdc=={})))'
 
+# API suffix for disk API to get attached VMs
+GET_ATTACHED_VMS_TO_DISK = 'attachedVms'
+
+# API to detach disk from VM
+VM_DETACH_DISK = 'disk/action/detach'
+
+# API to attach disk from VM
+VM_ATTACH_DISK = 'disk/action/attach'
+
 # API to move Disk
 DISK_MOVE = 'action/moveDisk'
 

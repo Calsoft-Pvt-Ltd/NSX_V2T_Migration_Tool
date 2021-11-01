@@ -28,6 +28,8 @@ from src.commonUtils.restClient import RestAPIClient
 from src.commonUtils.certUtils import verifyCertificateAgainstCa
 from src.commonUtils.utils import Utilities, listify
 
+METADATA_SAVE_FALSE = False
+
 logger = logging.getLogger('mainLogger')
 
 def getSession(self):
@@ -119,7 +121,7 @@ def remediate_threaded(func):
 
             result = func(self, *args, **kwargs)
 
-            if not self.rollback.retryRollback:
+            if not self.rollback.retryRollback and result is not METADATA_SAVE_FALSE:
                 self.rollback.executionResult[func.__name__] = True
                 # Saving metadata in source Org VDC
                 self.saveMetadataInOrgVdc()
@@ -195,6 +197,7 @@ class VCDMigrationValidation:
         self.nsxVersion = None
         self.nsxManagerId = None
         self.networkProviderScope = None
+        self.namedDisks = dict()
         self.l3DfwRules = None
         self.dfwSecurityTags = dict()
         self._isSharedNetworkPresent = None
@@ -2531,6 +2534,8 @@ class VCDMigrationValidation:
         try:
             logger.debug('Getting Named Disks present in Org VDC')
             orgVDCIdShort = orgVDCId.split(':')[-1]
+            if orgVDCId in self.namedDisks:
+                return
 
             orgId = orgId or self.rollback.apiData['Organization']['@id']
             pageSize = vcdConstants.DEFAULT_QUERY_PAGE_SIZE
@@ -2549,7 +2554,7 @@ class VCDMigrationValidation:
             if not response.status_code == requests.codes.ok:
                 raise Exception(f'Error occurred while retrieving named disks details: {response.json()["message"]}')
 
-            # Store first page result and prepare for second page
+            # Store first page result and preapre for second page
             responseContent = response.json()
             resultTotal = responseContent['total']
             resultFetched = responseContent['record']
@@ -2557,7 +2562,8 @@ class VCDMigrationValidation:
 
             # Return if results are empty
             if resultTotal == 0:
-                return []
+                self.namedDisks[orgVDCId] = []
+                return
 
             # Query second page onwards until resultTotal is reached
             while len(resultFetched) < resultTotal:
@@ -2581,12 +2587,11 @@ class VCDMigrationValidation:
                 disk['id'] = disk['href'].split('/')[-1]
 
             # Save only selected parameters
-            return [
+            self.namedDisks[orgVDCId] = [
                 {
                     param: disk.get(param)
-                    for param in [
-                        'id', 'name', 'iops', 'storageProfile', 'storageProfileName', 'isAttached', 'href',
-                        'isShareable', 'sharingType']
+                    for param in ['id', 'name', 'iops', 'storageProfile', 'storageProfileName', 'isAttached',
+                                  'href', 'isShareable', 'sharingType']
                 }
                 for disk in resultFetched
             ]
@@ -2595,6 +2600,55 @@ class VCDMigrationValidation:
             logger.error(f'Error occurred while retrieving Named Disks: {e}')
             raise
 
+    @isSessionExpired
+    def getAttachedVms(self, disk):
+        """
+        Description :   Get list of VMs attached to disk
+        Parameters  :   disk    -   disk details fetched using disk/{id} API (DICT)
+        Returns     :   List of VMs in VmsType output (LIST)
+        """
+        url = f"{disk['href']}/{vcdConstants.GET_ATTACHED_VMS_TO_DISK}"
+        try:
+            headers = {
+                'Authorization': self.headers['Authorization'],
+                'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version),
+            }
+            response = self.restClientObj.get(url, headers)
+
+            if not response.status_code == requests.codes.ok:
+                logger.error(f'Error occurred while retrieving entity details: {response.json()["message"]}')
+                raise Exception(f'Error occurred while retrieving entity details: {response.json()["message"]}')
+
+            vms = response.json().get('vmReference')
+
+            if not vms:
+                return
+            # As shared disks are not supported, we will get only one result for attached vm
+            return vms[0]
+
+        except Exception as e:
+            logger.error(f'Error occurred while retrieving VMs attached to Disk - {disk["name"]}: {e}')
+            raise
+
+    @isSessionExpired
+    def getVm(self, url):
+        """
+        Description :   Get details of entity in json format
+        Parameters  :   url    -   url of entity (STRING)
+        Returns     :   response.json() of url
+        """
+        headers = {
+            'Authorization': self.headers['Authorization'],
+            'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version),
+        }
+        response = self.restClientObj.get(url, headers)
+
+        if response.status_code == requests.codes.ok:
+            return response.json()
+        else:
+            logger.error(f'Error occurred while retrieving VM details: {response.json()["message"]}')
+            raise Exception(f'Error occurred while retrieving VM details: {response.json()["message"]}')
+
     def validateIndependentDisks(self, sourceOrgVDCId, orgId=None, v2tAssessmentMode=False):
         """
         Description :   Validates if the Independent disks in Org VDC
@@ -2602,37 +2656,73 @@ class VCDMigrationValidation:
                         For versions from Andromeda, raise exception when named disks are shared or attached VM is not powered off.
         Parameters  :   orgVDCId    -   Id of the Org VDC (STRING)
         """
-        namedDisks = self.getNamedDiskInOrgVDC(sourceOrgVDCId, orgId)
+        self.getNamedDiskInOrgVDC(sourceOrgVDCId, orgId)
 
-        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
-            if v2tAssessmentMode:
-                # Applicable in assessment mode only. for pre Andromeda version 'isShareable' is applicable
-                # to identify shared disk. From andromeda it is 'sharingType'
-                shared_disks = [
-                    disk['name']
-                    for disk in namedDisks
-                    if disk['isShareable']
-                ]
+        if not v2tAssessmentMode and float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
+            if self.namedDisks.get(sourceOrgVDCId):
+                raise Exception("Independent Disks: {} Exist In Source Org VDC.".format(
+                    ','.join(disk['name'] for disk in self.namedDisks[sourceOrgVDCId])))
             else:
-                if namedDisks:
-                    raise Exception("Independent Disks: {} Exist In Source Org VDC.".format(
-                        ','.join(disk['name'] for disk in namedDisks)))
-
                 logger.debug("Validated Successfully, Independent Disks do not exist in Source Org VDC")
-                return
+            return
 
-        else:
-            shared_disks = [
-                disk['name']
-                for disk in namedDisks
-                if disk['sharingType'] and disk['sharingType'] != 'None'
-            ]
+        errors = []
+        if not self.namedDisks.get(sourceOrgVDCId):
+            if v2tAssessmentMode:
+                return errors
+            return
+
+        shared_disks = []
+        disksWithoutPoweredOffVms = []
+        for disk in self.namedDisks[sourceOrgVDCId]:
+            # Applicable in assessment mode only. for pre Andromeda version 'isShareable' is applicable
+            # to identify shared disk. From andromeda it is 'sharingType'
+            if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
+                if disk['isShareable']:
+                    shared_disks.append(disk['name'])
+                    continue
+            else:
+                if disk['sharingType'] and not disk['sharingType'] == 'None':
+                    shared_disks.append(disk['name'])
+                    continue
+
+            if not disk['isAttached']:
+                disk.update({'metadata': {'attached_vm': None}})
+                continue
+
+            vm = self.getAttachedVms(disk)
+            response = self.getVm(vm['href'])
+
+            if response["status"] == 8:
+                if not v2tAssessmentMode:
+                    # Collect data for non-shared disks. As disks are not shared, only one attached VM is expected.
+                    metadata = {'attached_vm': {
+                        'href': vm['href'],
+                        'name': vm['name'],
+                    }}
+                    self.createMetaDataInOrgVDC(disk['id'], metadata, entity='disk', domain='system')
+                    disk.update({'metadata': metadata})
+            else:
+                disksWithoutPoweredOffVms.append(disk['name'])
 
         # Validation fails if shared disks exists
         if shared_disks:
-            raise Exception(f"Independent Disks in Org VDC are shared. Shared disks: {', '.join(shared_disks)}")
+            errors.append(f"Independent Disks in Org VDC are shared. Shared disks: {', '.join(shared_disks)}")
+        else:
+            logger.debug("Validated Successfully, Independent Disks in Source Org VDC are not shared")
 
-        logger.debug("Validated Successfully, Independent Disks in Source Org VDC are not shared")
+        # Validation fails if VMs attached tp disks are not powered off
+        if disksWithoutPoweredOffVms:
+            errors.append(f"VMs attached to disks are not powered off: {', '.join(disksWithoutPoweredOffVms)}")
+        else:
+            logger.debug(
+                "Validated Successfully, Independent Disks in Source Org VDC are attached to powered off VMs or not "
+                "attached")
+
+        if v2tAssessmentMode:
+            return errors
+        if errors:
+            raise Exception('; '.join(errors))
 
     @isSessionExpired
     def ValidateStaticBinding(self, staticBindingsData):
