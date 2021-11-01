@@ -1183,7 +1183,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             DHCPData = self.rollback.apiData['sourceEdgeGatewayDHCP'][sourceEdgeGateway['id']]
             # configure DHCP Binding on target only if source edge gateway has DHCP Binding configured.
-            if not DHCPData['staticBindings']:
+            if not DHCPData.get('staticBindings'):
                 logger.debug(
                     "DHCP static bindings service not configured on source edge gateway : {}.".format(sourceEdgeGateway))
                 continue
@@ -1196,14 +1196,16 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             staticBindings = listify(DHCPData['staticBindings']['staticBindings'])
             # get the OrgVDC network details which is used in bindings.
             for binding in staticBindings:
-                defaultGateway = binding['defaultGateway']
+                bindingIp = binding['ipAddress']
                 networkId = None
                 networkName = None
 
                 # get taregt OrgVDC Network details.
                 for network in orgvdcNetworks:
-                    networkGateway = network['subnets']['values'][0]['gateway']
-                    if networkGateway == defaultGateway:
+                    networkSubnet = "{}/{}".format(network['subnets']['values'][0]['gateway'],
+                                                   network['subnets']['values'][0]['prefixLength'])
+                    ipNetwork = ipaddress.ip_network(networkSubnet, strict=False)
+                    if ipaddress.ip_address(bindingIp) in ipNetwork:
                         networkId = network['id']
                         networkName = network['name']
                         break
@@ -1219,7 +1221,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 if response.status_code == requests.codes.ok:
                     responsedict = response.json()
                     # checking if configured is dhcp, if not then configure.
-                    if not responsedict['enabled']:
+                    if not responsedict.get('enabled'):
                         # Creating Payload
                         payloadData = {
                             "enabled": True,
@@ -1231,7 +1233,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         if apiResponse.status_code == requests.codes.accepted:
                             task_url = apiResponse.headers['Location']
                             self._checkTaskStatus(taskUrl=task_url)
-                            logger.info(
+                            logger.debug(
                                 "DHCP Enabled successfully in EDGE mode on OrgVDC network: {}.".format(networkName))
                         else:
                             # Failed to Enable DHCP with in EDGE mode on Org VDC network..
@@ -1243,16 +1245,14 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 # Enables the DHCP bindings on OrgVDC network.
                 DHCPBindingUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                   vcdConstants.DHCP_BINDINGS.format(networkId))
-
                 payloadData = {
                     "id": binding['bindingId'],
                     "name": binding['hostname'],
                     "macAddress": binding['macAddress'],
                     "ipAddress": binding['ipAddress'],
-                    "leaseTime": binding['leaseTime'],
+                    "leaseTime": binding['leaseTime'] if binding['leaseTime'] != 'infinite' else '4294967295',
                     "bindingType": "IPV4",
                     "dhcpV4BindingConfig": {
-                        "gatewayIpAddress": binding['defaultGateway'],
                         "hostName": binding['hostname']
                     },
                     "dhcpV6BindingConfig": None,
@@ -1261,24 +1261,47 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     }
                 }
                 dnsServers = []
-                if not binding['autoConfigureDNS']:
-                    dnsServers.append(binding.get('primaryNameServer'))
-                    dnsServers.append(binding.get('secondaryNameServer'))
+                if not binding.get('autoConfigureDNS'):
+                    if binding.get('primaryNameServer'):
+                        dnsServers.append(binding['primaryNameServer'])
+                    if binding.get('secondaryNameServer'):
+                        dnsServers.append(binding['secondaryNameServer'])
                     payloadData['dnsServers'] = dnsServers
+                if binding.get('defaultGateway'):
+                    payloadData['dhcpV4BindingConfig']['gatewayIpAddress'] = binding['defaultGateway']
 
-                payloadData = json.dumps(payloadData)
+                # Skip same Binding to configure again on edge gateway on remediation.
+                isMigrated = False
+                # Call for GET API to get DHCP Binding service.
+                response = self.restClientObj.get(DHCPBindingUrl, headers=self.headers)
+                responsedict = response.json()
+                if response.status_code == requests.codes.ok:
+                    for value in responsedict['values']:
+                        if value['macAddress'] == payloadData['macAddress']:
+                            isMigrated = True
+                            break
+                else:
+                    # Failed to get DHCP Bindings.
+                    raise Exception("Failed to get DHCP Bindings on OrgVDC Network {}, error : {}.".
+                                    format(networkName, responsedict['message']))
+
+                if isMigrated:
+                    logger.debug("Migration of binding ID {} , completed on last run.".format(binding['bindingId']))
+                    continue
+
                 # Call for POST API to configure DHCP Binding service
+                payloadData = json.dumps(payloadData)
                 apiResponse = self.restClientObj.post(DHCPBindingUrl, headers=self.headers, data=payloadData)
                 if apiResponse.status_code == requests.codes.accepted:
                     task_url = apiResponse.headers['Location']
                     self._checkTaskStatus(taskUrl=task_url)
-                    logger.info("DHCP Bindings successfully configured on OrgVDC Network {}.".
+                    logger.debug("DHCP Bindings successfully configured on OrgVDC Network {}.".
                                 format(networkName))
                 else:
                     # Failed to configure DHCP Bindings.
                     errorResponse = apiResponse.json()
                     raise Exception("Failed to configure DHCP Bindings on OrgVDC Network {}, error : {}.".
-                                    format(networkName, errorResponse))
+                                    format(networkName, errorResponse['message']))
 
     @description("configuration of DHCP relay service on target edge gateway")
     @remediate
@@ -1304,23 +1327,46 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 'Configuring DHCP relay service on target edge gateway - {}'.format(sourceEdgeGateway['name']))
 
             # If we configures more than one relay server we are getting list, so we handled the scenario here.
-            if isinstance(DHCPData['relay']['relayServer']['ipAddresses'], list):
-                forwarders = [relayServer for relayServer in DHCPData['relay']['relayServer']['ipAddresses'] if relayServer != '']
-            else:
-                forwarders = [DHCPData['relay']['relayServer']['ipAddresses']]
+            forwardersList = list()
+            if DHCPData['relay']['relayServer'].get('ipAddresses'):
+                ipAddressList = listify(DHCPData['relay']['relayServer'].get('ipAddresses'))
+                forwardersList.extend(ipAddressList)
 
-            # get the list of relay agents configured in DHCP relay configurations..
-            if isinstance(DHCPData['relay']['relayAgents']['relayAgents'], list):
-                relayAgents = [relayAgent['giAddress'] for relayAgent in DHCPData['relay']['relayAgents']['relayAgents']]
-            else:
-                relayAgents = [DHCPData['relay']['relayAgents']['relayAgents']['giAddress']]
+            # get the list of DHCP servres from IP sets.
+            if DHCPData['relay']['relayServer'].get('groupingObjectIds'):
+                ipSetsList = listify(DHCPData['relay']['relayServer'].get('groupingObjectIds'))
+                for ipSet in ipSetsList:
+                    ipSetData = self.getIpset(ipSet)
+                    ipSetValues = ipSetData['ipset']['value']
+                    if not ipSetValues:
+                        continue
 
+                    if '-' in ipSetValues:
+                        # Get all ipAddresses from the range
+                        ipSetValuesList = ipSetValues.split('-')
+                        startIPAddress = ipSetValuesList[0]
+                        endIPAddress = ipSetValuesList[1]
+                        ipRangeAddresses = [str(ipaddress.IPv4Address(ip)) for ip in
+                                            range(int(ipaddress.IPv4Address(startIPAddress)),
+                                                  int(ipaddress.IPv4Address(endIPAddress) + 1))]
+                        forwardersList.extend(ipRangeAddresses)
+                    elif ',' in ipSetValues:
+                        # Get the IpAddresses
+                        ipAddresses = ipSetValues.split(',')
+                        forwardersList.extend(ipAddresses)
+                    elif '/' in ipSetValues:
+                        # Get list of IPs from the CIDR
+                        cidrIpAddresses = [str(ip) for ip in ipaddress.IPv4Network(ipSetValues, strict=False)]
+                        forwardersList.extend(cidrIpAddresses)
+                    else:
+                        # if only One IP address mentioned in IP set.
+                        forwardersList.append(ipSetValues)
             # Enables the DHCP forwarder on edge Gateway.
             DHCPForwarderUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                              vcdConstants.DHCP_FORWARDER.format(targetEdgeGatewayID))
             payloadData = {
                 "enabled": True,
-                "dhcpServers": forwarders
+                "dhcpServers": forwardersList
             }
             payloadData = json.dumps(payloadData)
 
@@ -1329,13 +1375,18 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             if apiResponse.status_code == requests.codes.accepted:
                 task_url = apiResponse.headers['Location']
                 self._checkTaskStatus(taskUrl=task_url)
-                logger.info(
+                logger.debug(
                     "DHCP forwarder successfully configured on target edge gateway {}.".format(targetEdgeGatewayID))
             else:
                 # Failed to configure DHCP forwarder.
                 errorResponse = apiResponse.json()
                 raise Exception(
-                    "Failed to configure DHCP forwarder on edge gateway {}, error : {}.".format(targetEdgeGatewayID, errorResponse))
+                    "Failed to configure DHCP forwarder on edge gateway {}, error : {}.".format(targetEdgeGatewayID, errorResponse['message']))
+
+            # get the list of relay agents configured in DHCP relay configurations..
+            relayAgentsData = listify(DHCPData['relay']['relayAgents']['relayAgents'])
+            relayAgents = [relayAgent['giAddress'] for relayAgent in
+                           listify(DHCPData['relay']['relayAgents']['relayAgents'])]
 
             # get info of networks and configure DHCP in relay mode, if the network is used as relay agent.
             for network in orgvdcNetworks:
@@ -1359,13 +1410,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 if apiResponse.status_code == requests.codes.accepted:
                     task_url = apiResponse.headers['Location']
                     self._checkTaskStatus(taskUrl=task_url)
-                    logger.info(
+                    logger.debug(
                         "DHCP Enabled successfully in relay mode on OrgVDC network: {}.".format(network['name']))
                 else:
                     # Failed to Enable DHCP with in relay mode on Org VDC network..
                     errorResponse = apiResponse.json()
                     raise Exception(
-                        "Failed to enable DHCP in relay mode on OrgVDC network {}, error : {}.".format(network['name'], errorResponse))
+                        "Failed to enable DHCP in relay mode on OrgVDC network {}, error : {}.".format(network['name'], errorResponse['message']))
 
     @remediate
     def connectionPropertiesConfig(self, edgeGatewayID, ipsecConfig):
