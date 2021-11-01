@@ -62,7 +62,7 @@ VALIDATION_CLASSIFICATION = {
     'Independent Disks: Attached VMs are not powered off': 1,
     'DHCP Binding: Binding IP addresses overlaps with static IP Pool range': 1,
     'DHCP Relay: Domain names are configured': 1,
-    'DHCP Relay: IP sets are configured': 1,
+    'DHCP Relay: More than 8 DHCP servers configured': 1,
     'Gateway Firewall: Any as TCP/UDP port': 1,
     'Gateway Firewall: Gateway Interfaces in rule': 1,
     'Gateway Firewall: Networks connected to different edge gateway used': 1,
@@ -241,7 +241,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
             getEdgeGatewayDesc = 'Getting details of source edge gateway list'
             # fetch details of edge gateway
             self.consoleLogger.info(getEdgeGatewayDesc)
-            self.edgeGatewayIdList = self.vcdValidationObj.getOrgVDCEdgeGatewayId(vdcId)
+            self.edgeGatewayIdList = self.vcdValidationObj.getOrgVDCEdgeGatewayId(vdcId, saveResponse=True)
             if isinstance(self.edgeGatewayIdList, Exception):
                 raise self.edgeGatewayIdList
 
@@ -599,10 +599,10 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 self.orgVDCResult["DHCP Relay: Domain names are configured"] = True
                                             else:
                                                 self.orgVDCResult["DHCP Relay: Domain names are configured"] = False
-                                            if "IP sets are configured as a DHCP servers" in ''.join(result):
-                                                self.orgVDCResult["DHCP Relay: IP sets are configured"] = True
+                                            if "More than 8 DHCP servers configured" in ''.join(result):
+                                                self.orgVDCResult["DHCP Relay: More than 8 DHCP servers configured"] = True
                                             else:
-                                                self.orgVDCResult["DHCP Relay: IP sets are configured"] = False
+                                                self.orgVDCResult["DHCP Relay: More than 8 DHCP servers configured"] = False
                                             if "DHCP Binding IP addresses overlaps" in ''.join(result):
                                                 self.orgVDCResult["DHCP Binding: Binding IP addresses overlaps with static IP Pool range"] = True
                                             else:

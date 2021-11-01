@@ -102,7 +102,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             # fetch details of edge gateway
             self.consoleLogger.info(getEdgeGatewayDesc)
             threadObj.spawnThread(vcdValidationObj.getOrgVDCEdgeGatewayId,
-                                    sourceOrgVDCId, saveOutputKey='edgeGatewayIdList')
+                                    sourceOrgVDCId, saveResponse=True, saveOutputKey='edgeGatewayIdList')
             # fetch details of source external network
             self.consoleLogger.info(getSourceExternalNetworkDesc)
             threadObj.spawnThread(vcdValidationObj.getSourceExternalNetwork,

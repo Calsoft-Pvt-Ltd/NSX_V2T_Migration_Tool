@@ -484,7 +484,6 @@ class VMwareCloudDirectorNSXMigrator():
                 self.consoleLogger.info("Performing rollback")
 
             if self.retryRollback:
-
                 # Rollback: Copying direct network IP's from NSX-T segment backed external network to source external network
                 futures = list()
                 with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:

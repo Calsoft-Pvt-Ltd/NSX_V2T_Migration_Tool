@@ -1480,7 +1480,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getOrgVDCEdgeGatewayId(self, orgVDCId):
+    def getOrgVDCEdgeGatewayId(self, orgVDCId, saveResponse=False):
         """
         Description :   Get source edge gateway ID's
         Parameters  :   orgVDCId    -   id of the source org vdc (STRING)
@@ -1489,11 +1489,10 @@ class VCDMigrationValidation:
             responseDict = self.getOrgVDCEdgeGateway(orgVDCId)
             logger.debug('Getting the source Edge gateway details')
             data = self.rollback.apiData
-            if not responseDict['values']:
-                logger.debug("No edge gateway exist in this org vdc")
-                data['sourceEdgeGateway'] = []
-            else:
-                data['sourceEdgeGateway'] = responseDict['values']
+
+            if saveResponse:
+                data['sourceEdgeGateway'] = [] if not responseDict['values'] else responseDict['values']
+
             return [value['id'] for value in responseDict['values']]
         except Exception:
             raise
@@ -2646,24 +2645,96 @@ class VCDMigrationValidation:
         orgvdcNetworks = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
 
         # get the OrgVDC network details which is used in bindings.
-        networkInfo = dict()
+        networkInfo = list()
         for binding in staticBindingsData:
-            ipAddress = binding['ipAddress']
-            defaultGateway = binding['defaultGateway']
+            bindingIp = binding.get('ipAddress')
             # get OrgVDC Network details.
             for network in orgvdcNetworks:
                 ipRanges = network['subnets']['values'][0]['ipRanges']['values']
-                networkGateway = network['subnets']['values'][0]['gateway']
+                # if IP pools not configured on OrfVDC network then we getting ipRanges as a 'None', so continue
+                # validation for next OrgVDC Network.
+                if not ipRanges:
+                    continue
+                networkSubnet = "{}/{}".format(network['subnets']['values'][0]['gateway'],
+                                               network['subnets']['values'][0]['prefixLength'])
+                ipNetwork = ipaddress.ip_network(networkSubnet, strict=False)
                 networkName = network['name']
-                if networkGateway == defaultGateway:
+                if ipaddress.ip_address(bindingIp) in ipNetwork:
                     for ipRange in ipRanges:
                         ipRangeAddresses = [str(ipaddress.IPv4Address(ip)) for ip in
                                             range(int(ipaddress.IPv4Address(ipRange['startAddress'])),
                                                   int(ipaddress.IPv4Address(ipRange['endAddress']) + 1))]
-                        if ipAddress in ipRangeAddresses:
-                            networkInfo[networkName] = ipAddress
+                        if bindingIp in ipRangeAddresses:
+                            networkInfo.append(networkName)
 
-        return networkInfo
+        return list(set(networkInfo))
+
+    @isSessionExpired
+    def getIpset(self, ipsetId):
+        """
+        Description :   Gets the details of Ip sets configured as DHCP relay forwarders.
+        Parameters  :   IPsetID   -   IP set iD.
+        returns     :   Returns IPset data.
+        """
+        # url to retrieve the info of ipset group by id
+        url = "{}{}".format(
+            vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+            vcdConstants.GET_IPSET_GROUP_BY_ID.format(ipsetId))
+        # get api call to retrieve the ipset group info
+        response = self.restClientObj.get(url, self.headers)
+        responseDict = xmltodict.parse(response.content)
+        if response.status_code == requests.codes.ok:
+            # successful retrieval of ipset group info
+            return responseDict
+        else:
+            raise Exception("Unable to fetch ipset {} - {}".format(ipsetId, responseDict['Error']['@message']))
+
+    @isSessionExpired
+    def getForwardersList(self, relayData):
+        """
+        Description :   Gets the DHCP relay forwarders details of the specified Edge Gateway.
+        Parameters  :   relayData   -   Relay data of the Edge Gateway  (STRING).
+        returns     :   Returns forwarders list.
+        """
+        logger.debug("Getting the list of forwarders from the relay data.")
+        # Getting all DHCP servers configured in relay servers configurations.
+        forwardersList = list()
+        if not relayData:
+            return forwardersList
+
+        # Get all DHCP sever IP from the IP sets.
+        if relayData.get('groupingObjectId'):
+            ipSetsList = listify(relayData.get('groupingObjectId'))
+            for ipSet in ipSetsList:
+                ipSetData = self.getIpset(ipSet)
+                ipSetValues = ipSetData['ipset'].get('value')
+                if not ipSetValues:
+                    continue
+
+                if '-' in ipSetValues:
+                    # Get all ipAddresses from the range.
+                    startIPAddress, endIPAddress = ipSetValues.split('-')
+                    ipRangeAddresses = [str(ipaddress.IPv4Address(ip)) for ip in
+                                        range(int(ipaddress.IPv4Address(startIPAddress)),
+                                              int(ipaddress.IPv4Address(endIPAddress) + 1))]
+                    forwardersList.extend(ipRangeAddresses)
+                elif ',' in ipSetValues:
+                    # Get the IpAddresses separated by comma.
+                    ipAddresses = ipSetValues.split(',')
+                    forwardersList.extend(ipAddresses)
+                elif '/' in ipSetValues:
+                    # Get list of IPs from the CIDR.
+                    cidrIpAddresses = [str(ip) for ip in ipaddress.IPv4Network(ipSetValues, strict=False)]
+                    forwardersList.extend(cidrIpAddresses)
+                else:
+                    # if only One IP address mentioned in IP set.
+                    forwardersList.append(ipSetValues)
+
+        # Get the ip addresses of DHCP server configured
+        if relayData.get('ipAddress'):
+            ipAddressList = listify(relayData.get('ipAddress'))
+            forwardersList.extend(ipAddressList)
+        return forwardersList
 
     @isSessionExpired
     def getEdgeGatewayDhcpConfig(self, edgeGatewayId, v2tAssessmentMode=False):
@@ -2698,10 +2769,11 @@ class VCDMigrationValidation:
                             errorList.append(
                                 'Domain names are configured as a DHCP servers in DHCP Relay configuration in source '
                                 'edge gateway, but not supported.\n')
-                        if 'groupingObjectId' in relayresponsedict['relay']['relayServer']:
+                        forwardersList = self.getForwardersList(relayresponsedict['relay'].get('relayServer'))
+                        if len(forwardersList) > 8:
                             errorList.append(
-                                'IP sets are configured as a DHCP servers in DHCP Relay configuration in source edge '
-                                'gateway, but not supported\n')
+                                'More than 8 DHCP servers configured in DHCP Relay configuration in source '
+                                'edge gateway, but not supported.\n')
                     else:
                         errorList.append(
                             'DHCP Relay is configured in source edge gateway, but not supported in target.\n')
@@ -2718,7 +2790,7 @@ class VCDMigrationValidation:
                 if responseDict.get('staticBindings'):
                     if not v2tAssessmentMode and float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
                         errorList.append(
-                            "Static binding is in DHCP configuration of Source Edge Gateway, But not supported.\n")
+                            "Static binding is present in DHCP configuration of Source Edge Gateway, but not supported.\n")
                         return errorList, None
 
                     networkInfo = self.ValidateStaticBinding(responseDict['staticBindings']['staticBindings'])
@@ -2726,8 +2798,8 @@ class VCDMigrationValidation:
                     if networkInfo:
                         if v2tAssessmentMode or float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
                             errorList.append(
-                                "DHCP Binding IP addresses overlaps with static IP Pool range on OrgVDC Network names, having details : {}.".format(
-                                    networkInfo))
+                                "DHCP Binding IP address overlaps with static IP Pool range on OrgVDC Networks {} and is not supported on target.\n".format(
+                                    ', '.join(networkInfo)))
 
                 logger.debug("DHCP configuration of Source Edge Gateway retrieved successfully")
                 # returning the dhcp details
@@ -4120,7 +4192,7 @@ class VCDMigrationValidation:
             self.validateStorageProfiles()
 
             # Getting Org VDC Edge Gateway Id
-            sourceEdgeGatewayIdList = self.getOrgVDCEdgeGatewayId(sourceOrgVDCId)
+            sourceEdgeGatewayIdList = self.getOrgVDCEdgeGatewayId(sourceOrgVDCId, saveResponse=True)
             self.rollback.apiData['sourceEdgeGatewayId'] = sourceEdgeGatewayIdList
 
             logger.info("Validating Edge cluster for target edge gateway deployment")
@@ -4309,7 +4381,8 @@ class VCDMigrationValidation:
             for orgVdc in orgVdcList:
                 if orgVdc['OrgVDCName'] != sourceOrgVDC and orgVdc['ExternalNetwork'] == externalNetworkName:
                     orgUrl = self.getOrgUrl(inputDict["VCloudDirector"]["Organization"]["OrgName"])
-                    sourceOrgVDCId = self.getOrgVDCDetails(orgUrl, orgVdc["OrgVDCName"], 'sourceOrgVDC')
+                    sourceOrgVDCId = self.getOrgVDCDetails(orgUrl, orgVdc["OrgVDCName"], 'sourceOrgVDC',
+                                                           saveResponse=False)
                     sourceEdgeGatewayIdList = self.getOrgVDCEdgeGatewayId(sourceOrgVDCId)
                     if len(sourceEdgeGatewayIdList) > 0:
                         orgVdcNameList.append(orgVdc['OrgVDCName'])
@@ -5296,7 +5369,7 @@ class VCDMigrationValidation:
                 sourceOrgVDCId = orgVDCData[orgVdcName]["id"]
             elif inputDict:
                 orgUrl = vcdObj.getOrgUrl(inputDict["VCloudDirector"]["Organization"]["OrgName"])
-                sourceOrgVDCId = vcdObj.getOrgVDCDetails(orgUrl, orgVdcName, 'sourceOrgVDC')
+                sourceOrgVDCId = vcdObj.getOrgVDCDetails(orgUrl, orgVdcName, 'sourceOrgVDC', saveResponse=False)
             else:
                 raise Exception('Unable to find source Org VDC ID')
 
