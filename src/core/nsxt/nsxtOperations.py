@@ -428,6 +428,7 @@ class NSXTOperations():
                     nextUnusedUplink = re.sub('\d', lambda x: str(int(x.group(0)) + 1), lastUsedUplink)
                     newHostSwitchSpec = {"host_switch_profile_ids": [{"key": "UplinkHostSwitchProfile", "value": uplinkProfileData['id']}],
                                          "host_switch_mode": "STANDARD",
+                                         'host_switch_name': nsxtConstants.BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME,
                                          "pnics": [{"device_name": nextUnusedUplink, "uplink_name": uplinkProfileData['teaming']['active_list'][0]['uplink_name']}],
                                          "is_migrate_pnics": False,
                                          "ip_assignment_spec": {"resource_type": "AssignedByDhcp"},
@@ -436,10 +437,6 @@ class NSXTOperations():
                                               "transport_zone_profile_ids": hostSwitchSpec[0]['transport_zone_endpoints'][0]['transport_zone_profile_ids']
                                               }]
                                          }
-                    # if nsxt version is less than 3.1, update host switch name parameter as it
-                    # doesnt update automatically with bridge tz host switch name
-                    if nsxtVersion < tuple(map(int, '3.1'.split('.'))):
-                        newHostSwitchSpec['host_switch_name'] = nsxtConstants.BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME
                     hostSwitchSpec.append(newHostSwitchSpec)
                     transportZoneList = edgeNodeData['transport_zone_endpoints']
                     dataNetworkList = edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config']['data_network_ids']
