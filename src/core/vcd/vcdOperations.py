@@ -818,29 +818,51 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description("getting the portgroup of source org vdc networks")
     @remediate
-    def getPortgroupInfo(self, orgVdcNetworkList):
+    def getPortgroupInfo(self, orgVdcNetworkList, vcenterObj):
         """
         Description : Get Portgroup Info
         Parameters  : orgVdcNetworkList - List of source org vdc networks (LIST)
+                      vcenterObj - Object of vcenterApis module (Object)
         """
         try:
             logger.info('Getting the portgroup of source org vdc networks.')
             data = self.rollback.apiData
 
             # Fetching name and ids of all the org vdc networks
-            networkIdList, networkNameList = set(), set()
+            networkIdMapping, networkNameList = dict(), set()
             for orgVdcNetwork in orgVdcNetworkList:
-                networkIdList.add(orgVdcNetwork['id'].split(":")[-1])
+                networkIdMapping[orgVdcNetwork['id'].split(":")[-1]] = orgVdcNetwork
                 networkNameList.add(orgVdcNetwork['name'])
 
+            # Fetching VM ID of source edge gateway
+            edgeGatewayVmIdMapping = self.getEdgeVmId()
+            # get interface details of the nsx-v edge vm using vcenter api's
+            interfaceDetails = {edgeGatewayId: vcenterObj.getEdgeVmNetworkDetails(edgeVMId)
+                                for edgeGatewayId, edgeVMId in edgeGatewayVmIdMapping.items()}
+
             allPortGroups = self.fetchAllPortGroups()
+            portGroupDict = dict()
             # Iterating over all the port groups to find the portgroups linked to org vdc network
-            portGroupDict = {portGroup['network'].split('/')[-1]: portGroup
-                             for portGroup in allPortGroups
-                             if portGroup['networkName'] != '--' and
-                             portGroup['scopeType'] not in ['-1', '1'] and
-                             portGroup['networkName'] in networkNameList and
-                             portGroup['network'].split('/')[-1] in networkIdList}
+            for portGroup in allPortGroups:
+                if portGroup['networkName'] != '--' and \
+                        portGroup['scopeType'] not in ['-1', '1'] and \
+                        portGroup['networkName'] in networkNameList and \
+                        portGroup['network'].split('/')[-1] in networkIdMapping.keys() and \
+                        portGroup['network'].split('/')[-1] not in portGroupDict:
+                    orgVdcNetworkData = networkIdMapping[portGroup['network'].split('/')[-1]]
+                    if orgVdcNetworkData["networkType"] == "NAT_ROUTED" and \
+                        orgVdcNetworkData["connection"]["connectionType"] != "DISTRIBUTED":
+                        edgeGatewayId = orgVdcNetworkData["connection"]["routerRef"]["id"].split(':')[-1]
+
+                        for nicDetail in interfaceDetails[edgeGatewayId]:
+                            # comparing source org vdc network portgroup moref and edge gateway interface details
+                            if portGroup['moref'] == nicDetail['value']['backing']['network']:
+                                portGroupDict[portGroup['network'].split('/')[-1]] = portGroup
+                                break
+                        else:
+                            continue
+                    else:
+                        portGroupDict[portGroup['network'].split('/')[-1]] = portGroup
 
             # Saving portgroups data to metadata data structure
             data['portGroupList'] = list(portGroupDict.values())
@@ -1991,7 +2013,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             except RuntimeError:
                 pass
 
-    def prepareTargetVDC(self, vcdObjList, sourceOrgVDCId, inputDict, vdcDict, nsxObj, sourceOrgVDCName, orgVDCIDList, configureBridging=False, configureServices=False):
+    def prepareTargetVDC(self, vcdObjList, sourceOrgVDCId, inputDict, vdcDict, nsxObj, sourceOrgVDCName, orgVDCIDList, vcenterObj, configureBridging=False, configureServices=False):
         """
         Description :   Preparing Target VDC
         Parameters  :   vcdObjList       -   List of vcd operations class objects (LIST)
@@ -2002,6 +2024,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         nsxObj           -   NSXTOperations class object (OBJECT)
                         sourceOrgVDCName -   Name of source org vdc (STRING)
                         orgVDCIDList     -   List of source org vdc's ID's (LIST)
+                        vcenterObj - Object of vcenterApis module (Object)
                         configureBridging-   Flag that decides bridging is to be configured further or not (BOOLEAN)
                         configureServices-   Flag that decides services are to be configured further or not (BOOLEAN)
         """
@@ -2079,7 +2102,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 self.enablePromiscModeForgedTransmit(orgVdcNetworkList)
 
                 # get the portgroup of source org vdc networks
-                self.getPortgroupInfo(orgVdcNetworkList)
+                self.getPortgroupInfo(orgVdcNetworkList, vcenterObj)
 
             # Migrating metadata from source org vdc to target org vdc
             self.migrateMetadata()
@@ -2942,7 +2965,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         try:
             logger.debug("Getting Edge VM ID")
-            edgeVmIdList = []
+            edgeVmIdMapping = dict()
             edgeGatewayIdList = self.rollback.apiData['sourceEdgeGatewayId']
             for edgeGatewayId in edgeGatewayIdList:
                 orgVDCEdgeGatewayId = edgeGatewayId.split(':')[-1]
@@ -2973,12 +2996,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         edgeVmId = \
                         edgeNetworkDict[vcdConstants.EDGE_GATEWAY_STATUS_KEY][vcdConstants.EDGE_GATEWAY_VM_STATUS_KEY][
                             vcdConstants.EDGE_GATEWAY_VM_STATUS_KEY]["id"]
-                    edgeVmIdList.append(edgeVmId)
+                    edgeVmIdMapping[orgVDCEdgeGatewayId] = edgeVmId
                 else:
                     errorDict = xmltodict.parse(response.content)
                     raise Exception(
                         "Failed to get edge gateway status. Error - {}".format(errorDict['error']['details']))
-            return edgeVmIdList
+            return edgeVmIdMapping
         except Exception:
             raise
 

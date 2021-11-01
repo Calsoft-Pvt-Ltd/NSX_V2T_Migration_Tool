@@ -677,7 +677,7 @@ class NSXTOperations():
             # Sleeping for 180 seconds before verifying bridging connectivity
             time.sleep(180)
             # get source edge gateway vm id
-            edgeVMIdList = [vcdObj.getEdgeVmId() for vcdObj in vcdObjList]
+            edgeVMIdList = [list(vcdObj.getEdgeVmId().values()) for vcdObj in vcdObjList]
 
             sourceEdgeGatewayMacAddressList = []
             for vcdObj, edgeVMList in zip(vcdObjList, edgeVMIdList):
