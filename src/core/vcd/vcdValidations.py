@@ -407,7 +407,7 @@ class VCDMigrationValidation:
         """
         try:
             # url to get Org vDC groups
-            url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.VDC_GROUPS)
+            url = '{}{}?sortAsc=name'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.VDC_GROUPS)
             self.headers['Content-Type'] = 'application/json'
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
@@ -422,7 +422,7 @@ class VCDMigrationValidation:
 
             logger.debug('Getting data center group details')
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.VDC_GROUPS, pageNo,
                                                         25)
                 getSession(self)
@@ -843,7 +843,7 @@ class VCDMigrationValidation:
         try:
             logger.debug("Getting NSXT manager id of Provider VDC {}".format(pvdcName))
             # url to get details of the all provider vdcs
-            url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.PROVIDER_VDC)
+            url = "{}{}?sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.PROVIDER_VDC)
             # get api call to retrieve the all provider vdc details
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
@@ -857,7 +857,7 @@ class VCDMigrationValidation:
                 raise Exception("Failed to get Provider VDC {} details {}".format(pvdcName,
                                                                          errorDict['message']))
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.PROVIDER_VDC, pageNo, 25)
                 getSession(self)
                 response = self.restClientObj.get(url, self.headers)
@@ -893,7 +893,7 @@ class VCDMigrationValidation:
         try:
             logger.debug("Getting Provider VDC {} id".format(pvdcName))
             # url to get details of the all provider vdcs
-            url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.PROVIDER_VDC)
+            url = "{}{}?sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.PROVIDER_VDC)
             # get api call to retrieve the all provider vdc details
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
@@ -907,7 +907,7 @@ class VCDMigrationValidation:
                 raise Exception("Failed to get Provider VDC {} details {}".format(pvdcName,
                                                                          errorDict['message']))
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.PROVIDER_VDC, pageNo, 25)
                 getSession(self)
                 response = self.restClientObj.get(url, self.headers)
@@ -1444,7 +1444,7 @@ class VCDMigrationValidation:
         """
         try:
             logger.debug("Getting Org VDC Edge Gateway details")
-            url = "{}{}?filter=(orgVdc.id=={})".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+            url = "{}{}?filter=(orgVdc.id=={})&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                        vcdConstants.ALL_EDGE_GATEWAYS, orgVDCId)
             # get api call to retrieve all edge gateways of the specified org vdc
             response = self.restClientObj.get(url, self.headers)
@@ -1461,7 +1461,7 @@ class VCDMigrationValidation:
             pageSizeCount = 0
             resultList = []
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}&filter=(orgVdc.id=={})".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                url = "{}{}?page={}&pageSize={}&filter=(orgVdc.id=={})&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.ALL_EDGE_GATEWAYS, pageNo, 15, orgVDCId)
                 getSession(self)
                 response = self.restClientObj.get(url, self.headers)
@@ -1664,16 +1664,16 @@ class VCDMigrationValidation:
         try:
             if float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
                 key = 'orgVdc'
-                urlForNetworks = "{}{}?filter=({}.id=={})"
-                urlForNetworksPagenation = "{}{}?page={}&pageSize={}&filter=({}.id=={})"
+                urlForNetworks = "{}{}?filter=({}.id=={})&sortAsc=name"
+                urlForNetworksPagenation = "{}{}?page={}&pageSize={}&sortAsc=name&filter=({}.id=={})"
             elif float(self.version) >= float(vcdConstants.API_VERSION_ZEUS) and sharedNetwork:
                 key = 'ownerRef'
-                urlForNetworks = "{}{}?filter=(({}.id=={});(_context==includeAccessible))"
-                urlForNetworksPagenation = "{}{}?page={}&pageSize={}&filter=(({}.id=={});(_context==includeAccessible))"
+                urlForNetworks = "{}{}?sortAsc=name&filter=(({}.id=={});(_context==includeAccessible))"
+                urlForNetworksPagenation = "{}{}?page={}&pageSize={}&filter=(({}.id=={});(_context==includeAccessible))&sortAsc=name"
             else:
                 key = 'ownerRef'
-                urlForNetworks = "{}{}?filter=({}.id=={})"
-                urlForNetworksPagenation = "{}{}?page={}&pageSize={}&filter=({}.id=={})"
+                urlForNetworks = "{}{}?filter=({}.id=={})&sortAsc=name"
+                urlForNetworksPagenation = "{}{}?page={}&pageSize={}&filter=({}.id=={})&sortAsc=name"
 
             ownerRefslist = self.rollback.apiData['OrgVDCGroupID'].values() if self.rollback.apiData.get(
                 'OrgVDCGroupID') else []
@@ -2188,7 +2188,7 @@ class VCDMigrationValidation:
             nsxtManagerId = self.getNsxtManagerId(tpvdcName)
 
             while True:
-                url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),'networkContextProfiles?page={}&pageSize=25&filter=_context=={}'.format(str(pageNo), nsxtManagerId))
+                url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),'networkContextProfiles?page={}&pageSize=25&filter=_context=={}&sortAsc=name'.format(str(pageNo), nsxtManagerId))
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
@@ -2540,7 +2540,7 @@ class VCDMigrationValidation:
                 vcdConstants.GET_NAMED_DISK_BY_VDC.format(orgVDCIdShort))
             # Get first page of query
             pageNo = 1
-            url = f"{base_url}&page={pageNo}&pageSize={pageSize}&format=records"
+            url = f"{base_url}&page={pageNo}&pageSize={pageSize}&format=records&sortAsc=name"
             headers = {
                 'Authorization': self.headers['Authorization'],
                 'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE,
@@ -3387,7 +3387,7 @@ class VCDMigrationValidation:
             resultList = []
             logger.debug('Getting Org VDC Compute Policies')
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.VDC_COMPUTE_POLICIES, pageNo,
                                                         vcdConstants.ORG_VDC_COMPUTE_POLICY_PAGE_SIZE)
                 getSession(self)
@@ -3701,7 +3701,7 @@ class VCDMigrationValidation:
         # Query url to fetch the vm related data
         acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
         headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
-        url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress), vcdConstants.ORG_VDC_QUERY)
+        url = "{}{}&sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress), vcdConstants.ORG_VDC_QUERY)
         response = self.restClientObj.get(url, headers)
         if response.status_code == requests.codes.ok:
             responseDict = response.json()
@@ -3717,7 +3717,7 @@ class VCDMigrationValidation:
         logger.debug('Getting org vdc details')
         while resultTotal > 0 and pageSizeCount < resultTotal:
             # Query url to fetch the vm related data
-            url = "{}{}&page={}&pageSize={}&format=records".format(
+            url = "{}{}&page={}&pageSize={}&format=records&sortAsc=name".format(
                 vcdConstants.XML_API_URL.format(self.ipAddress),
                 vcdConstants.ORG_VDC_QUERY, pageNo,
                 25)
@@ -3817,7 +3817,7 @@ class VCDMigrationValidation:
         resultList = []
         logger.debug('Getting portgroup details')
         while resultTotal > 0 and pageSizeCount < resultTotal:
-            url = "{}{}&page={}&pageSize={}&format=records".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+            url = "{}{}&page={}&pageSize={}&format=records&sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
                                                                    vcdConstants.GET_PORTGROUP_INFO, pageNo,
                                                                    vcdConstants.PORT_GROUP_PAGE_SIZE)
             getSession(self)
@@ -3959,7 +3959,7 @@ class VCDMigrationValidation:
         # Query url to fetch the vm related data
         acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
         headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
-        url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress), vcdConstants.ORG_VDC_QUERY)
+        url = "{}{}&sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress), vcdConstants.ORG_VDC_QUERY)
         response = self.restClientObj.get(url, headers)
         if response.status_code == requests.codes.ok:
             responseDict = response.json()
@@ -3975,7 +3975,7 @@ class VCDMigrationValidation:
         logger.debug('Getting org vdc details')
         while resultTotal > 0 and pageSizeCount < resultTotal:
             # Query url to fetch the vm related data
-            url = "{}{}&page={}&pageSize={}&format=records".format(
+            url = "{}{}&page={}&pageSize={}&format=records&sortAsc=name".format(
                 vcdConstants.XML_API_URL.format(self.ipAddress),
                 vcdConstants.ORG_VDC_QUERY, pageNo,
                 25)
@@ -4631,7 +4631,7 @@ class VCDMigrationValidation:
         """
         try:
             # url to get the media info of specified organization
-            url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+            url = "{}{}?sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
                                 vcdConstants.GET_MEDIA_INFO)
             acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,
@@ -4647,7 +4647,7 @@ class VCDMigrationValidation:
             logger.debug('Getting media details')
             while resultTotal > 0 and pageSizeCount < resultTotal:
                 # url to get the media info of specified organization with page number and page size count
-                url = "{}{}&page={}&pageSize={}&format=records".format(
+                url = "{}{}&page={}&pageSize={}&format=records&sortAsc=name".format(
                     vcdConstants.XML_API_URL.format(self.ipAddress),
                     vcdConstants.GET_MEDIA_INFO, pageNo,
                     vcdConstants.MEDIA_PAGE_SIZE)
@@ -4675,7 +4675,7 @@ class VCDMigrationValidation:
         """
         try:
             # url to get vapp template info
-            url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+            url = "{}{}?sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
                                 vcdConstants.GET_VAPP_TEMPLATE_INFO)
             acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,
@@ -4691,7 +4691,7 @@ class VCDMigrationValidation:
             logger.debug('Getting vapp template details')
             while resultTotal > 0 and pageSizeCount < resultTotal:
                 # url to get the vapp template info with page number and page size count
-                url = "{}{}&page={}&pageSize={}&format=records".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                url = "{}{}&page={}&pageSize={}&format=records&sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
                                                                        vcdConstants.GET_VAPP_TEMPLATE_INFO, pageNo,
                                                                        vcdConstants.VAPP_TEMPLATE_PAGE_SIZE)
                 getSession(self)
@@ -4867,7 +4867,7 @@ class VCDMigrationValidation:
         try:
             logger.debug("Getting Service Engine Group Details")
             # url to retrieve service engine group details
-            url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+            url = "{}{}?sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                 vcdConstants.GET_SERVICE_ENGINE_GROUP_URI)
             # get api call to retrieve org vdc compute policies
             response = self.restClientObj.get(url, self.headers)
@@ -4881,7 +4881,7 @@ class VCDMigrationValidation:
             pageSizeCount = 0
             resultList = []
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.GET_SERVICE_ENGINE_GROUP_URI, pageNo,
                                                         vcdConstants.SERVICE_ENGINE_GROUP_PAGE_SIZE)
                 getSession(self)
@@ -5216,7 +5216,7 @@ class VCDMigrationValidation:
                     logger.debug('Getting vApp details')
                     while resultTotal > 0 and pageSizeCount < resultTotal:
                         # url to get the media info of specified organization with page number and page size count
-                        url = "{}{}&page={}&pageSize={}&filter=(linkNetworkName=={})".format(
+                        url = "{}{}&page={}&pageSize={}&filter=(linkNetworkName=={})&sortAsc=name".format(
                             vcdConstants.XML_API_URL.format(self.ipAddress),
                             vcdConstants.VAPP_NETWORK_QUERY, pageNo,
                             vcdConstants.MEDIA_PAGE_SIZE, networkName)
@@ -5262,7 +5262,7 @@ class VCDMigrationValidation:
                 pageSizeCount = 0
                 while resultTotal > 0 and pageSizeCount < resultTotal:
                     # url to get the vApp info of specified organization with page number and page size count
-                    url = "{}{}&page={}&pageSize={}&format=records".format(
+                    url = "{}{}&page={}&pageSize={}&format=records&sortAsc=name".format(
                         vcdConstants.XML_API_URL.format(self.ipAddress),
                         vcdConstants.VAPP_INFO_QUERY, pageNo,
                         vcdConstants.MEDIA_PAGE_SIZE)
@@ -5449,47 +5449,6 @@ class VCDMigrationValidation:
         finally:
             threading.current_thread().name = "MainThread"
 
-    @isSessionExpired
-    def getOrgVDCGroup(self):
-        """
-        Description: Fetch all DC groups present in vCD
-        """
-        try:
-            # url to get Org vDC groups
-            url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.VDC_GROUPS)
-            self.headers['Content-Type'] = 'application/json'
-            response = self.restClientObj.get(url, self.headers)
-            if response.status_code == requests.codes.ok:
-                responseDict = response.json()
-                resultTotal = responseDict['resultTotal']
-                pageNo = 1
-                pageSizeCount = 0
-                resultList = []
-            else:
-                errorDict = response.json()
-                raise Exception("Failed to get target org VDC Group '{}' ".format(errorDict['message']))
-
-            logger.debug('Getting data center group details')
-            while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                                       vcdConstants.VDC_GROUPS, pageNo,
-                                                                       25)
-                response = self.restClientObj.get(url, self.headers)
-                if response.status_code == requests.codes.ok:
-                    responseDict = response.json()
-                    resultList.extend(responseDict['values'])
-                    pageSizeCount += len(responseDict['values'])
-                    logger.debug('DataCenter group details result pageSize = {}'.format(pageSizeCount))
-                    pageNo += 1
-                    resultTotal = responseDict['resultTotal']
-                else:
-                    errorDict = response.json()
-                    raise Exception("Failed to get target org VDC Group '{}' ".format(errorDict['message']))
-            logger.debug('Total data center group details result count = {}'.format(len(resultList)))
-            logger.debug('DataCenter group details successfully retrieved')
-            return resultList
-        except:
-            raise
 
     @isSessionExpired
     def getSourceDfwSecurityGroups(self):

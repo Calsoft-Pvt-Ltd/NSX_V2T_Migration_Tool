@@ -647,7 +647,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             resultList = list()
             logger.debug('Getting Application port profiles')
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}&filter=_context=={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                url = "{}{}?page={}&pageSize={}&filter=_context=={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.APPLICATION_PORT_PROFILES, pageNo,
                                                         vcdConstants.APPLICATION_PORT_PROFILES_PAGE_SIZE,
                                                                             nsxtManagerId)
@@ -2219,7 +2219,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             pageSizeCount = 0
             targetLoadBalancerPoolSummary = []
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.EDGE_GATEWAY_LOADBALANCER_POOLS_USING_ID.format(
                                                             edgeGatewayId), pageNo,
                                                         25)
@@ -2257,7 +2257,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             pageSizeCount = 0
             targetLoadBalancerVirtualServiceSummary = []
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.EDGE_GATEWAY_LOADBALANCER_VIRTUALSERVICE_USING_ID.format(
                                                             edgeGatewayId), pageNo,
                                                         25)
@@ -2297,7 +2297,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             pageSizeCount = 0
             serviceEngineGroupList = []
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.ASSIGN_SERVICE_ENGINE_GROUP_URI,
                                                         pageNo,
                                                         25)
@@ -3087,7 +3087,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             # Get first page of query
             pageNo = 1
-            url = f"{base_url}?page={pageNo}&pageSize={pageSize}{query}"
+            url = f"{base_url}?page={pageNo}&pageSize={pageSize}&sortAsc=name{query}"
             self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
 
             response = self.restClientObj.get(url, self.headers)
@@ -3107,7 +3107,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             # Query second page onwards until resultTotal is reached
             while len(resultFetched) < resultTotal:
-                url = f"{base_url}?page={pageNo}&pageSize={pageSize}{query}"
+                url = f"{base_url}?page={pageNo}&pageSize={pageSize}&sortAsc=name{query}"
                 self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
                 response = self.restClientObj.get(url, self.headers)
                 if not response.status_code == requests.codes.ok:
@@ -3662,7 +3662,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     "Failed to fetch firewall group summary from target - {}".format(response['message']))
 
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}?page={}&pageSize={}{}".format(
+                url = "{}?page={}&pageSize={}{}&sortAsc=name".format(
                     firewallGroupsUrl, pageNo, vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE,
                     f"&{urlFilter}" if urlFilter else '')
                 getSession(self)
@@ -3732,7 +3732,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 "Failed to fetch security tag summary from target - {}".format(response['message']))
 
         while resultTotal > 0 and pageSizeCount < resultTotal:
-            url = "{}?page={}&pageSize={}".format(base_url, pageNo,
+            url = "{}?page={}&pageSize={}&sortAsc=name".format(base_url, pageNo,
                                                   vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE)
             response = self.restClientObj.get(url, headers)
             if response.status_code == requests.codes.ok:
@@ -3766,7 +3766,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         base_url = "{}securityTags/entities".format(
             vcdConstants.OPEN_API_URL.format(self.ipAddress))
         query_filter = f'&filterEncoded=true&filter=tag=={tagName}'
-        url = f"{base_url}?page=1&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}{query_filter}"
+        url = f"{base_url}?page=1&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}&sortAsc=name{query_filter}"
         response = self.restClientObj.get(url, self.headers)
 
         # Fetching associated VMs with tag summary
@@ -3783,7 +3783,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 tagName, response['message']))
 
         while resultTotal > 0 and pageSizeCount < resultTotal:
-            url = f"{base_url}?page={pageNo}&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}{query_filter}"
+            url = f"{base_url}?page={pageNo}&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}&sortAsc=name{query_filter}"
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
