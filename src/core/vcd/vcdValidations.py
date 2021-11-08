@@ -695,12 +695,14 @@ class VCDMigrationValidation:
         # get api call to retrieve the organization details
         orgResponse = self.restClientObj.get(orgUrl, headers=self.headers)
         orgResponseDict = xmltodict.parse(orgResponse.content)
+        if orgResponse.status_code == requests.codes.ok:
+            # retrieving the organization ID
+            orgId = orgResponseDict['AdminOrg']['@id']
+            logger.debug('Organization {} ID {} retrieved successfully'.format(orgName, orgId))
+            return orgId
+        raise Exception('Failed to retrieve organization ID for {} due to {}'.format(orgName),
+                        orgResponseDict['Error']['@message'])
 
-        # retrieving the organization ID
-        orgId = orgResponseDict['AdminOrg']['@id']
-        logger.debug('Organization {} ID {} retrieved successfully'.format(orgName, orgId))
-
-        return orgId
 
     def getOrgVDCUrl(self, orgUrl, orgVDCName, saveResponse=True):
         """
@@ -1058,26 +1060,28 @@ class VCDMigrationValidation:
                 # get api call to get the vapp details
                 response = self.restClientObj.get(eachVapp['@href'], self.headers)
                 responseDict = xmltodict.parse(response.content)
-                vAppData = responseDict['VApp']
+                if response.status_code == requests.codes.ok:
+                    vAppData = responseDict['VApp']
 
-                logger.debug('Checking fencing on vApp: {}'.format(eachVapp['@name']))
-                # checking for the networks present in the vapp
-                if vAppData.get('NetworkConfigSection'):
-                    if vAppData['NetworkConfigSection'].get('NetworkConfig'):
-                        networksInvApp = vAppData['NetworkConfigSection']['NetworkConfig'] if isinstance(vAppData['NetworkConfigSection']['NetworkConfig'], list) else [vAppData['NetworkConfigSection']['NetworkConfig']]
-                        # iterating over the networks present in vapp(example:- vapp networks, org vdc networks, etc)
-                        for network in networksInvApp:
-                            # checking if the network is org vdc network(i.e if network's name and its parent network name is same means the network is org vdc network)
-                            # here our interest networks are only org vdc networks present in vapp
-                            if network['Configuration'].get('ParentNetwork') and network['@networkName'] == network['Configuration']['ParentNetwork']['@name']:
-                                if network['Configuration'].get('Features') and network['Configuration']['Features'].get('FirewallService'):
-                                    # since FirewallService is enabled on org vdc networks if fence mode is enabled, checking if ['FirewallService']['IsEnabled'] attribute is true
-                                    if network['Configuration']['Features']['FirewallService']['IsEnabled'] == 'true':
-                                        # adding the vapp name in the vAppFencingList to raise the exception
-                                        vAppFencingList.append(eachVapp['@name'])
-                                        # this will logged number of times equal to org vdc networks present in vapp before enabling the fence mode
-                                        logger.debug("Fence mode is enabled on vApp: '{}'".format(eachVapp['@name']))
-
+                    logger.debug('Checking fencing on vApp: {}'.format(eachVapp['@name']))
+                    # checking for the networks present in the vapp
+                    if vAppData.get('NetworkConfigSection'):
+                        if vAppData['NetworkConfigSection'].get('NetworkConfig'):
+                            networksInvApp = vAppData['NetworkConfigSection']['NetworkConfig'] if isinstance(vAppData['NetworkConfigSection']['NetworkConfig'], list) else [vAppData['NetworkConfigSection']['NetworkConfig']]
+                            # iterating over the networks present in vapp(example:- vapp networks, org vdc networks, etc)
+                            for network in networksInvApp:
+                                # checking if the network is org vdc network(i.e if network's name and its parent network name is same means the network is org vdc network)
+                                # here our interest networks are only org vdc networks present in vapp
+                                if network['Configuration'].get('ParentNetwork') and network['@networkName'] == network['Configuration']['ParentNetwork']['@name']:
+                                    if network['Configuration'].get('Features') and network['Configuration']['Features'].get('FirewallService'):
+                                        # since FirewallService is enabled on org vdc networks if fence mode is enabled, checking if ['FirewallService']['IsEnabled'] attribute is true
+                                        if network['Configuration']['Features']['FirewallService']['IsEnabled'] == 'true':
+                                            # adding the vapp name in the vAppFencingList to raise the exception
+                                            vAppFencingList.append(eachVapp['@name'])
+                                            # this will logged number of times equal to org vdc networks present in vapp before enabling the fence mode
+                                            logger.debug("Fence mode is enabled on vApp: '{}'".format(eachVapp['@name']))
+                else:
+                    raise Exception('Error occurred while retrieving fencing details due to {}'.format(responseDict['error']['@message']))
             if vAppFencingList:
                 raise Exception('Fencing mode is enabled on vApp: {}'.format(', '.join(set(vAppFencingList))))
             else:
@@ -1431,7 +1435,7 @@ class VCDMigrationValidation:
                 data['sourceVMAffinityRules'] = responseDict['VmAffinityRules']['VmAffinityRule'] if responseDict['VmAffinityRules'].get('VmAffinityRule', None) else {}
                 logger.debug("Retrieved Source Org VDC affinity rules Successfully")
             else:
-                raise Exception("Failed to retrieve VM Affinity rules of source Org VDC")
+                raise Exception("Failed to retrieve VM Affinity rules of source Org VDC due to {}".format(responseDict['Error']['@message']))
         except Exception:
             raise
 
@@ -3440,7 +3444,10 @@ class VCDMigrationValidation:
         """
         vAppResponse = self.restClientObj.get(vApp['@href'], self.headers)
         responseDict = xmltodict.parse(vAppResponse.content)
-        # checking if the vapp has vms present in it
+        if not vAppResponse.status_code == requests.codes.ok:
+            raise Exception("Failed to get vapp details to validate suspended VM "
+                            "due to {}".format(responseDict['Error']['@message']))
+            # checking if the vapp has vms present in it
         if not responseDict['VApp'].get('Children'):
             logger.debug('Source vApp {} has no VM present in it.'.format(vApp['@name']))
             return
@@ -3483,6 +3490,9 @@ class VCDMigrationValidation:
         # get api call to retrieve the vapp details
         response = self.restClientObj.get(vApp['@href'], self.headers)
         responseDict = xmltodict.parse(response.content)
+        if not response.status_code == requests.codes.ok:
+            raise Exception("Failed to get vapp {} details for own network due "
+                            "to {}".format(vApp['@name'], responseDict['Error']['@message']))
         vAppData = responseDict['VApp']
         # checking if the networkConfig is present in vapp's NetworkConfigSection
         if vAppData['NetworkConfigSection'].get('NetworkConfig'):
@@ -3560,6 +3570,9 @@ class VCDMigrationValidation:
         # get api call to retrieve the vapp details
         response = self.restClientObj.get(vApp['@href'], self.headers)
         responseDict = xmltodict.parse(response.content)
+        if not response.status_code == requests.codes.ok:
+            raise Exception('Error occurred while retrieving vapp details to validate isolated network'
+                            'for {} due to {}'.format(vApp['@name'],responseDict['Error']['@message']))
         vAppData = responseDict['VApp']
         # checking if the networkConfig is present in vapp's NetworkConfigSection
         if vAppData['NetworkConfigSection'].get('NetworkConfig'):
