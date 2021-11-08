@@ -139,6 +139,9 @@ class Rollback:
             self.logger.error("Rollback failed, manual rollback required or use --rollback parameter to retry rollback again.")
             raise
         else:
+            # Delete Named Disks metadata
+            for disk in vcdObj.namedDisks.get(sourceOrgVDCId, []) + vcdObj.namedDisks.get(targetOrgVDCId, []):
+                vcdObj.deleteMetadata(disk['id'], entity=f"disk {disk['name']}")
             # Deleting metadata created in the source org vdc after rollback
             vcdObj.deleteMetadata(sourceOrgVDCId)
             self.logger.info("Rollback completed successfully.")

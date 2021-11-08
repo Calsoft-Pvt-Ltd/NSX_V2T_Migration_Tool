@@ -494,9 +494,11 @@ class VMwareCloudDirectorNSXMigrator():
                     waitForThreadToComplete(futures)
 
                 # if vApp migration was performed do rollback
+                self.vcdObjList[0].detachNamedDisksRollback(
+                    self.vcdObjList, self.timeoutForVappMigration, threadCount=self.threadCount)
                 self.vcdObjList[0].vappRollback(
                     self.vcdObjList, self.inputDict, self.timeoutForVappMigration, threadCount=self.threadCount)
-                self.vcdObjList[0].moveNamedDisksRollback(
+                self.vcdObjList[0].moveAndAttachNamedDisksRollback(
                     self.vcdObjList, self.timeoutForVappMigration, threadCount=self.threadCount)
 
                 # If bridging is configured do rollback
@@ -618,6 +620,38 @@ class VMwareCloudDirectorNSXMigrator():
             self.consoleLogger.warning(f"\n{title}\n{table.get_string()}")
         except:
             raise
+
+    def fetchNamedDisksDetails(self):
+        if float(self.vcdObjList[0].version) < float(vcdConstants.API_VERSION_ANDROMEDA):
+            return
+
+        def updateMetadata(vcdObj, disk):
+            if disk.get('metadata'):
+                return disk
+            metadata = vcdObj.getOrgVDCMetadata(disk['id'], entity='disk', domain='system')
+            disk.update({'metadata': metadata})
+            return disk
+
+        with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+            futures = list()
+            for vcdObj in self.vcdObjList:
+                futures.append(
+                    executor.submit(vcdObj.getNamedDiskInOrgVDC, vcdObj.rollback.apiData['sourceOrgVDC']['@id']))
+                if vcdObj.rollback.apiData.get('targetOrgVDC'):
+                    futures.append(
+                        executor.submit(vcdObj.getNamedDiskInOrgVDC, vcdObj.rollback.apiData['targetOrgVDC']['@id']))
+
+            waitForThreadToComplete(futures)
+
+            # Fetch disk metadata
+            if not self.cleanup:
+                futures = [
+                    executor.submit(updateMetadata, vcdObj, disk)
+                    for vcdObj in self.vcdObjList
+                    for disks in vcdObj.namedDisks.values()
+                    for disk in disks
+                ]
+                waitForThreadToComplete(futures)
 
     def run(self):
         """
@@ -756,6 +790,10 @@ class VMwareCloudDirectorNSXMigrator():
                 for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
                     futures.append(executor.submit(self.fetchMetadataFromOrgVDC, vcdObj, orgVDCDict))
                 waitForThreadToComplete(futures)
+
+            # Get Named Disks details from all Org VDCs
+            if mainConstants.MOVEVAPP_KEYWORD in self.executeList:
+                self.fetchNamedDisksDetails()
 
             # Perform rollback if rollback parameter is provided
             self.performRollback()
@@ -897,9 +935,11 @@ class VMwareCloudDirectorNSXMigrator():
                     waitForThreadToComplete(futures)
 
                 # perform vApp Migration
+                self.vcdObjList[0].detachNamedDisks(
+                    self.vcdObjList, self.timeoutForVappMigration, threadCount=self.threadCount)
                 self.vcdObjList[0].migrateVapps(
                     self.vcdObjList, self.inputDict, self.timeoutForVappMigration, threadCount=self.threadCount)
-                self.vcdObjList[0].moveNamedDisks(
+                self.vcdObjList[0].moveAndAttachNamedDisks(
                     self.vcdObjList, self.timeoutForVappMigration, threadCount=self.threadCount)
 
                 # Enable target affinity rules

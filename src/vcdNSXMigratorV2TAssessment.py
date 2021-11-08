@@ -254,7 +254,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                 'No free interface on edge gateways': [self.vcdValidationObj.validateEdgeGatewayUplinks,
                                                      vdcId, self.edgeGatewayIdList],
                 'Edge Gateway Rate Limit': [self.vcdValidationObj.validateEdgeGatewayRateLimit, self.edgeGatewayIdList],
-                'Shared Independent Disks': [self.vcdValidationObj.validateIndependentDisks, vdcId, OrgId, True],
+                'Independent Disks': [self.vcdValidationObj.validateIndependentDisks, vdcId, OrgId, True],
                 'Validating Source Edge gateway services': [self.vcdValidationObj.getEdgeGatewayServices, None, None, None, True, None, True],
                 'Unsupported DFW configuration': [self.vcdValidationObj.getDistributedFirewallConfig, vdcId, True, True, True],
                 'Cross VDC Networking': [self.vcdValidationObj.validateCrossVdcNetworking, vdcId]
@@ -684,6 +684,17 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 self.orgVDCResult["GRE Tunnel"] = True
                                             else:
                                                 self.orgVDCResult["GRE Tunnel"] = False
+                                if desc == "Independent Disks":
+                                    del self.orgVDCResult["Independent Disks"]
+                                    diskResult = ''.join(output)
+                                    self.orgVDCResult["Independent Disks: Shared disk present"] = (
+                                        True
+                                        if "Independent Disks in Org VDC are shared" in diskResult
+                                        else False)
+                                    self.orgVDCResult["Independent Disks: Attached VMs are not powered off"] = (
+                                        True
+                                        if "VMs attached to disks are not powered off" in diskResult
+                                        else False)
 
                     except Exception as err:
                         self.logger.debug(f"Failed to evaluate Org VDC '{VDC}' of organization '{org}' due to error - '{str(err)}'")
