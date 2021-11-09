@@ -1021,8 +1021,12 @@ class VCDMigrationValidation:
             response = self.restClientObj.get(url, self.headers)
             responseDict = xmltodict.parse(response.content)
             allNsxtManager = responseDict['vmext:NsxTManagers']['vmext:NsxTManager'] if isinstance(responseDict['vmext:NsxTManagers']['vmext:NsxTManager'], list) else [responseDict['vmext:NsxTManagers']['vmext:NsxTManager']]
+
             for eachNsxManager in allNsxtManager:
-                if nsxIpAddress in eachNsxManager['vmext:Url']:
+                # Match hostname with NSXT URL if FQDN is provided in the input file else check for ip address
+                if (re.search('[a-zA-z]+', nsxIpAddress) and
+                    nsxIpAddress.split('.')[0] in eachNsxManager['vmext:Url'])\
+                        or nsxIpAddress in eachNsxManager['vmext:Url']:
                     # Network provider scope to be used for data center group creation for DFW migration
                     self.networkProviderScope = eachNsxManager.get('vmext:NetworkProviderScope')
                     self.nsxVersion = eachNsxManager['vmext:Version']
