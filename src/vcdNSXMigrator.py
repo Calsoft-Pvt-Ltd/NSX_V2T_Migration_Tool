@@ -293,8 +293,7 @@ class VMwareCloudDirectorNSXMigrator():
                             errorInputDict[dictKey] = "Value must be boolean i.e either True or False."
                         # validate ip address or fqdn
                         if item == 'ipAddress':
-                            isFqdn = not all(host.isdigit() for host in str(value).split(".")[:-1]) and \
-                                     not str(value).split(".")[-1].isdigit()
+                            isFqdn = not all(host.isdigit() for host in str(value).split("."))
                             # validate fqdn
                             if isFqdn:
                                 if len(str(value)) > 255:
