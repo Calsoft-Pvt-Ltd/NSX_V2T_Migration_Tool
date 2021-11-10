@@ -51,9 +51,6 @@ API_VERSION = "/spec/openapi/nsx_policy_api.json"
 # root directory constant which fetches the absolute path of this module i.e D:/vcd-migration/src/core/nsxt
 NSXT_ROOT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
-# nsx-t create bridge endpoint profile template name
-CREATE_BRIDGE_ENDPOINT_PROFILE_COMPONENT_NAME = 'createBridgeEndpointProfile'
-
 # nsx-t create bridge edge profile(Policy API) template name.
 CREATE_BRIDGE_EDGE_PROFILE_COMPONENT_NAME = 'createBridgeEdgeProfile'
 
