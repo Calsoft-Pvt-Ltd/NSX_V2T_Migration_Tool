@@ -102,7 +102,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             # fetch details of edge gateway
             self.consoleLogger.info(getEdgeGatewayDesc)
             threadObj.spawnThread(vcdValidationObj.getOrgVDCEdgeGatewayId,
-                                    sourceOrgVDCId, saveOutputKey='edgeGatewayIdList')
+                                    sourceOrgVDCId, saveResponse=True, saveOutputKey='edgeGatewayIdList')
             # fetch details of source external network
             self.consoleLogger.info(getSourceExternalNetworkDesc)
             threadObj.spawnThread(vcdValidationObj.getSourceExternalNetwork,
@@ -142,8 +142,8 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             vcdValidationMapping = {
                 'Validating NSX-T manager Ip Address and version': [vcdValidationObj.getNsxDetails, self.inputDict["NSXT"]["Common"]["ipAddress"]],
                 'Validating if target OrgVDC do not exists': [vcdValidationObj.validateNoTargetOrgVDCExists, orgVDCDict["OrgVDCName"]],
-                'Validating whether other Edge gateways are using dedicated external network': [vcdValidationObj.validateDedicatedExternalNetwork, self.inputDict, edgeGatewayIdList],
-                'Validating Source Network Pool is VXLAN or VLAN backed': [vcdValidationObj.validateSourceNetworkPools, self.inputDict["VCloudDirector"].get("CloneOverlayIds")],
+                'Validating whether other Edge gateways are using dedicated external network': [vcdValidationObj.validateDedicatedExternalNetwork, self.inputDict, edgeGatewayIdList, orgVDCDict.get("AdvertiseRoutedNetworks")],
+                'Validating Source Network Pool backing': [vcdValidationObj.validateSourceNetworkPools, self.inputDict["VCloudDirector"].get("CloneOverlayIds")],
                 'Validating whether source Org VDC is NSX-V backed': [vcdValidationObj.validateOrgVDCNSXbacking, sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked],
                 'Validating Target Provider VDC is enabled': [vcdValidationObj.validateTargetProviderVdc],
                 'Validating Hardware version of Source Provider VDC: {} and Target Provider VDC: {}'.format(orgVDCDict["NSXVProviderVDCName"], orgVDCDict["NSXTProviderVDCName"]): [vcdValidationObj.validateHardwareVersion],
@@ -157,7 +157,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating whether shared networks are supported or not': [vcdValidationObj.validateOrgVDCNetworkShared, sourceOrgVDCId],
                 'Validating Source OrgVDC Direct networks': [vcdValidationObj.validateOrgVDCNetworkDirect, orgVdcNetworkList, orgVDCDict["NSXTProviderVDCName"], self.NSXTProviderVDCImportedNeworkTransportZone, nsxtObj],
                 'Validating Edge cluster for target edge gateway deployment': [vcdValidationObj.validateEdgeGatewayDeploymentEdgeCluster, edgeGatewayDeploymentEdgeCluster, nsxtObj],
-                'Validating whether the source NSX-V VNI pool is subset of target NSX-T VNI pools or not': [vcdValidationObj.validateVniPoolRanges, nsxtObj, self.nsxvObj, self.inputDict["VCloudDirector"].get("CloneOverlayIds")],
+                'Validating whether the source NSX-V Segment ID Pool is subset of target NSX-T VNI pool or not': [vcdValidationObj.validateVniPoolRanges, nsxtObj, self.nsxvObj, self.inputDict["VCloudDirector"].get("CloneOverlayIds")],
                 'Validating Target NSX-T backed Network Pools': [vcdValidationObj.validateTargetPvdcNetworkPools, orgVDCDict.get('NSXTNetworkPoolName', None)],
                 'Validating Cross VDC Networking is enabled or not': [vcdValidationObj.validateCrossVdcNetworking, sourceOrgVDCId],
             }
@@ -190,6 +190,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         """
         try:
             vcdValidationObj = self.vcdObjList[0]
+
             nsxtObj = self.nsxtObjList[0]
             # Iterating over the list org vdc/s to fetch the org vdc id
             orgVDCIdList = list()
@@ -207,6 +208,14 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
 
             filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', networkList))
 
+            # Checking if any org vdc has VXLAN backed network pool
+            vxlanBackingPresent = any([True if
+                                       vcdObj.getSourceNetworkPoolDetails().get(
+                                           'vmext:VMWNetworkPool', {}).get(
+                                           '@xsi:type') == vcdConstants.VXLAN_NETWORK_POOL_TYPE
+                                       else False
+                                       for vcdObj in self.vcdObjList])
+
             # Restoring thread name
             threading.current_thread().name = "MainThread"
 
@@ -216,8 +225,8 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                     'Validating NSX-T Bridge Uplink Profile does not exist': [nsxtObj.validateBridgeUplinkProfile],
                     'Validating Edge Cluster exists in NSX-T and Edge Transport Nodes are not in use': [nsxtObj.validateEdgeNodesNotInUse, self.EdgeClusterName],
                     'Validating whether the edge transport nodes are accessible via ssh or not': [nsxtObj.validateIfEdgeTransportNodesAreAccessibleViaSSH, self.EdgeClusterName],
-                    'Validating whether the edge transport nodes are deployed on v-cluster or not': [nsxtObj.validateEdgeNodesDeployedOnVCluster, self.EdgeClusterName, self.vcenterObj],
-                    'Validating OrgVDC Network and Edge transport Nodes': [ nsxtObj.validateOrgVdcNetworksAndEdgeTransportNodes, self.EdgeClusterName, filteredList],
+                    'Validating whether the edge transport nodes are deployed on v-cluster or not': [nsxtObj.validateEdgeNodesDeployedOnVCluster, self.EdgeClusterName, self.vcenterObj, vxlanBackingPresent],
+                    'Validating OrgVDC Network and Edge transport Nodes': [nsxtObj.validateOrgVdcNetworksAndEdgeTransportNodes, self.EdgeClusterName, filteredList],
                     'Validating the max limit of bridge endpoint profiles in NSX-T': [nsxtObj.validateLimitOfBridgeEndpointProfile, filteredList]
                 }
                 for desc, method in checksMapping.items():

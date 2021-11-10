@@ -293,8 +293,7 @@ class VMwareCloudDirectorNSXMigrator():
                             errorInputDict[dictKey] = "Value must be boolean i.e either True or False."
                         # validate ip address or fqdn
                         if item == 'ipAddress':
-                            isFqdn = not all(host.isdigit() for host in str(value).split(".")[:-1]) and \
-                                     not str(value).split(".")[-1].isdigit()
+                            isFqdn = not all(host.isdigit() for host in str(value).split("."))
                             # validate fqdn
                             if isFqdn:
                                 if len(str(value)) > 255:
@@ -484,7 +483,6 @@ class VMwareCloudDirectorNSXMigrator():
                 self.consoleLogger.info("Performing rollback")
 
             if self.retryRollback:
-
                 # Rollback: Copying direct network IP's from NSX-T segment backed external network to source external network
                 futures = list()
                 with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
@@ -843,7 +841,7 @@ class VMwareCloudDirectorNSXMigrator():
                 # Perform checks related to bridging
                 orgVDCIDList = [data["id"] for data in self.orgVDCData.values()]
                 self.vcdObjList[0].checkBridgingComponents(orgVDCIDList, self.inputDict["NSXT"]["EdgeClusterName"],
-                                                           self.nsxtObjList[0], self.vcenterObj)
+                                                           self.nsxtObjList[0], self.vcenterObj, self.vcdObjList)
 
             # Perform check for sharedNetwork.
             self.vcdObjList[0].sharedNetworkChecks(self.inputDict, self.vcdObjList, self.orgVDCData)
@@ -856,9 +854,10 @@ class VMwareCloudDirectorNSXMigrator():
                     futures.append(executor.submit(vcdObj.prepareTargetVDC, self.vcdObjList,
                                                    self.orgVDCData[orgVDCDict["OrgVDCName"]]["id"],
                                                    self.inputDict, orgVDCDict, nsxtObj, orgVDCDict["OrgVDCName"],
-                                                   orgVDCIDList,
+                                                   orgVDCIDList, self.vcenterObj,
                                                    configureBridging=mainConstants.BRIDGING_KEYWORD in self.executeList,
-                                                   configureServices=mainConstants.SERVICES_KEYWORD in self.executeList))
+                                                   configureServices=mainConstants.SERVICES_KEYWORD in self.executeList)
+                                   )
                 waitForThreadToComplete(futures)
 
             # Check if bridging is to be performed or not

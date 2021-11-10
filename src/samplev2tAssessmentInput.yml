@@ -2,7 +2,7 @@
 VCloudDirector:
   ipAddress: 10.196.235.27 # IP/FQDN of VMware Cloud Director
   username: administrator #  VMware Cloud Director system administrator login name
-  verify: True # Certificate validation enabled
+  verify: False # Certificate validation enabled
 
 OrgVDC: # (optional) List of NSX-V backed organization VDC(s) to be assessed
   - test-vdc-1
@@ -15,6 +15,5 @@ Organization: # (optional) List of names of the organization(s) to be validated
 
 Common:
   CertificatePath: D:\tmp\certs\vcd27.pem # Signing CA or self-signed certificate path for certificates validation
-  MaxThreadCount: 75 # Number of threads to be used for parallel processing
 
 # Note: All NSX-V backed Org VDCs will be assessed unless specific OrgVDC(s) or Organization(s) are listed above

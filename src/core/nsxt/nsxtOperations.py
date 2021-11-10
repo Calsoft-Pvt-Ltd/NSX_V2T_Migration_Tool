@@ -428,6 +428,7 @@ class NSXTOperations():
                     nextUnusedUplink = re.sub('\d', lambda x: str(int(x.group(0)) + 1), lastUsedUplink)
                     newHostSwitchSpec = {"host_switch_profile_ids": [{"key": "UplinkHostSwitchProfile", "value": uplinkProfileData['id']}],
                                          "host_switch_mode": "STANDARD",
+                                         'host_switch_name': nsxtConstants.BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME,
                                          "pnics": [{"device_name": nextUnusedUplink, "uplink_name": uplinkProfileData['teaming']['active_list'][0]['uplink_name']}],
                                          "is_migrate_pnics": False,
                                          "ip_assignment_spec": {"resource_type": "AssignedByDhcp"},
@@ -436,10 +437,6 @@ class NSXTOperations():
                                               "transport_zone_profile_ids": hostSwitchSpec[0]['transport_zone_endpoints'][0]['transport_zone_profile_ids']
                                               }]
                                          }
-                    # if nsxt version is less than 3.1, update host switch name parameter as it
-                    # doesnt update automatically with bridge tz host switch name
-                    if nsxtVersion < tuple(map(int, '3.1'.split('.'))):
-                        newHostSwitchSpec['host_switch_name'] = nsxtConstants.BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME
                     hostSwitchSpec.append(newHostSwitchSpec)
                     transportZoneList = edgeNodeData['transport_zone_endpoints']
                     dataNetworkList = edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config']['data_network_ids']
@@ -598,7 +595,7 @@ class NSXTOperations():
                     for profile in bridgeProfile:
                         temp_dict = {"bridge_profile_path": profile['path'],
                                      "vlan_transport_zone_path": transportZonePath,
-                                     "vlan_ids": [geneveLogicalSwitch[0]['vlanId']]
+                                     "vlan_ids": [0]  # Passing 0 as VLAN ID
                                      }
                         bridgeProfiles.append(temp_dict)
                     response = self.restClientObj.get(url=segmentDetailsUrl, headers=nsxtConstants.NSXT_API_HEADER,
@@ -680,7 +677,7 @@ class NSXTOperations():
             # Sleeping for 180 seconds before verifying bridging connectivity
             time.sleep(180)
             # get source edge gateway vm id
-            edgeVMIdList = [vcdObj.getEdgeVmId() for vcdObj in vcdObjList]
+            edgeVMIdList = [list(vcdObj.getEdgeVmId().values()) for vcdObj in vcdObjList]
 
             sourceEdgeGatewayMacAddressList = []
             for vcdObj, edgeVMList in zip(vcdObjList, edgeVMIdList):
@@ -1113,19 +1110,18 @@ class NSXTOperations():
             # Resetting thread name
             threading.current_thread().name = "MainThread"
 
-    def validateBridgeUplinkProfile(self, precheck=True):
+    def validateBridgeUplinkProfile(self):
         """
         Description :   Validates that the bridge-uplink-profile doesnot already exists
                         If exists raises exception
         """
         try:
-            if precheck == True:
-                if not self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                             componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME):
-                    logger.debug("Validated successfully that the {} does not exist".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME))
-                else:
-                    msg = "Host Switch Profile uplink - '{}' already exists.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
-                    raise Exception(msg)
+            if not self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
+                                         componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME):
+                logger.debug("Validated successfully that the {} does not exist".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME))
+            else:
+                msg = "Host Switch Profile uplink - '{}' already exists.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                raise Exception(msg)
         except Exception:
             raise
 
@@ -1155,150 +1151,152 @@ class NSXTOperations():
         except:
             raise
 
-    def validateEdgeNodesDeployedOnVCluster(self, edgeClusterNameList, vcenterObj, precheck=True):
+    def validateEdgeNodesDeployedOnVCluster(self, edgeClusterNameList, vcenterObj, vxlanBackingPresent=True):
         """
         Description :   Validates whether the edge transport nodes are accessible via ssh or not
         Parameters  :   edgeClusterNameList     -   List of names of the cluster (STRING)
                         vcenterObj - Object of vcenter api class (OBJECT)
+                        vxlanBackingPresent - Flag to check is VXLAN backed network pool is present any org vdc (BOOLEAN)
         """
         try:
-            if precheck:
-                # fetching the agency cluster host mappings using pyvmomi
-                logger.debug("Fetching the agent cluster mappings")
-                agencyClusterMapping = vcenterObj.fetchAgencyClusterMapping()
-                logger.debug(f"AGENT CLUSTER MAPPING: {agencyClusterMapping}")
+            # Perform validation only if VXLAN backed network pool is present in any org vdc
+            if not vxlanBackingPresent:
+                logger.debug("Skipping edge node deployment cluster check as no network pool is backed by VXLAN")
+                return
 
-                logger.debug("Fetching the cluster resource-pool mappings")
-                clusterResourcePoolMapping = vcenterObj.fetchClusterResourcePoolMapping()
-                logger.debug(f"CLUSTER RESOURCE-POOL MAPPING: {agencyClusterMapping}")
+            # fetching the agency cluster host mappings using pyvmomi
+            logger.debug("Fetching the agent cluster mappings")
+            agencyClusterMapping = vcenterObj.fetchAgencyClusterMapping()
+            logger.debug(f"AGENT CLUSTER MAPPING: {agencyClusterMapping}")
 
-                logger.debug("Retrieving data of edge transport nodes present in edge cluster: {}".format(
-                    ', '.join(edgeClusterNameList)))
-                edgeTransportNodeList = []
-                edgeClusterNotFound = []
-                for edgeClusterName in edgeClusterNameList:
-                    edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
-                                                            edgeClusterName)
-                    if not edgeClusterData:
-                        edgeClusterNotFound.append(edgeClusterName)
+            logger.debug("Fetching the cluster resource-pool mappings")
+            clusterResourcePoolMapping = vcenterObj.fetchClusterResourcePoolMapping()
+            logger.debug(f"CLUSTER RESOURCE-POOL MAPPING: {agencyClusterMapping}")
+
+            logger.debug("Retrieving data of edge transport nodes present in edge cluster: {}".format(
+                ', '.join(edgeClusterNameList)))
+            edgeTransportNodeList = []
+            edgeClusterNotFound = []
+            for edgeClusterName in edgeClusterNameList:
+                edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
+                                                        edgeClusterName)
+                if not edgeClusterData:
+                    edgeClusterNotFound.append(edgeClusterName)
+                else:
+                    edgeTransportNodeList += edgeClusterData['members'] \
+                        if isinstance(edgeClusterData['members'], list) else [edgeClusterData['members']]
+            if edgeClusterNotFound:
+                raise Exception(
+                    "Edge Cluster '{}' do not exist in NSX-T, so can't validate org VDC networks and transport nodes".format(
+                        ', '.join(edgeClusterNotFound)))
+
+            edgeNodeNotDeployedOnVCluster = []
+            for edgeNode in edgeTransportNodeList:
+                url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                             nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(
+                                                                 edgeNode['transport_node_id']))
+                response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
+                                                  auth=self.restClientObj.auth)
+
+                if response.status_code == requests.codes.ok:
+                    edgeNodeData = response.json()
+                    computeId = edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config']['compute_id']
+                    # Iterating over cluster resource-pool mapping to check if compute id matches with any resource pool id
+                    for clusterMappedToRP, rPoolList in clusterResourcePoolMapping.items():
+                        if computeId.strip() in list(map(str.strip, rPoolList)):
+                            clusterName = clusterMappedToRP.strip()
+                            break
                     else:
-                        edgeTransportNodeList += edgeClusterData['members'] \
-                            if isinstance(edgeClusterData['members'], list) else [edgeClusterData['members']]
-                if edgeClusterNotFound:
-                    raise Exception(
-                        "Edge Cluster '{}' do not exist in NSX-T, so can't validate org VDC networks and transport nodes".format(
-                            ', '.join(edgeClusterNotFound)))
+                        clusterName = computeId.strip()
 
-                edgeNodeNotDeployedOnVCluster = []
-                for edgeNode in edgeTransportNodeList:
-                    url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
-                                                                 nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(
-                                                                     edgeNode['transport_node_id']))
-                    response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
-                                                      auth=self.restClientObj.auth)
-
-                    if response.status_code == requests.codes.ok:
-                        edgeNodeData = response.json()
-                        computeId = edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config']['compute_id']
-                        # Iterating over cluster resource-pool mapping to check if compute id matches with any resource pool id
-                        for clusterMappedToRP, rPoolList in clusterResourcePoolMapping.items():
-                            if computeId.strip() in list(map(str.strip, rPoolList)):
-                                clusterName = clusterMappedToRP.strip()
-                                break
-                        else:
-                            clusterName = computeId.strip()
-
-                        for entity in agencyClusterMapping:
-                            clusterMappedToAgent, agentName = entity
-                            if clusterName.strip() == clusterMappedToAgent.strip() and agentName.strip() == "VMware Network Fabric":
-                                break
-                        else:
-                            edgeNodeNotDeployedOnVCluster.append(edgeNodeData['display_name'])
-                if edgeNodeNotDeployedOnVCluster:
-                    raise Exception(f"Edge Transport Node/s - '{', '.join(edgeNodeNotDeployedOnVCluster)}' are not "
-                                    f"deployed on v-cluster on vCenter - {vcenterObj.ipAddress}")
+                    for entity in agencyClusterMapping:
+                        clusterMappedToAgent, agentName = entity
+                        if clusterName.strip() == clusterMappedToAgent.strip() and agentName.strip() == "VMware Network Fabric":
+                            break
+                    else:
+                        edgeNodeNotDeployedOnVCluster.append(edgeNodeData['display_name'])
+            if edgeNodeNotDeployedOnVCluster:
+                raise Exception(f"Edge Transport Node/s - '{', '.join(edgeNodeNotDeployedOnVCluster)}' are not "
+                                f"deployed on v-cluster on vCenter - {vcenterObj.ipAddress}")
         except:
             raise
 
-    def validateIfEdgeTransportNodesAreAccessibleViaSSH(self, edgeClusterNameList, precheck=True):
+    def validateIfEdgeTransportNodesAreAccessibleViaSSH(self, edgeClusterNameList):
         """
         Description :   Validates whether the edge transport nodes are accessible via ssh or not
         Parameters  :   edgeClusterNameList     -   List of names of the cluster (STRING)
         """
         try:
-            if precheck:
-                #Suppressing paramiko transport logs
-                logging.getLogger("paramiko").setLevel(logging.WARNING)
-                logger.debug("Retrieving data of edge transport nodes present in edge cluster: {}".format(', '.join(edgeClusterNameList)))
-                edgeTransportNodeList = []
-                edgeClusterNotFound = []
-                for edgeClusterName in edgeClusterNameList:
-                    edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
-                                                            edgeClusterName)
-                    if not edgeClusterData:
-                        edgeClusterNotFound.append(edgeClusterName)
-                    else:
-                        edgeTransportNodeList += edgeClusterData['members'] \
-                            if isinstance(edgeClusterData['members'], list) else [edgeClusterData['members']]
-                if edgeClusterNotFound:
-                    raise Exception(
-                        "Edge Cluster '{}' do not exist in NSX-T, so can't validate org VDC networks and transport nodes".format(
-                            ', '.join(edgeClusterNotFound)))
-                nodeListUnaccessible = []
-                for edgeNode in edgeTransportNodeList:
-                    url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
-                                                                 nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(
-                                                                     edgeNode['transport_node_id']))
-                    response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
-                                                      auth=self.restClientObj.auth)
-                    if response.status_code == requests.codes.ok:
-                        edgeNodeData = response.json()
-                        try:
-                            SshUtils(edgeNodeData['node_deployment_info']['ip_addresses'][0], 'admin', self.password)
-                        except Exception as err:
-                            logger.debug(str(err))
-                            nodeListUnaccessible.append(edgeNodeData['display_name'])
-                    else:
-                        raise Exception('Failed to fetch transport node details')
-                if nodeListUnaccessible:
-                    raise Exception(f"Either Edge Transport Node/s - '{', '.join(nodeListUnaccessible)}' are not accessible via SSH or their password is different from NSX-T manager password")
+            #Suppressing paramiko transport logs
+            logging.getLogger("paramiko").setLevel(logging.WARNING)
+            logger.debug("Retrieving data of edge transport nodes present in edge cluster: {}".format(', '.join(edgeClusterNameList)))
+            edgeTransportNodeList = []
+            edgeClusterNotFound = []
+            for edgeClusterName in edgeClusterNameList:
+                edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
+                                                        edgeClusterName)
+                if not edgeClusterData:
+                    edgeClusterNotFound.append(edgeClusterName)
+                else:
+                    edgeTransportNodeList += edgeClusterData['members'] \
+                        if isinstance(edgeClusterData['members'], list) else [edgeClusterData['members']]
+            if edgeClusterNotFound:
+                raise Exception(
+                    "Edge Cluster '{}' do not exist in NSX-T, so can't validate org VDC networks and transport nodes".format(
+                        ', '.join(edgeClusterNotFound)))
+            nodeListUnaccessible = []
+            for edgeNode in edgeTransportNodeList:
+                url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                             nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(
+                                                                 edgeNode['transport_node_id']))
+                response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
+                                                  auth=self.restClientObj.auth)
+                if response.status_code == requests.codes.ok:
+                    edgeNodeData = response.json()
+                    try:
+                        SshUtils(edgeNodeData['node_deployment_info']['ip_addresses'][0], 'admin', self.password)
+                    except Exception as err:
+                        logger.debug(str(err))
+                        nodeListUnaccessible.append(edgeNodeData['display_name'])
+                else:
+                    raise Exception('Failed to fetch transport node details')
+            if nodeListUnaccessible:
+                raise Exception(f"Either Edge Transport Node/s - '{', '.join(nodeListUnaccessible)}' are not accessible via SSH or their password is different from NSX-T manager password")
         except Exception:
             raise
         finally:
             #Restoring log level of paramiko transport logs
             logging.getLogger("paramiko").setLevel(logging.INFO)
 
-    def validateOrgVdcNetworksAndEdgeTransportNodes(self, edgeClusterNameList, orgVdcNetworkList, precheck=True):
+    def validateOrgVdcNetworksAndEdgeTransportNodes(self, edgeClusterNameList, orgVdcNetworkList):
         """
         Description :   Validates the number of networks in source Org Vdc match with the number of Edge Transport Nodes in the specified cluster name
         Parameters  :   edgeClusterNameList     -   List of names of the cluster (STRING)
                         orgVdcNetworkList   -   Source Org VDC Network List (LIST)
         """
         try:
-            if precheck:
-                logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(edgeClusterNameList)))
-                edgeTransportNodeList = []
-                edgeClusterNotFound = []
-                for edgeClusterName in edgeClusterNameList:
-                    edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
-                                                            edgeClusterName)
-                    if not edgeClusterData:
-                        edgeClusterNotFound.append(edgeClusterName)
-                    else:
-                        edgeTransportNodeList += edgeClusterData['members'] \
-                            if isinstance(edgeClusterData['members'], list) else [edgeClusterData['members']]
-
-                if edgeClusterNotFound:
-                    raise Exception(
-                        "Edge Cluster '{}' do not exist in NSX-T, so can't validate org VDC networks and transport nodes".format(
-                            ', '.join(edgeClusterNotFound)))
-                orgVdcNetworkList = [network for network in orgVdcNetworkList if network['networkType'] != 'DIRECT']
-                if len(orgVdcNetworkList) <= len(edgeTransportNodeList):
-                    logger.debug("Validated successfully the number of source Org VDC networks are equal/less than the number of Edge Transport Nodes in the cluster {}".format(edgeClusterName))
+            logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(edgeClusterNameList)))
+            edgeTransportNodeList = []
+            edgeClusterNotFound = []
+            for edgeClusterName in edgeClusterNameList:
+                edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
+                                                        edgeClusterName)
+                if not edgeClusterData:
+                    edgeClusterNotFound.append(edgeClusterName)
                 else:
-                    raise Exception("Number of Source Org VDC Networks should always be equal/less than the number of Edge Transport Nodes in the cluster {}".format(edgeClusterName))
+                    edgeTransportNodeList += edgeClusterData['members'] \
+                        if isinstance(edgeClusterData['members'], list) else [edgeClusterData['members']]
+
+            if edgeClusterNotFound:
+                raise Exception(
+                    "Edge Cluster '{}' do not exist in NSX-T, so can't validate org VDC networks and transport nodes".format(
+                        ', '.join(edgeClusterNotFound)))
+            orgVdcNetworkList = [network for network in orgVdcNetworkList if network['networkType'] != 'DIRECT']
+            if len(orgVdcNetworkList) <= len(edgeTransportNodeList):
+                logger.debug("Validated successfully the number of source Org VDC networks are equal/less than the number of Edge Transport Nodes in the cluster {}".format(edgeClusterName))
+            else:
+                raise Exception("Number of Source Org VDC Networks should always be equal/less than the number of Edge Transport Nodes in the cluster {}".format(edgeClusterName))
         except Exception:
-            self.ENABLE_SOURCE_ORG_VDC_AFFINITY_RULES = True
             raise
 
     def fetchEdgeClusterIdForTier0Gateway(self, tier0GatewayName):
@@ -1334,51 +1332,50 @@ class NSXTOperations():
         except:
             raise
 
-    def validateEdgeNodesNotInUse(self, edgeClusterNameList, precheck=True):
+    def validateEdgeNodesNotInUse(self, edgeClusterNameList):
         """
         Description :   Validates that None Edge Transport Nodes are in use in the specified Edge Cluster
         Parameters  :   edgeClusterNameList -   List of names of the cluster (STRING)
         """
         try:
-            if precheck == True:
-                hostSwitchNameList = list()
-                logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(edgeClusterNameList)))
-                edgeTransportNodeList = []
-                edgeClusterNotFound = []
-                for edgeClusterName in edgeClusterNameList:
-                    edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
-                                                            edgeClusterName)
-                    if not edgeClusterData:
-                        edgeClusterNotFound.append(edgeClusterName)
-                    else:
-                        edgeTransportNodeList += edgeClusterData['members'] \
-                            if isinstance(edgeClusterData['members'], list) else [edgeClusterData['members']]
-
-                if edgeClusterNotFound:
-                    raise Exception(
-                        "Edge Cluster '{}' do not exist in NSX-T, so can't validate org VDC networks and transport nodes".format(
-                            ', '.join(edgeClusterNotFound)))
-
-                for tranportNode in edgeTransportNodeList:
-                    url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
-                                                                 nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(tranportNode['transport_node_id']))
-                    response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
-                    if response.status_code == requests.codes.ok:
-                        responseDict = response.json()
-                        if responseDict.get('host_switch_spec'):
-                            hostSwitchSpec = responseDict["host_switch_spec"]["host_switches"]
-                            for hostSwitch in hostSwitchSpec:
-                                for pnics in hostSwitch["pnics"]:
-                                    if pnics["device_name"] == nsxtConstants.PNIC_NAME:
-                                        hostSwitchNameList.append(responseDict['display_name'])
-                        else:
-                            raise Exception('Host switch specification not available')
-                    else:
-                        raise Exception('Failed to fetch transport node details')
-                if hostSwitchNameList:
-                    raise Exception("Transport Node: {} already in use".format(','.join(hostSwitchNameList)))
+            hostSwitchNameList = list()
+            logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(edgeClusterNameList)))
+            edgeTransportNodeList = []
+            edgeClusterNotFound = []
+            for edgeClusterName in edgeClusterNameList:
+                edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
+                                                        edgeClusterName)
+                if not edgeClusterData:
+                    edgeClusterNotFound.append(edgeClusterName)
                 else:
-                    logger.debug("Validated successfully that any of Transport Nodes from cluster/s {} are not in use".format(', '.join(edgeClusterNameList)))
+                    edgeTransportNodeList += edgeClusterData['members'] \
+                        if isinstance(edgeClusterData['members'], list) else [edgeClusterData['members']]
+
+            if edgeClusterNotFound:
+                raise Exception(
+                    "Edge Cluster '{}' do not exist in NSX-T, so can't validate org VDC networks and transport nodes".format(
+                        ', '.join(edgeClusterNotFound)))
+
+            for tranportNode in edgeTransportNodeList:
+                url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                             nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(tranportNode['transport_node_id']))
+                response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
+                if response.status_code == requests.codes.ok:
+                    responseDict = response.json()
+                    if responseDict.get('host_switch_spec'):
+                        hostSwitchSpec = responseDict["host_switch_spec"]["host_switches"]
+                        for hostSwitch in hostSwitchSpec:
+                            for pnics in hostSwitch["pnics"]:
+                                if pnics["device_name"] == nsxtConstants.PNIC_NAME:
+                                    hostSwitchNameList.append(responseDict['display_name'])
+                    else:
+                        raise Exception('Host switch specification not available')
+                else:
+                    raise Exception('Failed to fetch transport node details')
+            if hostSwitchNameList:
+                raise Exception("Transport Node: {} already in use".format(','.join(hostSwitchNameList)))
+            else:
+                logger.debug("Validated successfully that any of Transport Nodes from cluster/s {} are not in use".format(', '.join(edgeClusterNameList)))
         except Exception:
             raise
 

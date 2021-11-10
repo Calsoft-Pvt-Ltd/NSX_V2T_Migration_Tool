@@ -6,29 +6,29 @@
 Description : Configuring Edge Gateway Services
 """
 
-import logging
+import copy
+import ipaddress
 import json
+import logging
 import os
 import random
-import time
-import ipaddress
-import copy
 import threading
+import time
 import traceback
-
 from collections import OrderedDict, defaultdict
 
 import requests
 import xmltodict
 
 import src.core.vcd.vcdConstants as vcdConstants
-
 from src.commonUtils.utils import Utilities, listify
 from src.core.vcd.vcdValidations import (
-    VCDMigrationValidation, isSessionExpired, remediate, description, DfwRulesAbsentError, getSession)
+    VCDMigrationValidation, isSessionExpired, remediate, description, DfwRulesAbsentError, getSession,
+    ConfigurationError)
 
 logger = logging.getLogger('mainLogger')
 chunksOfList = Utilities.chunksOfList
+
 
 class ConfigureEdgeGatewayServices(VCDMigrationValidation):
     """
@@ -73,6 +73,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             self.configureFirewall(networktype=False, configureIPSET=True)
             # Configuring BGP
             self.configBGP()
+            # Configuring Route Advertisement
+            self.configureRouteAdvertisement(orgVDCDict.get("AdvertiseRoutedNetworks"))
             # Configuring DNS
             self.configureDNS()
             # configuring loadbalancer
@@ -645,7 +647,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             resultList = list()
             logger.debug('Getting Application port profiles')
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}&filter=_context=={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                url = "{}{}?page={}&pageSize={}&filter=_context=={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.APPLICATION_PORT_PROFILES, pageNo,
                                                         vcdConstants.APPLICATION_PORT_PROFILES_PAGE_SIZE,
                                                                             nsxtManagerId)
@@ -775,7 +777,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     # get details of BGP configuration
                     bgpConfigDetails = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
                     #get routing config details
-                    routingConfigDetails = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId, validation=False)
+                    routingConfigDetails = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId,
+                                                                            sourceEdgeGateway['name'],
+                                                                            validation=False)
                     # get details of all Non default gateway subnet, default gateway and noSnatRules
                     allnonDefaultGatewaySubnetList, defaultGatewayDict, noSnatRulesList = self.getEdgeGatewayAdminApiDetails(
                         sourceEdgeGatewayId, staticRouteDetails=staticRoutingConfig)
@@ -842,19 +846,24 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
                 logger.debug("Configuring BGP Services in Target Edge Gateway - {}".format(sourceEdgeGateway['name']))
                 sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
-                edgeGatewayID = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
-                                     self.rollback.apiData['targetEdgeGateway']))[0]['id']
+                edgeGatewayID = list(filter(
+                    lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
+                    self.rollback.apiData['targetEdgeGateway']))[0]['id']
 
                 bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
-                data = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId, validation=False)
-                # checking whether bgp rule is enabled or present in the source edge  gateway; returning if no bgp in source edge gateway
+                data = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId, sourceEdgeGateway['name'],
+                                                        validation=False)
+                # checking whether bgp rule is enabled or present in the source edge  gateway;
+                # returning if no bgp in source edge gateway
                 if not isinstance(bgpConfigDict, dict) or bgpConfigDict['enabled'] == 'false':
-                    logger.debug('BGP service is disabled or not configured in Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
+                    logger.debug('BGP service is disabled or not configured in '
+                                 'Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
                     return
                 logger.debug('BGP is getting configured in Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
                 ecmp = "true" if data['routingGlobalConfig']['ecmp'] == "true" else "false"
                 # url to get the details of the bgp configuration on T1 router i.e target edge gateway
-                bgpurl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
+                bgpurl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                         vcdConstants.ALL_EDGE_GATEWAYS,
                                          vcdConstants.T1_ROUTER_BGP_CONFIG.format(edgeGatewayID))
                 # get api call to retrieve the T1 router bgp details
                 versionresponse = self.restClientObj.get(bgpurl, self.headers)
@@ -893,15 +902,201 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                     .format(sourceEdgeGateway['name'], response['message']))
                 # checking if bgp neighbours exist in source edge gateway; else returning
                 if bgpConfigDict.get('bgpNeighbours'):
-                    bgpNeighbours = bgpConfigDict['bgpNeighbours']['bgpNeighbour'] if isinstance(bgpConfigDict['bgpNeighbours']['bgpNeighbour'], list) else [bgpConfigDict['bgpNeighbours']['bgpNeighbour']]
+                    bgpNeighbours = bgpConfigDict['bgpNeighbours']['bgpNeighbour'] \
+                        if isinstance(bgpConfigDict['bgpNeighbours']['bgpNeighbour'], list) \
+                        else [bgpConfigDict['bgpNeighbours']['bgpNeighbour']]
                     self.createBGPNeighbours(bgpNeighbours, edgeGatewayID)
-                    logger.debug('Successfully configured BGP in Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
+                    logger.debug('Successfully configured BGP in '
+                                 'Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
                 else:
                     logger.debug('No BGP neighbours configured in source BGP')
-                    return
+
+                # Fetching source org vdc BGP route redistribution data
+                bgpRedistributionData = data['bgp'].get('redistribution') or {}
+                # Fetching source org vdc IP Prefix data
+                sourceIpPrefixData = (data['routingGlobalConfig'].get('ipPrefixes') or {}).get('ipPrefix')
+                # Configuring IP Prefixes in target if both BGP route redistribution and
+                # IP Prefixes are configured in source edge gateway
+                if bgpRedistributionData and sourceIpPrefixData:
+                    # Create IP Prefix on target edge gateway
+                    self.createIpPrefixes(sourceIpPrefixData, bgpRedistributionData, edgeGatewayID)
+                else:
+                    logger.debug(f"Skipping IP Prefixes migration as IP Prefixes or Route advertisement rules "
+                                 f"are not configured on source edge gateway {sourceEdgeGateway['name']}")
         except Exception:
             raise
 
+    @isSessionExpired
+    def getTargetEdgeGatewayIpPrefixData(self, targetEdgeGatewayId):
+        """
+        Description : Fetch IP Prefix data from target edge gateway
+        Parameters :  targetEdgeGatewayId - target edge gateway ID (STRING)
+        """
+        logger.debug(f"Fetching IP Prefix data from target edge gateway {targetEdgeGatewayId}")
+        # Fetching IpPrefix data from target edge gateway
+        ipPrefixUrl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                      vcdConstants.ALL_EDGE_GATEWAYS,
+                                      vcdConstants.CREATE_PREFIX_LISTS_BGP.format(targetEdgeGatewayId))
+        self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+        # get api call to configure ip prefix in target
+        response = self.restClientObj.get(ipPrefixUrl, headers=self.headers)
+        responseDict = response.json()
+        if response.status_code != requests.codes.ok:
+            raise Exception(f'Failed to fetch IP Prefix data from target edge gateway {responseDict["message"]}')
+        logger.debug(f'Successfully fetched IP Prefix from target edge gateway {targetEdgeGatewayId}')
+        return responseDict.get('values')
+
+    @isSessionExpired
+    def createIpPrefixes(self, ipPrefixes, bgpRedistributionData, targetEdgeGatewayId):
+        """
+        Description : Configure IP Prefix in target edge gateway
+        Parameters :  ipPrefixes - ipPrefix data of source edge gateway (Dict)
+                      bgpRedistributionData - BGP redistribution config of source edge gateway (Dict)
+                      targetEdgeGatewayId - target edge gateway ID (STRING)
+        """
+        # Checking if IP Prefix list is already present on target edge gateway or not
+        for ipPrefix in self.getTargetEdgeGatewayIpPrefixData(targetEdgeGatewayId):
+            if ipPrefix['name'] == vcdConstants.TARGET_BGP_IP_PREFIX_NAME:
+                logger.debug("IP Prefix list already created on target edge gateway")
+                return
+
+        # Creating IpPrefix and subnet mapping
+        ipPrefixSubnetMapping = {
+            ipPrefix['name']: str(ipaddress.ip_network(ipPrefix['ipAddress'], strict=False))
+            for ipPrefix in listify(ipPrefixes)
+        }
+
+        # Creating IP Prefix payload
+        ipPrefixPayloadData = {
+            "name": vcdConstants.TARGET_BGP_IP_PREFIX_NAME,
+            "prefixes": list()
+        }
+
+        subnetAlreadyAdded = set()
+        # Iterating over all the source route distribution rule to create a target prefix
+        for bgpRedistributionRule in listify((bgpRedistributionData.get('rules') or {}).get('rule')):
+            if bgpRedistributionRule.get('prefixName') and \
+                    ipPrefixSubnetMapping.get(bgpRedistributionRule.get('prefixName')) not in subnetAlreadyAdded:
+                ipPrefixPayloadData['prefixes'].append(
+                    {"network": ipPrefixSubnetMapping.get(bgpRedistributionRule.get('prefixName')),
+                     "action": 'PERMIT' if bgpRedistributionRule['action'] == 'permit' else 'DENY',
+                     "greaterThanEqualTo": None,
+                     "lessThanEqualTo": None
+                     })
+                subnetAlreadyAdded.add(ipPrefixSubnetMapping.get(bgpRedistributionRule.get('prefixName')))
+
+        if not ipPrefixPayloadData['prefixes']:
+            logger.debug(f"No Prefixes present to migrate to target edge gateway {targetEdgeGatewayId}")
+            return
+
+        # Create IpPrefix in target edge gateway
+        ipPrefixUrl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                      vcdConstants.ALL_EDGE_GATEWAYS,
+                                      vcdConstants.CREATE_PREFIX_LISTS_BGP.format(targetEdgeGatewayId))
+        self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+        ipPrefixPayloadData = json.dumps(ipPrefixPayloadData)
+        # post api call to configure ip prefix in target
+        response = self.restClientObj.post(ipPrefixUrl, headers=self.headers,
+                                           data=ipPrefixPayloadData)
+
+        if response.status_code == requests.codes.accepted:
+            # successful configuration of ip prefix list
+            taskUrl = response.headers['Location']
+            self._checkTaskStatus(taskUrl=taskUrl)
+            logger.debug(f'Successfully created IP Prefix on target edge gateway {targetEdgeGatewayId}')
+        else:
+            raise Exception('Failed to create IP Prefix on target edge gateway {}'.format(response.json()['message']))
+
+    @description("configuration of Route Advertisement")
+    @remediate
+    def configureRouteAdvertisement(self, advertiseRoutedNetworks=False):
+        """
+        Description :  Configure Route Advertisement on the Target Edge Gateway
+        Parameters  :  advertiseRoutedNetworks - Flag the informs whether to advertise routed networks or not
+        """
+        logger.debug('Route Advertisement is getting configured')
+        for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
+            subnetsToAdvertise = list()
+            logger.debug(f"Configuring Route Advertisement on Target Edge Gateway - {sourceEdgeGateway['name']}")
+            sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
+            targetEdgeGatewayId = list(filter(
+                lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
+                self.rollback.apiData['targetEdgeGateway']))[0]['id']
+
+            # Fetching source org vdc id
+            sourceOrgVDCId = self.rollback.apiData.get('sourceOrgVDC', {}).get('@id', str())
+
+            # Fetching subnets of all the routed network connected to source edge gateway
+            allRoutedNetworkSubnets = [
+                str(ipaddress.ip_network(f"{subnet['gateway']}/{subnet['prefixLength']}", strict=False))
+                for network in self.retrieveNetworkListFromMetadata(sourceOrgVDCId)
+                for subnet in network["subnets"]["values"]
+                if network["networkType"] == "NAT_ROUTED" and
+                network["connection"]["routerRef"]["id"].split(':')[-1] == sourceEdgeGatewayId.split(':')[-1]]
+
+            # Flag to decide whether to enable route advertisement or not
+            enableRouteAdvertisment = True
+
+            # Fetching source org vdc routing configuration
+            routingConfig = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId, sourceEdgeGateway['name'],
+                                                             validation=False)
+
+            # If BGP was not enabled on source edge gateway, target edge gateway will not have routing config
+            if (routingConfig.get('bgp') or {}).get('enabled') == "true":
+                bgpRedistribution = routingConfig['bgp'].get('redistribution') or {}
+                # Route advertisement will be enabled only if it was enabled in source
+                if bgpRedistribution.get("enabled") != 'true':
+                    enableRouteAdvertisment = False
+                # Iterating over all the source route distribution rules to check,
+                # if there is permitted rule with from type "Connected" rule with prefix type "Any"
+                for bgpRedistributionRule in listify(
+                        (bgpRedistribution.get('rules') or {}).get('rule', [])):
+                    if not bgpRedistributionRule.get('prefixName') and \
+                            bgpRedistributionRule['from']['connected'] == 'true' and \
+                            bgpRedistributionRule['action'] == 'permit':
+                        # If permitted rule with from type "Connected" rule with prefix type "Any" is present,
+                        # advertise all routed network subnets connected to this edge gateway
+                        subnetsToAdvertise += allRoutedNetworkSubnets
+                        break
+                # Fetching all the permitted prefixes from target edge gateway config
+                for ipPrefix in self.getTargetEdgeGatewayIpPrefixData(targetEdgeGatewayId):
+                    if ipPrefix['name'] == vcdConstants.TARGET_BGP_IP_PREFIX_NAME:
+                        subnetsToAdvertise += [subnet['network'] for subnet in ipPrefix['prefixes']
+                                               if subnet['action'] == 'PERMIT']
+                        break
+            elif advertiseRoutedNetworks:
+                # If advertiseRoutedNetworks param is True,
+                # advertise all routed networks subnets connected to this edge gateway
+                subnetsToAdvertise += allRoutedNetworkSubnets
+            if not subnetsToAdvertise:
+                logger.debug(f"Skipping Route Advertisement for target edge gateway '{sourceEdgeGateway['name']}' "
+                             f"as there is no subnet present for Route Advertisement")
+                continue
+
+            # Creating route advertisement payload
+            routeAdvertisementPayload = json.dumps({
+                "enable": enableRouteAdvertisment,
+                "subnets": list(set(subnetsToAdvertise))
+            })
+
+            # URL to configure Route Advertisement in target edge gateway
+            routeAdvertisementUrl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                          vcdConstants.ALL_EDGE_GATEWAYS,
+                                          vcdConstants.CONFIG_ROUTE_ADVERTISEMENT.format(targetEdgeGatewayId))
+            self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+            # put api call to configure route advertisement in target
+            response = self.restClientObj.put(routeAdvertisementUrl, headers=self.headers,
+                                              data=routeAdvertisementPayload)
+            if response.status_code == requests.codes.accepted:
+                # successful configuration of route advertisement in target
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug(f'Successfully configured route advertisement '
+                             f'on target edge gateway {sourceEdgeGateway["name"]}')
+            else:
+                raise Exception(
+                    'Failed to configure route advertisement '
+                    'on target edge gateway {}'.format(response.json()['message']))
 
     @description("configuration of DNS")
     @remediate
@@ -967,8 +1162,261 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         errorResponse = apiResponse.json()
                         raise Exception('Failed to configure DNS on target edge gateway {} - {} '
                                         .format(sourceEdgeGateway['name'], errorResponse['message']))
-        except:
+        except Exception:
             raise
+
+    @description("configuration of DHCP Static Binding service on target edge gateway")
+    @remediate
+    def configureDHCPBindingService(self):
+        """
+        Description : Configure DHCP Static-Bindings service on target edge gateway.
+        """
+        logger.debug('DHCP Static Bindings Service is getting configured')
+        targetOrgVDCId = self.rollback.apiData['targetOrgVDC']['@id']
+
+        # get taregt OrgVDC Network details.
+        orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
+        for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
+            targetEdgeGatewayID = list(
+                filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
+                       self.rollback.apiData['targetEdgeGateway']))[0]['id']
+
+            DHCPData = self.rollback.apiData['sourceEdgeGatewayDHCP'][sourceEdgeGateway['id']]
+            # configure DHCP Binding on target only if source edge gateway has DHCP Binding configured.
+            if not DHCPData.get('staticBindings'):
+                logger.debug(
+                    "DHCP static bindings service not configured on source edge gateway : {}.".format(sourceEdgeGateway))
+                continue
+
+            logger.debug(
+                'Configuring DHCP static bindings service on target edge gateway - {}'.format(sourceEdgeGateway['name']))
+
+            # get the details of DHCP static bindings configured on edge gateway.
+            # If we configures more than one bindings we are getting list, so we handled the scenario here.
+            staticBindings = listify(DHCPData['staticBindings']['staticBindings'])
+            # get the OrgVDC network details which is used in bindings.
+            for binding in staticBindings:
+                bindingIp = binding['ipAddress']
+                networkId = None
+                networkName = None
+
+                # get taregt OrgVDC Network details.
+                for network in orgvdcNetworks:
+                    networkSubnet = "{}/{}".format(network['subnets']['values'][0]['gateway'],
+                                                   network['subnets']['values'][0]['prefixLength'])
+                    ipNetwork = ipaddress.ip_network(networkSubnet, strict=False)
+                    if ipaddress.ip_address(bindingIp) in ipNetwork:
+                        networkId = network['id']
+                        networkName = network['name']
+                        break
+
+                if not networkId:
+                    continue
+
+                # Enables DHCP on OrgVdc Network which is used in bindings
+                DHCPurl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                        vcdConstants.ORG_VDC_NETWORK_DHCP.format(networkId))
+                # Get the details of DHCP configuration
+                response = self.restClientObj.get(DHCPurl, self.headers)
+                if response.status_code == requests.codes.ok:
+                    responsedict = response.json()
+                    # checking if configured is dhcp, if not then configure.
+                    if not responsedict.get('enabled'):
+                        # Creating Payload
+                        payloadData = {
+                            "enabled": True,
+                            "mode": "EDGE"
+                        }
+                        payloadData = json.dumps(payloadData)
+                        # Call for PUT API to configure DHCP on OrgVDC network, which used in DHCP bindings.
+                        apiResponse = self.restClientObj.put(DHCPurl, headers=self.headers, data=payloadData)
+                        if apiResponse.status_code == requests.codes.accepted:
+                            task_url = apiResponse.headers['Location']
+                            self._checkTaskStatus(taskUrl=task_url)
+                            logger.debug(
+                                "DHCP Enabled successfully in EDGE mode on OrgVDC network: {}.".format(networkName))
+                        else:
+                            # Failed to Enable DHCP with in EDGE mode on Org VDC network..
+                            errorResponse = apiResponse.json()
+                            raise Exception(
+                                "Failed to enable DHCP in EDGE mode on OrgVDC network {}, error : {}.".format(
+                                    networkName, errorResponse))
+
+                # Enables the DHCP bindings on OrgVDC network.
+                DHCPBindingUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                  vcdConstants.DHCP_BINDINGS.format(networkId))
+                payloadData = {
+                    "id": binding['bindingId'],
+                    "name": binding['hostname'],
+                    "macAddress": binding['macAddress'],
+                    "ipAddress": binding['ipAddress'],
+                    "leaseTime": binding['leaseTime'] if binding['leaseTime'] != 'infinite' else '4294967295',
+                    "bindingType": "IPV4",
+                    "dhcpV4BindingConfig": {
+                        "hostName": binding['hostname']
+                    },
+                    "dhcpV6BindingConfig": None,
+                    "version": {
+                        "version": 0
+                    }
+                }
+                dnsServers = []
+                if not binding.get('autoConfigureDNS'):
+                    if binding.get('primaryNameServer'):
+                        dnsServers.append(binding['primaryNameServer'])
+                    if binding.get('secondaryNameServer'):
+                        dnsServers.append(binding['secondaryNameServer'])
+                    payloadData['dnsServers'] = dnsServers
+                if binding.get('defaultGateway'):
+                    payloadData['dhcpV4BindingConfig']['gatewayIpAddress'] = binding['defaultGateway']
+
+                # Skip same Binding to configure again on edge gateway on remediation.
+                isMigrated = False
+                # Call for GET API to get DHCP Binding service.
+                response = self.restClientObj.get(DHCPBindingUrl, headers=self.headers)
+                responsedict = response.json()
+                if response.status_code == requests.codes.ok:
+                    for value in responsedict['values']:
+                        if value['macAddress'] == payloadData['macAddress']:
+                            isMigrated = True
+                            break
+                else:
+                    # Failed to get DHCP Bindings.
+                    raise Exception("Failed to get DHCP Bindings on OrgVDC Network {}, error : {}.".
+                                    format(networkName, responsedict['message']))
+
+                if isMigrated:
+                    logger.debug("Migration of binding ID {} , completed on last run.".format(binding['bindingId']))
+                    continue
+
+                # Call for POST API to configure DHCP Binding service
+                payloadData = json.dumps(payloadData)
+                apiResponse = self.restClientObj.post(DHCPBindingUrl, headers=self.headers, data=payloadData)
+                if apiResponse.status_code == requests.codes.accepted:
+                    task_url = apiResponse.headers['Location']
+                    self._checkTaskStatus(taskUrl=task_url)
+                    logger.debug("DHCP Bindings successfully configured on OrgVDC Network {}.".
+                                format(networkName))
+                else:
+                    # Failed to configure DHCP Bindings.
+                    errorResponse = apiResponse.json()
+                    raise Exception("Failed to configure DHCP Bindings on OrgVDC Network {}, error : {}.".
+                                    format(networkName, errorResponse['message']))
+
+    @description("configuration of DHCP relay service on target edge gateway")
+    @remediate
+    def configureDHCPRelayService(self):
+        """
+        Description : Configure DHCP Relay service on target edge gateway.
+        """
+        logger.debug('DHCP Relay Service is getting configured')
+        targetOrgVDCId = self.rollback.apiData['targetOrgVDC']['@id']
+        # get OrgVDC Network details which are used as a relay agents.
+        orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
+        for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
+            targetEdgeGatewayID = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'], self.rollback.apiData['targetEdgeGateway']))[0]['id']
+            DHCPData = self.rollback.apiData['sourceEdgeGatewayDHCP'][sourceEdgeGateway['id']]
+
+            # configure DHCP relay service on target edge gateway only if source DHCP relay service is enabled.
+            if not DHCPData.get('relay'):
+                logger.debug(
+                    "DHCP relay service not configured on source edge gateway : {}.".format(sourceEdgeGateway))
+                continue
+
+            logger.debug(
+                'Configuring DHCP relay service on target edge gateway - {}'.format(sourceEdgeGateway['name']))
+
+            # If we configures more than one relay server we are getting list, so we handled the scenario here.
+            forwardersList = list()
+            if DHCPData['relay']['relayServer'].get('ipAddresses'):
+                ipAddressList = listify(DHCPData['relay']['relayServer'].get('ipAddresses'))
+                forwardersList.extend(ipAddressList)
+
+            # get the list of DHCP servres from IP sets.
+            if DHCPData['relay']['relayServer'].get('groupingObjectIds'):
+                ipSetsList = listify(DHCPData['relay']['relayServer'].get('groupingObjectIds'))
+                for ipSet in ipSetsList:
+                    ipSetData = self.getIpset(ipSet)
+                    ipSetValues = ipSetData['ipset']['value']
+                    if not ipSetValues:
+                        continue
+
+                    if '-' in ipSetValues:
+                        # Get all ipAddresses from the range
+                        ipSetValuesList = ipSetValues.split('-')
+                        startIPAddress = ipSetValuesList[0]
+                        endIPAddress = ipSetValuesList[1]
+                        ipRangeAddresses = [str(ipaddress.IPv4Address(ip)) for ip in
+                                            range(int(ipaddress.IPv4Address(startIPAddress)),
+                                                  int(ipaddress.IPv4Address(endIPAddress) + 1))]
+                        forwardersList.extend(ipRangeAddresses)
+                    elif ',' in ipSetValues:
+                        # Get the IpAddresses
+                        ipAddresses = ipSetValues.split(',')
+                        forwardersList.extend(ipAddresses)
+                    elif '/' in ipSetValues:
+                        # Get list of IPs from the CIDR
+                        cidrIpAddresses = [str(ip) for ip in ipaddress.IPv4Network(ipSetValues, strict=False)]
+                        forwardersList.extend(cidrIpAddresses)
+                    else:
+                        # if only One IP address mentioned in IP set.
+                        forwardersList.append(ipSetValues)
+            # Enables the DHCP forwarder on edge Gateway.
+            DHCPForwarderUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                             vcdConstants.DHCP_FORWARDER.format(targetEdgeGatewayID))
+            payloadData = {
+                "enabled": True,
+                "dhcpServers": forwardersList
+            }
+            payloadData = json.dumps(payloadData)
+
+            # Call for PUT API to configure DHCP forwarder service
+            apiResponse = self.restClientObj.put(DHCPForwarderUrl, headers=self.headers, data=payloadData)
+            if apiResponse.status_code == requests.codes.accepted:
+                task_url = apiResponse.headers['Location']
+                self._checkTaskStatus(taskUrl=task_url)
+                logger.debug(
+                    "DHCP forwarder successfully configured on target edge gateway {}.".format(targetEdgeGatewayID))
+            else:
+                # Failed to configure DHCP forwarder.
+                errorResponse = apiResponse.json()
+                raise Exception(
+                    "Failed to configure DHCP forwarder on edge gateway {}, error : {}.".format(targetEdgeGatewayID, errorResponse['message']))
+
+            # get the list of relay agents configured in DHCP relay configurations..
+            relayAgentsData = listify(DHCPData['relay']['relayAgents']['relayAgents'])
+            relayAgents = [relayAgent['giAddress'] for relayAgent in
+                           listify(DHCPData['relay']['relayAgents']['relayAgents'])]
+
+            # get info of networks and configure DHCP in relay mode, if the network is used as relay agent.
+            for network in orgvdcNetworks:
+                networkGateway = network['subnets']['values'][0]['gateway']
+                if networkGateway not in relayAgents:
+                    continue
+
+                networkId = network['id']
+
+                # Enable the DHCP with relay mode "true" on the Org VDC Networks.
+                DHCPurl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                    vcdConstants.ORG_VDC_NETWORK_DHCP.format(networkId))
+                # Creating Payload
+                payloadData = {
+                    "enabled": True,
+                    "mode": "RELAY"
+                }
+                payloadData = json.dumps(payloadData)
+                # Call for PUT API to configure DHCP on OrgVDC network, which used as a DHCP relay agents.
+                apiResponse = self.restClientObj.put(DHCPurl, headers=self.headers, data=payloadData)
+                if apiResponse.status_code == requests.codes.accepted:
+                    task_url = apiResponse.headers['Location']
+                    self._checkTaskStatus(taskUrl=task_url)
+                    logger.debug(
+                        "DHCP Enabled successfully in relay mode on OrgVDC network: {}.".format(network['name']))
+                else:
+                    # Failed to Enable DHCP with in relay mode on Org VDC network..
+                    errorResponse = apiResponse.json()
+                    raise Exception(
+                        "Failed to enable DHCP in relay mode on OrgVDC network {}, error : {}.".format(network['name'], errorResponse['message']))
 
     @remediate
     def connectionPropertiesConfig(self, edgeGatewayID, ipsecConfig):
@@ -1480,6 +1928,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     if ipsetresponse.status_code == requests.codes.ok:
                         # successful retrieval of ipset group info
                         ipsetresponseDict = xmltodict.parse(ipsetresponse.content)
+
+                        if not ipsetresponseDict['ipset'].get('value'):
+                            logger.debug(
+                                f"Ignoring IPset '{ipsetgroup['name']}' that does not have IP addresses present in it.")
+
                         # storing the ip-address and range present in the IPSET
                         ipsetipaddress = ipsetresponseDict['ipset']['value']
 
@@ -1527,6 +1980,31 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             raise
 
     @isSessionExpired
+    def getOrgVDCNetworksVNics(self, edgeGatewayId, orgvdcNetworkName):
+        """
+        Description: Get VNic index for OrgVDC network
+        parameter : OrgVDC network name
+                    Edge gateway ID
+        returns:    Returns VNic Index of the OrgVDC Network.
+        """
+        logger.debug("Getting VNics index for OrgVDC network : ".format(orgvdcNetworkName))
+        orgvdcNetworkDetailsUrl = "{}{}/{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                                     vcdConstants.NETWORK_EDGES, edgeGatewayId, vcdConstants.VNIC_INDEX)
+        # get api call to retrieve the edge gateway VNics info for orgVDC network.
+        response = self.restClientObj.get(orgvdcNetworkDetailsUrl, self.headers)
+        if response.status_code == requests.codes.ok:
+            responseDict = xmltodict.parse(response.content)
+            for edgeInterface in responseDict['edgeInterfaces']['edgeInterface']:
+                if edgeInterface['name'] == orgvdcNetworkName:
+                    return edgeInterface['index']
+            else:
+                raise Exception(
+                    "Failed to get VNic details for edge gateway {} of network name {}.".format(edgeGatewayId, orgvdcNetworkName))
+        else:
+            raise Exception(
+                "Failed to get VNic details for edge gateway {} of network name {}.".format(edgeGatewayId, orgvdcNetworkName))
+
+    @isSessionExpired
     def dhcpRollBack(self):
         """
         Description: Creating DHCP service in Source Org VDC for roll back
@@ -1537,6 +2015,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 return
 
             data = self.rollback.apiData['sourceEdgeGatewayDHCP']
+            sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
+            orgvdcNetworks = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks',
+                                                    saveResponse=False)
             # ID of source edge gateway
             for sourceEdgeGatewayId in self.rollback.apiData['sourceEdgeGatewayId']:
                 edgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
@@ -1545,8 +2026,25 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                       vcdConstants.NETWORK_EDGES,
                                       vcdConstants.EDGE_GATEWAY_DHCP_CONFIG_BY_ID .format(edgeGatewayId))
                 # if DHCP pool was present in the source
-                if data[sourceEdgeGatewayId]['ipPools']:
+                if data[sourceEdgeGatewayId]['ipPools'] or data[sourceEdgeGatewayId].get('staticBindings') or data[sourceEdgeGatewayId].get('relay'):
                     del data[sourceEdgeGatewayId]['version']
+                    if data[sourceEdgeGatewayId].get('relay'):
+                        # get relay agents list from DHCP configuration.
+                        DHCPData = data[sourceEdgeGatewayId]
+                        relayAgentsData = DHCPData['relay']['relayAgents']['relayAgents']
+                        if isinstance(relayAgentsData, list):
+                            relayAgentsList = [relayAgent['giAddress'] for relayAgent in relayAgentsData]
+                        else:
+                            relayAgentsList = [relayAgentsData['giAddress']]
+
+                        for network in orgvdcNetworks:
+                            networkGateway = network['subnets']['values'][0]['gateway']
+                            if networkGateway in relayAgentsList:
+                                orgvdcNetworkVNics = self.getOrgVDCNetworksVNics(edgeGatewayId, network['name'])
+                                for relayAgent in relayAgentsData:
+                                    if relayAgent['giAddress'] == networkGateway:
+                                        relayAgent['vnicIndex'] = orgvdcNetworkVNics
+                        data[sourceEdgeGatewayId]['relay']['relayAgents']['relayAgents'] = relayAgentsData
                     payloadData = json.dumps(data[sourceEdgeGatewayId])
                     self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
                     response = self.restClientObj.put(url, self.headers, data=payloadData)
@@ -1640,7 +2138,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             responseValues = self.getPaginatedResults("VCD tenant certificate store", url, self.headers)
             if rawOutput:
                 return responseValues
-            
+
             # Retrieving certificate names from certificates
             return {
                 certificate['alias']: certificate['id']
@@ -1721,7 +2219,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             pageSizeCount = 0
             targetLoadBalancerPoolSummary = []
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.EDGE_GATEWAY_LOADBALANCER_POOLS_USING_ID.format(
                                                             edgeGatewayId), pageNo,
                                                         25)
@@ -1759,7 +2257,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             pageSizeCount = 0
             targetLoadBalancerVirtualServiceSummary = []
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.EDGE_GATEWAY_LOADBALANCER_VIRTUALSERVICE_USING_ID.format(
                                                             edgeGatewayId), pageNo,
                                                         25)
@@ -1799,7 +2297,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             pageSizeCount = 0
             serviceEngineGroupList = []
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.ASSIGN_SERVICE_ENGINE_GROUP_URI,
                                                         pageNo,
                                                         25)
@@ -2589,7 +3087,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             # Get first page of query
             pageNo = 1
-            url = f"{base_url}?page={pageNo}&pageSize={pageSize}{query}"
+            url = f"{base_url}?page={pageNo}&pageSize={pageSize}&sortAsc=name{query}"
             self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
 
             response = self.restClientObj.get(url, self.headers)
@@ -2609,7 +3107,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             # Query second page onwards until resultTotal is reached
             while len(resultFetched) < resultTotal:
-                url = f"{base_url}?page={pageNo}&pageSize={pageSize}{query}"
+                url = f"{base_url}?page={pageNo}&pageSize={pageSize}&sortAsc=name{query}"
                 self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
                 response = self.restClientObj.get(url, self.headers)
                 if not response.status_code == requests.codes.ok:
@@ -3060,11 +3558,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         self._checkTaskStatus(taskUrl=response.headers['Location'])
         logger.debug(f"All DFW rules deleted from {dcGroupId}")
 
-    def configureDfwDefaultRule(self, vcdObjList, sourceOrgVDCId):
+    def configureDfwDefaultRule(self, sourceOrgVDCId):
         """
         Description :   Configure DFW default rule on DC groups associated with Org VDC.
-        Parameters  :   vcdObjList - List of objects of vcd operations class (LIST)
-                        sourceOrgVDCId - ID of source orgVDC(NSX ID format not URN) (STR)
+        Parameters  :   sourceOrgVDCId - ID of source orgVDC(NSX ID format not URN) (STR)
         """
         try:
             if not self.rollback.apiData.get('OrgVDCGroupID'):
@@ -3080,20 +3577,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 return
 
             logger.info('Configuring DFW default rule')
-            sharedNetwork = False
-            networks = self.getOrgVDCNetworks(
-                sourceOrgVDCId, orgVDCNetworkType='sourceOrgVDCNetworks', sharedNetwork=True, dfwStatus=True,
-                saveResponse=False)
-            for network in networks:
-                if network['shared']:
-                    sharedNetwork = True
-                    break
-
             payloadDict = {
                 'name': 'Default',
-                'enabled': 'true' if rule['@disabled'] == 'false' else 'false',
+                'enabled': True if rule['@disabled'] == 'false' else False,
                 'action': 'ALLOW' if rule['action'] == 'allow' else 'DROP',
-                'logging': 'true' if rule['@logged'] == 'true' else 'false',
+                'logging': True if rule['@logged'] == 'true' else False,
                 'ipProtocol':
                     'IPV4' if rule['packetType'] == 'ipv4'
                     else 'IPV6' if rule['packetType'] == 'ipv6'
@@ -3117,20 +3605,26 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     vcdConstants.ENABLE_DFW_POLICY,
                     vcdConstants.GET_DFW_RULES.format(policyResponseDict['defaultPolicy']['id']))
 
-                self.putDfwPolicyRules(dfwURL, payloadDict, 'Default', dcGroupId, defaultRule=True)
-
-                # If shared network is enabled, update metadata for each participating VDC
-                if sharedNetwork:
-                    for vcdObj in vcdObjList:
-                        if not vcdObj.rollback.apiData.get('DfwDefaultRule'):
-                            vcdObj.rollback.apiData['DfwDefaultRule'] = dict()
-                        vcdObj.rollback.apiData['DfwDefaultRule'][dcGroupId] = True
-                        vcdObj.saveMetadataInOrgVdc(force=True)
+                userDefinedRules = self.getDfwPolicyRules(dfwURL)
+                if len(userDefinedRules) > 1:
+                    raise Exception("Distributed firewall rules are present. Not adding default rule")
+                elif len(userDefinedRules) == 1:
+                    if all(
+                            userDefinedRules[0].get(param) == payloadDict.get(param)
+                            for param in [
+                                'enabled', 'action', 'direction', 'ipProtocol', 'sourceFirewallGroups',
+                                'destinationFirewallGroups', 'applicationPortProfiles', 'networkContextProfiles'
+                            ]):
+                        logger.debug(f'Default rule already configured on {dcGroupId}')
+                    else:
+                        self.putDfwPolicyRules(dfwURL, payloadDict, 'Default', dcGroupId, defaultRule=True)
                 else:
-                    if not self.rollback.apiData.get('DfwDefaultRule'):
-                        self.rollback.apiData['DfwDefaultRule'] = dict()
-                    self.rollback.apiData['DfwDefaultRule'][dcGroupId] = True
-                    self.saveMetadataInOrgVdc(force=True)
+                    self.putDfwPolicyRules(dfwURL, payloadDict, 'Default', dcGroupId, defaultRule=True)
+
+                if not self.rollback.apiData.get('DfwDefaultRule'):
+                    self.rollback.apiData['DfwDefaultRule'] = dict()
+                self.rollback.apiData['DfwDefaultRule'][dcGroupId] = True
+                self.saveMetadataInOrgVdc(force=True)
 
         except DfwRulesAbsentError as e:
             logger.debug(e)
@@ -3168,7 +3662,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     "Failed to fetch firewall group summary from target - {}".format(response['message']))
 
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}?page={}&pageSize={}{}".format(
+                url = "{}?page={}&pageSize={}{}&sortAsc=name".format(
                     firewallGroupsUrl, pageNo, vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE,
                     f"&{urlFilter}" if urlFilter else '')
                 getSession(self)
@@ -3238,7 +3732,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 "Failed to fetch security tag summary from target - {}".format(response['message']))
 
         while resultTotal > 0 and pageSizeCount < resultTotal:
-            url = "{}?page={}&pageSize={}".format(base_url, pageNo,
+            url = "{}?page={}&pageSize={}&sortAsc=name".format(base_url, pageNo,
                                                   vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE)
             response = self.restClientObj.get(url, headers)
             if response.status_code == requests.codes.ok:
@@ -3272,7 +3766,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         base_url = "{}securityTags/entities".format(
             vcdConstants.OPEN_API_URL.format(self.ipAddress))
         query_filter = f'&filterEncoded=true&filter=tag=={tagName}'
-        url = f"{base_url}?page=1&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}{query_filter}"
+        url = f"{base_url}?page=1&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}&sortAsc=name{query_filter}"
         response = self.restClientObj.get(url, self.headers)
 
         # Fetching associated VMs with tag summary
@@ -3289,7 +3783,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 tagName, response['message']))
 
         while resultTotal > 0 and pageSizeCount < resultTotal:
-            url = f"{base_url}?page={pageNo}&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}{query_filter}"
+            url = f"{base_url}?page={pageNo}&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}&sortAsc=name{query_filter}"
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
@@ -3371,6 +3865,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         Create source Security tags on target side
         """
         if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
+            return
+
+        if not self.rollback.apiData.get('OrgVDCGroupID'):
             return
 
         logger.info('Creating DFW security tags')

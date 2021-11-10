@@ -187,6 +187,9 @@ CREATE_BGP_NEIGHBOR_CONFIG = "/{}/routing/bgp/neighbors"
 # create prefixLists uri
 CREATE_PREFIX_LISTS_BGP = '/{}/routing/bgp/prefixLists'
 
+# config route advertisement
+CONFIG_ROUTE_ADVERTISEMENT = '/{}/routing/advertisement'
+
 # create org vdc uri for specific organization
 CREATE_ORG_VDC = "org/{}/vdcsparams"
 
@@ -253,7 +256,7 @@ OPEN_API_CONTENT_TYPE = 'application/json;version={}'
 
 # content type fro json
 GENERAL_JSON_CONTENT_TYPE = 'application/*+json;version={}'
-GENERAL_JSON_ONLY_CONTENT_TYPE =  'application/*+json'
+GENERAL_JSON_ONLY_CONTENT_TYPE = 'application/*+json'
 
 # content type for xml
 GENERAL_XML_CONTENT_TYPE = 'application/*+xml;charset=UTF-8'
@@ -460,7 +463,10 @@ CHECK_STRING_FOR_EMPTY_VAPPS = 'The requested operation could not be executed si
 VXLAN_NETWORK_POOL_TYPE = 'vmext:VxlanPoolType'
 
 # source network pool type VLAN
-VLAN_NETWORK_POOL_TYPE =  'vmext:VlanPoolType'
+VLAN_NETWORK_POOL_TYPE = 'vmext:VlanPoolType'
+
+# source network pool type PortGroup
+PORTGROUP_NETWORK_POOL_TYPE = 'vmext:PortGroupPoolType'
 
 # target network pool type
 GENEVE_NETWORK_POOL_TYPE = 'vmext:GenevePoolType'
@@ -733,14 +739,25 @@ EDGE_CLUSTER_DATA = 'edgeClusters'
 # get vNics details
 VNIC = '/vnics'
 
+# Update DHCP forwarder config on edge gateway services
+DHCP_FORWARDER = "edgeGateways/{}/dhcpForwarder"
+
+# Filter to get VNic details
+VNIC_INDEX = "/vdcNetworks?includeDistributed=false&includeUdlrUplinks=true"
 # syslog config uri for edge gateway by id
 EDGE_GATEWAY_SYSLOG_CONFIG_BY_ID = "/{}/syslog/config"
 
 # ssh settings ur for edge gateway by id
 EDGE_GATEWAY_CLISETTINGS_CONFIG_BY_ID = "/{}/clisettings"
 
+# DHCP Static Binding
+DHCP_BINDINGS = "orgVdcNetworks/{}/dhcp/bindings"
+
 # Get all vCenters registered with vCD
 GET_VIRTUAL_CENTERS = "virtualCenters"
 
 # Fetch NSXV settings of vCenter
-FETCH_VC_NSXV_SETTINGS = "virtualCenters/{}/nsxVSettings"
+FETCH_VC_NSXV_SETTINGS = "extension/vsm/{}"
+
+# IP Prefix list name
+TARGET_BGP_IP_PREFIX_NAME = "v-t migrated IP prefix list"

@@ -25,7 +25,7 @@ from collections import defaultdict
 from src.commonUtils.utils import Utilities
 import src.constants as mainConstants
 import src.core.vcd.vcdConstants as vcdConstants
-
+from src.commonUtils.utils import Utilities, listify
 from src.core.vcd.vcdValidations import (
     isSessionExpired, description, remediate, remediate_threaded, METADATA_SAVE_FALSE, getSession)
 from src.core.vcd.vcdConfigureEdgeGatewayServices import ConfigureEdgeGatewayServices
@@ -157,7 +157,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                'nsxtManagerId': externalDict['networkBackings']['values'][0]['networkProvider']['id']
                                }
 
-                if (isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or not bgpConfigDict or bgpConfigDict['enabled'] != "true":
+                # Use dedicated external network if BGP is configured
+                # or AdvertiseRoutedNetworks parameter is set to True
+                if ((isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or
+                        not bgpConfigDict or
+                        bgpConfigDict['enabled'] != "true") and \
+                        not vdcDict.get('AdvertiseRoutedNetworks'):
                     payloadDict['dedicated'] = False
                 else:
                     payloadDict['dedicated'] = True
@@ -197,7 +202,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 payloadData['edgeGatewayUplinks'][0]['subnets']['values'] = subnetData
 
                 # Checking if edge cluster is specified in user input yaml
-                if vdcDict.get('EdgeGatewayDeploymentEdgeCluster') != 'None':
+                if vdcDict.get('EdgeGatewayDeploymentEdgeCluster'):
                     # Fetch edge cluster id
                     edgeClusterId = nsxObj.fetchEdgeClusterDetails(vdcDict["EdgeGatewayDeploymentEdgeCluster"]).get('id')
                 else:
@@ -437,6 +442,33 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
+    def removeDHCPBinding(self, networkId):
+        """
+        Description :   Deletes the DHCP binding on OrgVDC network if present
+        Parameters  :   networkId  -  Id of the Org VDC network. (STRING)
+        """
+        logger.debug("checking DHCP binding status")
+        # Enables the DHCP bindings on OrgVDC network.
+        DHCPBindingUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                       vcdConstants.DHCP_BINDINGS.format(networkId))
+        # call to get api to get dhcp binding config details of specified networkId
+        response = self.restClientObj.get(DHCPBindingUrl, self.headers)
+        if response.status_code == requests.codes.ok:
+            responsedict = response.json()
+            # checking DHCP bindings configuration, if present then deleting the DHCP Binding config.
+            for bindings in responsedict['values']:
+                deleteDHCPBindingURL = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                       vcdConstants.DHCP_BINDINGS.format(networkId), bindings['id'])
+                response = self.restClientObj.delete(deleteDHCPBindingURL, self.headers)
+                if response.status_code == requests.codes.accepted:
+                    taskUrl = response.headers['Location']
+                    self._checkTaskStatus(taskUrl=taskUrl)
+                    logger.debug('Organization VDC Network DHCP Bindings deleted successfully.')
+                else:
+                    logger.debug(
+                        'Failed to delete Organization VDC Network DHCP bindings {}.{}'.format(networkId, response.json()['message']))
+
+    @isSessionExpired
     def deleteOrgVDCNetworks(self, orgVDCId, source=True, rollback=False):
         """
         Description :   Deletes all Organization VDC Networks from the specified OrgVDC
@@ -460,6 +492,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             orgVDCNetworksList = self.getOrgVDCNetworks(orgVDCId, 'sourceOrgVDCNetworks', dfwStatus=dfwStatus, saveResponse=False)
             # iterating over the org vdc network list
             for orgVDCNetwork in orgVDCNetworksList:
+                # Check if DHCP Binding enabled on Network, if enabled then delete binding first.
+                if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
+                    self.removeDHCPBinding(orgVDCNetwork['id'])
                 # url to delete the org vdc network
                 url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                     vcdConstants.DELETE_ORG_VDC_NETWORK_BY_ID.format(orgVDCNetwork['id']))
@@ -537,6 +572,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Parameters  :   orgVDCId  -   Id of the Organization VDC (STRING)
         """
         try:
+            # Locking thread. When Edge gateways from multiple org VDC having IPSEC enabled are rolled back at the same
+            # time, target edge gateway deletion fails.
+            self.lock.acquire(blocking=True)
+
             # Check if org vdc edge gateways were created or not
             if not self.rollback.metadata.get("prepareTargetVDC", {}).get("createEdgeGateway"):
                 return
@@ -563,6 +602,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 logger.warning('Target Edge Gateway do not exist')
         except Exception:
             raise
+        finally:
+            # Releasing thread lock
+            try:
+                self.lock.release()
+            except RuntimeError:
+                pass
 
     @description("disconnection of source routed Org VDC Networks from source Edge gateway")
     @remediate
@@ -778,57 +823,51 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description("getting the portgroup of source org vdc networks")
     @remediate
-    def getPortgroupInfo(self, orgVdcNetworkList):
+    def getPortgroupInfo(self, orgVdcNetworkList, vcenterObj):
         """
         Description : Get Portgroup Info
         Parameters  : orgVdcNetworkList - List of source org vdc networks (LIST)
+                      vcenterObj - Object of vcenterApis module (Object)
         """
         try:
             logger.info('Getting the portgroup of source org vdc networks.')
             data = self.rollback.apiData
-            # url to get the port group details
-            url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                vcdConstants.GET_PORTGROUP_INFO)
-            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
-            headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
-            # retrieving the details of the port group
-            response = self.restClientObj.get(url, headers)
-            if response.status_code == requests.codes.ok:
-                responseDict = response.json()
-                resultTotal = responseDict['total']
-            pageNo = 1
-            pageSizeCount = 0
-            resultList = []
-            logger.debug('Getting portgroup details')
-            while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}&page={}&pageSize={}&format=records".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                                                       vcdConstants.GET_PORTGROUP_INFO, pageNo,
-                                                                       vcdConstants.PORT_GROUP_PAGE_SIZE)
-                getSession(self)
-                response = self.restClientObj.get(url, headers)
-                if response.status_code == requests.codes.ok:
-                    responseDict = response.json()
-                    resultList.extend(responseDict['record'])
-                    pageSizeCount += len(responseDict['record'])
-                    logger.debug('Portgroup details result pageSize = {}'.format(pageSizeCount))
-                    pageNo += 1
-                    resultTotal = responseDict['total']
-            logger.debug('Total Portgroup details result count = {}'.format(len(resultList)))
-            logger.debug('Portgroup details successfully retrieved')
 
             # Fetching name and ids of all the org vdc networks
-            networkIdList, networkNameList = set(), set()
+            networkIdMapping, networkNameList = dict(), set()
             for orgVdcNetwork in orgVdcNetworkList:
-                networkIdList.add(orgVdcNetwork['id'].split(":")[-1])
+                networkIdMapping[orgVdcNetwork['id'].split(":")[-1]] = orgVdcNetwork
                 networkNameList.add(orgVdcNetwork['name'])
 
+            # Fetching VM ID of source edge gateway
+            edgeGatewayVmIdMapping = self.getEdgeVmId()
+            # get interface details of the nsx-v edge vm using vcenter api's
+            interfaceDetails = {edgeGatewayId: vcenterObj.getEdgeVmNetworkDetails(edgeVMId)
+                                for edgeGatewayId, edgeVMId in edgeGatewayVmIdMapping.items()}
+
+            allPortGroups = self.fetchAllPortGroups()
+            portGroupDict = dict()
             # Iterating over all the port groups to find the portgroups linked to org vdc network
-            portGroupDict = {portGroup['network'].split('/')[-1]: portGroup
-                             for portGroup in resultList
-                             if portGroup['networkName'] != '--' and
-                             portGroup['scopeType'] not in ['-1', '1'] and
-                             portGroup['networkName'] in networkNameList and
-                             portGroup['network'].split('/')[-1] in networkIdList}
+            for portGroup in allPortGroups:
+                if portGroup['networkName'] != '--' and \
+                        portGroup['scopeType'] not in ['-1', '1'] and \
+                        portGroup['networkName'] in networkNameList and \
+                        portGroup['network'].split('/')[-1] in networkIdMapping.keys() and \
+                        portGroup['network'].split('/')[-1] not in portGroupDict:
+                    orgVdcNetworkData = networkIdMapping[portGroup['network'].split('/')[-1]]
+                    if orgVdcNetworkData["networkType"] == "NAT_ROUTED" and \
+                        orgVdcNetworkData["connection"]["connectionType"] != "DISTRIBUTED":
+                        edgeGatewayId = orgVdcNetworkData["connection"]["routerRef"]["id"].split(':')[-1]
+
+                        for nicDetail in interfaceDetails[edgeGatewayId]:
+                            # comparing source org vdc network portgroup moref and edge gateway interface details
+                            if portGroup['moref'] == nicDetail['value']['backing']['network']:
+                                portGroupDict[portGroup['network'].split('/')[-1]] = portGroup
+                                break
+                        else:
+                            continue
+                    else:
+                        portGroupDict[portGroup['network'].split('/')[-1]] = portGroup
 
             # Saving portgroups data to metadata data structure
             data['portGroupList'] = list(portGroupDict.values())
@@ -935,6 +974,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         ipAddress = networkConnection['IpAddress']
                     else:
                         ipAddress = ""
+                    # Check ip allocation mode for vm's
+                    if networkConnection['IpAddressAllocationMode'] == 'POOL' and \
+                            float(self.version) <= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
+                        networkConnection['IpAddressAllocationMode'] = 'MANUAL'
                     payloadDict = {'networkName': networkName, 'ipAddress': ipAddress,
                                    'connected': networkConnection['IsConnected'],
                                    'macAddress': networkConnection['MACAddress'],
@@ -1683,9 +1726,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     logger.debug('DHCP service is not enabled or configured in Source Edge Gateway')
                 else:
                     # retrieving the dhcp rules of the source edge gateway
-                    dhcpRules = sourceEdgeGatewayDHCP['ipPools']['ipPools'] if isinstance(
-                        sourceEdgeGatewayDHCP['ipPools']['ipPools'], list) else [
-                        sourceEdgeGatewayDHCP['ipPools']['ipPools']]
+                    dhcpRules = listify(sourceEdgeGatewayDHCP['ipPools'].get('ipPools'))
                     payloaddict = {}
                     # iterating over the source edge gateway dhcp rules
                     for iprange in dhcpRules:
@@ -1719,11 +1760,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                             },
                                             "defaultLeaseTime": 0
                                         }]
-                                        for pool in payloaddict['dhcpPools']:
-                                            if iprange['leaseTime'] == "infinite":
-                                                pool['maxLeaseTime'] = 4294967
-                                            else:
-                                                pool['maxLeaseTime'] = iprange['leaseTime']
+                                        payloaddict['leaseTime'] = 4294967295 if iprange['leaseTime'] == "infinite" \
+                                            else iprange['leaseTime']
                                         # url to configure dhcp on target org vdc networks
                                         url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                                vcdConstants.ALL_ORG_VDC_NETWORKS,
@@ -1735,10 +1773,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                             dhcpPools = responseDict['dhcpPools'] + payloaddict['dhcpPools'] if \
                                                 responseDict['dhcpPools'] else payloaddict['dhcpPools']
                                             payloaddict['dhcpPools'] = dhcpPools
+                                            payloaddict['leaseTime'] = payloaddict['leaseTime'] if \
+                                                not responseDict['dhcpPools'] else min(int(responseDict['leaseTime']), int(payloaddict['leaseTime']))
                                             # payloadData = json.dumps(payloaddict)
                                             # put api call to configure dhcp on target org vdc networks
                                             self._updateDhcpInOrgVdcNetworks(url, payloaddict)
-                                            # setting the configStatus flag meaning the particular DHCP rule is configured successfully in order to skip its reconfiguration
+                                            # setting the configStatus,flag meaning the particular DHCP rule is configured successfully in order to skip its reconfiguration
                                             iprange['configStatus'] = True
                                         else:
                                             errorResponse = response.json()
@@ -1757,7 +1797,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     payload["dhcpPools"] = list()
                     firstPoolIndex = 0
                     maxLeaseTimeDhcp = []
-                    if OrgVDCIsolatedNetworkDHCPDetails["dhcpPools"]:
+                    if OrgVDCIsolatedNetworkDHCPDetails.get("dhcpPools"):
                         for eachDhcpPool in OrgVDCIsolatedNetworkDHCPDetails["dhcpPools"]:
                             currentPoolDict = dict()
                             currentPoolDict["enabled"] = eachDhcpPool['enabled']
@@ -1978,7 +2018,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             except RuntimeError:
                 pass
 
-    def prepareTargetVDC(self, vcdObjList, sourceOrgVDCId, inputDict, vdcDict, nsxObj, sourceOrgVDCName, orgVDCIDList, configureBridging=False, configureServices=False):
+    def prepareTargetVDC(self, vcdObjList, sourceOrgVDCId, inputDict, vdcDict, nsxObj, sourceOrgVDCName, orgVDCIDList, vcenterObj, configureBridging=False, configureServices=False):
         """
         Description :   Preparing Target VDC
         Parameters  :   vcdObjList       -   List of vcd operations class objects (LIST)
@@ -1989,6 +2029,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         nsxObj           -   NSXTOperations class object (OBJECT)
                         sourceOrgVDCName -   Name of source org vdc (STRING)
                         orgVDCIDList     -   List of source org vdc's ID's (LIST)
+                        vcenterObj - Object of vcenterApis module (Object)
                         configureBridging-   Flag that decides bridging is to be configured further or not (BOOLEAN)
                         configureServices-   Flag that decides services are to be configured further or not (BOOLEAN)
         """
@@ -2066,7 +2107,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 self.enablePromiscModeForgedTransmit(orgVdcNetworkList)
 
                 # get the portgroup of source org vdc networks
-                self.getPortgroupInfo(orgVdcNetworkList)
+                self.getPortgroupInfo(orgVdcNetworkList, vcenterObj)
 
             # Migrating metadata from source org vdc to target org vdc
             self.migrateMetadata()
@@ -2118,13 +2159,18 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # configuring dhcp service target Org VDC networks
             self.configureDHCP(targetOrgVDCId, edgeGatewayDeploymentEdgeCluster, nsxtObj)
 
+            # Configure DHCP relay and Binding on target edge gateway.
+            if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
+                self.configureDHCPRelayService()
+                self.configureDHCPBindingService()
+
             if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
                 # increase in scope of Target edgegateways
                 self.increaseScopeOfEdgegateways()
                 # # increase in scope of Target ORG VDC networks
                 self.increaseScopeforNetworks()
                 # Enable DFW in the orgVDC groups
-                self.enableDFWinOrgvdcGroup(vcdObjList, sourceOrgVDCId)
+                self.enableDFWinOrgvdcGroup()
 
                 # Variable to set that the thread has reached here
                 self.__done__ = True
@@ -3334,7 +3380,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         try:
             logger.debug("Getting Edge VM ID")
-            edgeVmIdList = []
+            edgeVmIdMapping = dict()
             edgeGatewayIdList = self.rollback.apiData['sourceEdgeGatewayId']
             for edgeGatewayId in edgeGatewayIdList:
                 orgVDCEdgeGatewayId = edgeGatewayId.split(':')[-1]
@@ -3365,12 +3411,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         edgeVmId = \
                         edgeNetworkDict[vcdConstants.EDGE_GATEWAY_STATUS_KEY][vcdConstants.EDGE_GATEWAY_VM_STATUS_KEY][
                             vcdConstants.EDGE_GATEWAY_VM_STATUS_KEY]["id"]
-                    edgeVmIdList.append(edgeVmId)
+                    edgeVmIdMapping[orgVDCEdgeGatewayId] = edgeVmId
                 else:
                     errorDict = xmltodict.parse(response.content)
                     raise Exception(
                         "Failed to get edge gateway status. Error - {}".format(errorDict['error']['details']))
-            return edgeVmIdList
+            return edgeVmIdMapping
         except Exception:
             raise
 
@@ -3560,7 +3606,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     else:
                         errorDict = apiResponse.json()
                         raise Exception(
-                            "Failed to reset the target external network '{}' to its initial state: {}".format(
+                            "Failed to update source external network '{}': {}".format(
                                 networkName,
                                 errorDict['message']))
         except Exception:
@@ -4219,23 +4265,46 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                                             componentName=vcdConstants.COMPONENT_NAME,
                                                                             templateName=vcdConstants.STORAGE_PROFILE_TEMPLATE_NAME)
                 vdcStorageProfilePayloadData += eachStorageProfilePayloadData.strip("\"")
-            nsxtNetworkPoolName = vdcDict.get('NSXTNetworkPoolName', None)
-            networkPoolReferences = targetPVDCPayloadDict['NetworkPoolReferences']
-            # if multiple network pools exist, take the network pool references passed in user spec
-            if isinstance(networkPoolReferences['NetworkPoolReference'], list):
-                networkPoolReferencesList = networkPoolReferences['NetworkPoolReference']
-                networkPoolExists = list(filter(lambda poolReference: poolReference['@name'] == nsxtNetworkPoolName, networkPoolReferencesList))
-                if networkPoolExists:
-                    networkPoolHref = networkPoolExists[0]['@href']
-                    networkPoolId = networkPoolExists[0]['@id']
-                    networkPoolName = networkPoolExists[0]['@name']
-                    networkPoolType = networkPoolExists[0]['@type']
-            # if no multiple network pools exist then take the default one already there in target pvdc
+
+            # Shared network and DFW need target org VDC to be part of DC group. If org VDC is created without network
+            # pool, it cannot be part of DC group. Hence if shared network or DFW is present, assign default or user
+            # provided network pool of target PVDC to target Org VDC.
+            if (data['sourceOrgVDC'].get('NetworkPoolReference')
+                    or self.isSharedNetworkPresent()
+                    or self.getDistributedFirewallConfig()):
+                networkPoolReferences = targetPVDCPayloadDict['NetworkPoolReferences']
+
+                # if multiple network pools exist, take the network pool references passed in user spec
+                if isinstance(networkPoolReferences['NetworkPoolReference'], list):
+                    tpvdcNetworkPool = [
+                        pool
+                        for pool in networkPoolReferences['NetworkPoolReference']
+                        if pool['@name'] == vdcDict.get('NSXTNetworkPoolName')
+                    ]
+                    if tpvdcNetworkPool:
+                        networkPoolHref = tpvdcNetworkPool[0]['@href']
+                        networkPoolId = tpvdcNetworkPool[0]['@id']
+                        networkPoolName = tpvdcNetworkPool[0]['@name']
+                        networkPoolType = tpvdcNetworkPool[0]['@type']
+                    else:
+                        raise Exception(
+                            f"Network Pool {vdcDict.get('NSXTNetworkPoolName')} doesn't exist in Target PVDC")
+
+                # if PVDC has a single network pool, take it
+                else:
+                    networkPoolHref = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@href']
+                    networkPoolId = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@id']
+                    networkPoolName = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@name']
+                    networkPoolType = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@type']
+
             else:
-                networkPoolHref = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@href']
-                networkPoolId = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@id']
-                networkPoolName = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@name']
-                networkPoolType = targetPVDCPayloadDict['NetworkPoolReferences']['NetworkPoolReference']['@type']
+                logger.debug(
+                    'Network pool not present and Org VDC is not using shared network or distributed firewall')
+                networkPoolHref = None
+                networkPoolId = None
+                networkPoolName = None
+                networkPoolType = None
+
             # creating the payload dict
             orgVdcPayloadDict = {'orgVDCName': data["sourceOrgVDC"]["@name"] + '-v2t',
                                  'vdcDescription': data['sourceOrgVDC']['Description'] if data['sourceOrgVDC'].get(
@@ -4980,7 +5049,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description('Enable DFW in Orgvdc group')
     @remediate
-    def enableDFWinOrgvdcGroup(self, vcdObjList, sourceOrgVDCId, rollback=False):
+    def enableDFWinOrgvdcGroup(self, rollback=False):
         """
         Description :   Enable DFW in Orgvdc group
         Parameters  :   rollback- True to disable DFW in ORG VDC group
@@ -5027,7 +5096,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         errorDict = response.json()
                         raise Exception("Failed to enable DFW '{}' ".format(errorDict['message']))
                 if not rollback:
-                    self.configureDfwDefaultRule(vcdObjList, sourceOrgVDCId)
+                    self.configureDfwDefaultRule(sourceOrgVDCId)
 
         except Exception:
             raise

@@ -55,14 +55,14 @@ VALIDATION_CLASSIFICATION = {
     'Empty vApps': 1,
     'Suspended VMs': 1,
     'Routed vApp Networks': 2,
-    'Network Pool not VXLAN/VLAN backed': 2,
     'Fencing enabled on vApps': 2,
     'No free interface on edge gateways': 1,
     'Edge Gateway Rate Limit': 1,
     'Independent Disks: Shared disk present': 2,
     'Independent Disks: Attached VMs are not powered off': 1,
-    'DHCP Relay': 2,
-    'DHCP: Static binding': 2,
+    'DHCP Binding: Binding IP addresses overlaps with static IP Pool range': 1,
+    'DHCP Relay: Domain names are configured': 1,
+    'DHCP Relay: More than 8 DHCP servers configured': 1,
     'Gateway Firewall: Any as TCP/UDP port': 1,
     'Gateway Firewall: Gateway Interfaces in rule': 1,
     'Gateway Firewall: Networks connected to different edge gateway used': 1,
@@ -72,6 +72,7 @@ VALIDATION_CLASSIFICATION = {
     'IPsec: Route based session type': 2,
     'IPsec: Unsupported Encryption Algorithm': 1,
     'IPsec: CA certificate is missing': 1,
+    'IPsec: DNAT rules not supported with Policy-based session type': 2,
     'OSPF routing protocol': 2,
     'User-defined Static Routes': 1,
     'LoadBalancer: Transparent Mode': 2,
@@ -89,6 +90,7 @@ VALIDATION_CLASSIFICATION = {
     'Syslog service': 1,
     'SSH service': 1,
     'Cross VDC Networking': 2,
+    'GRE Tunnel': 2,
 }
 
 
@@ -239,7 +241,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
             getEdgeGatewayDesc = 'Getting details of source edge gateway list'
             # fetch details of edge gateway
             self.consoleLogger.info(getEdgeGatewayDesc)
-            self.edgeGatewayIdList = self.vcdValidationObj.getOrgVDCEdgeGatewayId(vdcId)
+            self.edgeGatewayIdList = self.vcdValidationObj.getOrgVDCEdgeGatewayId(vdcId, saveResponse=True)
             if isinstance(self.edgeGatewayIdList, Exception):
                 raise self.edgeGatewayIdList
 
@@ -248,7 +250,6 @@ class VMwareCloudDirectorNSXMigratorV2T:
                 'Empty vApps': [self.vcdValidationObj.validateNoEmptyVappsExistInSourceOrgVDC, vdcId],
                 'Suspended VMs': [self.vcdValidationObj.validateSourceSuspendedVMsInVapp, vdcId],
                 'Routed vApp Networks': [self.vcdValidationObj.validateNoVappNetworksExist, vdcId],
-                'Network Pool not VXLAN/VLAN backed': [self.vcdValidationObj.validateSourceNetworkPools],
                 'Fencing enabled on vApps': [self.vcdValidationObj.validateVappFencingMode, vdcId],
                 'No free interface on edge gateways': [self.vcdValidationObj.validateEdgeGatewayUplinks,
                                                      vdcId, self.edgeGatewayIdList],
@@ -594,14 +595,18 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                             else:
                                                 self.orgVDCResult["LoadBalancer: Unsupported algorithm"] = False
                                         if serviceName == "DHCP":
-                                            if "DHCP Relay is configured" in ''.join(result):
-                                                self.orgVDCResult["DHCP Relay"] = True
+                                            if "Domain names are configured as a DHCP servers" in ''.join(result):
+                                                self.orgVDCResult["DHCP Relay: Domain names are configured"] = True
                                             else:
-                                                self.orgVDCResult["DHCP Relay"] = False
-                                            if "Static binding is in DHCP configuration" in ''.join(result):
-                                                self.orgVDCResult["DHCP: Static binding"] = True
+                                                self.orgVDCResult["DHCP Relay: Domain names are configured"] = False
+                                            if "More than 8 DHCP servers configured" in ''.join(result):
+                                                self.orgVDCResult["DHCP Relay: More than 8 DHCP servers configured"] = True
                                             else:
-                                                self.orgVDCResult["DHCP: Static binding"] = False
+                                                self.orgVDCResult["DHCP Relay: More than 8 DHCP servers configured"] = False
+                                            if "DHCP Binding IP addresses overlaps" in ''.join(result):
+                                                self.orgVDCResult["DHCP Binding: Binding IP addresses overlaps with static IP Pool range"] = True
+                                            else:
+                                                self.orgVDCResult["DHCP Binding: Binding IP addresses overlaps with static IP Pool range"] = False
                                         if serviceName == "NAT":
                                             if "Nat64 rule is configured" in ''.join(result):
                                                 self.orgVDCResult["NAT: NAT64 rule"] = True
@@ -624,6 +629,10 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 self.orgVDCResult["IPsec: CA certificate is missing"] = True
                                             else:
                                                 self.orgVDCResult["IPsec: CA certificate is missing"] = False
+                                            if 'DNAT is not supported on a tier-1' in ''.join(result):
+                                                self.orgVDCResult["IPsec: DNAT rules not supported with Policy-based session type"] = True
+                                            else:
+                                                self.orgVDCResult["IPsec: DNAT rules not supported with Policy-based session type"] = False
                                         if serviceName == "Routing":
                                             if "OSPF routing protocol" in ''.join(result):
                                                 self.orgVDCResult["OSPF routing protocol"] = True
@@ -670,6 +679,11 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 self.orgVDCResult["SSH service"] = True
                                             else:
                                                 self.orgVDCResult["SSH service"] = False
+                                        if serviceName == "GRETUNNEL":
+                                            if 'GRE tunnel is configured' in ''.join(result):
+                                                self.orgVDCResult["GRE Tunnel"] = True
+                                            else:
+                                                self.orgVDCResult["GRE Tunnel"] = False
                                 if desc == "Independent Disks":
                                     del self.orgVDCResult["Independent Disks"]
                                     diskResult = ''.join(output)
