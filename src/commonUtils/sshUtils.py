@@ -105,7 +105,7 @@ class SshUtils():
                 # Get exit Status of Executed Command. If SSH command is executed successfully, it's value will be 0.
                 commandExitStatus = ssh_stdout.channel.recv_exit_status()
                 if commandExitStatus:
-                    raise Exception(commandExitStatus)
+                    raise Exception(f"Command failed with exit code {commandExitStatus} and with output '{output}'")
             return output
         except (paramiko.SSHException, socket.error) as e:
             msg = "Caught exception with type: {}, error: {}".format(type(e), str(e))

@@ -725,7 +725,7 @@ class NSXTOperations():
                             raise Exception('Could not find the the bridge endpoint attached with Bridge endpoint profile {}'.format(bridgeEndpointProfileId))
                     sshObj = SshUtils(edgeNodeData['node_deployment_info']['ip_addresses'][0], 'admin', self.password)
                     cmd = 'get l2bridge-port {} mac-sync-table'.format(bridgeEndpointId)
-                    output = sshObj.runCmdOnSsh(cmd, 150)
+                    output = sshObj.runCmdOnSsh(cmd, 150, checkExitStatus=True)
                     output = output.decode().split('\n')
                     logger.debug('Bridge ports mac sync table - {}'.format(output))
                     regex = re.compile('MAC    ')
