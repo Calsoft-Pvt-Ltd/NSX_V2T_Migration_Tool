@@ -1630,7 +1630,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     "keepAliveTimer": int(bgpNeighbour['keepAliveTimer']),
                     "holdDownTimer": int(bgpNeighbour['holdDownTimer']),
                     "allowASIn": "false",
-                    "neighborPassword": bgpNeighbour['password'] if bgpNeighbour.get('password') else ''
+                    "neighborPassword": bgpNeighbour['password'] if bgpNeighbour.get('password') else '',
+                    "ipAddressTypeFiltering": 'IPV4',
                 }
                 # checking for the bgp filters
                 if bgpNeighbour.get("bgpFilters"):
@@ -1645,6 +1646,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     if outfilter:
                         outRoutesFilterRef = self.createBGPFilters(bgpFilters=outfilter, edgeGatewayID=edgeGatewayID, filtertype='out', bgpNeighbour=bgpNeighbour)
                         bgpNeighbourpayloadDict['outRoutesFilterRef'] = outRoutesFilterRef if outRoutesFilterRef else ''
+
                 # time.sleep put bcoz prefix list still takes time after creation and the api response is success
                 time.sleep(5)
                 bgpNeighbourpayloadData = json.dumps(bgpNeighbourpayloadDict)

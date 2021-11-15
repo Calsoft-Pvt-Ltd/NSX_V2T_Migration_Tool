@@ -3698,6 +3698,8 @@ class VCDMigrationValidation:
                 else:
                     return DHCPEnabledNetworkList
 
+        return []
+
     def validateDHCPOnIsolatedvAppNetworks(self, sourceOrgVDCId, edgeGatewayDeploymentEdgeCluster=None, nsxtObj=None):
         """
         Description :   Validates there exists no vapp routed network in source vapps
