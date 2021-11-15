@@ -76,7 +76,8 @@ class Utilities():
             raise Exception(jsonNotPresentMessage)
         return jsonData
 
-    def readFile(self, fileName):
+    @staticmethod
+    def readFile(fileName):
         """
         Description : Read a file with given filename
         Parameters  : fileName   - Name of the file along with the path to be read (STRING)
@@ -91,7 +92,8 @@ class Utilities():
         except Exception as exception:
             raise exception
 
-    def writeToFile(self, fileName, data):
+    @staticmethod
+    def writeToFile(fileName, data):
         """
         Description : Write to a file with given filename
         Parameters  : fileName   - Name of the file along with the path (STRING)
@@ -135,7 +137,6 @@ class Utilities():
             for index in reversed(range(len(templateData))):
                 if isinstance(templateData[index], dict):
                     self.fetchJSON(templateData[index], apiVersion)
-
 
     def createPayload(self, filePath, payloadDict, fileType='yaml', componentName=None, templateName=None, apiVersion='34.0'):
         """
@@ -224,7 +225,7 @@ class Utilities():
         """Renders all the values to string apart from required ones"""
         if isinstance(dataStructure, dict):
             for key, value in dataStructure.items():
-                if not isinstance(value, (dict, list, bool)) and value != None:
+                if not isinstance(value, (dict, list, bool)) and value is not None:
                     dataStructure[key] = str(value)
                 Utilities.renderInputDict(value)
         elif isinstance(dataStructure, list):

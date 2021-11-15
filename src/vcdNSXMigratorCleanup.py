@@ -5,20 +5,12 @@
 """
 Description: Module which performs all the clean-up tasks after migrating the VMware Cloud Director from NSX-V to NSX-T
 """
+# pylint: disable=unused-variable
 
 import ipaddress
 import logging
-import os
-import sys
 import threading
 import traceback
-
-# Set path till src folder in PYTHONPATH
-cwd = os.getcwd()
-parentDir = os.path.abspath(os.path.join(cwd, os.pardir))
-sys.path.append(parentDir)
-
-from src import constants
 
 
 class VMwareCloudDirectorNSXMigratorCleanup():
@@ -94,10 +86,10 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             if vcdObjList[0].rollback.metadata.get('configureNSXTBridging'):
                 self.consoleLogger.info('Removing bridging from NSX-T')
                 # Fetching networks list that are bridged
-                bridgedNetworksList = list()
+                bridgedNetworksList = []
                 for vcdObject in vcdObjList:
                     # getting the target org vdc urn
-                    dfw = True if vcdObject.rollback.apiData.get('OrgVDCGroupID') else False
+                    dfw = bool(vcdObject.rollback.apiData.get('OrgVDCGroupID'))
                     if vcdObject.rollback.apiData.get('targetOrgVDC', {}).get('@id'):
                         bridgedNetworksList += vcdObject.retrieveNetworkListFromMetadata(
                             vcdObject.rollback.apiData.get('targetOrgVDC', {}).get('@id'), orgVDCType='target',
@@ -143,7 +135,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
 
             # getting the target organization vdc details from the above organization
             self.consoleLogger.info('Getting the target Organization VDC {} network details.'.format(sourceOrgVDCName + '-v2t'))
-            dfwStatus = True if metadata.get('OrgVDCGroupID') else False
+            dfwStatus = bool(metadata.get('OrgVDCGroupID'))
             orgVDCNetworkList = self.vcdObj.getOrgVDCNetworks(self.targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False, dfwStatus=dfwStatus)
 
             # migrating catalog items - vApp Templates and media objects

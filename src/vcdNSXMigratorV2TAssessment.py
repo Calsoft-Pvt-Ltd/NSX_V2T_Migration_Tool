@@ -5,6 +5,7 @@
 """
 Description: Module which performs all the validations for v2tAssessment before migrating the VMware Cloud Director from NSX-V to NSX-T
 """
+# pylint: disable=wrong-import-position
 
 import copy
 import csv
@@ -19,7 +20,6 @@ import traceback
 from collections import OrderedDict
 from src import constants
 from src.commonUtils import utils
-from src.core.vcd import vcdConstants
 from src.core.vcd.vcdValidations import VCDMigrationValidation
 from src.rollback import Rollback
 
@@ -27,7 +27,8 @@ from src.rollback import Rollback
 cwd = os.getcwd()
 parentDir = os.path.abspath(os.path.join(cwd, os.pardir))
 sys.path.append(parentDir)
-from src.commonUtils.threadUtils import Thread, waitForThreadToComplete
+
+from src.commonUtils.threadUtils import Thread
 
 # Status codes are assigned to each orgVDC after completion of its assessment
 # e. g.: if any single validations from 'Blocking' category failed, status will be
@@ -153,7 +154,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
         self.vcdValidationObj.vcdLogin()
         self.consoleLogger.info('Logged in to VMware Cloud Director {}'.format(self.inputDict['VCloudDirector']['ipAddress']))
 
-        self.vcdValidationMapping = dict()
+        self.vcdValidationMapping = {}
 
         # Fetching the datetime from the log file
         self.currentDateTime = os.path.basename(v2tAssessmentLogFileName).replace('VCD-NSX-Migrator-v2tAssessment-Log-', '').replace('.log', '')
@@ -168,7 +169,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
         if not os.path.exists(self.reportBasePath):
             os.mkdir(self.reportBasePath)
 
-    def _getVcloudDirectorPassword(self):
+    @staticmethod
+    def _getVcloudDirectorPassword():
         """
         Description :   getting VMware Cloud Director password from user
         """
@@ -182,14 +184,14 @@ class VMwareCloudDirectorNSXMigratorV2T:
             Description: This method validates the input file for v2tAssessment mode
         """
         # Error list for input validations
-        errorList = list()
-        if self.inputDict.get("VCloudDirector", {}) == None:
+        errorList = []
+        if self.inputDict.get("VCloudDirector", {}) is None:
             self.inputDict["VCloudDirector"] = {}
         if not self.inputDict.get("VCloudDirector", {}).get("ipAddress", None):
             errorList.append("VCloudDirector '[ipAddress]' must be provided")
         if not self.inputDict.get("VCloudDirector", {}).get("username", None):
             errorList.append("VCloudDirector '[username]' must be provided")
-        if self.inputDict.get("VCloudDirector", {}).get("verify", None) == None:
+        if self.inputDict.get("VCloudDirector", {}).get("verify", None) is None:
             errorList.append("VCloudDirector '[verify]' must be provided")
         if self.inputDict.get("VCloudDirector", {}).get("verify", None) \
                 and not isinstance(self.inputDict.get("VCloudDirector", {}).get("verify", None), bool):
@@ -262,7 +264,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
         except Exception:
             raise
 
-    def changeLoggingFormat(self, vdcName=str(), restore=False):
+    @staticmethod
+    def changeLoggingFormat(vdcName=str(), restore=False):
         """
             Description : This method changes the main logger format to specify the logs specific to org VDC
             Parameter: vdcName - Name of the org vdc (STRING)
@@ -296,7 +299,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
                     handler.setFormatter(customFormat)
                 break
 
-    def changeLogLevelForConsoleLog(self, disable=True):
+    @staticmethod
+    def changeLogLevelForConsoleLog(disable=True):
         """
             Description : Disables the console logs while executing the evaluation function for a org vdc
             Parameters: disable - Flag the decides whether to enable of disable the logs (BOOLEAN)
@@ -348,14 +352,15 @@ class VMwareCloudDirectorNSXMigratorV2T:
                         # if org vdc name and org name match is found go further
                         if vdcName == VDC['name'] and orgName == VDC['org']['name']:
                             try:
-                            # Check if the org vdc provided is NSX-V backed
+                                # Check if the org vdc provided is NSX-V backed
                                 if isinstance(self.checkOrgVDCDetails(orgName, vdcName=vdcName), Exception):  #not NSX-V backed
                                     errors.append(f"{vdcName} is not NSX-V backed")
                                     matchFound = True
                                     break
-                                if any([data['Key'].endswith("-v2t")
-                                    for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'],
-                                                                                       rawData=True)]):
+                                if any(
+                                        data['Key'].endswith("-v2t")
+                                        for data in self.vcdValidationObj.getOrgVDCMetadata(
+                                            orgVDCId=VDC['id'], rawData=True)):
                                     errors.append(f'Org VDC "{vdcName}" is already under migration')
                                     matchFound = True
                                     break
@@ -378,9 +383,10 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                 errors.append(f"{vdcName} is not NSX-V backed")
                                 matchFound = True
                                 break
-                            if any([data['Key'].endswith("-v2t")
-                                    for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'],
-                                                                                    rawData=True)]):
+                            if any(
+                                    data['Key'].endswith("-v2t")
+                                    for data in self.vcdValidationObj.getOrgVDCMetadata(
+                                        orgVDCId=VDC['id'],rawData=True)):
                                 errors.append(f'Org VDC "{vdcName}" is already under migration')
                                 matchFound = True
                                 break
@@ -422,8 +428,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
                 if orgName in self.inputDict.get("Organization"):
                     # Check is the org vdc is NSX-V backed and migration is not under progress
                     if not isinstance(self.checkOrgVDCDetails(orgName, vdcName=vdcName), Exception) and not any(
-                            [data['Key'].endswith("-v2t")
-                             for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'], rawData=True)]):
+                             data['Key'].endswith("-v2t")
+                             for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'], rawData=True)):
                         # Adding the org vdc in the relation map
                         if orgName not in relationMap:
                             relationMap[orgName] = {}
@@ -439,8 +445,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
                 vdcName = VDC['name']
                 # Checking if the org vdc is NSX-V backed and migration is not under progress
                 if not isinstance(self.checkOrgVDCDetails(orgName, vdcName=vdcName), Exception) and not any(
-                            [data['Key'].endswith("-v2t")
-                             for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'], rawData=True)]):
+                        data['Key'].endswith("-v2t")
+                        for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'], rawData=True)):
                     # Adding the org in relation map
                     if orgName not in relationMap:
                         relationMap[orgName] = {}
@@ -487,7 +493,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                     orgVdcExists = True
                     try:
                         orgUrl = self.vcdValidationObj.getOrgUrl(org)
-                        orgVdc = self.vcdValidationObj.getOrgVDCUrl(orgUrl, VDC, saveResponse=True)
+                        self.vcdValidationObj.getOrgVDCUrl(orgUrl, VDC, saveResponse=True)
                     except:
                         orgVdcExists = False
 
@@ -500,7 +506,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                     # provides summary before adding actual validation features
                     self.summaryColumnCount = len(self.orgVDCResult)
                     # Adding the result before executing validation
-                    for key, value in VALIDATION_CLASSIFICATION.items():
+                    for key in VALIDATION_CLASSIFICATION:
                         self.orgVDCResult[key] = "NA"
 
                     if not orgVdcExists:
@@ -535,7 +541,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                 if isinstance(eachArg, Exception):
                                     skipHere = True
                                     break
-                            if skipHere == True:
+                            if skipHere is True:
                                 continue
                             else:
                                 # Run method
@@ -688,13 +694,9 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                     del self.orgVDCResult["Independent Disks"]
                                     diskResult = ''.join(output)
                                     self.orgVDCResult["Independent Disks: Shared disk present"] = (
-                                        True
-                                        if "Independent Disks in Org VDC are shared" in diskResult
-                                        else False)
+                                        "Independent Disks in Org VDC are shared" in diskResult)
                                     self.orgVDCResult["Independent Disks: Attached VMs are not powered off"] = (
-                                        True
-                                        if "VMs attached to disks are not powered off" in diskResult
-                                        else False)
+                                        "VMs attached to disks are not powered off" in diskResult)
 
                     except Exception as err:
                         self.logger.debug(f"Failed to evaluate Org VDC '{VDC}' of organization '{org}' due to error - '{str(err)}'")
@@ -794,7 +796,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                 status_data[row['Status']]['org_vdc_ram'] += int(row['ORG VDC RAM (MB)'])
 
             # Adding data to summary data list
-            for code, status in sorted(STATUS_CODES.items(), key=lambda x: x[0]):
+            for _, status in sorted(STATUS_CODES.items(), key=lambda x: x[0]):
                 summaryData.append([
                     status,
                     status_data[status]['org_vdc_count'],

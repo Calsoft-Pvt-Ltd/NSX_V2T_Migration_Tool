@@ -6,6 +6,8 @@
 Description : Module performs all the rollback related operations during a failure
 """
 
+# pylint: disable=unused-variable
+
 import copy
 import threading
 
@@ -77,7 +79,7 @@ class Rollback:
                           nsxtObj - object of nsxtOperations (object)
                           rollbackTasks - List to tasks to be performed for rollback (LIST)
         """
-        sourceOrgVDCId, orgVDCNetworkList, targetOrgVDCId, sourceEdgeGatewayId, targetNetworkList = str(), list(), str(), str(), list()
+        sourceOrgVDCId, orgVDCNetworkList, targetOrgVDCId, sourceEdgeGatewayId, targetNetworkList = str(), [], str(), str(), []
         try:
             timeout = self.timeoutForVappMigration
             targetExternalNetwork = orgVDCDict["ExternalNetwork"]
@@ -98,7 +100,7 @@ class Rollback:
                 # getting source edge gateway id from metadata
                 sourceEdgeGatewayId = self.apiData.get('sourceEdgeGatewayId')
                 # getting target network list from metadata
-                dfwStatus = True if self.apiData.get('OrgVDCGroupID') else False
+                dfwStatus = bool(self.apiData.get('OrgVDCGroupID'))
                 targetNetworkList = vcdObj.retrieveNetworkListFromMetadata(targetOrgVDCId, orgVDCType='target', dfwStatus=dfwStatus)
         except:
             pass
@@ -190,4 +192,3 @@ class Rollback:
             self.logger.error(
                 "Rollback failed, manual rollback required or use --rollback parameter to retry rollback again.")
             raise
-

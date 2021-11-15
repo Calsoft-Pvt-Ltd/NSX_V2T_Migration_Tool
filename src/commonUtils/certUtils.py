@@ -50,7 +50,7 @@ def decryptCertPrivateKey(encPrivateKey, secret):
         Returns     :   Decrypted private key (STRING)
     """
     privateKey = base64.b64decode(encPrivateKey.encode('utf-8'))
-    cipher = AES.new(secret)
+    cipher = AES.new(secret)    # pylint: disable=no-value-for-parameter
     decryptedPrivateKey = str(cipher.decrypt(base64.b64decode(privateKey)), 'utf-8').rstrip('{')
     return decryptedPrivateKey
 
@@ -72,7 +72,7 @@ def verifyCertificateAgainstCa(certPem, caPem):
         with open(caFile, 'w', encoding='utf-8') as ca:
             ca.write(caPem)
         out = subprocess.run(['openssl', 'verify', '-CAfile', caFile, certFile], stdout=subprocess.PIPE)
-        return True if out.returncode == 0 and f'{certFile}: OK' in out.stdout.decode('utf-8') else False
+        return out.returncode == 0 and f'{certFile}: OK' in out.stdout.decode('utf-8')
 
     finally:
         if os.path.exists(caFile):

@@ -1,2 +1,57 @@
 [MESSAGES CONTROL]
-disable= C0103, C0301, C0413, R0903, W1202, E1101, R1710, W0706
+disable=logging-format-interpolation,
+        logging-fstring-interpolation,
+        consider-using-f-string,
+        fixme,
+
+        # Fixme: low priority
+        invalid-name,
+        no-member,
+        too-many-lines,
+        too-many-branches,
+        too-many-statements,
+        too-many-locals,
+        too-many-public-methods,
+        too-many-nested-blocks,
+        too-many-arguments,
+        too-many-instance-attributes,
+        broad-except,
+        wrong-import-order,
+        unused-argument,
+        raise-missing-from,
+        subprocess-run-check,
+        protected-access,
+        eval-used,
+        duplicate-code,
+        too-many-return-statements,
+
+        # Fixme: high priority
+        line-too-long,
+        try-except-raise,
+        bare-except,
+        inconsistent-return-statements,
+        cell-var-from-loop,
+        useless-else-on-loop,
+        undefined-loop-variable,
+        no-else-raise,
+        no-else-return,
+        no-else-continue,
+        use-maxsplit-arg,
+        redefined-argument-from-local,
+        unspecified-encoding,
+        attribute-defined-outside-init,
+        consider-using-with,
+        import-outside-toplevel,
+        too-many-boolean-expressions,
+        no-value-for-parameter,
+        lost-exception,
+        logging-not-lazy,
+        consider-using-dict-items,
+        consider-iterating-dictionary,
+        missing-function-docstring,
+        literal-comparison,
+
+
+[FORMAT]
+# Maximum number of characters on a single line.
+max-line-length=120

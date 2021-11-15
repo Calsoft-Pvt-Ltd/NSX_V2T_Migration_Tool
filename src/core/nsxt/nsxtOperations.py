@@ -17,10 +17,7 @@ import requests
 import threading
 import time
 
-import src.core.nsxt.nsxtConstants as nsxtConstants
-
-
-from src.constants import rootDir
+from src.core.nsxt import nsxtConstants
 from src.commonUtils.sshUtils import SshUtils
 from src.commonUtils.restClient import RestAPIClient
 from src.commonUtils.utils import Utilities
@@ -43,12 +40,12 @@ def remediate(func):
             logger.info('Continuing migration of NSX-V backed Org VDC to NSX-T backed from {}.'.format(self.__desc__))
             self.rollback.retry = True
 
-        if inspect.stack()[2].function != 'run' and inspect.stack()[2].function != '<module>':
+        if inspect.stack()[2].function not in ('run', '<module>'):
             if not self.rollback.executionResult.get(inspect.stack()[2].function):
                 self.rollback.executionResult[inspect.stack()[2].function] = {}
         try:
             result = func(self, *args, **kwargs)
-            if inspect.stack()[2].function != 'run' and inspect.stack()[2].function != '<module>':
+            if inspect.stack()[2].function not in ('run', '<module>'):
                 self.rollback.executionResult[inspect.stack()[2].function][func.__name__] = True
             else:
                 self.rollback.executionResult[func.__name__] = True
@@ -81,6 +78,7 @@ class NSXTOperations():
         self.verify = verify
         self.rollback = rollback
         self.vcdObj = vcdObj
+        self.restClientObj = None
 
     def getComponentData(self, componentApi, componentName=None, usePolicyApi=False):
         """
@@ -297,7 +295,7 @@ class NSXTOperations():
                     payloadData = json.dumps(payloadData)
                     response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER,
                                                       auth=self.restClientObj.auth, data=payloadData)
-                    if response.status_code == requests.codes.ok or response.status_code == requests.codes.created:
+                    if response.status_code in (requests.codes.ok, requests.codes.created):
                         self.checkRealizedState(intent_path)
 
                 else:
@@ -315,7 +313,7 @@ class NSXTOperations():
                     payloadData = json.dumps(payloadData)
                     response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER,
                                                        auth=self.restClientObj.auth, data=payloadData)
-                if response.status_code == requests.codes.ok or response.status_code == requests.codes.created:
+                if response.status_code in (requests.codes.ok, requests.codes.created):
                     logger.debug('Bridge Endpoint Profile {} created successfully.'.format(payloadDict['bridgeEndpointProfileName']))
                     bridgeEndpointProfileId = json.loads(response.content)["id"]
                     bridgeEndpointProfileList.append(bridgeEndpointProfileId)
@@ -372,12 +370,10 @@ class NSXTOperations():
         Parameters:  edgeClusterNameList    - List of names of the edge cluster participating in bridging (LIST)
                      portgroupList          - List containing details of vxlan backed logical switch (LIST)
         """
+        # TODO pranshu: remove this pylint exception
+        # pylint: disable=unused-variable
         try:
-            # getting the nsxt version using openapi spec.json
-            nsxtVersion = tuple()
             openApiSpecsData = self.getComponentData(componentApi=nsxtConstants.OPENAPI_SPECS_API)
-            if openApiSpecsData:
-                nsxtVersion = tuple(map(int, openApiSpecsData['info']['version'].split('.')))
             transportZoneName = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME
             logger.info('Adding Bridge Transport Zone to Bridge Edge Transport Nodes.')
             uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
@@ -425,7 +421,7 @@ class NSXTOperations():
                     # get the last used uplink
                     lastUsedUplink = hostSwitchSpec[-1]['pnics'][-1]['device_name']
                     # get the next unused uplink
-                    nextUnusedUplink = re.sub('\d', lambda x: str(int(x.group(0)) + 1), lastUsedUplink)
+                    nextUnusedUplink = re.sub(r'\d', lambda x: str(int(x.group(0)) + 1), lastUsedUplink)
                     newHostSwitchSpec = {"host_switch_profile_ids": [{"key": "UplinkHostSwitchProfile", "value": uplinkProfileData['id']}],
                                          "host_switch_mode": "STANDARD",
                                          'host_switch_name': nsxtConstants.BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME,
@@ -489,9 +485,9 @@ class NSXTOperations():
                 if response.status_code == requests.codes.ok:
                     transportZoneData = json.loads(response.content)
                     return transportZoneData['path']
-                else:
-                    responseData = json.loads(response.content)
-                    logger.debug("Failed to get Transport Zone details  {} : {}".format(transportZoneID, responseData))
+
+                responseData = json.loads(response.content)
+                logger.debug("Failed to get Transport Zone details  {} : {}".format(transportZoneID, responseData))
                 time.sleep(5)
                 if time.time() > timeout:
                     raise Exception("Failed to get Transport Zone details even after 10 minutes, {} : {}".format(transportZoneID, responseData))
@@ -606,7 +602,7 @@ class NSXTOperations():
                         payloadData = json.dumps(segmentData)
                         response = self.restClientObj.patch(url=segmentDetailsUrl, headers=nsxtConstants.NSXT_API_HEADER,
                                                             auth=self.restClientObj.auth, data=str(payloadData))
-                        if response.status_code == requests.codes.ok or response.status_code == requests.codes.created:
+                        if response.status_code in (requests.codes.ok, requests.codes.created):
                             self.checkRealizedState(intent_path)
                             logger.debug('Bridge Endpoint profile attached to Logical switch {}'.format(geneveLogicalSwitch[1]))
                             if geneveLogicalSwitch[2] == 'NAT_ROUTED':
@@ -733,7 +729,7 @@ class NSXTOperations():
                     macAddressOutput = ''.join(output)
                     if output:
                         macAddressList.append(macAddressOutput)
-            macAddressList = [macAddress for macAddress in macAddressList]
+
             verifiedOutput = [sourceEdgeGatewayMac for sourceEdgeGatewayMac in sourceEdgeGatewayMacAddressList for macAddress in macAddressList if sourceEdgeGatewayMac in macAddress]
             # if edge node and mac address present then only validate
             if edgeNodeList and sourceEdgeGatewayMacAddressList:
@@ -846,7 +842,7 @@ class NSXTOperations():
                     # Detach logical segment by removing bridge_profiles
                     response = self.restClientObj.patch(url=segmentUrl, headers=nsxtConstants.NSXT_API_HEADER,
                                                         auth=self.restClientObj.auth, data=str(payloadData))
-                    if response.status_code == requests.codes.ok or response.status_code == requests.codes.created:
+                    if response.status_code in (requests.codes.ok, requests.codes.created):
                         self.checkRealizedState(intent_path)
                         logger.debug('Logical segment {} is detached from bridge successfully.'.format(segment[0]))
                     else:
@@ -1028,8 +1024,9 @@ class NSXTOperations():
                 logger.debug("Successfully logged into NSX-T {}".format(self.ipAddress))
             elif response.status_code == requests.codes.forbidden:
                 errorDict = response.json()
-                logger.error(errorDict['error_message'] +
-                             'The account will be locked out for 15 minutes after the fifth consecutive failed login attempt.')
+                logger.error(
+                    '{} The account will be locked out for 15 minutes after the fifth consecutive failed login '
+                    'attempt.'.format(errorDict['error_message']))
                 raise Exception('Failed to login to NSX-T with the given credentials.')
         except Exception:
             raise
@@ -1044,10 +1041,10 @@ class NSXTOperations():
             # Check if bridging is configured from metadata
             if vcdObjList[0].rollback.metadata.get('configureNSXTBridging'):
                 # Fetching networks list that are bridged
-                bridgedNetworksList = list()
+                bridgedNetworksList = []
                 for vcdObject in vcdObjList:
                     # getting the target org vdc urn
-                    dfw = True if vcdObject.rollback.apiData.get('OrgVDCGroupID') else False
+                    dfw = bool(vcdObject.rollback.apiData.get('OrgVDCGroupID'))
                     if vcdObject.rollback.apiData.get('targetOrgVDC', {}).get('@id'):
                         bridgedNetworksList += vcdObject.retrieveNetworkListFromMetadata(
                             vcdObject.rollback.apiData.get('targetOrgVDC', {}).get('@id'), orgVDCType='target',
@@ -1070,7 +1067,7 @@ class NSXTOperations():
                         vcdObjList - List of objects of vcd operations class (LIST)
         """
         try:
-            targetOrgVdcNetworkList, portGroupList = list(), list()
+            targetOrgVdcNetworkList, portGroupList = [], []
             # Iterating over vcd objects to get target org vdc networks
             for vcdObj in vcdObjList:
                 # Handling corner case for continuation message
@@ -1081,7 +1078,7 @@ class NSXTOperations():
                 targetOrgVdcNetworkList += vcdObj.retrieveNetworkListFromMetadata(targetOrgVdcId, orgVDCType='target')
                 # Fetching port group list
                 portGroupList += vcdObj.rollback.apiData['portGroupList'] if vcdObj.rollback.apiData.get(
-                    'portGroupList') else list()
+                    'portGroupList') else []
 
             # Replacing thread name with the name bridging
             threading.current_thread().name = "Bridging"
@@ -1146,8 +1143,8 @@ class NSXTOperations():
             if len(orgVdcNetworkList) + len(bridgeProfileDict) > nsxtConstants.MAX_LIMIT_OF_BRIDGE_ENDPOINT_PROFILES:
                 if bridgeProfileDict:
                     raise Exception("Sum of the count of org vdc networks and the bridge endpoint profiles in NSXT is more than the max limit i.e {}".format(nsxtConstants.MAX_LIMIT_OF_BRIDGE_ENDPOINT_PROFILES))
-                else:
-                    raise Exception("Number of networks i.e {} is more than the max limit of bridge-endpoint profiles in NSXT {}".format(len(orgVdcNetworkList), nsxtConstants.MAX_LIMIT_OF_BRIDGE_ENDPOINT_PROFILES))
+
+                raise Exception("Number of networks i.e {} is more than the max limit of bridge-endpoint profiles in NSXT {}".format(len(orgVdcNetworkList), nsxtConstants.MAX_LIMIT_OF_BRIDGE_ENDPOINT_PROFILES))
         except:
             raise
 
@@ -1311,8 +1308,8 @@ class NSXTOperations():
             if not tier0GatewayData:
                 raise Exception(
                     "TIER-0 Gateway '{}' does not exist in NSX-T".format(tier0GatewayName))
-            else:
-                return tier0GatewayData['edge_cluster_id']
+
+            return tier0GatewayData['edge_cluster_id']
         except:
             raise
 
@@ -1327,8 +1324,8 @@ class NSXTOperations():
             if not edgeClusterData:
                 raise Exception(
                     "Edge Cluster '{}' does not exist in NSX-T".format(edgeClusterName))
-            else:
-                return edgeClusterData
+
+            return edgeClusterData
         except:
             raise
 
@@ -1338,7 +1335,7 @@ class NSXTOperations():
         Parameters  :   edgeClusterNameList -   List of names of the cluster (STRING)
         """
         try:
-            hostSwitchNameList = list()
+            hostSwitchNameList = []
             logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(edgeClusterNameList)))
             edgeTransportNodeList = []
             edgeClusterNotFound = []
@@ -1374,8 +1371,8 @@ class NSXTOperations():
                     raise Exception('Failed to fetch transport node details')
             if hostSwitchNameList:
                 raise Exception("Transport Node: {} already in use".format(','.join(hostSwitchNameList)))
-            else:
-                logger.debug("Validated successfully that any of Transport Nodes from cluster/s {} are not in use".format(', '.join(edgeClusterNameList)))
+
+            logger.debug("Validated successfully that any of Transport Nodes from cluster/s {} are not in use".format(', '.join(edgeClusterNameList)))
         except Exception:
             raise
 
@@ -1455,6 +1452,7 @@ class NSXTOperations():
             raise
 
     def getTier0LocaleServicesDetails(self, tier0GatewayName):
+        """getTier0LocaleServicesDetails"""
         try:
             localeServicesUrl = "{}{}".format(
                 nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
@@ -1465,10 +1463,10 @@ class NSXTOperations():
                 responseDict = response.json()
                 if responseDict['result_count'] > 1:
                     raise Exception('More than one local services present')
-                else:
-                    return responseDict['results'][0]
-            else:
-                raise Exception('Failed to get tier0 locale services details')
+
+                return responseDict['results'][0]
+
+            raise Exception('Failed to get tier0 locale services details')
         except Exception:
             raise
 
@@ -1487,8 +1485,8 @@ class NSXTOperations():
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
                 return responseDict
-            else:
-                raise Exception('Failed to get Tier0 gateway details')
+
+            raise Exception('Failed to get Tier0 gateway details')
         except Exception:
             raise
 
@@ -1517,11 +1515,11 @@ class NSXTOperations():
         try:
             vdcNetworkName = orgvdcNetwork['name']
             vdcNetworkId = orgvdcNetwork['id'].split(':')[-1]
-            segmentId = ''
+
             if len(vdcNetworkName)+len(vdcNetworkId)+1 > 80:
                 charsTodelete = abs(len(vdcNetworkName)+len(vdcNetworkId)+1-80)
                 charList = list(vdcNetworkName)
-                for i in range(0, charsTodelete):
+                for _ in range(0, charsTodelete):
                     charList.pop()
                 name = "".join(charList)
                 segmentName = name+'-'+vdcNetworkId
@@ -1554,9 +1552,9 @@ class NSXTOperations():
                             responseDict = response.json()
                             backingUniqueId = responseDict['unique_id']
                             return backingUniqueId, segmentId
-                        else:
-                            errorDict = response.json()
-                            raise Exception('Failed to create logical segment -{}, with error {}'.format(segmentId, errorDict['error_message']))
+
+                        errorDict = response.json()
+                        raise Exception('Failed to create logical segment -{}, with error {}'.format(segmentId, errorDict['error_message']))
                 else:
                     raise Exception('The transport zone - {} not present in the NSX-T'.format(directTZ))
             else:
@@ -1595,7 +1593,7 @@ class NSXTOperations():
         try:
             logger.debug("Fetching NSX-T VNI Pool id's")
             # List to store the VNI pool id's
-            vniPoolIds = list()
+            vniPoolIds = []
 
             # URL to fetch VNI pools from NSXT
             poolRetrievalUrl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,

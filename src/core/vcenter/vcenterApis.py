@@ -11,9 +11,9 @@ import logging
 import pyVmomi
 import requests
 import ssl
-from pyVmomi import vim, eam, VmomiSupport
+from pyVmomi import eam     # pylint: disable=no-name-in-module
 from pyVim.connect import SmartConnect, Disconnect
-from requests.packages.urllib3.exceptions import InsecureRequestWarning
+from requests.packages.urllib3.exceptions import InsecureRequestWarning     # pylint: disable=import-error
 
 import src.core.vcenter.vcenterConstants as constants
 from src.commonUtils.restClient import RestAPIClient
@@ -41,7 +41,7 @@ class VcenterApi():
         self.password = password
         self.verify = verify
         # Default header to be used for VCSA API calls
-        self.headers = dict()
+        self.headers = {}
         self.headers.update({"Accept": constants.DEFAULT_ACCEPT_VALUE,
                              "Content-Type": constants.DEFAULT_ACCEPT_VALUE})
         self.headers.update({constants.SESSION_ID_KEY: ""})
@@ -73,7 +73,7 @@ class VcenterApi():
             return sessionId
         raise Exception("Failed to login into Vcenter {} with the given credentials".format(self.ipAddress))
 
-    def setSession(func):
+    def setSession(func):   # pylint: disable=no-self-argument
         """
         Description : Decorator function that creates a login session for VCSA and sets the sessionId in headers
         Parameters : func - Function object which is decorated by setSession() (OBJECT)
@@ -89,7 +89,7 @@ class VcenterApi():
                 # set VCSA session ID
                 self.headers[constants.SESSION_ID_KEY] = sessionId
                 # execute the decorated function
-                return func(self, *args, **kwargs)
+                return func(self, *args, **kwargs)      # pylint: disable=not-callable
             except Exception as e:
                 raise e
         return wrapperMethod
@@ -151,7 +151,7 @@ class VcenterApi():
             else:
                 # failure in current vcenter user log out
                 responseDict = response.json()
-                raise Exception("Failed to log out the current vcenter user due to error: "
+                raise Exception("Failed to log out the current vcenter user due to error: {}"
                                 .format(responseDict['value']['messages'][0]['default_message']))
         except Exception:
             raise
@@ -183,7 +183,7 @@ class VcenterApi():
             content = si.RetrieveContent()
 
             # Cluster resource pool mapping
-            clusterRpMapping = dict()
+            clusterRpMapping = {}
 
             # Iterating over datacenters
             for child in content.rootFolder.childEntity:
@@ -252,7 +252,7 @@ class VcenterApi():
             eamAgencies = eamCx.QueryAgency()
 
             # List to store the mapping
-            agencyClusterMapping = list()
+            agencyClusterMapping = []
 
             # Iterating over agencies
             for agency in eamAgencies:

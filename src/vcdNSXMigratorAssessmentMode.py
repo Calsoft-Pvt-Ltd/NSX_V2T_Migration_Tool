@@ -5,6 +5,7 @@
 """
 Description: Module which performs all the clean-up tasks after migrating the VMware Cloud Director from NSX-V to NSX-T
 """
+# pylint: disable=wrong-import-position
 
 import logging
 import math
@@ -22,7 +23,7 @@ sys.path.append(parentDir)
 
 from src.commonUtils.threadUtils import Thread, waitForThreadToComplete
 import src.constants as mainConstants
-import src.core.vcd.vcdConstants as vcdConstants
+from src.core.vcd import vcdConstants
 
 class VMwareCloudDirectorNSXMigratorAssessmentMode():
     """
@@ -50,9 +51,9 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         with open(self.preAssessmentLogs, 'w') as preCheckSummary:
             preCheckSummary.write(self.summaryIntroData)
         # Dictionary to store the org vdc and failures mapping
-        self.orgVDCerrors = dict()
-        self.bridgingCheckFailures = list()
-        self.sharedNetworkCheckFailures = list()
+        self.orgVDCerrors = {}
+        self.bridgingCheckFailures = []
+        self.sharedNetworkCheckFailures = []
 
     def checkOrgDetails(self, vcdValidationObj, orgVDCDict, orgExceptionList):
         """
@@ -180,7 +181,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 })
 
             return vcdValidationMapping
-        except Exception as e:
+        except Exception:
             raise
             # validationFailures.append(e)
 
@@ -193,7 +194,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
 
             nsxtObj = self.nsxtObjList[0]
             # Iterating over the list org vdc/s to fetch the org vdc id
-            orgVDCIdList = list()
+            orgVDCIdList = []
             for orgVDCDict in self.inputDict["VCloudDirector"]["SourceOrgVDC"]:
                 orgUrl = vcdValidationObj.getOrgUrl(self.inputDict["VCloudDirector"]["Organization"]["OrgName"])
                 # Fetch org vdc id
@@ -201,7 +202,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                                                                      saveResponse=False)
                 orgVDCIdList.append(sourceOrgVDCId)
 
-            networkList = list()
+            networkList = []
             for orgVDCId in orgVDCIdList:
                 networkList += vcdValidationObj.getOrgVDCNetworks(orgVDCId, 'sourceOrgVDCNetworks', saveResponse=False,
                                                                   sharedNetwork=False)
@@ -209,12 +210,10 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', networkList))
 
             # Checking if any org vdc has VXLAN backed network pool
-            vxlanBackingPresent = any([True if
-                                       vcdObj.getSourceNetworkPoolDetails().get(
-                                           'vmext:VMWNetworkPool', {}).get(
-                                           '@xsi:type') == vcdConstants.VXLAN_NETWORK_POOL_TYPE
-                                       else False
-                                       for vcdObj in self.vcdObjList])
+            vxlanBackingPresent = any(
+                vcdObj.getSourceNetworkPoolDetails().get('vmext:VMWNetworkPool', {}).get(
+                    '@xsi:type') == vcdConstants.VXLAN_NETWORK_POOL_TYPE
+                for vcdObj in self.vcdObjList)
 
             # Restoring thread name
             threading.current_thread().name = "MainThread"
@@ -261,7 +260,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             vAppList = vcdValidationObj.getVappUsingSharedNetwork(orgVdcNetworkSharedList)
 
             # get OrgVDC which belongs to vApp which uses shared network.
-            orgVdcvApplist, orgVdcNameList = vcdValidationObj.getOrgVdcOfvApp(vAppList)
+            _, orgVdcNameList = vcdValidationObj.getOrgVdcOfvApp(vAppList)
 
             # Restoring thread name
             threading.current_thread().name = "MainThread"
@@ -292,7 +291,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                      nsxtObj
         """
         # List that holds all the errors/failures encountered during the validations
-        validationFailures, orgExceptionList = list(), list()
+        validationFailures, orgExceptionList = [], []
         try:
             # Changing the name of the thread with the name of org vdc
             threading.current_thread().name = orgVDCDict["OrgVDCName"]
@@ -328,7 +327,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                         validationFailures.append([desc, eachArg, 'Failed'])
                         skipHere = True
                         break
-                if skipHere == True:
+                if skipHere is True:
                     continue
                 else:
                     self.runAssessmentMode(desc, methodName, argsList, validationFailures)
@@ -345,7 +344,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             self.consoleLogger.info(
                 f'Starting NSX-V migration to NSX-T backed in Assessment mode for org vdc/s - "{", ".join([vdc["OrgVDCName"] for vdc in self.inputDict["VCloudDirector"]["SourceOrgVDC"]])}"')
             # List the will hold reference to all the threads/futures
-            futures = list()
+            futures = []
 
             # Fetching the number of parallel migrations
             self.numberOfParallelMigrations = min(len(self.inputDict["VCloudDirector"]["SourceOrgVDC"]),
@@ -381,7 +380,8 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         except Exception:
             raise
 
-    def runAssessmentMode(self, desc, method, args, validationFailures):
+    @staticmethod
+    def runAssessmentMode(desc, method, args, validationFailures):
         """
         Description : Executes the validation method and arguments passed as parameters as stores exceptions raised
         Parameters : desc - Description of the method to be executed (STRING)
@@ -392,7 +392,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         try:
             method(*args)
         except Exception as e:
-                validationFailures.append([desc, e, 'Failed'])
+            validationFailures.append([desc, e, 'Failed'])
 
     def updateInventoryLogs(self, bridgingReport=False):
         """
