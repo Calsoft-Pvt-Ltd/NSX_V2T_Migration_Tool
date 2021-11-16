@@ -3569,6 +3569,8 @@ class VCDMigrationValidation:
             for vApp in sourceVappsList:
                 self.thread.spawnThread(self._checkSuspendedVMsInVapp, vApp)
             self.thread.joinThreads()
+            if self.thread.stop():
+                raise Exception("Failed to validate vapp for suspended VM. Check log file for errors")
             if self.suspendedVMList:
                 raise Exception("VM: {} is in suspended state, Unable to migrate".format(','.join(self.suspendedVMList)))
             logger.debug("Validated Successfully, No Suspended VMs in Source Vapps")
@@ -3648,6 +3650,9 @@ class VCDMigrationValidation:
                 self.thread.spawnThread(self._checkVappWithOwnNetwork, vApp)
                 # halt the main thread till all the threads complete execution
             self.thread.joinThreads()
+            if self.thread.stop():
+                raise Exception("Failed to validate vApp routed network exists in source org VDC. Check log file"
+                                " for errors")
             if self.vAppNetworkDict:
                 for key, value in self.vAppNetworkDict.items():
                     vAppNetworkList.append('vAppName: ' + key + ' : NetworkName: ' + ', '.join(value))
@@ -3716,6 +3721,9 @@ class VCDMigrationValidation:
                 self.thread.spawnThread(self._checkVappWithIsolatedNetwork, vApp)
                 # halt the main thread till all the threads complete execution
             self.thread.joinThreads()
+            if self.thread.stop():
+                raise Exception("Failed to validate DHCP is enabled on Isolated vApp Network, Check log file "
+                                "for errors")
             if self.DHCPEnabled:
                 for key, value in self.DHCPEnabled.items():
                     vAppNetworkList.append('vAppName: ' + key + ' : NetworkName: ' + ', '.join(value))
@@ -3887,7 +3895,8 @@ class VCDMigrationValidation:
             self.thread.joinThreads()
 
             if self.thread.stop():
-                raise Exception("Validation failed vApp/s exist VM/s with media connected")
+                raise Exception("Failed to Validate VM/s with media connected exists in Vapp/s. Check log file "
+                                "for errors")
             allVmWithMediaList = list()
             for each_vApp, eachVmValues in self.thread.returnValues.items():
                 if eachVmValues is not None:
@@ -4664,7 +4673,7 @@ class VCDMigrationValidation:
             # halt the main thread till all the threads complete execution
             self.thread.joinThreads()
             if self.thread.stop():
-                raise Exception("Validation failed, empty vapp/s exist in Source Org VDC")
+                raise Exception("Failed to validate empty vapp/s exist in Source Org VDC, Check log file for errors")
             for vAppName, status in self.thread.returnValues.items():
                 if status == True:
                     emptyvAppList.append(vAppName)
