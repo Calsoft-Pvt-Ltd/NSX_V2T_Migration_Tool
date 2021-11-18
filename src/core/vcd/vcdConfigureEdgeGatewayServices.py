@@ -1771,14 +1771,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                       templateName=vcdConstants.CREATE_DNAT_TEMPLATE, apiVersion=self.version)
             payloadData = json.loads(payloadData)
             # adding dnatExternalPort port profile to payload data
-            if float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
-                payloadData["internalPort"] = sourceNATRule['originalPort'] if sourceNATRule['originalPort'] != 'any' else ''
-            else:
-                payloadData["dnatExternalPort"] = sourceNATRule['originalPort'] if sourceNATRule['originalPort'] != 'any' else ''
+            payloadData["dnatExternalPort"] = sourceNATRule['originalPort'] if sourceNATRule['originalPort'] != 'any' else ''
 
             # From VCD v10.2.2, firewallMatch to external address to be provided for DNAT rules
-            if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS_10_2_2):
-                payloadData["firewallMatch"] = "MATCH_EXTERNAL_ADDRESS"
+            payloadData["firewallMatch"] = "MATCH_EXTERNAL_ADDRESS"
 
             # if protocol and port is not equal to any search or creating new application port profiles
             if sourceNATRule['protocol'] != "any" and sourceNATRule['translatedPort'] != "any":
@@ -2359,10 +2355,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             if not isinstance(self.rollback.metadata.get("configureServices", {}).get("configureLoadBalancer"), bool):
                 return
 
-            # check api version for load balancer rollback
-            if float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
-                return
-
             loggingDone = False
 
             # Iterating over edge gateway id list
@@ -2512,8 +2504,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         loadBalancerVIPSubnet - Subnet for loadbalancer virtual service VIP configuration
         """
         try:
-            if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
-                logger.debug('Load Balancer is getting configured')
+            logger.debug('Load Balancer is getting configured')
 
             for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
                 sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
@@ -2532,8 +2523,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     responseDict = self.vcdUtils.parseXml(response.content)
                     # checking if load balancer is enabled, if so raising exception
                     if responseDict['loadBalancer']['enabled'] == "true":
-                        if not float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
-                            raise Exception("Load Balancer service is configured in the Source edge gateway {} but not supported in the Target".format(sourceEdgeGateway['name']))
                         serviceEngineGroupResultList = self.getServiceEngineGroupDetails()
                         if not serviceEngineGroupResultList:
                              raise Exception('Service Engine Group does not exist.')
@@ -2619,8 +2608,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             payloadData["applicationPortProfile"] = {"name": protocol_port_name, "id": protocol_port_id}
 
             # From VCD v10.2.2, firewallMatch to external address to be provided for DNAT rules
-            if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS_10_2_2):
-                payloadData["firewallMatch"] = "MATCH_EXTERNAL_ADDRESS"
+            payloadData["firewallMatch"] = "MATCH_EXTERNAL_ADDRESS"
 
             # Create rule api call
             self.createNatRuleTask(payloadData, url)
