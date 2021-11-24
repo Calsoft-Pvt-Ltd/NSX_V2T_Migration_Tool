@@ -254,9 +254,9 @@ COMPONENT_NAME = 'vCloudDirector'
 # openapi content type for json
 OPEN_API_CONTENT_TYPE = 'application/json;version={}'
 
-# content type fro json
-GENERAL_JSON_CONTENT_TYPE = 'application/*+json;version={}'
-GENERAL_JSON_ONLY_CONTENT_TYPE = 'application/*+json'
+# content type for json
+GENERAL_JSON_ACCEPT_HEADER = 'application/*+json;version={}'
+GENERAL_JSON_CONTENT_TYPE_HEADER = 'application/*+json'
 
 # content type for xml
 GENERAL_XML_CONTENT_TYPE = 'application/*+xml;charset=UTF-8'
