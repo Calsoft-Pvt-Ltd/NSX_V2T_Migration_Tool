@@ -4338,7 +4338,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         try:
             # Check if services configuration or network switchover was performed or not
             if not isinstance(self.rollback.metadata.get("configureTargetVDC", {}).get("configureDFW"), bool) \
-                    or not self.rollback.apiData.get('DfwDefaultRule'):
+                    and not self.rollback.apiData.get('DfwDefaultRule'):
                 logger.debug("Metadata keys 'configureDFW' or 'DfwDefaultRule' not found. Not deleting DFW rules")
                 return
             # If DFW was not configured on source org vdc return
