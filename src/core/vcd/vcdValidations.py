@@ -4350,7 +4350,7 @@ class VCDMigrationValidation:
 
             # validating whether any source org vdc network is not direct network
             logger.info('Validating Source OrgVDC Direct networks')
-            providerVDCImportedNeworkTransportZone = inputDict["VCloudDirector"].get("ImportedNeworkTransportZone", None)
+            providerVDCImportedNeworkTransportZone = inputDict["VCloudDirector"].get("ImportedNetworkTransportZone", None)
             self.validateOrgVDCNetworkDirect(orgVdcNetworkList, vdcDict["NSXTProviderVDCName"],
                                              providerVDCImportedNeworkTransportZone, nsxtObj)
 
