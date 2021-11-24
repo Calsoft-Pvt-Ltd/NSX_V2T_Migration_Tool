@@ -3773,7 +3773,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         base_url = "{}securityTags/entities".format(
             vcdConstants.OPEN_API_URL.format(self.ipAddress))
         query_filter = f'&filterEncoded=true&filter=tag=={tagName}'
-        url = f"{base_url}?page=1&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}&sortAsc=name{query_filter}"
+        url = f"{base_url}?page=1&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}{query_filter}"
         response = self.restClientObj.get(url, self.headers)
 
         # Fetching associated VMs with tag summary
@@ -3790,7 +3790,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 tagName, response['message']))
 
         while resultTotal > 0 and pageSizeCount < resultTotal:
-            url = f"{base_url}?page={pageNo}&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}&sortAsc=name{query_filter}"
+            url = f"{base_url}?page={pageNo}&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}{query_filter}"
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()

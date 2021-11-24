@@ -5329,7 +5329,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         if responseDict['record']:
                             for record in responseDict['record']:
                                 vlanId =record['vlanId']
-                            segmetId, segmentName = nsxObj.createLogicalSegments(orgvdcNetowork, inputDict["VCloudDirector"]["ImportedNeworkTransportZone"], vlanId)
+                            segmetId, segmentName = nsxObj.createLogicalSegments(orgvdcNetowork, inputDict["VCloudDirector"]["ImportedNetworkTransportZone"], vlanId)
                         ipRanges = [
                             {
                                 'startAddress': ipRange['startAddress'],

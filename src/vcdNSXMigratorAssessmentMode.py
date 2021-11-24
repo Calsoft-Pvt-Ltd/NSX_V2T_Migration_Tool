@@ -40,7 +40,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         self.threadCount = inputDict["Common"].get("MaxThreadCount", 75)
         # Fetching edge cluster name to be used for bridging from sampleInput
         self.EdgeClusterName = inputDict["NSXT"].get('EdgeClusterName', None)
-        self.NSXTProviderVDCImportedNeworkTransportZone = inputDict["VCloudDirector"].get("ImportedNeworkTransportZone", None)
+        self.NSXTProviderVDCImportedNeworkTransportZone = inputDict["VCloudDirector"].get("ImportedNetworkTransportZone", None)
         self.vcdObjList = vcdObjList
         self.nsxtObjList = nsxtObjList
         self.nsxvObj = nsxvObj
