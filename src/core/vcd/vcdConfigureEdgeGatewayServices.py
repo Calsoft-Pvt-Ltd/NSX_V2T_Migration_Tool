@@ -38,7 +38,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         vcdConstants.VCD_API_HEADER = vcdConstants.VCD_API_HEADER.format(self.version)
-        vcdConstants.GENERAL_JSON_CONTENT_TYPE = vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version)
+        vcdConstants.GENERAL_JSON_ACCEPT_HEADER = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
         vcdConstants.OPEN_API_CONTENT_TYPE = vcdConstants.OPEN_API_CONTENT_TYPE.format(self.version)
 
     def configureServices(self, nsxvObj, orgVDCDict):

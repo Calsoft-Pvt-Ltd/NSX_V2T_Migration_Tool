@@ -202,7 +202,7 @@ class VCDMigrationValidation:
         self.dfwSecurityTags = dict()
         self._isSharedNetworkPresent = None
         vcdConstants.VCD_API_HEADER = vcdConstants.VCD_API_HEADER.format(self.version)
-        vcdConstants.GENERAL_JSON_CONTENT_TYPE = vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version)
+        vcdConstants.GENERAL_JSON_ACCEPT_HEADER = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
         vcdConstants.OPEN_API_CONTENT_TYPE = vcdConstants.OPEN_API_CONTENT_TYPE.format(self.version)
         self.lock = lockObj
 
@@ -1527,7 +1527,7 @@ class VCDMigrationValidation:
             url = '{}{}'.format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
                                 vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
             headers = {'Authorization': self.headers['Authorization'],
-                       'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+                       'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
             response = self.restClientObj.get(url, headers)
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
@@ -1578,7 +1578,7 @@ class VCDMigrationValidation:
             url = '{}{}'.format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                                 vcdConstants.EDGES_EXTERNAL_NETWORK.format(edgeGatewayId))
             headers = {'Authorization': self.headers['Authorization'],
-                       'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+                       'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
             response = self.restClientObj.get(url, headers)
             if response.status_code == requests.codes.ok:
                 return response.json()['edgeInterfaces']
@@ -1600,7 +1600,7 @@ class VCDMigrationValidation:
             url = '{}{}'.format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                                 vcdConstants.STATIC_ROUTING_CONFIG.format(edgeGatewayId))
             headers = {'Authorization': self.headers['Authorization'],
-                       'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+                       'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
             response = self.restClientObj.get(url, headers)
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
@@ -1909,7 +1909,7 @@ class VCDMigrationValidation:
             edgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
             url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
                                 vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
-            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+            acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
             # retrieving the details of the edge gateway
             response = self.restClientObj.get(url, headers)
@@ -1955,7 +1955,7 @@ class VCDMigrationValidation:
                 edgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
                 url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
                                     vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
-                acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+                acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
                 headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
                 # retrieving the details of the edge gateway
                 response = self.restClientObj.get(url, headers)
@@ -1991,7 +1991,7 @@ class VCDMigrationValidation:
                                           .get('networkType') == 'NAT_ROUTED', sourceOrgVDCNetworks))
                 url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
                                     vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
-                acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+                acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
                 headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
                 # retrieving the details of the edge gateway
                 response = self.restClientObj.get(url, headers)
@@ -2556,7 +2556,7 @@ class VCDMigrationValidation:
             url = f"{base_url}&page={pageNo}&pageSize={pageSize}&format=records&sortAsc=name"
             headers = {
                 'Authorization': self.headers['Authorization'],
-                'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE,
+                'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER,
                 'X-VMWARE-VCLOUD-TENANT-CONTEXT': orgId.split(':')[-1],
             }
             response = self.restClientObj.get(url, headers)
@@ -2620,7 +2620,7 @@ class VCDMigrationValidation:
         try:
             headers = {
                 'Authorization': self.headers['Authorization'],
-                'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version),
+                'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version),
             }
             response = self.restClientObj.get(url, headers)
 
@@ -2648,7 +2648,7 @@ class VCDMigrationValidation:
         """
         headers = {
             'Authorization': self.headers['Authorization'],
-            'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version),
+            'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version),
         }
         response = self.restClientObj.get(url, headers)
 
@@ -2854,7 +2854,7 @@ class VCDMigrationValidation:
                                          vcdConstants.NETWORK_EDGES,
                                          vcdConstants.EDGE_GATEWAY_DHCP_CONFIG_BY_ID.format(edgeGatewayId),
                                          vcdConstants.EDGE_GATEWAY_DHCP_RELAY_CONFIG_BY_ID)
-            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+            acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
             # call to get api to get dhcp config details of specified edge gateway
             response = self.restClientObj.get(url, headers)
@@ -3304,7 +3304,7 @@ class VCDMigrationValidation:
                               vcdConstants.EDGE_GATEWAY_IPSEC_CONFIG.format(edgeGatewayId))
         headers = {
             'Authorization': self.headers['Authorization'],
-            'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE
+            'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER
         }
         # get api call to retrieve the ipsec config info
         response = self.restClientObj.get(url, headers)
@@ -3437,7 +3437,7 @@ class VCDMigrationValidation:
         try:
             while timeout < timeoutForTask:
                 headers = {'Authorization': self.headers['Authorization'],
-                           'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+                           'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
                 response = self.restClientObj.get(url=taskUrl, headers=headers)
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
@@ -3814,7 +3814,7 @@ class VCDMigrationValidation:
 
         data = {}
         # Query url to fetch the vm related data
-        acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+        acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
         headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
         url = "{}{}&sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress), vcdConstants.ORG_VDC_QUERY)
         response = self.restClientObj.get(url, headers)
@@ -3919,7 +3919,7 @@ class VCDMigrationValidation:
         # url to get the port group details
         url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
                             vcdConstants.GET_PORTGROUP_INFO)
-        acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+        acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
         headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
         # retrieving the details of the port group
         response = self.restClientObj.get(url, headers)
@@ -4073,7 +4073,7 @@ class VCDMigrationValidation:
         """
         data = list()
         # Query url to fetch the vm related data
-        acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+        acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
         headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
         url = "{}{}&sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress), vcdConstants.ORG_VDC_QUERY)
         response = self.restClientObj.get(url, headers)
@@ -4749,7 +4749,7 @@ class VCDMigrationValidation:
             # url to get the media info of specified organization
             url = "{}{}?sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
                                 vcdConstants.GET_MEDIA_INFO)
-            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+            acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,
                        'X-VMWARE-VCLOUD-TENANT-CONTEXT': orgId}
             # get api call to retrieve the media details of organization
@@ -4793,7 +4793,7 @@ class VCDMigrationValidation:
             # url to get vapp template info
             url = "{}{}?sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
                                 vcdConstants.GET_VAPP_TEMPLATE_INFO)
-            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+            acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,
                        'X-VMWARE-VCLOUD-TENANT-CONTEXT': orgId}
             # get api call to retrieve the vapp template details
@@ -5256,7 +5256,7 @@ class VCDMigrationValidation:
                     backingid = [values['backingId'] for values in externalDict['values']]
                     url = '{}{}'.format(vcdConstants.XML_API_URL.format(self.ipAddress),
                                         vcdConstants.GET_PORTGROUP_VLAN_ID.format(backingid[0]))
-                    acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version)
+                    acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
                     headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
                     # get api call to retrieve the networks with external network id
                     response = self.restClientObj.get(url, headers)
@@ -5700,7 +5700,7 @@ class VCDMigrationValidation:
                             vcdConstants.FETCH_VC_NSXV_SETTINGS.format(vShieldManagerId))
 
         headers = copy.deepcopy(self.headers)
-        headers['Accept'] = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+        headers['Accept'] = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
 
         # get api call to retrieve NSXV settings
         response = self.restClientObj.get(url, headers)
@@ -5718,7 +5718,7 @@ class VCDMigrationValidation:
         baseUrl = f"https://{self.ipAddress}/api/query"
 
         headers = copy.deepcopy(self.headers)
-        headers['Accept'] = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+        headers['Accept'] = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
 
         vCentersRegisteredInVcd = self.getPaginatedResults('vCenters registered in VCD', baseUrl,
                                                            urlFilter='type=virtualCenter&format=records&'
@@ -5766,7 +5766,7 @@ class VCDMigrationValidation:
         url = '{}{}'.format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                     'edges/{}'.format(edgeGatewayId))
         headers = {'Authorization': self.headers['Authorization'],
-                    'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+                    'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
         # call get api to get gre tunnel config details of specified edge gateway
         response = self.restClientObj.get(url, headers)
         if response.status_code == requests.codes.ok:

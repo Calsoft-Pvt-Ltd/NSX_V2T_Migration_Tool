@@ -42,7 +42,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         self.sourceDisksData = None
         self.targetDisksData = None
         vcdConstants.VCD_API_HEADER = vcdConstants.VCD_API_HEADER.format(self.version)
-        vcdConstants.GENERAL_JSON_CONTENT_TYPE = vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version)
+        vcdConstants.GENERAL_JSON_ACCEPT_HEADER = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
         vcdConstants.OPEN_API_CONTENT_TYPE = vcdConstants.OPEN_API_CONTENT_TYPE.format(self.version)
 
     @description("creation of target Org VDC Edge Gateway")
@@ -723,7 +723,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # url to disconnect/reconnect the source edge gateway
                 url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
                                     vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(orgVDCEdgeGatewayId))
-                acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+                acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
                 headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
                 # retrieving the details of the edge gateway
                 response = self.restClientObj.get(url, headers)
@@ -755,7 +755,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     else:
                         continue
                     payloadData = json.dumps(responseDict)
-                    acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+                    acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
                     self.headers["Content-Type"] = vcdConstants.XML_UPDATE_EDGE_GATEWAY
                     headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,
                                'Content-Type': vcdConstants.JSON_UPDATE_EDGE_GATEWAY}
@@ -1123,7 +1123,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # url to get the access control in org vdc
             url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
                                 vcdConstants.GET_ACCESS_CONTROL_IN_ORG_VDC.format(sourceOrgVDCId))
-            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+            acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
             # get api call to retrieve the access control details in source org vdc
             response = self.restClientObj.get(url, headers)
@@ -1134,7 +1134,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # url to create access control in target org vdc
             url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
                                 vcdConstants.CREATE_ACCESS_CONTROL_IN_ORG_VDC.format(targetOrgVDCId))
-            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+            acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,
                        'Content-Type': vcdConstants.CONTROL_ACCESS_CONTENT_TYPE}
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
@@ -1205,7 +1205,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # url to get the compute policy details of target org vdc
             url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
                                 vcdConstants.ORG_VDC_COMPUTE_POLICY.format(targetOrgVDCId))
-            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+            acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
             # get api call to retrieve the target org vdc compute policy details
             response = self.restClientObj.get(url, headers)
@@ -1218,9 +1218,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     alreadyPresentComputePoliciesList.append(
                         {'href': computePolicy['href'], 'id': computePolicy['id'], 'name': computePolicy['name']})
             payloadDict['vdcComputePolicyReference'] = alreadyPresentComputePoliciesList + computePolicyHrefList
-            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+            acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,
-                       'Content-Type': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+                       'Content-Type': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
             # creating the payload data
             payloadData = json.dumps(payloadDict)
             response = self.restClientObj.put(url, headers, data=payloadData)
@@ -1319,7 +1319,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         try:
             # splitting the target org vdc id as per the requirement of xml api
             targetVDCId = targetVDCId.split(':')[-1]
-            acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+            acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
             # url to get the target org vdc details
             url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
@@ -2756,8 +2756,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             })
             headers = {
                 'Authorization': self.headers['Authorization'],
-                'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version),
-                'Content-Type': vcdConstants.GENERAL_JSON_ONLY_CONTENT_TYPE,
+                'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version),
+                'Content-Type': vcdConstants.GENERAL_JSON_CONTENT_TYPE_HEADER,
             }
             response = self.restClientObj.post(url, headers, data=payload)
             if response.status_code == requests.codes.accepted:
@@ -2798,8 +2798,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             })
             headers = {
                 'Authorization': self.headers['Authorization'],
-                'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version),
-                'Content-Type': vcdConstants.GENERAL_JSON_ONLY_CONTENT_TYPE,
+                'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version),
+                'Content-Type': vcdConstants.GENERAL_JSON_CONTENT_TYPE_HEADER,
             }
             response = self.restClientObj.post(url, headers, data=payload)
             if response.status_code == requests.codes.accepted:
@@ -2829,8 +2829,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         })
         headers = {
             'Authorization': self.headers['Authorization'],
-            'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version),
-            'Content-Type': vcdConstants.GENERAL_JSON_ONLY_CONTENT_TYPE,
+            'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version),
+            'Content-Type': vcdConstants.GENERAL_JSON_CONTENT_TYPE_HEADER,
             'X-VMWARE-VCLOUD-TENANT-CONTEXT': self.rollback.apiData['Organization']['@id'],
         }
         response = self.restClientObj.post(url, headers, data=payload)
@@ -2862,7 +2862,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         url = f"{base_url}&page=1&pageSize={pageSize}&format=records"
         headers = {
             'Authorization': self.headers['Authorization'],
-            'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE,
+            'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER,
             'X-VMWARE-VCLOUD-TENANT-CONTEXT':
                 self.rollback.apiData['Organization']['@id'],
         }
@@ -3459,7 +3459,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # url to connect uplink the source edge gateway
                 url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
                                     vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(orgVDCEdgeGatewayId))
-                acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+                acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
                 headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
                 # retrieving the details of the edge gateway
                 response = self.restClientObj.get(url, headers)
@@ -3508,7 +3508,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     responseDict['edgeGatewayServiceConfiguration'] = None
                     del responseDict['tasks']
                     payloadData = json.dumps(responseDict)
-                    acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE
+                    acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
                     self.headers["Content-Type"] = vcdConstants.XML_UPDATE_EDGE_GATEWAY
                     headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,
                                'Content-Type': vcdConstants.JSON_UPDATE_EDGE_GATEWAY}
@@ -3931,7 +3931,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # splitting thr target org vdc id as per the xml api requirements
             targetVDCId = targetVDCId.split(':')[-1]
             headers = {'Authorization': self.headers['Authorization'],
-                       'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+                       'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
             # url to get the target org vdc details
             url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
                                 vcdConstants.ORG_VDC_BY_ID.format(targetVDCId))
@@ -4129,7 +4129,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         try:
             headers = {'Authorization': self.headers['Authorization'],
-                       'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+                       'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
             catalogResponse = self.restClientObj.get(catalogHref, headers)
             if catalogResponse.status_code == requests.codes.ok:
                 catalogResponseDict = catalogResponse.json()
@@ -4546,7 +4546,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         try:
             # setting the headers required for the api
             headers = {'Authorization': self.headers['Authorization'],
-                       'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+                       'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
             # get api call to retrieve the vapp isolated networks' details
             vAppNetworkResponse = self.restClientObj.get(vAppNetworkHref, headers)
             vAppNetworkResponseDict = vAppNetworkResponse.json()
@@ -4616,7 +4616,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         try:
             headers = {'Authorization': self.headers['Authorization'],
-                       'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+                       'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
             # open api get url to retrieve the details of target org vdc network
             url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                 vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(network['id']))
@@ -4683,7 +4683,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         if response.status_code == requests.codes.accepted:
             taskUrl = response.headers['Location']
             header = {'Authorization': self.headers['Authorization'],
-                      'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+                      'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
             taskResponse = self.restClientObj.get(url=taskUrl, headers=header)
             responseDict = taskResponse.json()
             self._checkTaskStatus(taskUrl=taskUrl)
@@ -5087,7 +5087,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     if response.status_code == requests.codes.accepted:
                         taskUrl = response.headers['Location']
                         header = {'Authorization': self.headers['Authorization'],
-                                  'Accept': vcdConstants.GENERAL_JSON_CONTENT_TYPE}
+                                  'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
                         taskResponse = self.restClientObj.get(url=taskUrl, headers=header)
                         responseDict = taskResponse.json()
                         self._checkTaskStatus(taskUrl=taskUrl)
@@ -5319,7 +5319,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         externalDict = value
                     backingid = [values['backingId'] for values in externalDict['values']]
                     url = '{}{}'.format(vcdConstants.XML_API_URL.format(self.ipAddress), vcdConstants.GET_PORTGROUP_VLAN_ID.format(backingid[0]))
-                    acceptHeader = vcdConstants.GENERAL_JSON_CONTENT_TYPE.format(self.version)
+                    acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
                     headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
                     # get api call to retrieve the networks with external network id
                     response = self.restClientObj.get(url, headers)
