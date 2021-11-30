@@ -1630,7 +1630,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     "keepAliveTimer": int(bgpNeighbour['keepAliveTimer']),
                     "holdDownTimer": int(bgpNeighbour['holdDownTimer']),
                     "allowASIn": "false",
-                    "neighborPassword": bgpNeighbour['password'] if bgpNeighbour.get('password') else ''
+                    "neighborPassword": bgpNeighbour['password'] if bgpNeighbour.get('password') else '',
+                    "ipAddressTypeFiltering": 'IPV4',
                 }
                 # checking for the bgp filters
                 if bgpNeighbour.get("bgpFilters"):
@@ -1645,6 +1646,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     if outfilter:
                         outRoutesFilterRef = self.createBGPFilters(bgpFilters=outfilter, edgeGatewayID=edgeGatewayID, filtertype='out', bgpNeighbour=bgpNeighbour)
                         bgpNeighbourpayloadDict['outRoutesFilterRef'] = outRoutesFilterRef if outRoutesFilterRef else ''
+
                 # time.sleep put bcoz prefix list still takes time after creation and the api response is success
                 time.sleep(5)
                 bgpNeighbourpayloadData = json.dumps(bgpNeighbourpayloadDict)
@@ -2297,21 +2299,21 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             pageSizeCount = 0
             serviceEngineGroupList = []
             while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                url = "{}{}?page={}&pageSize={}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.ASSIGN_SERVICE_ENGINE_GROUP_URI,
                                                         pageNo,
                                                         25)
                 getSession(self)
                 response = self.restClientObj.get(url, self.headers)
+                responseDict = response.json()
                 if response.status_code == requests.codes.ok:
-                    responseDict = response.json()
                     serviceEngineGroupList.extend(responseDict['values'])
                     pageSizeCount += len(responseDict['values'])
                     logger.debug('virtual service summary result pageSize = {}'.format(pageSizeCount))
                     pageNo += 1
                     resultTotal = responseDict['resultTotal']
                 else:
-                    raise Exception('Failed to fetch load balancer virtual service details')
+                    raise Exception(f'Failed to fetch load balancer virtual service details: {responseDict.get("message")}')
             serviceEngineGroupInEdgeGatewayList = list(filter(
                 lambda seg: seg['gatewayRef']['name'] == edgeGatewayName, serviceEngineGroupList))
             return serviceEngineGroupInEdgeGatewayList
@@ -3541,12 +3543,17 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         logger.debug('DFW rule {} with multiple L7 service created successfully on {}.'.format(
             ruleName, dcGroupId))
 
-    def deleteDfwPolicyRules(self, dfwURL, dcGroupId):
+    def deleteDfwPolicyRules(self, policyID, dcGroupId):
         """
         Description :   Delete all DFW policy rules
-        Parameters  :   dfwURL - URL of DFW policy by ID (STR)
+        Parameters  :   policyID - ID of DFW policy (STR)
                         dcGroupId - DC group where rule is getting created (STR)
         """
+        dfwURL = '{}{}{}{}'.format(
+            vcdConstants.OPEN_API_URL.format(self.ipAddress),
+            vcdConstants.GET_VDC_GROUP_BY_ID.format(dcGroupId),
+            vcdConstants.ENABLE_DFW_POLICY,
+            vcdConstants.GET_DFW_RULES.format(policyID))
         self.headers['Content-Type'] = 'application/json'
         response = self.restClientObj.put(
             dfwURL, self.headers,
@@ -3732,7 +3739,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 "Failed to fetch security tag summary from target - {}".format(response['message']))
 
         while resultTotal > 0 and pageSizeCount < resultTotal:
-            url = "{}?page={}&pageSize={}&sortAsc=name".format(base_url, pageNo,
+            url = "{}?page={}&pageSize={}".format(base_url, pageNo,
                                                   vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE)
             response = self.restClientObj.get(url, headers)
             if response.status_code == requests.codes.ok:
@@ -3766,7 +3773,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         base_url = "{}securityTags/entities".format(
             vcdConstants.OPEN_API_URL.format(self.ipAddress))
         query_filter = f'&filterEncoded=true&filter=tag=={tagName}'
-        url = f"{base_url}?page=1&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}&sortAsc=name{query_filter}"
+        url = f"{base_url}?page=1&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}{query_filter}"
         response = self.restClientObj.get(url, self.headers)
 
         # Fetching associated VMs with tag summary
@@ -3783,7 +3790,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 tagName, response['message']))
 
         while resultTotal > 0 and pageSizeCount < resultTotal:
-            url = f"{base_url}?page={pageNo}&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}&sortAsc=name{query_filter}"
+            url = f"{base_url}?page={pageNo}&pageSize={vcdConstants.FIREWALL_GROUPS_SUMMARY_PAGE_SIZE}{query_filter}"
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
@@ -4331,14 +4338,20 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         try:
             # Check if services configuration or network switchover was performed or not
             if not isinstance(self.rollback.metadata.get("configureTargetVDC", {}).get("configureDFW"), bool) \
-                    or not self.rollback.apiData.get('DfwDefaultRule'):
+                    and not self.rollback.apiData.get('DfwDefaultRule'):
+                logger.debug("Metadata keys 'configureDFW' or 'DfwDefaultRule' not found. Not deleting DFW rules")
                 return
             # If DFW was not configured on source org vdc return
             sourceOrgVDCId = self.rollback.apiData.get('sourceOrgVDC', {}).get('@id')
             if sourceOrgVDCId:
                 allLayer3Rules = self.getDistributedFirewallConfig(sourceOrgVDCId)
                 if not allLayer3Rules:
+                    logger.debug("Rollback DFW rules: DFW is disabled or rules not present")
                     return
+
+            # TODO pranshu: Reuse this function here
+            # self.deleteDfwRulesAllDcGroups()
+
             # Acquiring thread lock
             self.lock.acquire(blocking=True)
 
@@ -4349,15 +4362,39 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 logger.info('Rollback: Deleting DFW rules from Data Center Groups')
                 for orgVDCGroupID in orgVDCGroupIDList:
                     policyResponseDict = self.getDfwPolicy(orgVDCGroupID)
-                    policyID = policyResponseDict['defaultPolicy']['id']
-                    # url to fetch dfw rules
-                    dfwURL = '{}{}{}{}'.format(
-                        vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                        vcdConstants.GET_VDC_GROUP_BY_ID.format(orgVDCGroupID),
-                        vcdConstants.ENABLE_DFW_POLICY,
-                        vcdConstants.GET_DFW_RULES.format(policyID))
+                    self.deleteDfwPolicyRules(policyResponseDict['defaultPolicy']['id'], orgVDCGroupID)
+                    logger.debug('Successfully removed DFW rules from datacenter groups')
+        except:
+            logger.error(traceback.format_exc())
+            raise
+        finally:
+            try:
+                # Releasing the lock
+                self.lock.release()
+                logger.debug("Lock released by thread - '{}'".format(threading.currentThread().getName()))
+            except RuntimeError:
+                pass
 
-                    self.deleteDfwPolicyRules(dfwURL, orgVDCGroupID)
+    @isSessionExpired
+    def deleteDfwRulesAllDcGroups(self):
+        """
+            Description: Removing DFW default rules from datacenter group
+        """
+        try:
+            # Acquiring thread lock
+            self.lock.acquire(blocking=True)
+
+            orgVDCGroupIDList = (
+                list(self.rollback.apiData['OrgVDCGroupID'].values())
+                if self.rollback.apiData.get('OrgVDCGroupID') else []
+            )
+            # Fetching all dc group id's from vCD
+            vdcGroupsIds = [group['id'] for group in self.getOrgVDCGroup()]
+            if [dcGroupId for dcGroupId in orgVDCGroupIDList if dcGroupId in vdcGroupsIds]:
+                logger.info('Deleting DFW rules from Data Center Groups')
+                for orgVDCGroupID in orgVDCGroupIDList:
+                    policyResponseDict = self.getDfwPolicy(orgVDCGroupID)
+                    self.deleteDfwPolicyRules(policyResponseDict['defaultPolicy']['id'], orgVDCGroupID)
                     logger.debug('Successfully removed DFW rules from datacenter groups')
         except:
             logger.error(traceback.format_exc())

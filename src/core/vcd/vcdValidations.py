@@ -3264,14 +3264,15 @@ class VCDMigrationValidation:
                             nextHopIp = staticRoute['nextHop']
                             if not self.isStaticRouteAutoCreated(edgeGatewayId, nextHopIp):
                                 if not precheck:
-                                    logger.warning(f"Source OrgVDC EdgeGateway {edgeGatewayName} has static routes "
-                                                   f"configured. Please configure equivalent rules directly on "
-                                                   f"external network Tier-0/VRF.\n")
+                                    logger.warning(
+                                        f"Source OrgVDC EdgeGateway {edgeGatewayName} has static routes configured. "
+                                        "These static route will not be migrated. Please configure equivalent rules "
+                                        "directly on external network Tier-0/VRF.\n")
                                 else:
                                     errorList.append(
                                         f"WARNING : Source OrgVDC EdgeGateway {edgeGatewayName} has static routes "
-                                        f"configured. Please configure equivalent rules directly on external "
-                                        f"network Tier-0/VRF.\n")
+                                        "configured. These static route will not be migrated.Please configure "
+                                        "equivalent rules directly on external network Tier-0/VRF.\n")
                                 break
                 except KeyError:
                     logger.debug('Static routes not present in edgeGateway configuration.\n')
@@ -3702,6 +3703,8 @@ class VCDMigrationValidation:
                     self.DHCPEnabled[vApp['@name']] = DHCPEnabledNetworkList
                 else:
                     return DHCPEnabledNetworkList
+
+        return []
 
     def validateDHCPOnIsolatedvAppNetworks(self, sourceOrgVDCId, edgeGatewayDeploymentEdgeCluster=None, nsxtObj=None):
         """
@@ -4356,7 +4359,7 @@ class VCDMigrationValidation:
 
             # validating whether any source org vdc network is not direct network
             logger.info('Validating Source OrgVDC Direct networks')
-            providerVDCImportedNeworkTransportZone = inputDict["VCloudDirector"].get("ImportedNeworkTransportZone", None)
+            providerVDCImportedNeworkTransportZone = inputDict["VCloudDirector"].get("ImportedNetworkTransportZone", None)
             self.validateOrgVDCNetworkDirect(orgVdcNetworkList, vdcDict["NSXTProviderVDCName"],
                                              providerVDCImportedNeworkTransportZone, nsxtObj)
 

@@ -5096,6 +5096,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         errorDict = response.json()
                         raise Exception("Failed to enable DFW '{}' ".format(errorDict['message']))
                 if not rollback:
+                    self.deleteDfwRulesAllDcGroups()
                     self.configureDfwDefaultRule(sourceOrgVDCId)
 
         except Exception:
@@ -5328,7 +5329,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         if responseDict['record']:
                             for record in responseDict['record']:
                                 vlanId =record['vlanId']
-                            segmetId, segmentName = nsxObj.createLogicalSegments(orgvdcNetowork, inputDict["VCloudDirector"]["ImportedNeworkTransportZone"], vlanId)
+                            segmetId, segmentName = nsxObj.createLogicalSegments(orgvdcNetowork, inputDict["VCloudDirector"]["ImportedNetworkTransportZone"], vlanId)
                         ipRanges = [
                             {
                                 'startAddress': ipRange['startAddress'],

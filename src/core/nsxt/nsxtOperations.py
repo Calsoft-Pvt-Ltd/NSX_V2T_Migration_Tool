@@ -1503,7 +1503,7 @@ class NSXTOperations():
                     return 'The Transport Zone {} is not present in the NSX-T\n'. format(transportZoneName)
                     # raise Exception('The Transport Zone {} is not present in the NSX-T'. format(transportZoneName))
             else:
-                return 'The field ImportedNeworkTransportZone in the userinput is mandatory when you have dedicated direct network in NSX-V backed Org VDV. \n'
+                return 'The field ImportedNetworkTransportZone in the userinput is mandatory when you have dedicated direct network in NSX-V backed Org VDV. \n'
         except Exception:
             raise
 
