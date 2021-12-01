@@ -361,6 +361,7 @@ class VMwareCloudDirectorNSXMigrator():
                 vcdObject.password = self.vCloudDirectorPassword
                 vcdObject.vcdLogin()
             self.loginErrorDict[self._loginToVcd.__name__] = True
+            self.consoleLogger.info('VMware Cloud Director Version - {}'.format(self.vcdObjList[0].getVCDVersion()))
         except Exception as err:
             logging.error(str(err))
             if re.search(r'Failed to login .* with the given credentials', str(err)):
@@ -384,6 +385,7 @@ class VMwareCloudDirectorNSXMigrator():
                     self.loginErrorDict[self._loginToNsxv.__name__] = False
                 else:
                     raise
+            self.consoleLogger.info('NSX-V Version - {}'.format(self.nsxvObj.getNsxvVersion()))
         else:
             self.loginErrorDict[self._loginToNsxv.__name__] = True
 
@@ -403,6 +405,7 @@ class VMwareCloudDirectorNSXMigrator():
                 self.loginErrorDict[self._loginToNsxt.__name__] = False
             else:
                 raise
+        self.consoleLogger.info('NSX-T Version - {}'.format(nsxtObj.getNsxtVersion()))
 
     def _loginToVcenter(self):
         """

@@ -36,3 +36,6 @@ NSXV_CERTIFICATE_RETRIEVAL_URL = "/api/2.0/services/truststore/v2tmigration/cert
 
 # nsx-v uri to fetch overlay pool ranges
 NSXV_VNI_POOL_URL = "/api/2.0/vdn/config/segments"
+
+# nsx-v url to fetch nsx-v manager version
+NSXV_MANAGER_VERSION_URL = "api/1.0/appliance-management/global/info"

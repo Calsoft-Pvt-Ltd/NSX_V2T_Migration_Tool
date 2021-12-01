@@ -147,3 +147,6 @@ TRANSPORT_ZONE_DETAILS_TIMEOUT = 60 * 10
 
 # API to check realization state after policy API is executed
 REALIZED_STATE_API = "/infra/realized-state/status?intent_path={}"
+
+# API to check NSX-T version
+NSXT_VERSION = "api/v1/node"

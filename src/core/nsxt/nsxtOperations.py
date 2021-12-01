@@ -1034,6 +1034,18 @@ class NSXTOperations():
         except Exception:
             raise
 
+    def getNsxtVersion(self):
+        """
+        Description :    Get the version of NSX-T
+        """
+
+        url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.NSXT_VERSION)
+        response = self.restClientObj.get(url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
+        responseDict = response.json()
+        if response.status_code == requests.codes.ok:
+            return responseDict.get('node_version')
+        raise Exception('Failed to retrieve to NSX-T version due to error - {}'.format(responseDict['error_message']))
+
     def rollbackBridging(self, edgeClusterNameList, vcdObjList):
         """
             Description : Clear Bridging if configured as a part of migration

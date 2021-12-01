@@ -59,6 +59,20 @@ class NSXVOperations():
         except Exception:
             raise
 
+    def getNsxvVersion(self):
+        """
+        Description : Get the version of NSX-V Manager
+        """
+        url = nsxvConstants.NSXV_HOST_API_URL.format(self.ipAddress, nsxvConstants.NSXV_MANAGER_VERSION_URL)
+        response = self.restClientObj.get(url, headers=nsxvConstants.NSXV_JSON_API_HEADER, auth=self.restClientObj.auth)
+        responseDict = response.json()
+        if response.status_code == requests.codes.ok:
+            return "{}.{}.{}".format(responseDict["versionInfo"]["majorVersion"],
+                                        responseDict["versionInfo"]["minorVersion"],
+                                        responseDict["versionInfo"]["patchVersion"])
+        raise Exception('Failed to retrieve NSX-V Version due to error - {}'.format(
+            ",".join([error.get("details") for error in responseDict.get("errors")])))
+
     def getNsxvCertificateStore(self):
         """
         Description :   Get all certificated from NSX-V
