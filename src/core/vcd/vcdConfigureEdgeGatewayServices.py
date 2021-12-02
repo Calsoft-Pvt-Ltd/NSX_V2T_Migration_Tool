@@ -18,7 +18,6 @@ import traceback
 from collections import OrderedDict, defaultdict
 
 import requests
-import xmltodict
 
 import src.core.vcd.vcdConstants as vcdConstants
 from src.commonUtils.utils import Utilities, listify
@@ -151,7 +150,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                             vcdConstants.IPSET_SCOPE_URL.format(vcdid)))
                     response = self.restClientObj.get(url, self.headers)
                     if response.status_code == requests.codes.ok:
-                        responseDict = xmltodict.parse(response.content)
+                        responseDict = self.vcdUtils.parseXml(response.content)
                         if responseDict.get('list'):
                             ipsetgroups = responseDict['list']['ipset'] if isinstance(responseDict['list']['ipset'],
                                                                                       list) else [
@@ -232,7 +231,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                         ipsetresponse = self.restClientObj.get(ipseturl, self.headers)
                                         if ipsetresponse.status_code == requests.codes.ok:
                                             # successful retrieval of ipset group info
-                                            ipsetresponseDict = xmltodict.parse(ipsetresponse.content)
+                                            ipsetresponseDict = self.vcdUtils.parseXml(ipsetresponse.content)
                                             # checking whether the key present in the IPSET firewallIdDict
                                             if firewallIdDict.get(edgeGatewayId):
                                                 # checking wheather IPset name present in the dict
@@ -338,7 +337,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                         ipsetresponse = self.restClientObj.get(ipseturl, self.headers)
                                         if ipsetresponse.status_code == requests.codes.ok:
                                             # successful retrieval of ipset group info
-                                            ipsetresponseDict = xmltodict.parse(ipsetresponse.content)
+                                            ipsetresponseDict = self.vcdUtils.parseXml(ipsetresponse.content)
                                             # checking whether the key present in the IPSET firewallIdDict
                                             if firewallIdDict.get(edgeGatewayId):
                                                 # checking wheather IPset name present in the dict
@@ -1927,7 +1926,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     ipsetresponse = self.restClientObj.get(ipseturl, self.headers)
                     if ipsetresponse.status_code == requests.codes.ok:
                         # successful retrieval of ipset group info
-                        ipsetresponseDict = xmltodict.parse(ipsetresponse.content)
+                        ipsetresponseDict = self.vcdUtils.parseXml(ipsetresponse.content)
 
                         if not ipsetresponseDict['ipset'].get('value'):
                             logger.debug(
@@ -1993,7 +1992,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         # get api call to retrieve the edge gateway VNics info for orgVDC network.
         response = self.restClientObj.get(orgvdcNetworkDetailsUrl, self.headers)
         if response.status_code == requests.codes.ok:
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             for edgeInterface in responseDict['edgeInterfaces']['edgeInterface']:
                 if edgeInterface['name'] == orgvdcNetworkName:
                     return edgeInterface['index']
@@ -2058,7 +2057,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         while timeout < vcdConstants.VCD_CREATION_TIMEOUT:
                             response = self.restClientObj.get(taskUrl, self.headers)
                             if response.status_code == requests.codes.ok:
-                                responseDict = xmltodict.parse(response.content)
+                                responseDict = self.vcdUtils.parseXml(response.content)
                                 # checking for the status of each polling call for 'Completed'
                                 if responseDict['edgeJob']['status'] == 'COMPLETED':
                                     logger.info('Rollback for dhcp is completed successfully')
@@ -2108,7 +2107,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         while timeout < vcdConstants.VCD_CREATION_TIMEOUT:
                             response = self.restClientObj.get(taskUrl, self.headers)
                             if response.status_code == requests.codes.ok:
-                                responseDict = xmltodict.parse(response.content)
+                                responseDict = self.vcdUtils.parseXml(response.content)
                                 # checking for the status of each polling call for 'Completed'
                                 if responseDict['edgeJob']['status'] == 'COMPLETED':
                                     logger.debug('Rollback for IPSEC is completed successfully in {}'.format(sourceEdgeGateway['name']))
@@ -2519,7 +2518,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 # get api call to retrieve the load balancer config info
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
-                    responseDict = xmltodict.parse(response.content)
+                    responseDict = self.vcdUtils.parseXml(response.content)
                     # checking if load balancer is enabled, if so raising exception
                     if responseDict['loadBalancer']['enabled'] == "true":
                         if not float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
@@ -2637,7 +2636,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 vcdConstants.EDGE_GATEWAY_VIRTUAL_SERVER_CONFIG.format(sourceEdgeGatewayId))
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                virtualServersData = xmltodict.parse(response.content)
+                virtualServersData = self.vcdUtils.parseXml(response.content)
             else:
                 raise Exception('Failed to get source edge gateway load balancer virtual servers configuration')
 
@@ -2647,7 +2646,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                   vcdConstants.EDGE_GATEWAY_LOADBALANCER_CONFIG.format(sourceEdgeGatewayId))
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
                 # Fetching pools data from response
                 sourceLBPools = responseDict['loadBalancer'].get('pool') \
                     if isinstance(responseDict['loadBalancer'].get('pool'), list) \
@@ -2796,7 +2795,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                               vcdConstants.EDGE_GATEWAY_LOADBALANCER_CONFIG.format(sourceEdgeGatewayId))
         response = self.restClientObj.get(url, self.headers)
         if response.status_code == requests.codes.ok:
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             # Fetching pools data from response
             pools = responseDict['loadBalancer'].get('pool') \
                 if isinstance(responseDict['loadBalancer'].get('pool'), list) \
@@ -2818,7 +2817,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 vcdConstants.EDGE_GATEWAY_VIRTUAL_SERVER_CONFIG.format(sourceEdgeGatewayId))
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                virtualServersData = xmltodict.parse(response.content)
+                virtualServersData = self.vcdUtils.parseXml(response.content)
             else:
                 raise Exception('Failed to get source edge gateway load balancer virtual servers configuration')
 
@@ -3888,7 +3887,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             'services/securitytags/tag/scope/{}'.format(self.rollback.apiData['sourceOrgVDC']['@id'].split(':')[-1])
         )
         response = self.restClientObj.get(url, self.headers)
-        responseDict = xmltodict.parse(response.content)
+        responseDict = self.vcdUtils.parseXml(response.content)
         if not response.status_code == requests.codes.ok:
             raise Exception('Unable to fetch Security Tags {}'.format(responseDict.get('Error', {}).get('@message')))
 
@@ -3920,7 +3919,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         )
 
         response = self.restClientObj.get(url, self.headers)
-        responseDict = xmltodict.parse(response.content)
+        responseDict = self.vcdUtils.parseXml(response.content)
         if not response.status_code == requests.codes.ok:
             raise Exception(f"Unable to fetch Security Tag {tag_name}: {responseDict.get('Error', {}).get('@message')}")
 
@@ -4319,7 +4318,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         response = self.restClientObj.get(url, self.headers)
         if response.status_code == requests.codes.ok:
             # successful retrieval of ipset group info
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             return responseDict
         raise Exception('Unable to fetch ipset {} - {}'.format(ipsetId, response.json()['message']))
 

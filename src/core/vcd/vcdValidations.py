@@ -20,7 +20,6 @@ import traceback
 
 import ipaddress
 import requests
-import xmltodict
 
 import src.core.vcd.vcdConstants as vcdConstants
 
@@ -329,7 +328,7 @@ class VCDMigrationValidation:
         # fetching raw metadata from source org vdc
         raw_metadata = self.getOrgVDCMetadata(sourceOrgVDCId, rawData=True)
         # segregating user created metadata
-        metadataToMigrate = {data['Key']: [data['TypedValue']['Value'], data['TypedValue']['@xsi:type'], data.get('Domain')] for data in raw_metadata
+        metadataToMigrate = {data['Key']: [data['TypedValue']['Value'], data['TypedValue']['@type'], data.get('Domain')] for data in raw_metadata
                              if not re.search(r'-v2t$', data['Key'])}
         if metadataToMigrate:
             # Creating metadata in target org vdc
@@ -365,7 +364,8 @@ class VCDMigrationValidation:
 
             # get api to fetch meta data from org vdc
             response = self.restClientObj.get(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
+
+            responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
                 if responseDict['Metadata'].get('MetadataEntry'):
                     metaDataList = responseDict['Metadata']['MetadataEntry'] if isinstance(responseDict['Metadata']['MetadataEntry'], list) else [responseDict['Metadata']['MetadataEntry']]
@@ -474,7 +474,7 @@ class VCDMigrationValidation:
                     url = base_url + "/{}".format(key)
                 response = self.restClientObj.delete(url, self.headers)
                 if response.status_code == requests.codes.accepted:
-                    responseDict = xmltodict.parse(response.content)
+                    responseDict = self.vcdUtils.parseXml(response.content)
                     task = responseDict["Task"]
                     taskUrl = task["@href"]
                     if taskUrl:
@@ -583,7 +583,7 @@ class VCDMigrationValidation:
 
                 # post api to create meta data in org vdc
                 response = self.restClientObj.post(url, self.headers, data=payloadData)
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
                 if response.status_code == requests.codes.accepted:
                     task = responseDict["Task"]
                     taskUrl = task["@href"]
@@ -671,7 +671,8 @@ class VCDMigrationValidation:
             # get api call to retrieve organization details
             response = self.restClientObj.get(url, headers=self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
+
                 # retrieving organization references
                 responseDict = responseDict['VCloud']['OrganizationReferences']['OrganizationReference']
                 if isinstance(responseDict, dict):
@@ -697,7 +698,7 @@ class VCDMigrationValidation:
         orgUrl = self.getOrgUrl(orgName)
         # get api call to retrieve the organization details
         orgResponse = self.restClientObj.get(orgUrl, headers=self.headers)
-        orgResponseDict = xmltodict.parse(orgResponse.content)
+        orgResponseDict = self.vcdUtils.parseXml(orgResponse.content)
         if orgResponse.status_code == requests.codes.ok:
             # retrieving the organization ID
             orgId = orgResponseDict['AdminOrg']['@id']
@@ -705,7 +706,6 @@ class VCDMigrationValidation:
             return orgId
         raise Exception('Failed to retrieve organization ID for {} due to {}'.format(orgName),
                         orgResponseDict['Error']['@message'])
-
 
     def getOrgVDCUrl(self, orgUrl, orgVDCName, saveResponse=True):
         """
@@ -720,7 +720,7 @@ class VCDMigrationValidation:
             logger.debug('Getting Organization VDC Url {}'.format(orgVDCName))
             # get api call to retrieve org vdc details of specified orgVdcName
             response = self.restClientObj.get(orgUrl, headers=self.headers)
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
                 data = self.rollback.apiData
                 if not data and saveResponse:
@@ -756,7 +756,8 @@ class VCDMigrationValidation:
             self.orgVDCUrl = self.getOrgVDCUrl(orgUrl, orgVDCName, saveResponse)
             # get api call to retrieve the orgVDCName details
             response = self.restClientObj.get(self.orgVDCUrl, headers=self.headers)
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
+
             if response.status_code == requests.codes.ok:
                 if saveResponse:
                     # loading the existing data from api data dict
@@ -956,7 +957,7 @@ class VCDMigrationValidation:
                                    providervdcId)
             # get api call retrieve the specified provider vdc details
             response = self.restClientObj.get(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
                 key = 'targetProviderVDC' if isNSXTbacked else 'sourceProviderVDC'
                 # loading existing data from apiOutput.json
@@ -991,7 +992,7 @@ class VCDMigrationValidation:
                                 vcdConstants.ORG_VDC_BY_ID.format(orgVDCId))
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
             else:
                 raise Exception('Error occurred while retrieving Org VDC - {} details'.format(orgVDCId))
             # getting list instance of resources in the source org
@@ -1019,17 +1020,17 @@ class VCDMigrationValidation:
             url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
                                 vcdConstants.NSX_MANAGERS)
             response = self.restClientObj.get(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
-            allNsxtManager = responseDict['vmext:NsxTManagers']['vmext:NsxTManager'] if isinstance(responseDict['vmext:NsxTManagers']['vmext:NsxTManager'], list) else [responseDict['vmext:NsxTManagers']['vmext:NsxTManager']]
+            responseDict = self.vcdUtils.parseXml(response.content)
+            allNsxtManager = responseDict['NsxTManagers']['NsxTManager'] if isinstance(responseDict['NsxTManagers']['NsxTManager'], list) else [responseDict['NsxTManagers']['NsxTManager']]
 
             for eachNsxManager in allNsxtManager:
                 # Match hostname with NSXT URL if FQDN is provided in the input file else check for ip address
                 if (re.search('[a-zA-z]+', nsxIpAddress) and
-                    nsxIpAddress.split('.')[0] in eachNsxManager['vmext:Url'])\
-                        or nsxIpAddress in eachNsxManager['vmext:Url']:
+                    nsxIpAddress.split('.')[0] in eachNsxManager['Url'])\
+                        or nsxIpAddress in eachNsxManager['Url']:
                     # Network provider scope to be used for data center group creation for DFW migration
-                    self.networkProviderScope = eachNsxManager.get('vmext:NetworkProviderScope')
-                    self.nsxVersion = eachNsxManager['vmext:Version']
+                    self.networkProviderScope = eachNsxManager.get('NetworkProviderScope')
+                    self.nsxVersion = eachNsxManager['Version']
                     # Saving NSXT manager id with respect to vCD
                     self.nsxManagerId = eachNsxManager['@id']
                     return
@@ -1066,7 +1067,7 @@ class VCDMigrationValidation:
             for eachVapp in allVappList:
                 # get api call to get the vapp details
                 response = self.restClientObj.get(eachVapp['@href'], self.headers)
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
                 if response.status_code == requests.codes.ok:
                     vAppData = responseDict['VApp']
 
@@ -1115,7 +1116,7 @@ class VCDMigrationValidation:
                                 vcdConstants.ORG_VDC_BY_ID.format(orgVdcId))
             # get api call retrieve the specified provider vdc details
             response = self.restClientObj.get(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
                 responseProviderVDCId = responseDict['AdminVdc']['ProviderVdcReference']['@id']
                 # if isPvdcNSXTbacked is false
@@ -1187,7 +1188,7 @@ class VCDMigrationValidation:
                 if response.status_code == requests.codes['no_content']:
                     logger.debug("Source Org VDC {} disabled successfully".format(orgVDCName))
                 else:
-                    errorDict = xmltodict.parse(response.content)
+                    errorDict = self.vcdUtils.parseXml(response.content)
                     raise Exception('Failed to disable Source Org VDC - {}'.format(errorDict['Error']['@message']))
         except Exception:
             raise
@@ -1220,7 +1221,7 @@ class VCDMigrationValidation:
                 if response.status_code == requests.codes.no_content:
                     logger.debug("Target Org VDC Enabled successfully")
                 else:
-                    responseDict = xmltodict.parse(response.content)
+                    responseDict = self.vcdUtils.parseXml(response.content)
                     raise Exception("Failed to Enable Target Org VDC: {}".format(responseDict['Error']['@message']))
             elif isEnabled == "false":
                 # disabling the target org vdc if and only if the source org vdc was initially in disabled state, else keeping target org vdc enabled
@@ -1235,7 +1236,7 @@ class VCDMigrationValidation:
                 if response.status_code == requests.codes['no_content']:
                     logger.debug("Target Org VDC {} disabled successfully".format(targetOrgVDCName))
                 else:
-                    errorDict = xmltodict.parse(response.content)
+                    errorDict = self.vcdUtils.parseXml(response.content)
                     raise Exception('Failed to disable Target Org VDC - {}'.format(errorDict['Error']['@message']))
         except Exception:
             logger.error(traceback.format_exc())
@@ -1257,7 +1258,7 @@ class VCDMigrationValidation:
                                 vcdConstants.ORG_VDC_COMPUTE_POLICY.format(orgVdcId))
             # get api call to retrieve source org vdc compute policies
             response = self.restClientObj.get(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
                 data['sourceOrgVDCComputePolicyList'] = responseDict['VdcComputePolicyReferences']['VdcComputePolicyReference']
             sourceOrgVDCName = data['sourceOrgVDC']['@name']
@@ -1342,7 +1343,7 @@ class VCDMigrationValidation:
                         # get api call to retrieve the target pvdc storage profile details
                         getResponse = self.restClientObj.get(targetStorageProfile['@href'], self.headers)
                         if getResponse.status_code == requests.codes.ok:
-                            getResponseDict = xmltodict.parse(getResponse.content)
+                            getResponseDict = self.vcdUtils.parseXml(getResponse.content)
                             if getResponseDict['ProviderVdcStorageProfile']['Enabled'] == "false":
                                 targetPVDCDisabledStorageProfiles.append(storageProfile['@name'])
                         else:
@@ -1436,7 +1437,7 @@ class VCDMigrationValidation:
                                 vcdConstants.ORG_VDC_AFFINITY_RULES.format(vdcId))
             # get api call to retrieve org vdc affinity rules
             response = self.restClientObj.get(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
                 data = self.rollback.apiData
                 data['sourceVMAffinityRules'] = responseDict['VmAffinityRules']['VmAffinityRule'] if responseDict['VmAffinityRules'].get('VmAffinityRule', None) else {}
@@ -1657,7 +1658,7 @@ class VCDMigrationValidation:
         response = self.restClientObj.get(url, headers=self.headers)
         if response.status_code == requests.codes.ok:
             # Fetching UUID of vCD
-            vcdUUID = xmltodict.parse(response.content)["Site"]["@id"]
+            vcdUUID = self.vcdUtils.parseXml(response.content)["Site"]["@id"]
             return vcdUUID
         else:
             raise Exception("Failed to fetch UUID of vCD")
@@ -1933,7 +1934,7 @@ class VCDMigrationValidation:
             url = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                             vcdConstants.GET_APPLICATION_SERVICE_GROUPS.format(orgVdcIdStr))
             response = self.restClientObj.get(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
                 for eachServiceGroup in responseDict['list']['applicationGroup']:
                     allServiceGroupsList.append(eachServiceGroup['name'])
@@ -2231,7 +2232,7 @@ class VCDMigrationValidation:
                             vcdConstants.GET_APPLICATION_SERVICES.format(orgVdcIdStr))
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
 
                 return responseDict['list']['application']
             else:
@@ -2258,7 +2259,7 @@ class VCDMigrationValidation:
             url = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                             vcdConstants.GET_DISTRIBUTED_FIREWALL.format(orgVdcIdStr))
             response = self.restClientObj.get(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
                 if not v2tAssessmentMode and float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
                     raise Exception('DFW feature is not available in API version 34.0')
@@ -2782,7 +2783,7 @@ class VCDMigrationValidation:
             vcdConstants.GET_IPSET_GROUP_BY_ID.format(ipsetId))
         # get api call to retrieve the ipset group info
         response = self.restClientObj.get(url, self.headers)
-        responseDict = xmltodict.parse(response.content)
+        responseDict = self.vcdUtils.parseXml(response.content)
         if response.status_code == requests.codes.ok:
             # successful retrieval of ipset group info
             return responseDict
@@ -2861,7 +2862,7 @@ class VCDMigrationValidation:
             # call to get api to get dhcp relay config details of specified edge gateway
             relayresponse = self.restClientObj.get(relayurl, self.headers)
             if relayresponse.status_code == requests.codes.ok:
-                relayresponsedict = xmltodict.parse(relayresponse.content)
+                relayresponsedict = self.vcdUtils.parseXml(relayresponse.content)
                 # checking if relay is configured in dhcp, if so raising exception
                 if relayresponsedict.get('relay'):
                     if v2tAssessmentMode or float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
@@ -2931,7 +2932,7 @@ class VCDMigrationValidation:
             # get api call to retrieve the firewall config details of edge gateway
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
                 # checking if firewall is enabled on edge gateway, if so returning the user defined firewall details, else raising exception
                 if responseDict['firewall']['enabled'] != 'false':
                     logger.debug("Firewall configuration of Source Edge Gateway retrieved successfully")
@@ -3023,7 +3024,7 @@ class VCDMigrationValidation:
             # get api call to retrieve the nat config details of the specified edge gateway
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
                 if not validation:
                     return responseDict['nat']
                 logger.debug("NAT configuration of Source Edge Gateway retrieved successfully")
@@ -3066,7 +3067,7 @@ class VCDMigrationValidation:
             # get api call to retrieve sslvpn config info
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
                 logger.debug("SSLVPN configuration of Source Edge Gateway retrieved successfully")
                 # checking if sslvpn is enabled, if so raising exception
                 if responseDict['sslvpnConfig']['enabled'] == "true":
@@ -3093,7 +3094,7 @@ class VCDMigrationValidation:
             # get api call to retrieve the l2vpn config info
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
                 logger.debug("L2VPN configuration of Source Edge Gateway retrieved Successfully")
                 # checking if l2vpn is enabled, if so raising exception
                 if responseDict['l2Vpn']['enabled'] == "true":
@@ -3126,7 +3127,7 @@ class VCDMigrationValidation:
             # get api call to retrieve the load balancer config info
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
                 # checking if load balancer is enabled, if so raising exception
                 if responseDict['loadBalancer']['enabled'] == "true":
                     if not v2tAssessmentMode and not float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
@@ -3143,7 +3144,7 @@ class VCDMigrationValidation:
                         vcdConstants.EDGE_GATEWAY_VIRTUAL_SERVER_CONFIG.format(edgeGatewayId))
                     response = self.restClientObj.get(url, self.headers)
                     if response.status_code == requests.codes.ok:
-                        virtualServersData = xmltodict.parse(response.content)
+                        virtualServersData = self.vcdUtils.parseXml(response.content)
                         if virtualServersData['loadBalancer']:
                             virtualServersData = virtualServersData['loadBalancer']['virtualServer'] if isinstance(
                                 virtualServersData['loadBalancer']['virtualServer'], list) else \
@@ -3218,7 +3219,7 @@ class VCDMigrationValidation:
             subnetMask = None
             primaryAddress = None
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
                 vNicsDetails = responseDict['vnics']['vnic']
 
                 for vnicData in vNicsDetails:
@@ -3250,7 +3251,7 @@ class VCDMigrationValidation:
             # get api call to retrieve the routing config info
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
 
                 if not validation:
                     return responseDict['routing']
@@ -3388,7 +3389,7 @@ class VCDMigrationValidation:
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
                 if response.content:
-                    responseDict = xmltodict.parse(response.content)
+                    responseDict = self.vcdUtils.parseXml(response.content)
                     if not validation:
                         return responseDict['bgp']
                     # validate vrf lite  only if source bgp is enabled
@@ -3523,7 +3524,7 @@ class VCDMigrationValidation:
                 if response.status_code == requests.codes.no_content:
                     logger.debug("Source Org VDC Enabled successfully")
                 else:
-                    responseDict = xmltodict.parse(response.content)
+                    responseDict = self.vcdUtils.parseXml(response.content)
                     raise Exception("Failed to Enable Source Org VDC: {}".format(responseDict['Error']['@message']))
             else:
                 logger.debug("Not Enabling Source Org VDC since it was already disabled")
@@ -3537,7 +3538,7 @@ class VCDMigrationValidation:
         Parameters  :   vApp - data related to a vApp (DICT)
         """
         vAppResponse = self.restClientObj.get(vApp['@href'], self.headers)
-        responseDict = xmltodict.parse(vAppResponse.content)
+        responseDict = self.vcdUtils.parseXml(vAppResponse.content)
         if not vAppResponse.status_code == requests.codes.ok:
             raise Exception("Failed to get vapp details to validate suspended VM "
                             "due to {}".format(responseDict['Error']['@message']))
@@ -3585,7 +3586,7 @@ class VCDMigrationValidation:
         """
         # get api call to retrieve the vapp details
         response = self.restClientObj.get(vApp['@href'], self.headers)
-        responseDict = xmltodict.parse(response.content)
+        responseDict = self.vcdUtils.parseXml(response.content)
         if not response.status_code == requests.codes.ok:
             raise Exception("Failed to get vapp {} details for own network due "
                             "to {}".format(vApp['@name'], responseDict['Error']['@message']))
@@ -3668,7 +3669,7 @@ class VCDMigrationValidation:
         """
         # get api call to retrieve the vapp details
         response = self.restClientObj.get(vApp['@href'], self.headers)
-        responseDict = xmltodict.parse(response.content)
+        responseDict = self.vcdUtils.parseXml(response.content)
         if not response.status_code == requests.codes.ok:
             raise Exception('Error occurred while retrieving vapp details to validate isolated network'
                             'for {} due to {}'.format(vApp['@name'],responseDict['Error']['@message']))
@@ -3755,7 +3756,7 @@ class VCDMigrationValidation:
             # get api call to retrieve vapp details
             response = self.restClientObj.get(hrefVapp, self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
                 # checking if vapp has vms in it
                 if responseDict['VApp'].get('Children'):
                     vmList = responseDict['VApp']['Children']['Vm'] if isinstance(responseDict['VApp']['Children']['Vm'],
@@ -3876,7 +3877,7 @@ class VCDMigrationValidation:
                                 vcdConstants.ORG_VDC_BY_ID.format(orgvdcId))
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
             else:
                 raise Exception('Error occurred while retrieving Org VDC - {} details'.format(OrgVDCID))
             if not responseDict['AdminVdc']['ResourceEntities']:
@@ -3968,7 +3969,7 @@ class VCDMigrationValidation:
         if networkPoolResponse.status_code != requests.codes.ok:
             raise Exception("Failed to fetch source network pool data")
 
-        networkPoolDict = xmltodict.parse(networkPoolResponse.content)
+        networkPoolDict = self.vcdUtils.parseXml(networkPoolResponse.content)
         return networkPoolDict
 
     @isSessionExpired
@@ -3985,18 +3986,18 @@ class VCDMigrationValidation:
             if not networkPoolDict:
                 return
 
-            networkPoolType = networkPoolDict['vmext:VMWNetworkPool']['@xsi:type']
+            networkPoolType = networkPoolDict['VMWNetworkPool']['@type']
 
             # checking if the source network pool is VXLAN backed if cloneOverlayIds parameter is set to true
             if cloneOverlayIds and networkPoolType != vcdConstants.VXLAN_NETWORK_POOL_TYPE:
                 raise Exception("'cloneOverlayIds' parameter is set to 'True' but "
                                 "source Org VDC network pool is not VXLAN backed")
             # checking if the source network pool is PortGroup backed
-            if networkPoolDict['vmext:VMWNetworkPool']['@xsi:type'] == vcdConstants.PORTGROUP_NETWORK_POOL_TYPE:
+            if networkPoolDict['VMWNetworkPool']['@type'] == vcdConstants.PORTGROUP_NETWORK_POOL_TYPE:
                 # Fetching the moref and type of all the port groups backing the network pool
-                portGroupMoref = {portGroup['vmext:MoRef']: portGroup['vmext:VimObjectType']
+                portGroupMoref = {portGroup['MoRef']: portGroup['VimObjectType']
                                   for portGroup in listify(
-                        networkPoolDict['vmext:VMWNetworkPool']['vmext:PortGroupRefs']['vmext:VimObjectRef'])}
+                        networkPoolDict['VMWNetworkPool']['PortGroupRefs']['VimObjectRef'])}
 
                 # Filtering standard port groups
                 standardPortGroups = [moref for moref, portGroupType in portGroupMoref.items()
@@ -4004,7 +4005,7 @@ class VCDMigrationValidation:
                 # If standard port groups are present raise an exception
                 if standardPortGroups:
                     raise Exception(f"Port Groups - '{', '.join(standardPortGroups)}' backing the source "
-                                    f"network pool '{networkPoolDict['vmext:VMWNetworkPool']['@name']}' "
+                                    f"network pool '{networkPoolDict['VMWNetworkPool']['@name']}' "
                                     f"are not Distributed Port Group")
 
                 # Fetching all port groups present in vCenter
@@ -4017,7 +4018,7 @@ class VCDMigrationValidation:
                 # If port groups without VLAN are present raise an exception
                 if portGroupsWithoutVlan:
                     raise Exception(f"Port Groups - '{', '.join(portGroupsWithoutVlan)}' backing the source "
-                                    f"network pool '{networkPoolDict['vmext:VMWNetworkPool']['@name']}' "
+                                    f"network pool '{networkPoolDict['VMWNetworkPool']['@name']}' "
                                     f"don't have VLAN configured.")
         except Exception:
             raise
@@ -4200,8 +4201,8 @@ class VCDMigrationValidation:
                 # Checking if any org vdc has network pool with VXLAN backing
                 vxlanBackingPresent = any([True if
                                            vcdObj.getSourceNetworkPoolDetails().get(
-                                               'vmext:VMWNetworkPool', {}).get(
-                                               '@xsi:type') == vcdConstants.VXLAN_NETWORK_POOL_TYPE
+                                               'VMWNetworkPool', {}).get(
+                                               '@type') == vcdConstants.VXLAN_NETWORK_POOL_TYPE
                                            else False
                                            for vcdObj in vcdObjList])
 
@@ -4606,7 +4607,7 @@ class VCDMigrationValidation:
                                    vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
             getResponse = self.restClientObj.get(getUrl, headers=self.headers)
             if getResponse.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(getResponse.content)
+                responseDict = self.vcdUtils.parseXml(getResponse.content)
                 edgeGatewayDict = responseDict['EdgeGateway']
                 # checking if use default route for dns relay is enabled on edge gateway, if not then return
                 if edgeGatewayDict['Configuration']['UseDefaultRouteForDnsRelay'] != 'true':
@@ -4619,7 +4620,7 @@ class VCDMigrationValidation:
             # call to get api to get dns config details of specified edge gateway
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
                 # checking if dns exists
                 if responseDict['dns'].get('dnsViews'):
                     if responseDict['dns']['dnsViews']['dnsView']:
@@ -4645,7 +4646,7 @@ class VCDMigrationValidation:
         try:
             vAppResponse = self.restClientObj.get(vApp['@href'], self.headers)
             if vAppResponse.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(vAppResponse.content)
+                responseDict = self.vcdUtils.parseXml(vAppResponse.content)
                 # checking if the vapp has vms present in it
                 if 'VApp' in responseDict.keys():
                     if not responseDict['VApp'].get('Children'):
@@ -4729,7 +4730,7 @@ class VCDMigrationValidation:
                                    vcdConstants.ORG_VDC_BY_ID.format(targetOrgVdcId))
             # get api call retrieve the specified provider vdc details
             response = self.restClientObj.get(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
                 if responseDict['AdminVdc']['@id'] == targetOrgVDCId and responseDict['AdminVdc']['IsEnabled'] == "true":
                     logger.debug('Target Org VDC is enabled')
@@ -4870,7 +4871,7 @@ class VCDMigrationValidation:
                     self.headers['Content-Type'] = vcdConstants.GENERAL_XML_CONTENT_TYPE
                     # put api call to enable / disable affinity rules
                     response = self.restClientObj.put(url, self.headers, data=payloadData)
-                    responseDict = xmltodict.parse(response.content)
+                    responseDict = self.vcdUtils.parseXml(response.content)
                     if response.status_code == requests.codes.accepted:
                         task_url = response.headers['Location']
                         # checking the status of the enabling/disabling affinity rules task
@@ -4929,7 +4930,7 @@ class VCDMigrationValidation:
                     self.headers['Content-Type'] = vcdConstants.GENERAL_XML_CONTENT_TYPE
                     # put api call to enable / disable affinity rules
                     response = self.restClientObj.put(url, self.headers, data=payloadData)
-                    responseDict = xmltodict.parse(response.content)
+                    responseDict = self.vcdUtils.parseXml(response.content)
                     if response.status_code == requests.codes.accepted:
                         task_url = response.headers['Location']
                         # checking the status of the enabling/disabling affinity rulres task
@@ -5579,7 +5580,7 @@ class VCDMigrationValidation:
         response = self.restClientObj.get(url, self.headers)
         securityGroups = []
         if response.status_code == requests.codes.ok:
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             if responseDict.get('list'):
                 securityGroups = (
                     responseDict['list']['securitygroup']
@@ -5600,7 +5601,7 @@ class VCDMigrationValidation:
                                    vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
             getResponse = self.restClientObj.get(getUrl, headers=self.headers)
             if getResponse.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(getResponse.content)
+                responseDict = self.vcdUtils.parseXml(getResponse.content)
                 edgeGatewayDict = responseDict['EdgeGateway']
             logger.debug("Getting Syslog Services Configuration Details of Source Edge Gateway")
             # url to get syslog config details of specified edge gateway
@@ -5610,7 +5611,7 @@ class VCDMigrationValidation:
             # call to get api to get dns config details of specified edge gateway
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
                 # checking if syslog is enabled, if so raising exception
                 if responseDict['syslog']['enabled'] == "true":
                     if v2tAssessmentMode:
@@ -5638,7 +5639,7 @@ class VCDMigrationValidation:
                                    vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
             getResponse = self.restClientObj.get(getUrl, headers=self.headers)
             if getResponse.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(getResponse.content)
+                responseDict = self.vcdUtils.parseXml(getResponse.content)
                 edgeGatewayDict = responseDict['EdgeGateway']
             logger.debug("Getting SSH Services Configuration Details of Source Edge Gateway")
             # url to get ssh config details of specified edge gateway
@@ -5648,7 +5649,7 @@ class VCDMigrationValidation:
             # call to get api to get ssh config details of specified edge gateway
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
                 # checking if ssh is enabled, if so raising exception
                 if responseDict['cliSettings']['remoteAccess'] == "true":
                     if v2tAssessmentMode:

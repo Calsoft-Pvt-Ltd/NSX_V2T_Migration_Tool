@@ -211,8 +211,8 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             # Checking if any org vdc has VXLAN backed network pool
             vxlanBackingPresent = any([True if
                                        vcdObj.getSourceNetworkPoolDetails().get(
-                                           'vmext:VMWNetworkPool', {}).get(
-                                           '@xsi:type') == vcdConstants.VXLAN_NETWORK_POOL_TYPE
+                                           'VMWNetworkPool', {}).get(
+                                           '@type') == vcdConstants.VXLAN_NETWORK_POOL_TYPE
                                        else False
                                        for vcdObj in self.vcdObjList])
 

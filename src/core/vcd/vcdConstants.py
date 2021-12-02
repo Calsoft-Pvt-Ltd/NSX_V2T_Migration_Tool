@@ -460,16 +460,16 @@ GET_ICMP_PORT_PROFILES_FILTER = '?filter=(applicationPorts.protocol==ICMPv4)'
 CHECK_STRING_FOR_EMPTY_VAPPS = 'The requested operation could not be executed since vApp "{}" is not running.'
 
 # source network pool type VXLAN
-VXLAN_NETWORK_POOL_TYPE = 'vmext:VxlanPoolType'
+VXLAN_NETWORK_POOL_TYPE = 'VxlanPoolType'
 
 # source network pool type VLAN
-VLAN_NETWORK_POOL_TYPE = 'vmext:VlanPoolType'
+VLAN_NETWORK_POOL_TYPE = 'VlanPoolType'
 
 # source network pool type PortGroup
-PORTGROUP_NETWORK_POOL_TYPE = 'vmext:PortGroupPoolType'
+PORTGROUP_NETWORK_POOL_TYPE = 'PortGroupPoolType'
 
 # target network pool type
-GENEVE_NETWORK_POOL_TYPE = 'vmext:GenevePoolType'
+GENEVE_NETWORK_POOL_TYPE = 'GenevePoolType'
 
 # edge gateway status keys
 EDGE_GATEWAY_STATUS_KEY = "edgeStatus"

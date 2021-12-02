@@ -14,6 +14,7 @@ import re
 import certifi
 import jinja2
 import yaml
+import xmltodict
 
 logger = logging.getLogger('mainLogger')
 
@@ -231,3 +232,12 @@ class Utilities():
             for index in reversed(range(len(dataStructure))):
                 if isinstance(dataStructure[index], dict):
                     Utilities.renderInputDict(dataStructure[index])
+
+    @staticmethod
+    def parseXml(response):
+        """Parses XML API Response to dict along with namespace parsing"""
+        # Fetching all namespaces present in the response and creating mapping with None as value
+        namespaces = {ns.split("=")[-1].strip('"'): None
+                      for ns in re.findall("xmlns.*?\".*?\"", str(response))}
+
+        return xmltodict.parse(response, process_namespaces=True, namespaces=namespaces)
