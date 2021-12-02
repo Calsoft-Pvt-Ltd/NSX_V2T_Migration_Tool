@@ -217,16 +217,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # Updating edge cluster configuration payload in edge gateway creation payload
                 payloadData.update(edgeClusterConfigPayload)
 
-                if float(self.version) < float(vcdConstants.API_VERSION_ZEUS):
-                    payloadData['orgVdc'] = {
-                        "name": data['targetOrgVDC']['@name'],
-                        "id": data['targetOrgVDC']['@id'],
-                    }
-                else:
-                    payloadData['ownerRef'] = {
-                        "name": data['targetOrgVDC']['@name'],
-                        "id": data['targetOrgVDC']['@id'],
-                    }
+                payloadData['ownerRef'] = {
+                    "name": data['targetOrgVDC']['@name'],
+                    "id": data['targetOrgVDC']['@id'],
+                }
                 payloadData = json.dumps(payloadData)
 
                 self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
@@ -340,16 +334,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 #Loading JSON payload data to python Dict Structure
                 payloadData = json.loads(payloadData)
 
-                if float(self.version) < float(vcdConstants.API_VERSION_ZEUS):
-                    payloadData['orgVdc'] = {
-                        "name": targetOrgVDC['@name'],
-                        "id": targetOrgVDC['@id']
-                    }
-                else:
-                    payloadData['ownerRef'] = {
-                        "name": targetOrgVDC['@name'],
-                        "id": targetOrgVDC['@id']
-                    }
+                payloadData['ownerRef'] = {
+                    "name": targetOrgVDC['@name'],
+                    "id": targetOrgVDC['@id']
+                }
                 if sourceOrgVDCNetwork['networkType'] == "ISOLATED":
                     payloadData['connection'] = {}
                 if not sourceOrgVDCNetwork['subnets']['values'][0]['ipRanges']['values']:
@@ -1784,7 +1772,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                             errorResponse = response.json()
                                             raise Exception(
                                                 'Failed to fetch DHCP service - {}'.format(errorResponse['message']))
-            if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS) and data.get('OrgVDCIsolatedNetworkDHCP', []) != []:
+            if data.get('OrgVDCIsolatedNetworkDHCP', []) != []:
                 data = self.rollback.apiData
                 targetOrgVDCNetworksList = data['targetOrgVDCNetworks'].keys()
                 self.configureNetworkProfile(targetOrgVDCId, edgeGatewayDeploymentEdgeCluster, nsxtObj)
@@ -2069,7 +2057,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 self.rollback.apiData['targetOrgVDCNetworks'] = {}
 
             # Check if services are to be configured and API version is compatible or not
-            if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS) and configureServices:
+            if configureServices:
 
                 # Variable to set that the thread has reached here
                 self.__done__ = True
@@ -2164,35 +2152,35 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 self.configureDHCPRelayService()
                 self.configureDHCPBindingService()
 
-            if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
-                # increase in scope of Target edgegateways
-                self.increaseScopeOfEdgegateways()
-                # # increase in scope of Target ORG VDC networks
-                self.increaseScopeforNetworks()
-                # Enable DFW in the orgVDC groups
-                self.enableDFWinOrgvdcGroup()
 
-                # Variable to set that the thread has reached here
-                self.__done__ = True
-                # Wait while all threads have reached this stage
-                while not all([True if hasattr(obj, '__done__') else False for obj in vcdObjList]):
-                    # Exit if any thread encountered any error
-                    if [obj for obj in vcdObjList if hasattr(obj, '__exception__')]:
-                        return
-                    continue
+            # increase in scope of Target edgegateways
+            self.increaseScopeOfEdgegateways()
+            # # increase in scope of Target ORG VDC networks
+            self.increaseScopeforNetworks()
+            # Enable DFW in the orgVDC groups
+            self.enableDFWinOrgvdcGroup()
 
-                # Configure DFW in org VDC groups
-                self.configureSecurityTags()
-                self.configureDFW(vcdObjList, sourceOrgVDCId=sourceOrgVDCId)
+            # Variable to set that the thread has reached here
+            self.__done__ = True
+            # Wait while all threads have reached this stage
+            while not all([True if hasattr(obj, '__done__') else False for obj in vcdObjList]):
+                # Exit if any thread encountered any error
+                if [obj for obj in vcdObjList if hasattr(obj, '__exception__')]:
+                    return
+                continue
 
-                # Variable to set that the thread has reached here
-                self._dfw_configured = True
-                # Wait while all threads have reached this stage
-                while not all([True if hasattr(obj, '_dfw_configured') else False for obj in vcdObjList]):
-                    # Exit if any thread encountered any error
-                    if [obj for obj in vcdObjList if hasattr(obj, '__exception__')]:
-                        return
-                    continue
+            # Configure DFW in org VDC groups
+            self.configureSecurityTags()
+            self.configureDFW(vcdObjList, sourceOrgVDCId=sourceOrgVDCId)
+
+            # Variable to set that the thread has reached here
+            self._dfw_configured = True
+            # Wait while all threads have reached this stage
+            while not all([True if hasattr(obj, '_dfw_configured') else False for obj in vcdObjList]):
+                # Exit if any thread encountered any error
+                if [obj for obj in vcdObjList if hasattr(obj, '__exception__')]:
+                    return
+                continue
 
             # reconnecting target org vdc edge gateway from T0
             self.reconnectTargetEdgeGateway()

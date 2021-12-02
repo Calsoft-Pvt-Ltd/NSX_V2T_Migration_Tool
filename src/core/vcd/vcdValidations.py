@@ -822,12 +822,9 @@ class VCDMigrationValidation:
             for response in self.fetchAllExternalNetworks():
                 # checking if networkName is present in the list
                 if response['name'] == networkName:
-                    if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
-                        key = 'targetExternalNetwork' if response['networkBackings']['values'][0]['backingTypeValue'] in ['NSXT_TIER0', 'NSXT_VRF_TIER0'] else 'sourceExternalNetwork'
-                        if response['networkBackings']['values'][0]['backingTypeValue'] == 'NSXT_VRF_TIER0' and validateVRF:
-                            logger.warning('Target External Network {} is VRF backed.'.format(networkName))
-                    elif float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
-                        key = 'targetExternalNetwork' if response['networkBackings']['values'][0]['backingType'] in ['NSXT_TIER0', 'NSXT_VRF_TIER0'] else 'sourceExternalNetwork'
+                    key = 'targetExternalNetwork' if response['networkBackings']['values'][0]['backingTypeValue'] in ['NSXT_TIER0', 'NSXT_VRF_TIER0'] else 'sourceExternalNetwork'
+                    if response['networkBackings']['values'][0]['backingTypeValue'] == 'NSXT_VRF_TIER0' and validateVRF:
+                        logger.warning('Target External Network {} is VRF backed.'.format(networkName))
                     data = self.rollback.apiData
                     if isDummyNetwork:
                         key = 'dummyExternalNetwork'
@@ -1673,11 +1670,7 @@ class VCDMigrationValidation:
         Returns     :   Org VDC Networks object (LIST)
         """
         try:
-            if float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
-                key = 'orgVdc'
-                urlForNetworks = "{}{}?filter=({}.id=={})&sortAsc=name"
-                urlForNetworksPagenation = "{}{}?page={}&pageSize={}&sortAsc=name&filter=({}.id=={})"
-            elif float(self.version) >= float(vcdConstants.API_VERSION_ZEUS) and sharedNetwork:
+            if sharedNetwork:
                 key = 'ownerRef'
                 urlForNetworks = "{}{}?sortAsc=name&filter=(({}.id=={});(_context==includeAccessible))"
                 urlForNetworksPagenation = "{}{}?page={}&pageSize={}&filter=(({}.id=={});(_context==includeAccessible))&sortAsc=name"
@@ -1760,40 +1753,38 @@ class VCDMigrationValidation:
         """
         try:
             allOrgVDCNetworkDHCPList = list()
-            if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
-                logger.debug('Validating Isolated OrgVDCNetwork DHCP configuration')
-                for orgVDCNetwork in orgVDCNetworksList:
-                    disabledDhcpPools = bool()
-                    tempDhcpPoolList = list()
-                    if orgVDCNetwork['networkType'] == 'ISOLATED':
-                        eachOrgVDCNetworkDict = dict()
-                        url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                            vcdConstants.ORG_VDC_NETWORK_DHCP.format(orgVDCNetwork['id']))
-                        response = self.restClientObj.get(url, self.headers)
-                        if response.status_code == requests.codes.ok:
-                            responseDict = response.json()
-                            if responseDict['enabled'] is False:
-                                logger.warning('DHCP is disabled on OrgVDC Network: {}'.format(orgVDCNetwork['name']))
-                                continue
-                            else:
-                                if responseDict.get('dhcpPools'):
-                                    for eachDhcpPool in responseDict['dhcpPools']:
-                                        if eachDhcpPool['enabled'] is False:
-                                            disabledDhcpPools = True
-                                        else:
-                                            tempDhcpPoolList.append(eachDhcpPool)
-                                    responseDict['dhcpPools'] = tempDhcpPoolList
-                                else:
-                                    logger.warning("DHCP pools not present on OrgVDC Network: {}".format(orgVDCNetwork['name']))
+
+            logger.debug('Validating Isolated OrgVDCNetwork DHCP configuration')
+            for orgVDCNetwork in orgVDCNetworksList:
+                disabledDhcpPools = bool()
+                tempDhcpPoolList = list()
+                if orgVDCNetwork['networkType'] == 'ISOLATED':
+                    eachOrgVDCNetworkDict = dict()
+                    url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                        vcdConstants.ORG_VDC_NETWORK_DHCP.format(orgVDCNetwork['id']))
+                    response = self.restClientObj.get(url, self.headers)
+                    if response.status_code == requests.codes.ok:
+                        responseDict = response.json()
+                        if responseDict['enabled'] is False:
+                            logger.warning('DHCP is disabled on OrgVDC Network: {}'.format(orgVDCNetwork['name']))
+                            continue
                         else:
-                            raise Exception('Unable to getOrgVDC Network DHCP configuration')
-                        eachOrgVDCNetworkDict[orgVDCNetwork['name']] = responseDict
-                        allOrgVDCNetworkDHCPList.append(eachOrgVDCNetworkDict)
-                    if disabledDhcpPools is True:
-                        logger.warning("DHCP pools in OrgVDC network: {} are in disabled state and will not be migrated to target".format(orgVDCNetwork['name']))
-                self.rollback.apiData['OrgVDCIsolatedNetworkDHCP'] = allOrgVDCNetworkDHCPList
-            else:
-                self.rollback.apiData['OrgVDCIsolatedNetworkDHCP'] = allOrgVDCNetworkDHCPList
+                            if responseDict.get('dhcpPools'):
+                                for eachDhcpPool in responseDict['dhcpPools']:
+                                    if eachDhcpPool['enabled'] is False:
+                                        disabledDhcpPools = True
+                                    else:
+                                        tempDhcpPoolList.append(eachDhcpPool)
+                                responseDict['dhcpPools'] = tempDhcpPoolList
+                            else:
+                                logger.warning("DHCP pools not present on OrgVDC Network: {}".format(orgVDCNetwork['name']))
+                    else:
+                        raise Exception('Unable to getOrgVDC Network DHCP configuration')
+                    eachOrgVDCNetworkDict[orgVDCNetwork['name']] = responseDict
+                    allOrgVDCNetworkDHCPList.append(eachOrgVDCNetworkDict)
+                if disabledDhcpPools is True:
+                    logger.warning("DHCP pools in OrgVDC network: {} are in disabled state and will not be migrated to target".format(orgVDCNetwork['name']))
+            self.rollback.apiData['OrgVDCIsolatedNetworkDHCP'] = allOrgVDCNetworkDHCPList
         except Exception:
             raise
 
@@ -1835,10 +1826,6 @@ class VCDMigrationValidation:
             if len(DHCPEnabledList) > 0:
                 logger.debug("DHCP is enabled on Isolated Org VDC Network: '{}'".format(', '.join(DHCPEnabledList)))
 
-            if (DHCPEnabledList and float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS)):
-                raise Exception(
-                    "DHCP is not supported with API version 34.0 but is enabled on source Isolated Org VDC Network - {}".format(','.join(DHCPEnabledList))
-                )
         except Exception:
             raise
 
@@ -1889,10 +1876,6 @@ class VCDMigrationValidation:
                 exception = nsxtObj.validateDirectNetworkTZ(transportZone)
                 if exception:
                     errorlist.append(exception)
-            if orgVdcNetworkDirectList and float(self.version) <= float(vcdConstants.API_VERSION_ZEUS):
-                raise Exception("Direct network {} exist in source Org VDC. Direct networks can't be migrated to target Org VDC".format(','.join(orgVdcNetworkDirectList)))
-            elif float(self.version) <= float(vcdConstants.API_VERSION_ZEUS):
-                logger.debug("Validated Successfully, No direct networks exist in Source Org VDC")
             if errorlist:
                 raise Exception(''.join(errorlist))
         except Exception:
@@ -2260,9 +2243,6 @@ class VCDMigrationValidation:
             response = self.restClientObj.get(url, self.headers)
             responseDict = xmltodict.parse(response.content)
             if response.status_code == requests.codes.ok:
-                if not v2tAssessmentMode and float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
-                    raise Exception('DFW feature is not available in API version 34.0')
-
                 allLayer3Rules = []
                 if responseDict['firewallConfiguration']['layer3Sections']['section'].get('rule'):
                     allLayer3Rules = responseDict['firewallConfiguration']['layer3Sections']['section']['rule'] \
@@ -2883,7 +2863,7 @@ class VCDMigrationValidation:
                 return errorList, None
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
-                if not v2tAssessmentMode and float(self.version) >= float(vcdConstants.API_VERSION_ZEUS) and self.nsxVersion.startswith('2.5.2') and responseDict['enabled']:
+                if not v2tAssessmentMode and self.nsxVersion.startswith('2.5.2') and responseDict['enabled']:
                     errorList.append("DHCP is enabled in source edge gateway but not supported in target\n")
                 # checking if static binding is configured in dhcp, if so raising exception if DHCP Binding IP
                 # address overlaps with static IP Pool range on Network
@@ -2938,17 +2918,12 @@ class VCDMigrationValidation:
                     userDefinedFirewall = [firewall for firewall in
                                            responseDict['firewall']['firewallRules']['firewallRule'] if
                                            firewall['ruleType'] == 'user']
-                    if float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
-                        # getting the default policy rules which the user has marked as 'DENY'
-                        defaultFirewallRule = [defaultRule for defaultRule in responseDict['firewall']['firewallRules']['firewallRule'] if
-                                               defaultRule['ruleType'] == 'default_policy' and defaultRule['action'] != 'accept']
-                        userDefinedFirewall.extend(defaultFirewallRule)
-                    if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
-                        # getting the default policy rules which the user has marked as 'DENY'
-                        defaultFirewallRule = [defaultRule for defaultRule in
-                                               responseDict['firewall']['firewallRules']['firewallRule'] if
-                                               defaultRule['ruleType'] == 'default_policy' and defaultRule['action'] == 'accept']
-                        userDefinedFirewall.extend(defaultFirewallRule)
+
+                    # getting the default policy rules which the user has marked as 'DENY'
+                    defaultFirewallRule = [defaultRule for defaultRule in
+                                           responseDict['firewall']['firewallRules']['firewallRule'] if
+                                           defaultRule['ruleType'] == 'default_policy' and defaultRule['action'] == 'accept']
+                    userDefinedFirewall.extend(defaultFirewallRule)
 
                     for rule in userDefinedFirewall:
                         rule['name'] = rule['name'] or f"rule-{rule['id']}"
@@ -3129,8 +3104,6 @@ class VCDMigrationValidation:
                 responseDict = xmltodict.parse(response.content)
                 # checking if load balancer is enabled, if so raising exception
                 if responseDict['loadBalancer']['enabled'] == "true":
-                    if not v2tAssessmentMode and not float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
-                        return ["Load Balancer service is configured in the Source edge gateway but not supported in the Target\n"]
 
                     applicationRules = responseDict['loadBalancer'].get('applicationRule', [])
 
@@ -3394,7 +3367,7 @@ class VCDMigrationValidation:
                         return responseDict['bgp']
                     # validate vrf lite  only if source bgp is enabled
                     if responseDict['bgp']['enabled'] != 'false':
-                        if not v2tAssessmentMode and float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
+                        if not v2tAssessmentMode:
                             # get the target external network backed Tier-0 gateway
                             targetExternalBackingTypeValue = data['targetExternalNetwork']['networkBackings']['values'][0]['backingTypeValue']
                             # validate only if backing type is VRF
