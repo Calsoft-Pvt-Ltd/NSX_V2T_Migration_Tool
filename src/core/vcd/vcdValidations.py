@@ -156,16 +156,6 @@ class DfwRulesAbsentError(Exception):
     pass
 
 
-class ConfigurationError(Exception):
-    """
-    Raise this error when
-    - error/exception is out of scope for migration tool to handle/fix or to raise validation error
-    - AND migration cannot proceed with this error/exception
-    - AND configuration is not correct as per operational perspective which user has to fix manually
-    """
-    pass
-
-
 class VCDMigrationValidation:
     """
     Description : Class performing VMware Cloud Director NSX-V To NSX-T Migration validation
@@ -2199,7 +2189,7 @@ class VCDMigrationValidation:
                     logger.error('Failed to get Network  context profiles')
             return allNetContextProfiles
         except Exception:
-             raise
+            raise
 
     @isSessionExpired
     def getApplicationServicesDetails(self, orgVdcId):
@@ -3171,7 +3161,7 @@ class VCDMigrationValidation:
                                 if serviceEngineGroupDetails[0].get('haMode') != 'LEGACY_ACTIVE_STANDBY':
                                     logger.warning("Service engine group has HA MODE '{}', if you keep using this you may incur some extra charges.".format(serviceEngineGroupDetails[0].get('haMode')))
                         else:
-                           loadBalancerErrorList.append("Service Engine Group {} doesn't exist in Avi.\n".format(ServiceEngineGroupName))
+                            loadBalancerErrorList.append("Service Engine Group {} doesn't exist in Avi.\n".format(ServiceEngineGroupName))
             else:
                 loadBalancerErrorList.append('Unable to get load balancer service configuration with error code {} \n'.format(response.status_code))
             return loadBalancerErrorList

@@ -5278,7 +5278,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                     }
                                     break
                         else:
-                            raise(f"NSXT segment backed external network {parentNetworkId['name'] + '-v2t'} is not present, and it is required for this direct shared network - {orgvdcNetowork['name']}")
+                            raise Exception(
+                                f"NSXT segment backed external network {parentNetworkId['name'] + '-v2t'} is not "
+                                f"present, and it is required for this direct shared network - {orgvdcNetowork['name']}"
+                            )
                 else:
                     # Getting source external network details
                     sourceExternalNetwork = self.fetchAllExternalNetworks()

@@ -52,15 +52,12 @@ disable=logging-format-interpolation,
 
 
         consider-using-in,
-        superfluous-parens,
         simplifiable-if-expression,
         singleton-comparison,
         missing-class-docstring,
         unused-variable,
         redefined-outer-name,
-        bad-indentation,
         use-a-generator,
-        unnecessary-pass,
         missing-function-docstring,
         self-assigning-variable,
 

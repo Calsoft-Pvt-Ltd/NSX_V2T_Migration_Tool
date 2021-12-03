@@ -394,7 +394,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         try:
             method(*args)
         except Exception as e:
-                validationFailures.append([desc, e, 'Failed'])
+            validationFailures.append([desc, e, 'Failed'])
 
     def updateInventoryLogs(self, bridgingReport=False):
         """

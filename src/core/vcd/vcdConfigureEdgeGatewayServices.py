@@ -2524,7 +2524,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     if responseDict['loadBalancer']['enabled'] == "true":
                         serviceEngineGroupResultList = self.getServiceEngineGroupDetails()
                         if not serviceEngineGroupResultList:
-                             raise Exception('Service Engine Group does not exist.')
+                            raise Exception('Service Engine Group does not exist.')
 
                         logger.debug("Configuring LoadBalancer Services in Target Edge Gateway - {}".format(sourceEdgeGateway['name']))
                         serviceEngineGroupDetails = [serviceEngineGroup for serviceEngineGroup in
@@ -3197,7 +3197,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         # For this network only rule, only one DC group should match. "appliedToList" parameter from rule is ignored.
         sourceNetworks = []
         if l3rule.get('sources', {}).get('source'):
-             sourceNetworks.extend(all_networks(l3rule['sources']['source']))
+            sourceNetworks.extend(all_networks(l3rule['sources']['source']))
 
         if l3rule.get('destinations', {}).get('destination'):
             sourceNetworks.extend(all_networks(l3rule['destinations']['destination']))
