@@ -151,7 +151,7 @@ class VcenterApi():
             else:
                 # failure in current vcenter user log out
                 responseDict = response.json()
-                raise Exception("Failed to log out the current vcenter user due to error: "
+                raise Exception("Failed to log out the current vcenter user due to error: {}"
                                 .format(responseDict['value']['messages'][0]['default_message']))
         except Exception:
             raise

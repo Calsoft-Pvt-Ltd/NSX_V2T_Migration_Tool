@@ -2844,7 +2844,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Returns     : List of all query results (LIST)
         """
         base_url = f"{vcdConstants.XML_API_URL.format(self.ipAddress)}query?type=vm&filter=(((href=={vm['href']})))"
-        logger.debug(f'Getting VM details')
+        logger.debug('Getting VM details')
         # Get first page of query
         url = f"{base_url}&page=1&pageSize={pageSize}&format=records"
         headers = {

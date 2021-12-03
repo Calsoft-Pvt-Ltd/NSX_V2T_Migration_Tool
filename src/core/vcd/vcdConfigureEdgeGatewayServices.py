@@ -1993,7 +1993,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     Edge gateway ID
         returns:    Returns VNic Index of the OrgVDC Network.
         """
-        logger.debug("Getting VNics index for OrgVDC network : ".format(orgvdcNetworkName))
+        logger.debug("Getting VNics index for OrgVDC network : {}".format(orgvdcNetworkName))
         orgvdcNetworkDetailsUrl = "{}{}/{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                                                      vcdConstants.NETWORK_EDGES, edgeGatewayId, vcdConstants.VNIC_INDEX)
         # get api call to retrieve the edge gateway VNics info for orgVDC network.
@@ -3119,7 +3119,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 pageNo += 1
 
             logger.debug(f'Total DC group networks count = {len(resultFetched)}')
-            logger.debug(f'DC group networks successfully retrieved')
+            logger.debug('DC group networks successfully retrieved')
 
             return resultFetched
 

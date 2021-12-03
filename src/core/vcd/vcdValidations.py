@@ -2572,7 +2572,7 @@ class VCDMigrationValidation:
                 pageNo += 1
 
             logger.debug(f'Total named disks details result count = {len(resultFetched)}')
-            logger.debug(f'named disks details successfully retrieved')
+            logger.debug('named disks details successfully retrieved')
 
             for disk in resultFetched:
                 disk['id'] = disk['href'].split('/')[-1]
@@ -4507,8 +4507,8 @@ class VCDMigrationValidation:
                                         f"{orgVdcNameList} are using the same "
                                         f"target external network {externalNetworkName}.")
                     if len(sourceEdgeGatewayIdList) > 1:
-                        raise Exception(f"'AdvertiseRoutedNetworks' is set to 'True' but route advertisement is not"
-                                        f"supported in case of multiple edge gateways")
+                        raise Exception("'AdvertiseRoutedNetworks' is set to 'True' but route advertisement is not"
+                                        "supported in case of multiple edge gateways")
                     if data['targetExternalNetwork']['usedIpCount'] > 0:
                         raise Exception(f"'AdvertiseRoutedNetworks' is set to 'True', so Dedicated target external "
                                         f"network is required. But another edge gateway is already connected "
