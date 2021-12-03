@@ -5441,7 +5441,7 @@ class VCDMigrationValidation:
                         orgVDCData - Details of Org VDCs (DICT)
         """
         if not orgVdcNetworkSharedList:
-            return 
+            return
 
         dfwDefaultRules = []
         evaluatedOrgVdcs = []

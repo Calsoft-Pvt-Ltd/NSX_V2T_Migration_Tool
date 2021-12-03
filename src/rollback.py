@@ -190,4 +190,3 @@ class Rollback:
             self.logger.error(
                 "Rollback failed, manual rollback required or use --rollback parameter to retry rollback again.")
             raise
-

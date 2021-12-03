@@ -5333,4 +5333,3 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             return segmentName, payloadData
         except Exception:
             raise
-
