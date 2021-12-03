@@ -80,7 +80,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         except Exception as e:
             orgExceptionList.append(e)
         finally:
-            return sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked
+            return sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked      # pylint: disable=lost-exception
 
     def initializePreCheck(self, vcdValidationObj, orgVDCDict, validationFailures, sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked, threadObj, nsxtObj, serviceEngineGroupName=None, noSnatDestSubnet=None, edgeGatewayDeploymentEdgeCluster=None):
         """

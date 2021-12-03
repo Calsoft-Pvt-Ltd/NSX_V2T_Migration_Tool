@@ -4,7 +4,7 @@ disable=logging-format-interpolation,
         consider-using-f-string,
         fixme,
 
-        # Fixme: low priority
+        # Set 0
         invalid-name,
         no-member,
         too-many-lines,
@@ -25,30 +25,30 @@ disable=logging-format-interpolation,
         duplicate-code,
         too-many-return-statements,
 
-        # Fixme: high priority
+        # Set 5
         line-too-long,
         try-except-raise,
         bare-except,
-        inconsistent-return-statements,
-        cell-var-from-loop,
-        useless-else-on-loop,
-        undefined-loop-variable,
         no-else-raise,
         no-else-return,
         no-else-continue,
+        useless-else-on-loop,
+        literal-comparison,
+        simplifiable-if-expression,
+
+        # Set 10
+        inconsistent-return-statements,
+        cell-var-from-loop,
+        undefined-loop-variable,
         use-maxsplit-arg,
         redefined-argument-from-local,
         unspecified-encoding,
         attribute-defined-outside-init,
         consider-using-with,
-        import-outside-toplevel,
         too-many-boolean-expressions,
         no-value-for-parameter,
-        lost-exception,
         consider-using-dict-items,
         consider-iterating-dictionary,
-        literal-comparison,
-        simplifiable-if-expression,
 
 
 [FORMAT]
