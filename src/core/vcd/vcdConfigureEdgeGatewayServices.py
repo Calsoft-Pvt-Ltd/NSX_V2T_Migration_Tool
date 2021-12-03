@@ -1517,7 +1517,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             targetOrgVdcId = self.rollback.apiData['targetOrgVDC']['@id']
             target_networks = self.retrieveNetworkListFromMetadata(targetOrgVdcId, orgVDCType='target')
             networkgroups = networkID
-            firewallRule = firewallRule
             edgeGatewayId = edgeGatewayID
             firewallGroupIds = []
             groupId = []
@@ -1941,7 +1940,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         # storing the ip-address and range present in the IPSET
                         ipsetipaddress = ipsetresponseDict['ipset']['value']
 
-                        description = ipsetresponseDict['ipset']['description'] if ipsetresponseDict['ipset'].get(
+                        ipsetDescription = ipsetresponseDict['ipset']['description'] if ipsetresponseDict['ipset'].get(
                             'description') else ''
                         # if multiple ip=address or range present in the ipset spliting it with ','
                         if "," in ipsetipaddress:
@@ -1950,7 +1949,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         else:
                             ipAddressList.append(ipsetipaddress)
                         # creating payload data to create firewall group
-                        firewallGroupDict = {'name': ipsetName, 'description': description,
+                        firewallGroupDict = {'name': ipsetName, 'description': ipsetDescription,
                                              'edgeGatewayRef': {'id': edgeGatewayId}, 'ipAddresses': ipAddressList}
                         firewallGroupDict = json.dumps(firewallGroupDict)
                         # url to create firewall group

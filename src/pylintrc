@@ -56,10 +56,8 @@ disable=logging-format-interpolation,
         singleton-comparison,
         missing-class-docstring,
         unused-variable,
-        redefined-outer-name,
         use-a-generator,
         missing-function-docstring,
-        self-assigning-variable,
 
 
 [FORMAT]
