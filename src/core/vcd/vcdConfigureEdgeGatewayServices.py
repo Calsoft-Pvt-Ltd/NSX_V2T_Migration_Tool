@@ -423,23 +423,26 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                         firewallRule['application']['service']]
                                     # iterating over the application services
                                     for applicationService in firewallRules:
-                                        # if protocol is not icmp
-                                        if applicationService['protocol'] != "icmp":
-                                            protocol_name, port_id = self._searchApplicationPortProfile(
-                                                applicationPortProfilesList,
-                                                applicationService['protocol'],
-                                                applicationService['port'])
-                                            applicationServicesList.append({'name': protocol_name, 'id': port_id})
-                                            payloadDict['applicationPortProfiles'] = applicationServicesList
-                                        else:
-                                            # if protocol is icmp
-                                            # iterating over the application port profiles
+                                        if applicationService['protocol'] == 'any':
+                                            payloadDict['applicationPortProfiles'] = list()
+                                            break
+                                        # if protocol is icmp
+                                        # iterating over the application port profiles
+                                        elif applicationService['protocol'] == "icmp":
                                             for value in applicationPortProfilesList:
                                                 if value['name'] == vcdConstants.ICMP_ALL:
                                                     protocol_name, port_id = value['name'], value['id']
                                                     applicationServicesList.append(
                                                         {'name': protocol_name, 'id': port_id})
                                                     payloadDict["applicationPortProfiles"] = applicationServicesList
+                                        else:
+                                        # protocol is not icmp
+                                            protocol_name, port_id = self._searchApplicationPortProfile(
+                                                applicationPortProfilesList,
+                                                applicationService['protocol'],
+                                                applicationService['port'])
+                                            applicationServicesList.append({'name': protocol_name, 'id': port_id})
+                                            payloadDict['applicationPortProfiles'] = applicationServicesList
                             else:
                                 payloadDict['applicationPortProfiles'] = applicationServicesList
                             data['userDefinedRules'] = userDefinedRulesList + [
