@@ -705,8 +705,8 @@ class VCDMigrationValidation:
             orgId = orgResponseDict['AdminOrg']['@id']
             logger.debug('Organization {} ID {} retrieved successfully'.format(orgName, orgId))
             return orgId
-        raise Exception('Failed to retrieve organization ID for {} due to {}'.format(orgName),
-                        orgResponseDict['Error']['@message'])
+        raise Exception('Failed to retrieve organization ID for {} due to {}'.format(
+            orgName, orgResponseDict['Error']['@message']))
 
     def getOrgVDCUrl(self, orgUrl, orgVDCName, saveResponse=True):
         """
