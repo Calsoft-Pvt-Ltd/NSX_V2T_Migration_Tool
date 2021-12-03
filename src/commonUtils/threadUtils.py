@@ -9,6 +9,7 @@ import logging
 import queue
 from queue import Empty
 import threading
+import traceback
 from concurrent.futures import wait
 logger = logging.getLogger('mainLogger')
 
@@ -163,7 +164,6 @@ def waitForThreadToComplete(futures):
             try:
                 thread.result()
             except:
-                import traceback
                 logger.debug(traceback.format_exc())
                 threadFailed = True
         if threadFailed:
