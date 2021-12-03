@@ -425,7 +425,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                             getExceptionTableObj.add_row([each_error, 'Not Present'])
                         getExceptionTable = getExceptionTableObj.get_string()
                         self.consoleLogger.error(f'Incorrect details in sampleUserInput.yml for org vdc "{orgVDCName}". Please check VCD Organization or OrgVDC details')
-                        precheckLogger.info("Organization VDC: " + orgVDCName + "\n" + getExceptionTable + "\n")
+                        precheckLogger.info(f"Organization VDC: {orgVDCName}\n{getExceptionTable}\n")
                         continue
                     if validationFailures:
                         for each_failure in validationFailures:
