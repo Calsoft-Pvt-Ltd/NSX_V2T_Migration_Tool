@@ -50,7 +50,7 @@ disable=logging-format-interpolation,
         consider-iterating-dictionary,
         literal-comparison,
 
-        use-dict-literal,
+
         consider-using-in,
         trailing-newlines,
         consider-using-from-import,
@@ -61,7 +61,6 @@ disable=logging-format-interpolation,
         no-self-use,
         singleton-comparison,
         unused-import,
-        use-list-literal,
         missing-class-docstring,
         too-few-format-args,
         unused-variable,
@@ -83,6 +82,7 @@ disable=logging-format-interpolation,
         raising-bad-type,
         not-callable,
         unnecessary-comprehension,
+
 
 [FORMAT]
 # Maximum number of characters on a single line.

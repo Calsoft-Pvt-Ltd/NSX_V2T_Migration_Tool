@@ -50,9 +50,9 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         with open(self.preAssessmentLogs, 'w') as preCheckSummary:
             preCheckSummary.write(self.summaryIntroData)
         # Dictionary to store the org vdc and failures mapping
-        self.orgVDCerrors = dict()
-        self.bridgingCheckFailures = list()
-        self.sharedNetworkCheckFailures = list()
+        self.orgVDCerrors = {}
+        self.bridgingCheckFailures = []
+        self.sharedNetworkCheckFailures = []
 
     def checkOrgDetails(self, vcdValidationObj, orgVDCDict, orgExceptionList):
         """
@@ -193,7 +193,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
 
             nsxtObj = self.nsxtObjList[0]
             # Iterating over the list org vdc/s to fetch the org vdc id
-            orgVDCIdList = list()
+            orgVDCIdList = []
             for orgVDCDict in self.inputDict["VCloudDirector"]["SourceOrgVDC"]:
                 orgUrl = vcdValidationObj.getOrgUrl(self.inputDict["VCloudDirector"]["Organization"]["OrgName"])
                 # Fetch org vdc id
@@ -201,7 +201,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                                                                      saveResponse=False)
                 orgVDCIdList.append(sourceOrgVDCId)
 
-            networkList = list()
+            networkList = []
             for orgVDCId in orgVDCIdList:
                 networkList += vcdValidationObj.getOrgVDCNetworks(orgVDCId, 'sourceOrgVDCNetworks', saveResponse=False,
                                                                   sharedNetwork=False)
@@ -292,7 +292,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                      nsxtObj
         """
         # List that holds all the errors/failures encountered during the validations
-        validationFailures, orgExceptionList = list(), list()
+        validationFailures, orgExceptionList = [], []
         try:
             # Changing the name of the thread with the name of org vdc
             threading.current_thread().name = orgVDCDict["OrgVDCName"]
@@ -345,7 +345,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             self.consoleLogger.info(
                 f'Starting NSX-V migration to NSX-T backed in Assessment mode for org vdc/s - "{", ".join([vdc["OrgVDCName"] for vdc in self.inputDict["VCloudDirector"]["SourceOrgVDC"]])}"')
             # List the will hold reference to all the threads/futures
-            futures = list()
+            futures = []
 
             # Fetching the number of parallel migrations
             self.numberOfParallelMigrations = min(len(self.inputDict["VCloudDirector"]["SourceOrgVDC"]),

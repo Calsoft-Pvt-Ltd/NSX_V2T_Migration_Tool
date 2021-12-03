@@ -194,7 +194,7 @@ class NSXVOperations():
         try:
             logger.debug("Fetching NSX-V VNI Pool id's")
             # List to store the VNI pool id's
-            vniPoolIds = list()
+            vniPoolIds = []
 
             # URL to fetch VNI pools from NSXV
             poolRetrievalUrl = nsxvConstants.NSXV_HOST_API_URL.format(self.ipAddress,

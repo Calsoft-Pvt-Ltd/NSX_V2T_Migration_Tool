@@ -1060,7 +1060,7 @@ class NSXTOperations():
             # Check if bridging is configured from metadata
             if vcdObjList[0].rollback.metadata.get('configureNSXTBridging'):
                 # Fetching networks list that are bridged
-                bridgedNetworksList = list()
+                bridgedNetworksList = []
                 for vcdObject in vcdObjList:
                     # getting the target org vdc urn
                     dfw = True if vcdObject.rollback.apiData.get('OrgVDCGroupID') else False
@@ -1086,7 +1086,7 @@ class NSXTOperations():
                         vcdObjList - List of objects of vcd operations class (LIST)
         """
         try:
-            targetOrgVdcNetworkList, portGroupList = list(), list()
+            targetOrgVdcNetworkList, portGroupList = [], []
             # Iterating over vcd objects to get target org vdc networks
             for vcdObj in vcdObjList:
                 # Handling corner case for continuation message
@@ -1097,7 +1097,7 @@ class NSXTOperations():
                 targetOrgVdcNetworkList += vcdObj.retrieveNetworkListFromMetadata(targetOrgVdcId, orgVDCType='target')
                 # Fetching port group list
                 portGroupList += vcdObj.rollback.apiData['portGroupList'] if vcdObj.rollback.apiData.get(
-                    'portGroupList') else list()
+                    'portGroupList') else []
 
             # Replacing thread name with the name bridging
             threading.current_thread().name = "Bridging"
@@ -1354,7 +1354,7 @@ class NSXTOperations():
         Parameters  :   edgeClusterNameList -   List of names of the cluster (STRING)
         """
         try:
-            hostSwitchNameList = list()
+            hostSwitchNameList = []
             logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(edgeClusterNameList)))
             edgeTransportNodeList = []
             edgeClusterNotFound = []
@@ -1611,7 +1611,7 @@ class NSXTOperations():
         try:
             logger.debug("Fetching NSX-T VNI Pool id's")
             # List to store the VNI pool id's
-            vniPoolIds = list()
+            vniPoolIds = []
 
             # URL to fetch VNI pools from NSXT
             poolRetrievalUrl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,

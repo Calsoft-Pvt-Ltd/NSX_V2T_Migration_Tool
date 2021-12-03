@@ -125,7 +125,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                     default value will be false
         """
         try:
-            firewallIdDict = list()
+            firewallIdDict = []
             for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
                 logger.debug("Configuring Firewall Services in Target Edge Gateway - {}".format(sourceEdgeGateway['name']))
                 sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
@@ -173,12 +173,12 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         if self.rollback.apiData.get(firewallRule['id']) and not networktype:
                             if self.rollback.apiData[firewallRule['id']] == sourceEdgeGatewayId:
                                 continue
-                        data = dict()
-                        ipAddressList = list()
-                        applicationServicesList = list()
-                        payloadDict = dict()
-                        sourcefirewallGroupId = list()
-                        destinationfirewallGroupId = list()
+                        data = {}
+                        ipAddressList = []
+                        applicationServicesList = []
+                        payloadDict = {}
+                        sourcefirewallGroupId = []
+                        destinationfirewallGroupId = []
                         # checking for the source key in firewallRule dictionary
                         if firewallRule.get('source', None):
                             # retrieving ip address list source edge gateway firewall rule
@@ -186,8 +186,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 ipAddressList = firewallRule['source']['ipAddress'] if isinstance(
                                     firewallRule['source']['ipAddress'], list) else [
                                     firewallRule['source']['ipAddress']]
-                            ipsetgroups = list()
-                            networkgroups = list()
+                            ipsetgroups = []
+                            networkgroups = []
                             # retrieving ipset list source edge gateway firewall rule
                             if firewallRule['source'].get("groupingObjectId", None):
                                 groups = firewallRule['source']['groupingObjectId'] if isinstance(
@@ -248,7 +248,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 # get api call to retrieve firewall info of target edge gateway
                                 response = self.restClientObj.get(firewallUrl, self.headers)
                                 if response.status_code == requests.codes.ok:
-                                    userDefinedRulesList = list()
+                                    userDefinedRulesList = []
                                     # successful retrieval of firewall info
                                     responseDict = response.json()
                                     userDefinedRulesList = responseDict['userDefinedRules']
@@ -285,7 +285,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                 response = response.json()
                                                 raise Exception(
                                                     'Failed to update Firewall rule - {}'.format(response['message']))
-                        ipAddressList = list()
+                        ipAddressList = []
                         # checking for the destination key in firewallRule dictionary
                         if firewallRule.get('destination', None):
                             # retrieving ip address list source edge gateway firewall rule
@@ -293,8 +293,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 ipAddressList = firewallRule['destination']['ipAddress'] if isinstance(
                                     firewallRule['destination']['ipAddress'], list) else [
                                     firewallRule['destination']['ipAddress']]
-                            ipsetgroups = list()
-                            networkgroups = list()
+                            ipsetgroups = []
+                            networkgroups = []
                             # retrieving ipset group list source edge gateway firewall rule
                             if firewallRule['destination'].get("groupingObjectId", None):
                                 groups = firewallRule['destination']['groupingObjectId'] if isinstance(
@@ -354,7 +354,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 # get api call to retrieve firewall info of target edge gateway
                                 response = self.restClientObj.get(firewallUrl, self.headers)
                                 if response.status_code == requests.codes.ok:
-                                    userDefinedRulesList = list()
+                                    userDefinedRulesList = []
                                     # successful retrieval of firewall info
                                     responseDict = response.json()
                                     userDefinedRulesList = responseDict['userDefinedRules']
@@ -392,7 +392,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                 raise Exception(
                                                     'Failed to update Firewall rule - {}'.format(response['message']))
                         if not networktype:
-                            userDefinedRulesList = list()
+                            userDefinedRulesList = []
                             # get api call to retrieve firewall info of target edge gateway
                             response = self.restClientObj.get(firewallUrl, self.headers)
                             if response.status_code == requests.codes.ok:
@@ -646,7 +646,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 raise Exception('Failed to fetch application port profile {} '.format(response['message']))
             pageNo = 1
             pageSizeCount = 0
-            resultList = list()
+            resultList = []
             logger.debug('Getting Application port profiles')
             while resultTotal > 0 and pageSizeCount < resultTotal:
                 url = "{}{}?page={}&pageSize={}&filter=_context=={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
@@ -799,7 +799,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     rulesConfigured = statusForNATConfiguration.get(t1gatewayId, [])
                     if data['enabled'] == 'true':
                         for sourceNATRule in userDefinedNAT:
-                            destinationIpDict = dict()
+                            destinationIpDict = {}
                             # checking whether 'ConfigStatus' key is present or not if present skipping that rule while remediation
                             if sourceNATRule['ruleId'] in rulesConfigured or sourceNATRule['ruleTag'] in rulesConfigured:
                                 logger.debug('Rule Id: {} already created'.format(sourceNATRule['ruleId']))
@@ -971,7 +971,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         # Creating IP Prefix payload
         ipPrefixPayloadData = {
             "name": vcdConstants.TARGET_BGP_IP_PREFIX_NAME,
-            "prefixes": list()
+            "prefixes": []
         }
 
         subnetAlreadyAdded = set()
@@ -1018,7 +1018,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         """
         logger.debug('Route Advertisement is getting configured')
         for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
-            subnetsToAdvertise = list()
+            subnetsToAdvertise = []
             logger.debug(f"Configuring Route Advertisement on Target Edge Gateway - {sourceEdgeGateway['name']}")
             sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
             targetEdgeGatewayId = list(filter(
@@ -1329,7 +1329,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 'Configuring DHCP relay service on target edge gateway - {}'.format(sourceEdgeGateway['name']))
 
             # If we configures more than one relay server we are getting list, so we handled the scenario here.
-            forwardersList = list()
+            forwardersList = []
             if DHCPData['relay']['relayServer'].get('ipAddresses'):
                 ipAddressList = listify(DHCPData['relay']['relayServer'].get('ipAddresses'))
                 forwardersList.extend(ipAddressList)
@@ -1526,7 +1526,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             allGroupMembers = []
             newFirewallGroupIds = []
             # getting the network details for the creation of the firewall group
-            members = list()
+            members = []
             logger.debug('Configuring security group for firewall {}.'.format(firewallRule['id']))
             for networkgroup in networkgroups:
                 url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
@@ -1832,8 +1832,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 payloadData["applicationPortProfile"] = None
         # configuring SNAT
         if sourceNATRule['action'] == "snat":
-            allSnatPayloadList = list()
-            payloadDataList = list()
+            allSnatPayloadList = []
+            payloadDataList = []
             ifbgpRouterIdAddress = bool()
             # if range present in source orginal address converting it into cidr
             if "-" in sourceNATRule['originalAddress']:
@@ -1910,9 +1910,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         try:
             if ipsetgroups:
                 logger.debug('Creating IPSET in Target Edge Gateway')
-                firewallGroupIds = list()
-                firewallGroupName = list()
-                firewallIdDict = dict()
+                firewallGroupIds = []
+                firewallGroupName = []
+                firewallIdDict = {}
 
                 sourceOrgVdcName = self.rollback.apiData['sourceOrgVDC']['@name']
                 targetIpsets = self.fetchFirewallGroups(
@@ -1921,7 +1921,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
                 # iterating over the ipset group list
                 for ipsetgroup in ipsetgroups:
-                    ipAddressList = list()
+                    ipAddressList = []
                     ipsetName = f"{sourceOrgVdcName}_{ipsetgroup['name']}"
                     if ipsetName in targetIpsets:
                         continue
@@ -3173,7 +3173,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 elif entity['type'] == 'SecurityGroup':
                     sourceGroup = sourceDfwSecurityGroups[entity['value']]
                     if sourceGroup.get('dynamicMemberDefinition'):
-                        return list()
+                        return []
 
                     if not sourceGroup.get('member'):
                         continue
@@ -3183,10 +3183,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         if member['type']['typeName'] == 'Network':
                             networks.add(member['objectId'])
                         else:
-                            return list()
+                            return []
 
                 else:
-                    return list()
+                    return []
 
             return networks
 
@@ -3196,7 +3196,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         # If rule has only Org VDC networks(directly or in Security groups),
         # scope of rule will be only DC group to which that network is attached.
         # For this network only rule, only one DC group should match. "appliedToList" parameter from rule is ignored.
-        sourceNetworks = list()
+        sourceNetworks = []
         if l3rule.get('sources', {}).get('source'):
              sourceNetworks.extend(all_networks(l3rule['sources']['source']))
 
@@ -3304,7 +3304,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
                 # Configure firewall groups for source/destination objects for each DC group identified
                 # by ruleScopedDcGroups
-                sourceFirewallGroupObjects = destFirewallGroupObjects = dict()
+                sourceFirewallGroupObjects = destFirewallGroupObjects = {}
                 if l3rule.get('sources', {}).get('source'):
                     sources = (
                         l3rule['sources']['source']
@@ -3343,8 +3343,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
                 # updating the payload with application port profiles
                 # checking for the application key in firewallRule
-                applicationServicesList = list()
-                networkContextProfilesList = list()
+                applicationServicesList = []
+                networkContextProfilesList = []
                 if l3rule.get('services'):
                     if l3rule['services'].get('service'):
                         layer3AppServices = self.getApplicationServicesDetails(sourceOrgVDCId)
@@ -3435,7 +3435,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         """
         Description :   Get DFW policy and form URL
         """
-        dfwURLs = dict()
+        dfwURLs = {}
         for dcGroupId in self.rollback.apiData.get('OrgVDCGroupID').values():
             policyResponseDict = self.getDfwPolicy(dcGroupId)
             if policyResponseDict is None:
@@ -3625,7 +3625,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     self.putDfwPolicyRules(dfwURL, payloadDict, 'Default', dcGroupId, defaultRule=True)
 
                 if not self.rollback.apiData.get('DfwDefaultRule'):
-                    self.rollback.apiData['DfwDefaultRule'] = dict()
+                    self.rollback.apiData['DfwDefaultRule'] = {}
                 self.rollback.apiData['DfwDefaultRule'][dcGroupId] = True
                 self.saveMetadataInOrgVdc(force=True)
 
@@ -4111,7 +4111,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             return f"vdc-{orgVdcId}_group-{sourceGroupId}{suffix}"
 
-        ipv4Addresses = list()
+        ipv4Addresses = []
         firewallGroupObjects = defaultdict(list)
         orgVdcName = self.rollback.apiData['sourceOrgVDC']['@name']
         orgVdcId = self.rollback.apiData['sourceOrgVDC']['@id'].split(':')[-1]
@@ -4427,7 +4427,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 # Iterating over dfw groups to delete the groups using firewall group id
                 for owner, groups in firewallGroupsSummary.items():
                     for _, sublist in chunksOfList(list(groups.items()), 40):
-                        taskUrls = dict()
+                        taskUrls = {}
                         for firewallGroupName, firewallGroup in sublist:
                             deleteFirewallGroupUrl = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                                    vcdConstants.FIREWALL_GROUP.format(firewallGroup['id']))
@@ -4439,7 +4439,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 raise Exception("Failed to delete firewall group '{}' from target - {}".format(
                                     firewallGroupName, response['message']))
 
-                        errors = list()
+                        errors = []
                         for firewallGroupName, url in taskUrls.items():
                             try:
                                 self._checkTaskStatus(taskUrl=url)

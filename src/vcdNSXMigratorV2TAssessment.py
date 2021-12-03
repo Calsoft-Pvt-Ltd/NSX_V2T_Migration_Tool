@@ -154,7 +154,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
         self.vcdValidationObj.vcdLogin()
         self.consoleLogger.info('Logged in to VMware Cloud Director {}'.format(self.inputDict['VCloudDirector']['ipAddress']))
 
-        self.vcdValidationMapping = dict()
+        self.vcdValidationMapping = {}
 
         # Fetching the datetime from the log file
         self.currentDateTime = os.path.basename(v2tAssessmentLogFileName).replace('VCD-NSX-Migrator-v2tAssessment-Log-', '').replace('.log', '')
@@ -183,7 +183,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
             Description: This method validates the input file for v2tAssessment mode
         """
         # Error list for input validations
-        errorList = list()
+        errorList = []
         if self.inputDict.get("VCloudDirector", {}) == None:
             self.inputDict["VCloudDirector"] = {}
         if not self.inputDict.get("VCloudDirector", {}).get("ipAddress", None):

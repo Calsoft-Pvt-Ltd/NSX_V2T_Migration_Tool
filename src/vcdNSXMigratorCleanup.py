@@ -94,7 +94,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             if vcdObjList[0].rollback.metadata.get('configureNSXTBridging'):
                 self.consoleLogger.info('Removing bridging from NSX-T')
                 # Fetching networks list that are bridged
-                bridgedNetworksList = list()
+                bridgedNetworksList = []
                 for vcdObject in vcdObjList:
                     # getting the target org vdc urn
                     dfw = True if vcdObject.rollback.apiData.get('OrgVDCGroupID') else False

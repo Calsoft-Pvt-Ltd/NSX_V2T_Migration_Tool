@@ -77,7 +77,7 @@ class Rollback:
                           nsxtObj - object of nsxtOperations (object)
                           rollbackTasks - List to tasks to be performed for rollback (LIST)
         """
-        sourceOrgVDCId, orgVDCNetworkList, targetOrgVDCId, sourceEdgeGatewayId, targetNetworkList = str(), list(), str(), str(), list()
+        sourceOrgVDCId, orgVDCNetworkList, targetOrgVDCId, sourceEdgeGatewayId, targetNetworkList = str(), [], str(), str(), []
         try:
             timeout = self.timeoutForVappMigration
             targetExternalNetwork = orgVDCDict["ExternalNetwork"]

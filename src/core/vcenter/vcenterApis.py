@@ -41,7 +41,7 @@ class VcenterApi():
         self.password = password
         self.verify = verify
         # Default header to be used for VCSA API calls
-        self.headers = dict()
+        self.headers = {}
         self.headers.update({"Accept": constants.DEFAULT_ACCEPT_VALUE,
                              "Content-Type": constants.DEFAULT_ACCEPT_VALUE})
         self.headers.update({constants.SESSION_ID_KEY: ""})
@@ -183,7 +183,7 @@ class VcenterApi():
             content = si.RetrieveContent()
 
             # Cluster resource pool mapping
-            clusterRpMapping = dict()
+            clusterRpMapping = {}
 
             # Iterating over datacenters
             for child in content.rootFolder.childEntity:
@@ -252,7 +252,7 @@ class VcenterApi():
             eamAgencies = eamCx.QueryAgency()
 
             # List to store the mapping
-            agencyClusterMapping = list()
+            agencyClusterMapping = []
 
             # Iterating over agencies
             for agency in eamAgencies:

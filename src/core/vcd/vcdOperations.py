@@ -35,7 +35,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.targetStorageProfileMap = dict()
+        self.targetStorageProfileMap = {}
         self.sourceDisksData = None
         self.targetDisksData = None
         vcdConstants.VCD_API_HEADER = vcdConstants.VCD_API_HEADER.format(self.version)
@@ -53,7 +53,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 logger.debug('Skipping Target Edge Gateway creation as no source '
                              'Edge Gateway exist.')
                 # If source Edge Gateway are not present, target Edge Gateway will also be empty
-                self.rollback.apiData['targetEdgeGateway'] = list()
+                self.rollback.apiData['targetEdgeGateway'] = []
                 return
 
             logger.info('Creating target Org VDC Edge Gateway')
@@ -253,7 +253,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Description : Create Org VDC Networks in the specified Organization VDC
         """
         try:
-            segmetList = list()
+            segmetList = []
             # Check if overlay id's are to be cloned or not
             cloneOverlayIds = inputDict['VCloudDirector'].get('CloneOverlayIds')
 
@@ -381,7 +381,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             logger.info('Successfully created target Org VDC Networks.')
             conflictNetwork = self.rollback.apiData.get('ConflictNetworks')
             if conflictNetwork:
-                networkList = list()
+                networkList = []
                 targetnetworks = self.retrieveNetworkListFromMetadata(targetOrgVDC['@id'], dfwStatus=False, orgVDCType='target')
                 for targetnetwork in targetnetworks:
                     for network in conflictNetwork:
@@ -819,7 +819,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             data = self.rollback.apiData
 
             # Fetching name and ids of all the org vdc networks
-            networkIdMapping, networkNameList = dict(), set()
+            networkIdMapping, networkNameList = {}, set()
             for orgVdcNetwork in orgVdcNetworkList:
                 networkIdMapping[orgVdcNetwork['id'].split(":")[-1]] = orgVdcNetwork
                 networkNameList.add(orgVdcNetwork['name'])
@@ -831,7 +831,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 for edgeGatewayId, edgeVMId in edgeGatewayVmIdMapping.items()}
 
             allPortGroups = self.fetchAllPortGroups()
-            portGroupDict = dict()
+            portGroupDict = {}
             # Iterating over all the port groups to find the portgroups linked to org vdc network
             for portGroup in allPortGroups:
                 if portGroup['networkName'] != '--' and \
@@ -1627,7 +1627,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                           edgeGatewayDeploymentEdgeCluster - edge gateway deployment edge cluster.
         """
         try:
-            self.isovAppNetworkDHCPEnabled = dict()
+            self.isovAppNetworkDHCPEnabled = {}
             vAppList = self.getOrgVDCvAppsList(sourceOrgVDCId.split(":")[-1])
             if not vAppList:
                 return
@@ -1777,16 +1777,16 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 self.configureNetworkProfile(targetOrgVDCId, edgeGatewayDeploymentEdgeCluster, nsxtObj)
                 self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
                 for eachDHCPConfig in data['OrgVDCIsolatedNetworkDHCP']:
-                    payload = dict()
+                    payload = {}
                     orgVDCNetworkName, OrgVDCIsolatedNetworkDHCPDetails = list(eachDHCPConfig.items())[0]
                     payload["enabled"] = OrgVDCIsolatedNetworkDHCPDetails['enabled']
                     payload["leaseTime"] = OrgVDCIsolatedNetworkDHCPDetails['leaseTime']
-                    payload["dhcpPools"] = list()
+                    payload["dhcpPools"] = []
                     firstPoolIndex = 0
                     maxLeaseTimeDhcp = []
                     if OrgVDCIsolatedNetworkDHCPDetails.get("dhcpPools"):
                         for eachDhcpPool in OrgVDCIsolatedNetworkDHCPDetails["dhcpPools"]:
-                            currentPoolDict = dict()
+                            currentPoolDict = {}
                             currentPoolDict["enabled"] = eachDhcpPool['enabled']
                             if firstPoolIndex == 0:
                                 ipToBeRemoved = OrgVDCIsolatedNetworkDHCPDetails["dhcpPools"][0]['ipRange']['startAddress']
@@ -1857,7 +1857,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                                   strict=False)
                             # If IP belongs to the network add to ipRange value
                             if ipaddress.ip_address(ip) in networkAddress:
-                                ipList = list()
+                                ipList = []
                                 for ipRange in subnet['ipRanges']['values']:
                                     ipList.extend(self.createIpRange('{}/{}'.format(subnet['gateway'],
                                                                                     subnet['prefixLength']),
@@ -3258,7 +3258,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # Saving status of moveVapp function
             self.rollback.executionResult['moveVapp'] = False
             # Iterating over vcd operations objects to fetch the corresponding details
-            sourceOrgVDCNameList, sourceOrgVDCIdList, targetOrgVDCIdList, orgVDCNetworkList = list(), list(), list(), list()
+            sourceOrgVDCNameList, sourceOrgVDCIdList, targetOrgVDCIdList, orgVDCNetworkList = [], [], [], []
             for vcdObj, orgVdcDict in zip(vcdObjList, inputDict["VCloudDirector"]["SourceOrgVDC"]):
                 sourceOrgVDCNameList.append(orgVdcDict["OrgVDCName"])
                 sourceOrgVDCIdList.append(vcdObj.rollback.apiData['sourceOrgVDC']['@id'])
@@ -3318,7 +3318,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             self.thread.numOfThread = threadCount
 
             # Iterating over vcd operations objects to fetch the corresponding details
-            sourceOrgVDCNameList, sourceOrgVDCIdList, targetOrgVDCIdList, orgVDCNetworkList, = list(), list(), list(), list()
+            sourceOrgVDCNameList, sourceOrgVDCIdList, targetOrgVDCIdList, orgVDCNetworkList, = [], [], [], []
             for vcdObj, orgVdcDict in zip(vcdObjList, inputDict["VCloudDirector"]["SourceOrgVDC"]):
 
                 try:
@@ -3367,7 +3367,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         try:
             logger.debug("Getting Edge VM ID")
-            edgeVmIdMapping = dict()
+            edgeVmIdMapping = {}
             edgeGatewayIdList = self.rollback.apiData['sourceEdgeGatewayId']
             for edgeGatewayId in edgeGatewayIdList:
                 orgVDCEdgeGatewayId = edgeGatewayId.split(':')[-1]
@@ -3483,7 +3483,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
                         # Computation to remove dummy external network key from API payload
                         extNameList = [externalNetwork['name'] for externalNetwork in data['sourceExternalNetwork']]
-                        extRemoveList = list()
+                        extRemoveList = []
                         for index, value in enumerate(gatewayInterfaces):
                             if value['name'] not in extNameList:
                                 extRemoveList.append(value)
@@ -3849,7 +3849,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                       rollback - whether to rollback from T2V (BOOLEAN)
         """
         try:
-            vAppData = list()
+            vAppData = []
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
             # Fetching vApps from org vdc
             for sourceOrgVDCId, targetOrgVDCId, targetOrgVDCNetworks, sourceOrgVDCName in zip_longest(sourceOrgVDCIdList,
@@ -4687,7 +4687,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             targetOrgVDCNetworks = self.retrieveNetworkListFromMetadata(self.rollback.apiData['targetOrgVDC']['@id'],
                                                                         dfwStatus=False, orgVDCType='target')
             # Fetching all target org vdc networks from all the org vdc's
-            allTargetOrgVDCNetworks = list()
+            allTargetOrgVDCNetworks = []
             for vcdObj in vcdObjList:
                 allTargetOrgVDCNetworks += vcdObj.retrieveNetworkListFromMetadata(
                     self.rollback.apiData['targetOrgVDC']['@id'], dfwStatus=False, orgVDCType='target')
@@ -4717,7 +4717,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                     targetNetwork['id'] not in self.rollback.apiData.get('OrgVDCGroupID', {}):
 
                                 # Searching for shared dc group having no conflicts with the imported network
-                                edgeGatewayNetworkMapping = dict()
+                                edgeGatewayNetworkMapping = {}
                                 isolatedNetworksList = []
                                 for ntw in allTargetOrgVDCNetworks:
                                     if ntw["networkType"] == "NAT_ROUTED":
@@ -4812,7 +4812,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # Fetch all DFW rules from source org vdc id
             allLayer3Rules = self.getDistributedFirewallConfig(sourceOrgVDCId)
             # Name of conflicting isolated networks
-            conflictingNetworksName = list()
+            conflictingNetworksName = []
 
             targetEdgegateways = self.rollback.apiData['targetEdgeGateway']
             conflictNetworks = self.rollback.apiData.get('ConflictNetworks')
@@ -5191,9 +5191,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                      vdcIDList - list of id of source org vdc (LIST)
         """
         try:
-            ipList = list()
+            ipList = []
 
-            vAppList = list()
+            vAppList = []
             # Fetching vapps from all the org vdc's partaking in the migration
             for vdcId in vdcIDList:
                 vAppList += self.getOrgVDCvAppsList(orgVDCId=vdcId)
@@ -5244,7 +5244,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         try:
             segmentName = None
-            payloadDict = dict()
+            payloadDict = {}
             # url to retrieve the networks with external network id
             url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_ORG_VDC_NETWORKS,
                                   vcdConstants.QUERY_EXTERNAL_NETWORK.format(parentNetworkId['id']))
