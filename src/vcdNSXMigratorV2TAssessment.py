@@ -5,6 +5,7 @@
 """
 Description: Module which performs all the validations for v2tAssessment before migrating the VMware Cloud Director from NSX-V to NSX-T
 """
+# pylint: disable=wrong-import-position
 
 import copy
 import csv
@@ -19,7 +20,6 @@ import traceback
 from collections import OrderedDict
 from src import constants
 from src.commonUtils import utils
-from src.core.vcd import vcdConstants
 from src.core.vcd.vcdValidations import VCDMigrationValidation
 from src.rollback import Rollback
 
@@ -27,7 +27,7 @@ from src.rollback import Rollback
 cwd = os.getcwd()
 parentDir = os.path.abspath(os.path.join(cwd, os.pardir))
 sys.path.append(parentDir)
-from src.commonUtils.threadUtils import Thread, waitForThreadToComplete
+from src.commonUtils.threadUtils import Thread
 
 # Status codes are assigned to each orgVDC after completion of its assessment
 # e. g.: if any single validations from 'Blocking' category failed, status will be

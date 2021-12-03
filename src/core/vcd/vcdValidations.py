@@ -21,7 +21,7 @@ import traceback
 import ipaddress
 import requests
 
-import src.core.vcd.vcdConstants as vcdConstants
+from src.core.vcd import vcdConstants
 
 from src.commonUtils.restClient import RestAPIClient
 from src.commonUtils.certUtils import verifyCertificateAgainstCa

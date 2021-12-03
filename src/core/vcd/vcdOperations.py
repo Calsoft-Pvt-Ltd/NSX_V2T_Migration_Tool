@@ -13,7 +13,6 @@ import re
 import time
 import os
 import copy
-import sys
 import prettytable
 import requests
 import threading
@@ -21,7 +20,7 @@ import traceback
 from itertools import zip_longest
 from functools import reduce
 from collections import defaultdict
-import src.core.vcd.vcdConstants as vcdConstants
+from src.core.vcd import vcdConstants
 from src.commonUtils.utils import listify
 from src.core.vcd.vcdValidations import (
     isSessionExpired, description, remediate, remediate_threaded, METADATA_SAVE_FALSE, getSession)

@@ -8,17 +8,8 @@ Description: Module which performs all the clean-up tasks after migrating the VM
 
 import ipaddress
 import logging
-import os
-import sys
 import threading
 import traceback
-
-# Set path till src folder in PYTHONPATH
-cwd = os.getcwd()
-parentDir = os.path.abspath(os.path.join(cwd, os.pardir))
-sys.path.append(parentDir)
-
-from src import constants
 
 
 class VMwareCloudDirectorNSXMigratorCleanup():

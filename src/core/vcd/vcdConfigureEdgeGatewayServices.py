@@ -19,11 +19,10 @@ from collections import OrderedDict, defaultdict
 
 import requests
 
-import src.core.vcd.vcdConstants as vcdConstants
+from src.core.vcd import vcdConstants
 from src.commonUtils.utils import Utilities, listify
 from src.core.vcd.vcdValidations import (
-    VCDMigrationValidation, isSessionExpired, remediate, description, DfwRulesAbsentError, getSession,
-    ConfigurationError)
+    VCDMigrationValidation, isSessionExpired, remediate, description, DfwRulesAbsentError, getSession)
 
 logger = logging.getLogger('mainLogger')
 chunksOfList = Utilities.chunksOfList

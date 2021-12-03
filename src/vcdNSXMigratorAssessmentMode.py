@@ -5,6 +5,7 @@
 """
 Description: Module which performs all the clean-up tasks after migrating the VMware Cloud Director from NSX-V to NSX-T
 """
+# pylint: disable=wrong-import-position
 
 import logging
 import math
@@ -22,7 +23,7 @@ sys.path.append(parentDir)
 
 from src.commonUtils.threadUtils import Thread, waitForThreadToComplete
 import src.constants as mainConstants
-import src.core.vcd.vcdConstants as vcdConstants
+from src.core.vcd import vcdConstants
 
 class VMwareCloudDirectorNSXMigratorAssessmentMode():
     """

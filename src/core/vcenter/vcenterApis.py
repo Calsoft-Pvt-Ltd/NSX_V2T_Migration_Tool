@@ -11,9 +11,9 @@ import logging
 import pyVmomi
 import requests
 import ssl
-from pyVmomi import vim, eam, VmomiSupport
+from pyVmomi import eam    # pylint: disable=no-name-in-module
 from pyVim.connect import SmartConnect, Disconnect
-from requests.packages.urllib3.exceptions import InsecureRequestWarning
+from requests.packages.urllib3.exceptions import InsecureRequestWarning     # pylint: disable=import-error
 
 import src.core.vcenter.vcenterConstants as constants
 from src.commonUtils.restClient import RestAPIClient

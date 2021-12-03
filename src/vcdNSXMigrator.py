@@ -5,9 +5,10 @@
 """
 Description: Module which is a run file that does the migration of VMware Cloud Director from NSX-V to NSX-T.
 """
+# pylint: disable=wrong-import-position
 
 import argparse
-import colorlog
+import colorlog     # pylint: disable=unused-import
 import copy
 import getpass
 import logging
@@ -21,7 +22,6 @@ import sys
 import threading
 import traceback
 import yaml
-from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 
 # Set path till src folder in PYTHONPATH
