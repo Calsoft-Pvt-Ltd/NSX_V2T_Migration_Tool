@@ -68,7 +68,6 @@ disable=logging-format-interpolation,
         self-assigning-variable,
         raising-bad-type,
         not-callable,
-        unnecessary-comprehension,
 
 
 [FORMAT]
