@@ -17,13 +17,13 @@ parentRootDir = Path(__file__).parent.parent            # vcd-migration
 VALID_CLI_OPTIONS = ["--cleanup", "--help"]
 
 # Regular expression for validation of FQDN
-FQDN_REGEX = "(?!-)[A-Z\d-]{1,63}(?<!-)$"
+FQDN_REGEX = r"(?!-)[A-Z\d-]{1,63}(?<!-)$"
 
 # Regular Expression for validation of IP
-VALID_IP_REGEX = "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$"
+VALID_IP_REGEX = r"^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$"
 
 # Regular Expression for validation of IP in CIDR format
-VALID_IP_CIDR_FORMAT_REGEX = "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\/([0-9]|[1-2][0-9]|3[0-2])$"
+VALID_IP_CIDR_FORMAT_REGEX = r"^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\/([0-9]|[1-2][0-9]|3[0-2])$"
 
 # Valid skip values as input
 VALID_SKIP_VALUES = ["bridging", "services", "movevapp"]

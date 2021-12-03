@@ -3764,7 +3764,7 @@ class VCDMigrationValidation:
             elif not(int(vCDVersion.split(".")[0]) >= 10 and int(vCDVersion.split(".")[1]) > 2):
                 raise InterOperabilityError('VCD v{} is not compatible with current migration tool'.format(vCDVersion))
             else:
-                return re.match("\d*\.\d*\.\d*", values[0].get("productVersion")).group()
+                return re.match(r"\d*\.\d*\.\d*", values[0].get("productVersion")).group()
         else:
             raise Exception(
                 "Failed to fetch vCD version information - {}".format(responseDict['message']))
