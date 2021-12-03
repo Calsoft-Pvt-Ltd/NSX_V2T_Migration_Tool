@@ -259,12 +259,12 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                             firewallGroupId = self.createSecurityGroup(networkgroups, firewallRule,
                                                                                        edgeGatewayId)
                                             if rule.get('sourceFirewallGroups'):
-                                                for id in firewallGroupId:
-                                                    rule['sourceFirewallGroups'].append({'id': '{}'.format(id)})
+                                                for _id in firewallGroupId:
+                                                    rule['sourceFirewallGroups'].append({'id': '{}'.format(_id)})
                                                 data['userDefinedRules'] = userDefinedRulesList + [rule]
                                             else:
-                                                for id in firewallGroupId:
-                                                    sourcefirewallGroupId.append({'id': '{}'.format(id)})
+                                                for _id in firewallGroupId:
+                                                    sourcefirewallGroupId.append({'id': '{}'.format(_id)})
                                                 rule['sourceFirewallGroups'] = sourcefirewallGroupId
                                                 data['userDefinedRules'] = userDefinedRulesList + [rule]
                                             payloadData = json.dumps(data)
@@ -365,12 +365,12 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                             firewallGroupId = self.createSecurityGroup(networkgroups, firewallRule,
                                                                                        edgeGatewayId)
                                             if rule.get('destinationFirewallGroups'):
-                                                for id in firewallGroupId:
-                                                    rule['destinationFirewallGroups'].append({'id': '{}'.format(id)})
+                                                for _id in firewallGroupId:
+                                                    rule['destinationFirewallGroups'].append({'id': '{}'.format(_id)})
                                                 data['userDefinedRules'] = userDefinedRulesList + [rule]
                                             else:
-                                                for id in firewallGroupId:
-                                                    destinationfirewallGroupId.append({'id': '{}'.format(id)})
+                                                for _id in firewallGroupId:
+                                                    destinationfirewallGroupId.append({'id': '{}'.format(_id)})
                                                 rule['destinationFirewallGroups'] = destinationfirewallGroupId
                                                 data['userDefinedRules'] = userDefinedRulesList + [rule]
                                             payloadData = json.dumps(data)

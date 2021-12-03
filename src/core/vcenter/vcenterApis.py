@@ -73,7 +73,7 @@ class VcenterApi():
             return sessionId
         raise Exception("Failed to login into Vcenter {} with the given credentials".format(self.ipAddress))
 
-    def setSession(func):
+    def setSession(func):   # pylint: disable=no-self-argument
         """
         Description : Decorator function that creates a login session for VCSA and sets the sessionId in headers
         Parameters : func - Function object which is decorated by setSession() (OBJECT)
