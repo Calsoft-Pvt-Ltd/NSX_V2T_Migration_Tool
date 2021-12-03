@@ -48,7 +48,6 @@ disable=logging-format-interpolation,
         logging-not-lazy,
         consider-using-dict-items,
         consider-iterating-dictionary,
-        missing-function-docstring,
         literal-comparison,
 
 

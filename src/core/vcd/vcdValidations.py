@@ -1041,6 +1041,9 @@ class VCDMigrationValidation:
 
     @isSessionExpired
     def validateExternalNetworkIsVRFLiteBacked(self):
+        """
+        Description: Validates if target external network is VRF-Lite backed
+        """
         try:
             data = self.rollback.apiData
             if data['targetExternalNetwork']['networkBackings']['values'][0]['backingTypeValue'] == "NSXT_VRF_TIER0":
@@ -5115,6 +5118,9 @@ class VCDMigrationValidation:
 
     @isSessionExpired
     def fetchAllExternalNetworks(self):
+        """
+        Description: Retrieve details of all external networks
+        """
         try:
             # url to get all the external networks
             url = "{}{}?sortAsc=name".format(
