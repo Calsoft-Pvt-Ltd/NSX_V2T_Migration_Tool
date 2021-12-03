@@ -594,7 +594,7 @@ class VMwareCloudDirectorNSXMigrator():
         """
         try:
             # Execution mode should only be precheck or migration
-            if (self.executionMode != "preCheck" and self.executionMode != 'Main') or self.retryRollback:
+            if self.executionMode not in ('preCheck', 'Main') or self.retryRollback:
                 return
 
             table = prettytable.PrettyTable(hrules=prettytable.ALL)

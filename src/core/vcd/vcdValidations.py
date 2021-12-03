@@ -73,12 +73,12 @@ def remediate(func):
             logger.info('Continuing migration of NSX-V backed Org VDC to NSX-T backed from {}.'.format(self.__desc__))
             self.rollback.retry = True
 
-        if inspect.stack()[2].function != 'run' and inspect.stack()[2].function != '<module>':
+        if inspect.stack()[2].function not in ('run', '<module>'):
             if not self.rollback.executionResult.get(inspect.stack()[2].function):
                 self.rollback.executionResult[inspect.stack()[2].function] = {}
         try:
             result = func(self, *args, **kwargs)
-            if inspect.stack()[2].function != 'run' and inspect.stack()[2].function != '<module>':
+            if inspect.stack()[2].function not in ('run', '<module>'):
                 self.rollback.executionResult[inspect.stack()[2].function][func.__name__] = True
             else:
                 self.rollback.executionResult[func.__name__] = True
