@@ -84,7 +84,8 @@ class Utilities():
             raise Exception(jsonNotPresentMessage)
         return jsonData
 
-    def readFile(self, fileName):
+    @staticmethod
+    def readFile(fileName):
         """
         Description : Read a file with given filename
         Parameters  : fileName   - Name of the file along with the path to be read (STRING)
@@ -99,7 +100,8 @@ class Utilities():
         except Exception as exception:
             raise exception
 
-    def writeToFile(self, fileName, data):
+    @staticmethod
+    def writeToFile(fileName, data):
         """
         Description : Write to a file with given filename
         Parameters  : fileName   - Name of the file along with the path (STRING)

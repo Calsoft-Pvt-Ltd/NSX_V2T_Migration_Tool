@@ -83,8 +83,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             logger.error(traceback.format_exc())
             raise
 
-    @isSessionExpired
-    def cidrCalculator(self, rangeofips):
+    @staticmethod
+    def cidrCalculator(rangeofips):
         """
         Description : Convert the range od ips to CIDR format
         Parameters  : Range of ips (STRING)

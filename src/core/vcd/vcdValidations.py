@@ -4006,8 +4006,8 @@ class VCDMigrationValidation:
         except Exception:
             raise
 
-    @isSessionExpired
-    def validateEdgeGatewayDeploymentEdgeCluster(self, edgeClusterName=None, nsxObj=None):
+    @staticmethod
+    def validateEdgeGatewayDeploymentEdgeCluster(edgeClusterName=None, nsxObj=None):
         """
         Description :   Validates if edge transport nodes are present in edge cluster for edge gateway deployment
         Parameters  :   edgeClusterName     -   Name of the cluster (STRING)
@@ -4109,7 +4109,8 @@ class VCDMigrationValidation:
             # failure in retrieving the capabilities of org vdc
             raise Exception("Failed to fetch the capabilities of org vdc due to error - {}".format(responseDict['message']))
 
-    def validateVniPoolRanges(self, nsxtObj, nsxvObj, cloneOverlayIds=False):
+    @staticmethod
+    def validateVniPoolRanges(nsxtObj, nsxvObj, cloneOverlayIds=False):
         """
         Description : Pre migration validation tasks for org vdc
         Parameters  : nsxtObj         - Object of NSXT operations class holding all functions related to NSXT (OBJECT)
@@ -5367,7 +5368,8 @@ class VCDMigrationValidation:
         except:
             raise
 
-    def checkMaxOrgVdcCount(self, sourceOrgVdcList, orgVdcNetworkSharedList):
+    @staticmethod
+    def checkMaxOrgVdcCount(sourceOrgVdcList, orgVdcNetworkSharedList):
         """
             This method raise an exception if number of OrgVdc are more than max count.
             Parameter : sourceOrgVdcList - List of all sourceOrgVdc.
@@ -5381,7 +5383,8 @@ class VCDMigrationValidation:
         except:
             raise
 
-    def checkextraOrgVdcsOnSharedNetwork(self, orgVdcNameList, sourceOrgVdcList):
+    @staticmethod
+    def checkextraOrgVdcsOnSharedNetwork(orgVdcNameList, sourceOrgVdcList):
         """
             This method will check if any OrgVdc uses shared network other than OrgVdc mentioned in userSpecs.
             Parameter : OrgNameList - List contains name of all orgvdc's which is using shared network

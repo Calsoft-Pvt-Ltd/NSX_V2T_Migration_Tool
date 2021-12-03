@@ -169,7 +169,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
         if not os.path.exists(self.reportBasePath):
             os.mkdir(self.reportBasePath)
 
-    def _getVcloudDirectorPassword(self):
+    @staticmethod
+    def _getVcloudDirectorPassword():
         """
         Description :   getting VMware Cloud Director password from user
         """
@@ -263,7 +264,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
         except Exception:
             raise
 
-    def changeLoggingFormat(self, vdcName=str(), restore=False):
+    @staticmethod
+    def changeLoggingFormat(vdcName=str(), restore=False):
         """
             Description : This method changes the main logger format to specify the logs specific to org VDC
             Parameter: vdcName - Name of the org vdc (STRING)
@@ -297,7 +299,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
                     handler.setFormatter(customFormat)
                 break
 
-    def changeLogLevelForConsoleLog(self, disable=True):
+    @staticmethod
+    def changeLogLevelForConsoleLog(disable=True):
         """
             Description : Disables the console logs while executing the evaluation function for a org vdc
             Parameters: disable - Flag the decides whether to enable of disable the logs (BOOLEAN)

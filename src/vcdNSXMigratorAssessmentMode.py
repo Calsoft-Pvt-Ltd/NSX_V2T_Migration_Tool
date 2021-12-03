@@ -381,7 +381,8 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         except Exception:
             raise
 
-    def runAssessmentMode(self, desc, method, args, validationFailures):
+    @staticmethod
+    def runAssessmentMode(desc, method, args, validationFailures):
         """
         Description : Executes the validation method and arguments passed as parameters as stores exceptions raised
         Parameters : desc - Description of the method to be executed (STRING)
