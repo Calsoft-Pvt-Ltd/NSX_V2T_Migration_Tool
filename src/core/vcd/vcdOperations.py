@@ -18,7 +18,6 @@ import prettytable
 import requests
 import threading
 import traceback
-import xmltodict
 from itertools import zip_longest
 from functools import reduce
 from collections import defaultdict
@@ -427,7 +426,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                           vcdConstants.ORG_VDC_BY_ID.format(orgVDCId))
             # delete api to delete the org vdc
             response = self.restClientObj.delete(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.accepted:
                 task = responseDict["Task"]
                 taskUrl = task["@href"]
@@ -540,7 +539,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                            vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(orgVDCEdgeGatewayId))
                     getResponse = self.restClientObj.get(getUrl, headers=self.headers)
                     if getResponse.status_code == requests.codes.ok:
-                        responseDict = xmltodict.parse(getResponse.content)
+                        responseDict = self.vcdUtils.parseXml(getResponse.content)
                         edgeGatewayDict = responseDict['EdgeGateway']
                         # checking if distributed routing is enabled on edge gateway, if so disabling it
                         if edgeGatewayDict['Configuration']['DistributedRoutingEnabled'] == 'true':
@@ -556,7 +555,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         self._checkTaskStatus(taskUrl=taskUrl)
                         logger.debug('Source Org VDC Edge Gateway deleted successfully.')
                     else:
-                        delResponseDict = xmltodict.parse(delResponse.content)
+                        delResponseDict = self.vcdUtils.parseXml(delResponse.content)
                         raise Exception('Failed to delete Edge gateway {}:{}'.format(orgVDCEdgeGateway['name'],
                                                                                      delResponseDict['Error'][
                                                                                          '@message']))
@@ -900,7 +899,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             vmInVappList = []
             # get api call to retrieve the info of source vapp
             response = self.restClientObj.get(vApp['@href'], self.headers)
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             if not responseDict['VApp'].get('Children'):
                 return
             targetSizingPolicyOrgVDCUrn = 'urn:vcloud:vdc:{}'.format(targetOrgVDCId)
@@ -1102,7 +1101,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
                                 vcdConstants.VCD_STORAGE_PROFILE_BY_ID.format(orgVDCStorageProfileId))
             response = self.restClientObj.get(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             return responseDict
         except Exception:
             raise
@@ -1158,7 +1157,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # put api to create access control in target org vdc
             response = self.restClientObj.put(url, headers, data=payloadData)
             if response.status_code != requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
                 raise Exception(
                     'Failed to create target ACL on target Org VDC {}'.format(responseDict['Error']['@message']))
             logger.info('Successfully created ACL on target Org vdc')
@@ -1295,7 +1294,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     self.headers['Content-Type'] = vcdConstants.GENERAL_XML_CONTENT_TYPE
                     # put api call to enable / disable affinity rules
                     response = self.restClientObj.put(url, self.headers, data=payloadData)
-                    responseDict = xmltodict.parse(response.content)
+                    responseDict = self.vcdUtils.parseXml(response.content)
                     if response.status_code == requests.codes.accepted:
                         task_url = response.headers['Location']
                         # checking the status of the enabling/disabling affinity rules task
@@ -1536,7 +1535,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                   vcdConstants.DISABLE_EDGE_GATEWAY_DISTRIBUTED_ROUTING)
             # post api call to disable distributed routing on the specified edge gateway
             response = self.restClientObj.post(url, self.headers)
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.accepted:
                 task = responseDict["Task"]
                 taskUrl = task["@href"]
@@ -2221,7 +2220,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 vcdConstants.ORG_VDC_BY_ID.format(sourceOrgVDCId))
             # get api call to retrieve the source org vdc details
             sourceOrgVDCResponse = self.restClientObj.get(url, self.headers)
-            sourceOrgVDCResponseDict = xmltodict.parse(sourceOrgVDCResponse.content)
+            sourceOrgVDCResponseDict = self.vcdUtils.parseXml(sourceOrgVDCResponse.content)
 
             # sourceStorageProfileIDsList holds list the IDs of the source org vdc storage profiles
             sourceStorageProfileIDsList = []
@@ -2237,7 +2236,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             # get api call to retrieve the organization details
             orgResponse = self.restClientObj.get(orgUrl, headers=self.headers)
-            orgResponseDict = xmltodict.parse(orgResponse.content)
+            orgResponseDict = self.vcdUtils.parseXml(orgResponse.content)
             # retrieving the organization ID
             orgId = orgResponseDict['AdminOrg']['@id'].split(':')[-1]
 
@@ -2258,7 +2257,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             for catalog in orgCatalogs:
                 # get api call to retrieve the catalog details
                 catalogResponse = self.restClientObj.get(catalog['@href'], headers=self.headers)
-                catalogResponseDict = xmltodict.parse(catalogResponse.content)
+                catalogResponseDict = self.vcdUtils.parseXml(catalogResponse.content)
                 if catalogResponseDict['AdminCatalog'].get('CatalogStorageProfiles'):
                     # checking if catalogs storage profile is same from source org vdc storage profile by matching the ID of storage profile
                     if catalogResponseDict['AdminCatalog']['CatalogStorageProfiles']['VdcStorageProfile'][
@@ -2278,7 +2277,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             # get api call to retrieve the target org vdc details
             targetOrgVDCResponse = self.restClientObj.get(url, self.headers)
-            targetOrgVDCResponseDict = xmltodict.parse(targetOrgVDCResponse.content)
+            targetOrgVDCResponseDict = self.vcdUtils.parseXml(targetOrgVDCResponse.content)
             # retrieving target org vdc storage profiles list
             targetOrgVDCStorageList = targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles'][
                 'VdcStorageProfile'] if isinstance(
@@ -2323,7 +2322,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     # creating seperate lists for catalog items - 1. One for media catalog items 2. One for vApp template catalog items
                     for catalogItem in catalogItemList:
                         catalogItemResponse = self.restClientObj.get(catalogItem['@href'], headers=self.headers)
-                        catalogItemResponseDict = xmltodict.parse(catalogItemResponse.content)
+                        catalogItemResponseDict = self.vcdUtils.parseXml(catalogItemResponse.content)
                         if catalogItemResponseDict['CatalogItem']['Entity']['@type'] == vcdConstants.TYPE_VAPP_TEMPLATE:
                             vAppTemplateCatalogItemList.append(catalogItem)
                         elif catalogItemResponseDict['CatalogItem']['Entity']['@type'] == vcdConstants.TYPE_VAPP_MEDIA:
@@ -2534,7 +2533,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 vcdConstants.ORG_VDC_BY_ID.format(orgvdcId))
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
-                responseDict = xmltodict.parse(response.content)
+                responseDict = self.vcdUtils.parseXml(response.content)
             else:
                 raise Exception('Error occurred while retrieving Org VDC - {} details'.format(orgVDCId))
             if not responseDict['AdminVdc'].get('ResourceEntities'):
@@ -3391,7 +3390,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
                     # Convert XML data to dictionary
-                    edgeNetworkDict = xmltodict.parse(response.content)
+                    edgeNetworkDict = self.vcdUtils.parseXml(response.content)
                     # Get the edge gateway VM ID
                     # if edge ha is configured, then the response is list
                     if isinstance(edgeNetworkDict[vcdConstants.EDGE_GATEWAY_STATUS_KEY][
@@ -3413,7 +3412,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             vcdConstants.EDGE_GATEWAY_VM_STATUS_KEY]["id"]
                     edgeVmIdMapping[orgVDCEdgeGatewayId] = edgeVmId
                 else:
-                    errorDict = xmltodict.parse(response.content)
+                    errorDict = self.vcdUtils.parseXml(response.content)
                     raise Exception(
                         "Failed to get edge gateway status. Error - {}".format(errorDict['error']['details']))
             return edgeVmIdMapping
@@ -3637,7 +3636,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             deleteCatalogUrl = '{}?recursive=true&force=true'.format(catalogUrl)
             # delete api call to delete the catalog
             deleteCatalogResponse = self.restClientObj.delete(deleteCatalogUrl, self.headers)
-            deleteCatalogResponseDict = xmltodict.parse(deleteCatalogResponse.content)
+            deleteCatalogResponseDict = self.vcdUtils.parseXml(deleteCatalogResponse.content)
             if deleteCatalogResponse.status_code == requests.codes.accepted:
                 task = deleteCatalogResponseDict["Task"]
                 taskUrl = task["@href"]
@@ -3714,7 +3713,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             logger.info('Moving vApp - {} to target Org VDC - {}'.format(vApp['@name'], sourceOrgVDCName + '-v2t'))
         networkList = []
         response = self.restClientObj.get(vApp['@href'], self.headers)
-        responseDict = xmltodict.parse(response.content)
+        responseDict = self.vcdUtils.parseXml(response.content)
         vAppData = responseDict['VApp']
         # checking for the 'NetworkConfig' in 'NetworkConfigSection' of vapp
         if vAppData['NetworkConfigSection'].get('NetworkConfig'):
@@ -3850,14 +3849,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         # post api call to compose vapps in target org vdc
         response = self.restClientObj.post(url, self.headers, data=payloadData)
         if response.status_code == requests.codes.accepted:
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             task = responseDict["Task"]
             taskUrl = task["@href"]
             if taskUrl:
                 # checking for the status of the composing vapp task
                 self._checkTaskStatus(taskUrl, timeoutForTask=timeout)
         else:
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             raise Exception(
                 'Failed to move vApp - {} with errors {}'.format(vApp['@name'], responseDict['Error']['@message']))
         if rollback:
@@ -4167,12 +4166,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             createCatalogResponse = self.restClientObj.post(catalogUrl, headers, data=payloadData)
             if createCatalogResponse.status_code == requests.codes.created:
                 logger.debug("Catalog '{}' created successfully".format(catalog['catalogName']))
-                createCatalogResponseDict = xmltodict.parse(createCatalogResponse.content)
+                createCatalogResponseDict = self.vcdUtils.parseXml(createCatalogResponse.content)
                 # getting the newly created target catalog id
                 catalogId = createCatalogResponseDict["AdminCatalog"]["@id"].split(':')[-1]
                 return catalogId
             else:
-                errorDict = xmltodict.parse(createCatalogResponse.content)
+                errorDict = self.vcdUtils.parseXml(createCatalogResponse.content)
                 raise Exception("Failed to create Catalog '{}' : {}".format(catalog['catalogName'],
                                                                             errorDict['Error']['@message']))
 
@@ -4200,7 +4199,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             payloadData = json.loads(payloadData)
             # post api call to move catalog items
             response = self.restClientObj.post(moveCatalogItemUrl, self.headers, data=payloadData)
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.accepted:
                 task = responseDict["Task"]
                 taskUrl = task["@href"]
@@ -4406,7 +4405,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # post api to create org vdc
 
             response = self.restClientObj.post(url, self.headers, data=payloadData)
-            responseDict = xmltodict.parse(response.content)
+            responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.created:
                 taskId = responseDict["AdminVdc"]["Tasks"]["Task"]
                 if isinstance(taskId, dict):
@@ -4583,7 +4582,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             for vApp in vAppList:
                 # get api call to retrieve the details of target vapp
                 vAppResponse = self.restClientObj.get(vApp['href'], self.headers)
-                vAppResponseDict = xmltodict.parse(vAppResponse.content)
+                vAppResponseDict = self.vcdUtils.parseXml(vAppResponse.content)
                 vAppData = vAppResponseDict['VApp']
                 # checking for the networks in the vapp
                 if vAppData['NetworkConfigSection'].get('NetworkConfig'):
@@ -5233,7 +5232,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # get api call to retrieve the vapp details
                 response = self.restClientObj.get(vApp['@href'], self.headers)
                 if response.status_code == requests.codes.ok:
-                    responseDict = xmltodict.parse(response.content, process_namespaces=False, attr_prefix='')
+                    responseDict = self.vcdUtils.parseXml(response.content, process_namespaces=False, attr_prefix='')
                     vAppData = responseDict.get('VApp', {})
                     # checking if the vapp has vms
                     if vAppData and vAppData.get('Children'):
