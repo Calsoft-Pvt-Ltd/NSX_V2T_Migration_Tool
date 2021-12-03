@@ -89,7 +89,7 @@ class VcenterApi():
                 # set VCSA session ID
                 self.headers[constants.SESSION_ID_KEY] = sessionId
                 # execute the decorated function
-                return func(self, *args, **kwargs)
+                return func(self, *args, **kwargs)      # pylint: disable=not-callable
             except Exception as e:
                 raise e
         return wrapperMethod

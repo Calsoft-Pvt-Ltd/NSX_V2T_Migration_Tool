@@ -5284,7 +5284,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     sourceExternalNetwork = self.fetchAllExternalNetworks()
                     externalList = [externalNetwork['networkBackings'] for externalNetwork in sourceExternalNetwork if externalNetwork['id'] == parentNetworkId['id']]
                     if isinstance(sourceExternalNetwork, Exception):
-                        raise sourceExternalNetwork
+                        raise sourceExternalNetwork     # pylint: disable=raising-bad-type
                     for value in externalList:
                         externalDict = value
                     backingid = [values['backingId'] for values in externalDict['values']]

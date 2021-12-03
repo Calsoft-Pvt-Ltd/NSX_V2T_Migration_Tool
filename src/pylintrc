@@ -63,8 +63,6 @@ disable=logging-format-interpolation,
         unnecessary-pass,
         missing-function-docstring,
         self-assigning-variable,
-        raising-bad-type,
-        not-callable,
 
 
 [FORMAT]

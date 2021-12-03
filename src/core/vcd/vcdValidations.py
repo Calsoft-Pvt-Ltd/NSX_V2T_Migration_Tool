@@ -4284,7 +4284,7 @@ class VCDMigrationValidation:
             logger.info('Getting the source External Network details.')
             sourceExternalNetwork = self.getSourceExternalNetwork(sourceOrgVDCId)
             if isinstance(sourceExternalNetwork, Exception):
-                raise sourceExternalNetwork
+                raise sourceExternalNetwork     # pylint: disable=raising-bad-type
 
             # validating whether same subnet exist in source and target External networks
             logger.info('Validating source and target External networks have same subnets')
@@ -4365,7 +4365,7 @@ class VCDMigrationValidation:
             logger.info('Validating Distributed Firewall configuration')
             dfwConfigReturn = self.getDistributedFirewallConfig(sourceOrgVDCId, validation=True)
             if isinstance(dfwConfigReturn, Exception):
-                raise dfwConfigReturn
+                raise dfwConfigReturn       # pylint: disable=raising-bad-type
 
             # get the list of services configured on source Edge Gateway
             self.getEdgeGatewayServices(
