@@ -234,7 +234,7 @@ class Utilities():
         """Renders all the values to string apart from required ones"""
         if isinstance(dataStructure, dict):
             for key, value in dataStructure.items():
-                if not isinstance(value, (dict, list, bool)) and value != None:
+                if not isinstance(value, (dict, list, bool)) and value is not None:
                     dataStructure[key] = str(value)
                 Utilities.renderInputDict(value)
         elif isinstance(dataStructure, list):

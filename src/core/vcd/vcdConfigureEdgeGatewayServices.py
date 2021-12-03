@@ -1864,7 +1864,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             staticNoSnatPayloadDict['snatDestinationAddresses'] = eachNetwork
                             allSnatPayloadList.append(staticNoSnatPayloadDict)
                     if noSnatDestSubnetList is not None and isinstance(bgpDetails, dict) and \
-                            bgpDetails['enabled'] == 'true' and ifbgpRouterIdAddress == False:
+                            bgpDetails['enabled'] is 'true' and ifbgpRouterIdAddress is False:
                         noSnatDestSubnetList = noSnatDestSubnetList if isinstance(noSnatDestSubnetList, list) else [noSnatDestSubnetList]
                         for eachExtNetwork in noSnatDestSubnetList:
                             bgpNoSnatPayloadDict = copy.deepcopy(payloadDict)
@@ -1874,7 +1874,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             bgpNoSnatPayloadDict['snatDestinationAddresses'] = eachExtNetwork
                             allSnatPayloadList.append(bgpNoSnatPayloadDict)
             # iftranslated IP address does not belongs to default gateway update snatDestinationAddresses
-            if ipInSuAllocatedStatus == False and destinationIpDict != {}:
+            if ipInSuAllocatedStatus is False and destinationIpDict != {}:
                 networkAddr = ipaddress.ip_network('{}/{}'.format(destinationIpDict['gateway'],
                                                                   destinationIpDict['netmask']),
                                                    strict=False)

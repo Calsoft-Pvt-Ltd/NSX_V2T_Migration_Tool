@@ -1523,7 +1523,7 @@ class VCDMigrationValidation:
                 for eachGatewayInterface in responseDict['configuration']['gatewayInterfaces']['gatewayInterface']:
                     for eachSubnetParticipant in eachGatewayInterface['subnetParticipation']:
                         # gather data of default gateway
-                        if eachSubnetParticipant['useForDefaultRoute'] == True:
+                        if eachSubnetParticipant['useForDefaultRoute'] is True:
                             defaultGatewayDict['gateway'] = eachSubnetParticipant['gateway']
                             defaultGatewayDict['netmask'] = eachSubnetParticipant['netmask']
                             defaultGatewayDict['subnetPrefixLength'] = eachSubnetParticipant['subnetPrefixLength']
@@ -2335,7 +2335,7 @@ class VCDMigrationValidation:
         try:
             for eachIpRange in defaultGatewayDetails['ipRanges']:
                 startIpAddr, endIpAddr = eachIpRange.split('-')
-                if self.ifIpBelongsToIpRange(natRule['translatedAddress'], startIpAddr, endIpAddr) == True:
+                if self.ifIpBelongsToIpRange(natRule['translatedAddress'], startIpAddr, endIpAddr) is True:
                     return True
         except Exception:
             raise
@@ -2461,7 +2461,7 @@ class VCDMigrationValidation:
                     natRules = ifNatRulesPresent if isinstance(ifNatRulesPresent, list) else []
                     if natRules != [] and defaultGatewayDetails != {}:
                         for eachNatRule in natRules:
-                            if self.validateSnatRuleOnDefaultGateway(defaultGatewayDetails, eachNatRule) == True:
+                            if self.validateSnatRuleOnDefaultGateway(defaultGatewayDetails, eachNatRule) is True:
                                 ifSnatOnDefaultGateway = True
                                 break
                     else:
@@ -2472,7 +2472,7 @@ class VCDMigrationValidation:
                         for eachIpRange in defaultGatewayDetails['ipRanges']:
                             startIpAddr, endIpAddr = eachIpRange.split('-')
                             # check if routerId in dynamic routing config part of default gateway IP range
-                            if self.ifIpBelongsToIpRange(routingDetails['routingGlobalConfig']['routerId'], startIpAddr, endIpAddr) == True:
+                            if self.ifIpBelongsToIpRange(routingDetails['routingGlobalConfig']['routerId'], startIpAddr, endIpAddr) is True:
                                 ifRouterIdInDefaultGateway = True
                                 break
                     else:
@@ -3854,7 +3854,7 @@ class VCDMigrationValidation:
                     allVmWithMediaList.append(','.join(eachVmValues))
             if raiseError and allVmWithMediaList:
                 raise Exception('The following VMs have media attached to it: {}'.format(', '.join(allVmWithMediaList)))
-            elif raiseError == False and allVmWithMediaList:
+            elif raiseError is False and allVmWithMediaList:
                 logger.warning('The following VMs have media attached to it: {}'.format(', '.join(allVmWithMediaList)))
             else:
                 logger.debug("Validated successfully no vApp/s has VM/s with media connected")
@@ -4627,7 +4627,7 @@ class VCDMigrationValidation:
             if self.thread.stop():
                 raise Exception("Failed to validate empty vapp/s exist in Source Org VDC, Check log file for errors")
             for vAppName, status in self.thread.returnValues.items():
-                if status == True:
+                if status is True:
                     emptyvAppList.append(vAppName)
             if emptyvAppList:
                 raise Exception('No VM exist in vApp: {}'.format(','.join(emptyvAppList)))

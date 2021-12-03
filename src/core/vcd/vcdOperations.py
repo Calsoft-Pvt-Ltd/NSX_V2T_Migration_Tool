@@ -607,7 +607,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
         try:
             # Check if source org vdc network disconenction was performed
-            if rollback and (self.rollback.metadata.get("configureTargetVDC") == None and self.rollback.executionResult.get("configureTargetVDC") == None):
+            if rollback and (self.rollback.metadata.get("configureTargetVDC") is None and self.rollback.executionResult.get("configureTargetVDC") is None):
                 return
 
             if not sourceEdgeGatewayId:

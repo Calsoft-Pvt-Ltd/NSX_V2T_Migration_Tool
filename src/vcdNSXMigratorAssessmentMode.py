@@ -329,7 +329,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                         validationFailures.append([desc, eachArg, 'Failed'])
                         skipHere = True
                         break
-                if skipHere == True:
+                if skipHere is True:
                     continue
                 else:
                     self.runAssessmentMode(desc, methodName, argsList, validationFailures)

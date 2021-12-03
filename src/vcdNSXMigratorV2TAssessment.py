@@ -185,13 +185,13 @@ class VMwareCloudDirectorNSXMigratorV2T:
         """
         # Error list for input validations
         errorList = []
-        if self.inputDict.get("VCloudDirector", {}) == None:
+        if self.inputDict.get("VCloudDirector", {}) is None:
             self.inputDict["VCloudDirector"] = {}
         if not self.inputDict.get("VCloudDirector", {}).get("ipAddress", None):
             errorList.append("VCloudDirector '[ipAddress]' must be provided")
         if not self.inputDict.get("VCloudDirector", {}).get("username", None):
             errorList.append("VCloudDirector '[username]' must be provided")
-        if self.inputDict.get("VCloudDirector", {}).get("verify", None) == None:
+        if self.inputDict.get("VCloudDirector", {}).get("verify", None) is None:
             errorList.append("VCloudDirector '[verify]' must be provided")
         if self.inputDict.get("VCloudDirector", {}).get("verify", None) \
                 and not isinstance(self.inputDict.get("VCloudDirector", {}).get("verify", None), bool):
@@ -539,7 +539,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                 if isinstance(eachArg, Exception):
                                     skipHere = True
                                     break
-                            if skipHere == True:
+                            if skipHere is True:
                                 continue
                             else:
                                 # Run method

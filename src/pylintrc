@@ -53,7 +53,6 @@ disable=logging-format-interpolation,
 
         consider-using-in,
         simplifiable-if-expression,
-        singleton-comparison,
         missing-class-docstring,
         use-a-generator,
         missing-function-docstring,
