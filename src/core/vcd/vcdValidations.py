@@ -3165,6 +3165,8 @@ class VCDMigrationValidation:
                             else [responseDict['loadBalancer'].get('applicationProfile')]
                     else:
                         applicationProfiles = []
+                        loadBalancerErrorList.append(
+                            "Application profile is not configured in load balancer virtual server.\n")
 
                     for profile in applicationProfiles:
                         if profile.get('persistence') and profile['persistence']['method'] not in supportedLoadBalancerPersistence:
