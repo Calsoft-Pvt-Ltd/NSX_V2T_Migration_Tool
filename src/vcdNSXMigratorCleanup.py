@@ -124,18 +124,12 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             metadata = self.vcdObj.getOrgVDCMetadata(sourceOrgVDCId, domain='general')
             sourceExternalNetworkData = metadata.get('sourceExternalNetwork', [])
 
-
             # validating whether source org vdc is NSX-V backed
             self.consoleLogger.info('Validating whether source Org VDC is NSX-V backed')
             self.vcdObj.validateOrgVDCNSXbacking(sourceOrgVDCId, sourceProviderVDCId, isNSXTbacked)
 
             # getting the source edge gateway details
             edgeGatewayDetails = self.vcdObj.getOrgVDCEdgeGateway(sourceOrgVDCId)['values']
-
-            # getting the target organization vdc details from the above organization
-            self.consoleLogger.info('Getting the target Organization VDC {} network details.'.format(sourceOrgVDCName + '-v2t'))
-            dfwStatus = True if metadata.get('OrgVDCGroupID') else False
-            orgVDCNetworkList = self.vcdObj.getOrgVDCNetworks(self.targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False, dfwStatus=dfwStatus)
 
             # migrating catalog items - vApp Templates and media objects
             self.consoleLogger.info('Migrating catalog items - vApp Templates & media objects.')

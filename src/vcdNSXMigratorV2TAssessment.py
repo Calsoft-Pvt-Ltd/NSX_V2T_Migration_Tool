@@ -491,7 +491,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                     orgVdcExists = True
                     try:
                         orgUrl = self.vcdValidationObj.getOrgUrl(org)
-                        orgVdc = self.vcdValidationObj.getOrgVDCUrl(orgUrl, VDC, saveResponse=True)
+                        self.vcdValidationObj.getOrgVDCUrl(orgUrl, VDC, saveResponse=True)
                     except:
                         orgVdcExists = False
 
@@ -504,7 +504,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                     # provides summary before adding actual validation features
                     self.summaryColumnCount = len(self.orgVDCResult)
                     # Adding the result before executing validation
-                    for key, value in VALIDATION_CLASSIFICATION.items():
+                    for key in VALIDATION_CLASSIFICATION:
                         self.orgVDCResult[key] = "NA"
 
                     if not orgVdcExists:
@@ -806,7 +806,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                 status_data[row['Status']]['org_vdc_ram'] += int(row['ORG VDC RAM (MB)'])
 
             # Adding data to summary data list
-            for code, status in sorted(STATUS_CODES.items(), key=lambda x: x[0]):
+            for _, status in sorted(STATUS_CODES.items(), key=lambda x: x[0]):
                 summaryData.append([
                     status,
                     status_data[status]['org_vdc_count'],

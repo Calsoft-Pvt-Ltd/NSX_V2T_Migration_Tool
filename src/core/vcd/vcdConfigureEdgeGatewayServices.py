@@ -1178,10 +1178,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         # get taregt OrgVDC Network details.
         orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
         for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
-            targetEdgeGatewayID = list(
-                filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
-                       self.rollback.apiData['targetEdgeGateway']))[0]['id']
-
             DHCPData = self.rollback.apiData['sourceEdgeGatewayDHCP'][sourceEdgeGateway['id']]
             # configure DHCP Binding on target only if source edge gateway has DHCP Binding configured.
             if not DHCPData.get('staticBindings'):
@@ -1385,7 +1381,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     "Failed to configure DHCP forwarder on edge gateway {}, error : {}.".format(targetEdgeGatewayID, errorResponse['message']))
 
             # get the list of relay agents configured in DHCP relay configurations..
-            relayAgentsData = listify(DHCPData['relay']['relayAgents']['relayAgents'])
             relayAgents = [relayAgent['giAddress'] for relayAgent in
                            listify(DHCPData['relay']['relayAgents']['relayAgents'])]
 
@@ -4423,7 +4418,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 firewallGroupsSummary = self.fetchFirewallGroupsByDCGroup()
 
                 # Iterating over dfw groups to delete the groups using firewall group id
-                for owner, groups in firewallGroupsSummary.items():
+                for groups in firewallGroupsSummary.values():
                     for _, sublist in chunksOfList(list(groups.items()), 40):
                         taskUrls = {}
                         for firewallGroupName, firewallGroup in sublist:

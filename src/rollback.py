@@ -5,6 +5,7 @@
 """
 Description : Module performs all the rollback related operations during a failure
 """
+# pylint: disable=unused-variable
 
 import copy
 import threading

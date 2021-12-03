@@ -2684,7 +2684,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             endStateTableObj.add_row(['Org VDC Networks', sourceNWData, targetNWData])
 
             # Get source and target vApp data.
-            vAppList = StateLog[vcdConstants.TARGET_VAPPS]['TargetvAppData']
             # endStateTableObj.add_row(['vApp Details', sourcevAppData, targetvAppData])
             endStateTableObj.add_row(["No of vApps (Including Standalone VMs)", sourcevAppNo, len(targetvAppList)])
 
@@ -3483,7 +3482,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         # Computation to remove dummy external network key from API payload
                         extNameList = [externalNetwork['name'] for externalNetwork in data['sourceExternalNetwork']]
                         extRemoveList = []
-                        for index, value in enumerate(gatewayInterfaces):
+                        for value in gatewayInterfaces:
                             if value['name'] not in extNameList:
                                 extRemoveList.append(value)
                         for value in extRemoveList:
@@ -5054,12 +5053,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
                     response = self.restClientObj.put(url, self.headers, data=payloadData)
                     if response.status_code == requests.codes.accepted:
-                        taskUrl = response.headers['Location']
-                        header = {'Authorization': self.headers['Authorization'],
-                                  'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
-                        taskResponse = self.restClientObj.get(url=taskUrl, headers=header)
-                        responseDict = taskResponse.json()
-                        self._checkTaskStatus(taskUrl=taskUrl)
+                        self._checkTaskStatus(taskUrl=response.headers['Location'])
                         logger.debug("DFW is enabled successfully on VDC group id: {}".format(orgvDCgroupId))
                     else:
                         errorDict = response.json()

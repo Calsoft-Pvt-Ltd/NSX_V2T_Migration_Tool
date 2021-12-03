@@ -181,7 +181,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 })
 
             return vcdValidationMapping
-        except Exception as e:
+        except Exception:
             raise
             # validationFailures.append(e)
 
@@ -262,7 +262,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             vAppList = vcdValidationObj.getVappUsingSharedNetwork(orgVdcNetworkSharedList)
 
             # get OrgVDC which belongs to vApp which uses shared network.
-            orgVdcvApplist, orgVdcNameList = vcdValidationObj.getOrgVdcOfvApp(vAppList)
+            _, orgVdcNameList = vcdValidationObj.getOrgVdcOfvApp(vAppList)
 
             # Restoring thread name
             threading.current_thread().name = "MainThread"
