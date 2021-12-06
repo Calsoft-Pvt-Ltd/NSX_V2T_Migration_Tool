@@ -25,6 +25,7 @@ disable=logging-format-interpolation,
         duplicate-code,
         too-many-return-statements,
         unspecified-encoding,
+        consider-using-with,
 
         # Set 5
         line-too-long,
@@ -36,17 +37,14 @@ disable=logging-format-interpolation,
         useless-else-on-loop,
         literal-comparison,
         simplifiable-if-expression,
+        attribute-defined-outside-init,
+        use-maxsplit-arg,
 
         # Set 10
         inconsistent-return-statements,
         cell-var-from-loop,
         undefined-loop-variable,
-        use-maxsplit-arg,
         redefined-argument-from-local,
-        attribute-defined-outside-init,
-        consider-using-with,
-        no-value-for-parameter,
-
 
 
 [FORMAT]

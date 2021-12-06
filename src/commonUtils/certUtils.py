@@ -50,7 +50,7 @@ def decryptCertPrivateKey(encPrivateKey, secret):
         Returns     :   Decrypted private key (STRING)
     """
     privateKey = base64.b64decode(encPrivateKey.encode('utf-8'))
-    cipher = AES.new(secret)
+    cipher = AES.new(secret)        # pylint: disable=no-value-for-parameter
     decryptedPrivateKey = str(cipher.decrypt(base64.b64decode(privateKey)), 'utf-8').rstrip('{')
     return decryptedPrivateKey
 
