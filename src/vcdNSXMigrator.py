@@ -141,22 +141,13 @@ class VMwareCloudDirectorNSXMigrator():
             # If no args are provided show only help
             parser.print_help()
             os._exit(0)
+
         # Check if invalid arguments are passed
-        if (not args.cleanupValue and not args.filePath) or \
-            (not args.filePath and args.cleanupValue) or \
-            (args.cleanupValue and args.preCheck) or \
-            (not args.filePath and args.preCheck) or \
-            (args.cleanupValue and args.rollback) or \
-            (args.preCheck and args.rollback) or \
-            (args.cleanupValue and args.v2tAssessment) or \
-            (args.v2tAssessment and not args.filePath) or \
-            (args.v2tAssessment and args.passwordFilePath) or \
-            (args.preCheck and args.v2tAssessment) or \
-            (args.skip and args.execute) or \
-            (args.v2tAssessment and (args.cleanupValue or args.preCheck or args.rollback)) or \
-            (args.v2tAssessment and (args.skip or args.execute)) or \
-            (args.cleanupValue and (args.skip or args.execute)) or \
-            (args.rollback and (args.skip or args.execute)):
+        if (not args.filePath       # pylint: disable=too-many-boolean-expressions
+                or (args.preCheck, args.cleanupValue, args.rollback, args.v2tAssessment).count(True) > 1
+                or args.v2tAssessment and args.passwordFilePath
+                or args.skip and args.execute
+                or (args.cleanupValue or args.rollback or args.v2tAssessment) and (args.skip or args.execute)):
             parser.print_help()
             raise Exception("Invalid Input Arguments")
 
