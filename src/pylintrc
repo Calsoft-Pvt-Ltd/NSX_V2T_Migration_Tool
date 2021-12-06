@@ -46,8 +46,7 @@ disable=logging-format-interpolation,
         attribute-defined-outside-init,
         consider-using-with,
         no-value-for-parameter,
-        consider-using-dict-items,
-        consider-iterating-dictionary,
+
 
 
 [FORMAT]

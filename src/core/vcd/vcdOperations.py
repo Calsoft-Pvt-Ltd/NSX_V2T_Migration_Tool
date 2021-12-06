@@ -836,7 +836,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if portGroup['networkName'] != '--' and \
                         portGroup['scopeType'] not in ['-1', '1'] and \
                         portGroup['networkName'] in networkNameList and \
-                        portGroup['network'].split('/')[-1] in networkIdMapping.keys() and \
+                        portGroup['network'].split('/')[-1] in networkIdMapping and \
                         portGroup['network'].split('/')[-1] not in portGroupDict:
                     orgVdcNetworkData = networkIdMapping[portGroup['network'].split('/')[-1]]
                     if orgVdcNetworkData["networkType"] == "NAT_ROUTED" and \

@@ -475,9 +475,9 @@ class VMwareCloudDirectorNSXMigratorV2T:
             self.vcdVersion = self.vcdValidationObj.getVCDVersion()
 
             # Iterating over the org in the relation map
-            for org in relationMap:
+            for org, rmap in relationMap.items():
                 # Iterating over the org vdc's in the relation map
-                for VDC, VDCId in relationMap[org].items():
+                for VDC, VDCId in rmap.items():
                     # Change logging format
                     self.changeLoggingFormat(f"{VDC}:{org}")
 
