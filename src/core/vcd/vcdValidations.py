@@ -1688,11 +1688,11 @@ class VCDMigrationValidation:
             orgVDCNetworkList = []
             logger.debug("Getting Org VDC network details")
 
-            for orgVDCId in orgVDCIdList:
+            for _orgVDCId in orgVDCIdList:
                 # url to retrieve all the org vdc networks of the specified org vdc
                 url = urlForNetworks.format(
                     vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                    vcdConstants.ALL_ORG_VDC_NETWORKS, key, orgVDCId)
+                    vcdConstants.ALL_ORG_VDC_NETWORKS, key, _orgVDCId)
                 # get api call to retrieve all the org vdc networks of the specified org vdc
                 response = self.restClientObj.get(url, self.headers)
                 responseDict = response.json()
@@ -1710,7 +1710,7 @@ class VCDMigrationValidation:
                 while resultTotal > 0 and pageSizeCount < resultTotal:
                     url = urlForNetworksPagenation.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                             vcdConstants.ALL_ORG_VDC_NETWORKS, pageNo,
-                                                            15, key, orgVDCId)
+                                                            15, key, _orgVDCId)
                     getSession(self)
                     response = self.restClientObj.get(url, self.headers)
                     if response.status_code == requests.codes.ok:
@@ -3732,7 +3732,8 @@ class VCDMigrationValidation:
                     if vmWithMediaList:
                         return vmWithMediaList
                     else:
-                        logger.debug("Validated successfully that media of source vm {} is not connected".format(vm['@name']))
+                        logger.debug("Validated successfully that media of source vm {} is not connected".format(
+                            vm['@name']))       # pylint: disable=undefined-loop-variable
                 else:
                     logger.debug("Source vApp {} has no VMs in it".format(vApp['@name']))
             else:
