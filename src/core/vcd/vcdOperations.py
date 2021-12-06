@@ -43,7 +43,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description("creation of target Org VDC Edge Gateway")
     @remediate
-    def createEdgeGateway(self, inputDict, vdcDict, nsxObj):
+    def createEdgeGateway(self, inputDict, vdcDict, nsxObj):    # pylint: disable=unused-argument
         """
         Description :   Creates an Edge Gateway in the specified Organization VDC
         """
@@ -247,7 +247,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description("creation of target Org VDC Networks")
     @remediate
-    def createOrgVDCNetwork(self, orgVDCIDList, sourceOrgVDCNetworks, inputDict, vdcDict, nsxObj):
+    def createOrgVDCNetwork(self, orgVDCIDList, sourceOrgVDCNetworks, inputDict, vdcDict, nsxObj):  # pylint: disable=unused-argument
         """
         Description : Create Org VDC Networks in the specified Organization VDC
         """
@@ -3077,7 +3077,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description("Moving disks to Target VDC and re-attaching to VM")
     @remediate_threaded
-    def moveAndAttachNamedDisks(self, vcdObjList, timeout=None, threadCount=75, partialMove=False):
+    def moveAndAttachNamedDisks(self, vcdObjList, timeout=None, threadCount=75, partialMove=False):     # pylint: disable=unused-argument
         """
         Description :   Move all named disks. attach all named disks from their
                         respective VM. VM details are fetched from disk metadata
@@ -3146,7 +3146,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @remediate_threaded
-    def moveAndAttachNamedDisksRollback(self, vcdObjList, timeout=None, threadCount=75, partialMove=False):
+    def moveAndAttachNamedDisksRollback(self, vcdObjList, timeout=None, threadCount=75, partialMove=False):     # pylint: disable=unused-argument
         """
         Description :   Rollback operation to move all named disks. attach all named disks from their
                         respective VM. VM details are fetched from disk metadata
@@ -5230,7 +5230,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             self.saveMetadataInOrgVdc()
 
     @isSessionExpired
-    def createDirectNetworkPayload(self, orgVDCIDList, inputDict, vdcDict, nsxObj, orgvdcNetowork, parentNetworkId):
+    def createDirectNetworkPayload(self, orgVDCIDList, inputDict, vdcDict, nsxObj, orgvdcNetowork, parentNetworkId):    # pylint: disable=unused-argument
         """
         Description: THis method is used to create payload for direct network and imported network
         return: payload data - payload data for creating a network

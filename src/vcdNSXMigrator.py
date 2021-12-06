@@ -1005,7 +1005,7 @@ class VMwareCloudDirectorNSXMigrator():
             # clear the requests certificates entries
             self.utils.clearRequestsPemCert()
 
-    def signalHandler(self, sig, frame):
+    def signalHandler(self, sig, frame):    # pylint: disable=unused-argument
         """
         Description: Handling the Ctrl+C i.e abruptly closing the script
         """

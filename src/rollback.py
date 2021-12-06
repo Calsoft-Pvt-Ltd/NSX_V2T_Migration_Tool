@@ -70,7 +70,7 @@ class Rollback:
             'vcdObj.reconnectOrDisconnectSourceEdgeGateway(sourceEdgeGatewayId, connect=True)',
             'vcdObj.connectUplinkSourceEdgeGateway(sourceEdgeGatewayId, rollback=True)']
 
-    def perform(self, orgVDCDict, vcdObj, nsxtObj, vcdObjList, rollbackTasks=None):
+    def perform(self, orgVDCDict, vcdObj, nsxtObj, vcdObjList, rollbackTasks=None):     # pylint: disable=unused-argument
         """
             Description : Method that performs the rollback of setup during a failure
             Parameters  : orgVDCDict - Dictionary holding input related to org vdc (DICT)

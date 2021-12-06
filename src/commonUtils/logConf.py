@@ -21,7 +21,7 @@ class Logger():
     """
 
     _loggerInstance = None
-    def __new__(cls, executionMode):
+    def __new__(cls, executionMode):        # pylint: disable=unused-argument
         """
         Description : Defining a new method to make the Singleton Logger class
         Parameters  : executionMode - mode of execution migrator script to be executed
