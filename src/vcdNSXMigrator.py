@@ -624,6 +624,9 @@ class VMwareCloudDirectorNSXMigrator():
             raise
 
     def fetchNamedDisksDetails(self):
+        """
+        Description: fetch named disk metadata
+        """
         if float(self.vcdObjList[0].version) < float(vcdConstants.API_VERSION_ANDROMEDA):
             return
 

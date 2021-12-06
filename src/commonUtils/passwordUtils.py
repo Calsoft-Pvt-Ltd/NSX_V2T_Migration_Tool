@@ -18,6 +18,9 @@ from cryptography.fernet import Fernet
 
 
 class PasswordUtilities():
+    """
+    Password operations
+    """
     @staticmethod
     def generateMasterKey(length=30):
         """

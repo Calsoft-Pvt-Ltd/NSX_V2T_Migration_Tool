@@ -33,6 +33,9 @@ METADATA_SAVE_FALSE = False
 logger = logging.getLogger('mainLogger')
 
 def getSession(self):
+    """
+    Refreshes VCD session
+    """
     if hasattr(self, '__threadname__') and self.__threadname__:
         threading.current_thread().name = self.__threadname__
     threading.current_thread().name = self.vdcName
@@ -153,7 +156,9 @@ def description(desc, threadName=None):
 
 
 class DfwRulesAbsentError(Exception):
-    pass
+    """
+    Raise error when DFW rules are not present
+    """
 
 
 class VCDMigrationValidation:
@@ -1029,6 +1034,7 @@ class VCDMigrationValidation:
 
     @isSessionExpired
     def validateExternalNetworkIsVRFLiteBacked(self):
+        """validateExternalNetworkIsVRFLiteBacked"""
         try:
             data = self.rollback.apiData
             if data['targetExternalNetwork']['networkBackings']['values'][0]['backingTypeValue'] == "NSXT_VRF_TIER0":
@@ -5091,6 +5097,9 @@ class VCDMigrationValidation:
 
     @isSessionExpired
     def fetchAllExternalNetworks(self):
+        """
+        Description: Retrieve details of all external networks
+        """
         try:
             # url to get all the external networks
             url = "{}{}?sortAsc=name".format(

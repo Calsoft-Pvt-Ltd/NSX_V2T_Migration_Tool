@@ -49,11 +49,7 @@ disable=logging-format-interpolation,
         consider-using-dict-items,
         consider-iterating-dictionary,
         literal-comparison,
-
-
         simplifiable-if-expression,
-        missing-class-docstring,
-        missing-function-docstring,
 
 
 [FORMAT]

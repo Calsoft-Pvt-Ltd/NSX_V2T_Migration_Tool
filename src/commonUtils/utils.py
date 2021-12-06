@@ -146,7 +146,6 @@ class Utilities():
                 if isinstance(templateData[index], dict):
                     self.fetchJSON(templateData[index], apiVersion)
 
-
     def createPayload(self, filePath, payloadDict, fileType='yaml', componentName=None, templateName=None, apiVersion='34.0'):
         """
         Description : This function creates payload for particular template which can be used in Rest API for vmware component.

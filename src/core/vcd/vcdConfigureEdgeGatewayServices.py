@@ -3483,13 +3483,14 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             self, dfwURL, payloadDict, ruleName, dcGroupId, sourceFirewallGroupObjects=None,
             destFirewallGroupObjects=None, defaultRule=False):
         """
-        Description :   Create DFW policy rule by appending exsisting rules. If default rule is getting configured,
+        Description :   Create DFW policy rule by appending existing rules. If default rule is getting configured,
                         remove all existing rules and put only default.
         Parameters  :   dfwURL - URL of DFW policy by ID (STR)
                         payloadDict - payload to create a DFW rule (DICT)
                         ruleName - Rule from source side (DICT)
                         dcGroupId - DC group where rule is getting created (STR)
-                        multipleL7 - Specifies rule has L7 profiles (BOOL)
+                        sourceFirewallGroupObjects - Firewall group object created in DC group for rule source (DICT)
+                        destFirewallGroupObjects - Firewall group object created in DC group for rule destination (DICT)
                         defaultRule - True when default rule is configured (BOOL)
         """
         # Creating new variable for payload as with threading reference of payloadDict remains same for each thread
@@ -3523,7 +3524,20 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
     def putDfwMultipleL7Rules(
             self, networkContextProfilesList, dfwURL, payloadDict, ruleName, dcGroupId,
             sourceFirewallGroupObjects, destFirewallGroupObjects):
+        """
+        Description :   Create DFW policy rule for multiple network context profiles.
+        Parameters  :   networkContextProfilesList - List of context profiles (LIST)
+                        dfwURL - URL of DFW policy by ID (STR)
+                        payloadDict - payload to create a DFW rule (DICT)
+                        ruleName - Rule from source side (DICT)
+                        dcGroupId - DC group where rule is getting created (STR)
+                        sourceFirewallGroupObjects - Firewall group object created in DC group for rule source (DICT)
+                        destFirewallGroupObjects - Firewall group object created in DC group for rule destination (DICT)
+        """
         for networkContextProfiles in networkContextProfilesList:
+            # FixMe: Here updating networkContextProfiles is done in two steps which is not required for usual
+            #  dictionary updation. But payloadDict already has this key, hence we are not getting correct result.
+            #  Make sure payloadDict does not contain networkContextProfiles prior to this updation.
             payload = {**payloadDict}
             payload['networkContextProfiles'] = [networkContextProfiles]
             self.putDfwPolicyRules(
@@ -4059,10 +4073,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                    firewallIdDict:
                    allFirewallGroups: (DICT) key - DC group ID, value - List of firewall groups
         """
-        def _listify(_list):
-            """Converts to list if not a list"""
-            return _list if isinstance(_list, list) else [_list]
-
         def createVmTagName(name, value):
             """Validates if length of tag name does not exceed max limit"""
             if len(name) > 128 - len(value):
@@ -4267,10 +4277,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                         if rule['key'] == 'VM.SECURITY_TAG' and rule['criteria'] == 'starts_with'
                                         else rule['value'],
                                 }
-                                for rule in _listify(dynset['dynamicCriteria'])
+                                for rule in listify(dynset['dynamicCriteria'])
                             ]
                         }
-                        for dynset in _listify(sourceGroup['dynamicMemberDefinition']['dynamicSet'])
+                        for dynset in listify(sourceGroup['dynamicMemberDefinition']['dynamicSet'])
                     ]
                     for dcGroupId in appliedToDcGroups:
                         for idx, sublist in chunksOfList(vmCriteria, 3):
@@ -4306,6 +4316,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         return firewallGroupObjects
 
     def getIpset(self, ipsetId):
+        """
+        Description: Get details of ipset object
+        parameter:  ipsetId - ID of the ipsec object to be fetched (STR)
+        """
         # url to retrieve the info of ipset group by id
         url = "{}{}".format(
             vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
