@@ -357,9 +357,9 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                     errors.append(f"{vdcName} is not NSX-V backed")
                                     matchFound = True
                                     break
-                                if any([data['Key'].endswith("-v2t")
+                                if any(data['Key'].endswith("-v2t")
                                     for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'],
-                                                                                       rawData=True)]):
+                                                                                       rawData=True)):
                                     errors.append(f'Org VDC "{vdcName}" is already under migration')
                                     matchFound = True
                                     break
@@ -382,9 +382,9 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                 errors.append(f"{vdcName} is not NSX-V backed")
                                 matchFound = True
                                 break
-                            if any([data['Key'].endswith("-v2t")
+                            if any(data['Key'].endswith("-v2t")
                                     for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'],
-                                                                                    rawData=True)]):
+                                                                                    rawData=True)):
                                 errors.append(f'Org VDC "{vdcName}" is already under migration')
                                 matchFound = True
                                 break
@@ -426,8 +426,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
                 if orgName in self.inputDict.get("Organization"):
                     # Check is the org vdc is NSX-V backed and migration is not under progress
                     if not isinstance(self.checkOrgVDCDetails(orgName, vdcName=vdcName), Exception) and not any(
-                            [data['Key'].endswith("-v2t")
-                             for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'], rawData=True)]):
+                            data['Key'].endswith("-v2t")
+                             for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'], rawData=True)):
                         # Adding the org vdc in the relation map
                         if orgName not in relationMap:
                             relationMap[orgName] = {}
@@ -443,8 +443,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
                 vdcName = VDC['name']
                 # Checking if the org vdc is NSX-V backed and migration is not under progress
                 if not isinstance(self.checkOrgVDCDetails(orgName, vdcName=vdcName), Exception) and not any(
-                            [data['Key'].endswith("-v2t")
-                             for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'], rawData=True)]):
+                            data['Key'].endswith("-v2t")
+                             for data in self.vcdValidationObj.getOrgVDCMetadata(orgVDCId=VDC['id'], rawData=True)):
                     # Adding the org in relation map
                     if orgName not in relationMap:
                         relationMap[orgName] = {}

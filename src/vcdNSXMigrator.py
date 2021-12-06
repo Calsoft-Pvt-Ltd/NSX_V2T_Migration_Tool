@@ -482,7 +482,7 @@ class VMwareCloudDirectorNSXMigrator():
         Description : Perform rollback if rollback parameter is provided
         """
         try:
-            if self.retryRollback and any([vcdObj.rollback.metadata for vcdObj in self.vcdObjList]):
+            if self.retryRollback and any(vcdObj.rollback.metadata for vcdObj in self.vcdObjList):
                 self.consoleLogger.info("Performing rollback")
 
             if self.retryRollback:
@@ -537,7 +537,7 @@ class VMwareCloudDirectorNSXMigrator():
                             self.consoleLogger.warning(f"No rollback task exist for org vdc {orgVDCDict['OrgVDCName']}.")
                             continue
                     waitForThreadToComplete(futures)
-            if self.retryRollback and not any([vcdObj.rollback.metadata for vcdObj in self.vcdObjList]):
+            if self.retryRollback and not any(vcdObj.rollback.metadata for vcdObj in self.vcdObjList):
                 raise KeyboardInterrupt
             if self.retryRollback:
                 for vcdObj in self.vcdObjList:

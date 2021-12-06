@@ -210,12 +210,12 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', networkList))
 
             # Checking if any org vdc has VXLAN backed network pool
-            vxlanBackingPresent = any([True if
+            vxlanBackingPresent = any(True if
                                        vcdObj.getSourceNetworkPoolDetails().get(
                                            'VMWNetworkPool', {}).get(
                                            '@type') == vcdConstants.VXLAN_NETWORK_POOL_TYPE
                                        else False
-                                       for vcdObj in self.vcdObjList])
+                                       for vcdObj in self.vcdObjList)
 
             # Restoring thread name
             threading.current_thread().name = "MainThread"

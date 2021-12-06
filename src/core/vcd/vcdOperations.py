@@ -725,7 +725,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             if responseDict['configuration']['gatewayInterfaces']['gatewayInterface'][i]['interfaceType'] == 'uplink' and \
                                     responseDict['configuration']['gatewayInterfaces']['gatewayInterface'][i]['name'] != self.rollback.apiData['dummyExternalNetwork']['name']:
                                 responseDict['configuration']['gatewayInterfaces']['gatewayInterface'][i]['connected'] = False
-                    elif any([data['connected'] for data in edgeGatewaydata['edgeGatewayUplinks']]):
+                    elif any(data['connected'] for data in edgeGatewaydata['edgeGatewayUplinks']):
                         for i in range(len(responseDict['configuration']['gatewayInterfaces']['gatewayInterface'])):
                             if responseDict['configuration']['gatewayInterfaces']['gatewayInterface'][i][
                                 'interfaceType'] == 'uplink' and responseDict['configuration']['gatewayInterfaces']['gatewayInterface'][i]['name'] != \
@@ -2060,7 +2060,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # Variable to set that the thread has reached here
                 self.__done__ = True
                 # Wait while all threads have reached this stage
-                while not all([True if hasattr(obj, '__done__') else False for obj in vcdObjList]):
+                while not all(True if hasattr(obj, '__done__') else False for obj in vcdObjList):
                     # Exit if any thread encountered any error
                     if [obj for obj in vcdObjList if hasattr(obj, '__exception__')]:
                         return
@@ -2075,7 +2075,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # Variable to set that the thread has reached here
                 self.__done__ = True
                 # Wait while all threads have reached this stage
-                while not all([True if hasattr(obj, '__done__') else False for obj in vcdObjList]):
+                while not all(True if hasattr(obj, '__done__') else False for obj in vcdObjList):
                     # Exit if any thread encountered any error
                     if [obj for obj in vcdObjList if hasattr(obj, '__exception__')]:
                         return
@@ -2161,7 +2161,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # Variable to set that the thread has reached here
             self.__done__ = True
             # Wait while all threads have reached this stage
-            while not all([True if hasattr(obj, '__done__') else False for obj in vcdObjList]):
+            while not all(True if hasattr(obj, '__done__') else False for obj in vcdObjList):
                 # Exit if any thread encountered any error
                 if [obj for obj in vcdObjList if hasattr(obj, '__exception__')]:
                     return
@@ -2174,7 +2174,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # Variable to set that the thread has reached here
             self._dfw_configured = True
             # Wait while all threads have reached this stage
-            while not all([True if hasattr(obj, '_dfw_configured') else False for obj in vcdObjList]):
+            while not all(True if hasattr(obj, '_dfw_configured') else False for obj in vcdObjList):
                 # Exit if any thread encountered any error
                 if [obj for obj in vcdObjList if hasattr(obj, '__exception__')]:
                     return
@@ -3269,7 +3269,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             threading.current_thread().name = "MainThread"
             # handling the case if there exist no vapps in source org vdc
             # if no source vapps are present then skipping all the below steps as those are not required
-            if not any([self.checkIfSourceVappsExist(sourceOrgVDCId) for sourceOrgVDCId in sourceOrgVDCIdList]):
+            if not any(self.checkIfSourceVappsExist(sourceOrgVDCId) for sourceOrgVDCId in sourceOrgVDCIdList):
                 logger.debug("No Vapps in Source Org VDC, hence skipping migrateVapps task.")
                 self.rollback.executionResult['moveVapp'] = True
             else:
@@ -4891,9 +4891,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                              dcGroup['participatingOrgVdcs'][0][
                                                  'vdcRef']['name'] == sourceOrgVDCName + '-v2t']
                                 # Removing dc groups created for isolated conflicting networks
-                                filteredVDCGroups = list(filter(lambda group: not any([
+                                filteredVDCGroups = list(filter(lambda group: not any(
                                     True if networkName in group['name'] else False for networkName in
-                                    [ntw['name'] for ntw in conflictNetworks]]),
+                                    [ntw['name'] for ntw in conflictNetworks]),
                                                                 vdcGroups))
                                 # If non-shared dc-group is present use that else create a new dc group
                                 if filteredVDCGroups:
@@ -4968,8 +4968,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                                 vdc['vdcRef']['name'] in targetOrgVDCNameList]]
 
                     # Removing dc groups created for isolated networks
-                    filteredVDCGroups = list(filter(lambda group: not any([
-                        True if networkName in group['name'] else False for networkName in conflictingNetworksName]),
+                    filteredVDCGroups = list(filter(lambda group: not any(
+                        True if networkName in group['name'] else False for networkName in conflictingNetworksName),
                                                     vdcGroups))
 
                     # Finding filtered shared dc groups

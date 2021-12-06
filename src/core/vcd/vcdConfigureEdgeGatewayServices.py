@@ -103,8 +103,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             for CIDRPrefix in range(32, 0, -1):
                 result = str(ip) + '/' + str(CIDRPrefix)
                 ipsInNetworkFormed = [str(ip) for ip in ipaddress.ip_network(result, strict=False)]
-                if all([True if ip in ipsInNetworkFormed else False for ip in
-                        listOfIpsInIpRange]):
+                if all(True if ip in ipsInNetworkFormed else False for ip in listOfIpsInIpRange):
                     return str(result)
 
                 if CIDRPrefix == 1:

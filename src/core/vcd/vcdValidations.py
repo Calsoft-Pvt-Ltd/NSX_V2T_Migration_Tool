@@ -4150,12 +4150,12 @@ class VCDMigrationValidation:
             orgVdcNetworkList = list(filter(lambda network: network['networkType'] != 'DIRECT', orgVdcNetworkList))
             if orgVdcNetworkList:
                 # Checking if any org vdc has network pool with VXLAN backing
-                vxlanBackingPresent = any([True if
+                vxlanBackingPresent = any(True if
                                            vcdObj.getSourceNetworkPoolDetails().get(
                                                'VMWNetworkPool', {}).get(
                                                '@type') == vcdConstants.VXLAN_NETWORK_POOL_TYPE
                                            else False
-                                           for vcdObj in vcdObjList])
+                                           for vcdObj in vcdObjList)
 
                 threading.current_thread().name = "BridgingChecks"
                 logger.info("Checking for Bridging Components")
