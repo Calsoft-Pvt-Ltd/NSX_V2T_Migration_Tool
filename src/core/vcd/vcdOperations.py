@@ -3927,6 +3927,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Parameters  :   targetVDCId -   id of the target org vdc (STRING)
         """
         try:
+            dfwStatus = True if self.rollback.apiData.get('OrgVDCGroupID') else False
+            targetOrgVDCNetworks = self.getOrgVDCNetworks(targetVDCId, 'targetOrgVDCNetworks', dfwStatus=dfwStatus)
             # splitting thr target org vdc id as per the xml api requirements
             targetVDCId = targetVDCId.split(':')[-1]
             headers = {'Authorization': self.headers['Authorization'],
@@ -3939,8 +3941,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             getResponseDict = response.json()
 
             # Case 1: Handling the case of renaming target org vdc networks
-            # getting the list instance of all the target org vdc networks
-            targetOrgVDCNetworks = getResponseDict['availableNetworks']['network'] if isinstance(getResponseDict['availableNetworks']['network'], list) else [getResponseDict['availableNetworks']['network']]
             # iterating over the target org vdc networks
             for network in targetOrgVDCNetworks:
                 self.renameTargetOrgVDCNetworks(network)
