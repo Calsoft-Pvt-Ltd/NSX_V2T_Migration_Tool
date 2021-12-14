@@ -54,7 +54,6 @@ VALIDATION_CODES = {
 VALIDATION_CLASSIFICATION = {
     'Empty vApps': 1,
     'Suspended VMs': 1,
-    'Routed vApp Networks': 2,
     'Fencing enabled on vApps': 2,
     'No free interface on edge gateways': 1,
     'Edge Gateway Rate Limit': 1,
@@ -250,7 +249,6 @@ class VMwareCloudDirectorNSXMigratorV2T:
             self.vcdValidationMapping = {
                 'Empty vApps': [self.vcdValidationObj.validateNoEmptyVappsExistInSourceOrgVDC, vdcId],
                 'Suspended VMs': [self.vcdValidationObj.validateSourceSuspendedVMsInVapp, vdcId],
-                'Routed vApp Networks': [self.vcdValidationObj.validateNoVappNetworksExist, vdcId],
                 'Fencing enabled on vApps': [self.vcdValidationObj.validateVappFencingMode, vdcId],
                 'No free interface on edge gateways': [self.vcdValidationObj.validateEdgeGatewayUplinks,
                                                      vdcId, self.edgeGatewayIdList],
