@@ -1740,6 +1740,12 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 routingConfigDetails - Edge gateway routing config
                                 noSnatDestSubnetList    -   NoSNAT destination subnet from sample input
         """
+        # fetching name of NSX-T backed provider vdc
+        tpvdcName = self.rollback.apiData['targetProviderVDC']['@name']
+
+        # fetching NSX-T manager id
+        nsxtManagerId = self.getNsxtManagerId(tpvdcName)
+
         # creating common payload dict for both DNAT AND SNAT
         payloadDict = {
             "ruleId": sourceNATRule['ruleId'],
@@ -1792,7 +1798,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     # getting icmp port profiles
                     icmpurl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                               vcdConstants.APPLICATION_PORT_PROFILES,
-                                              vcdConstants.GET_ICMP_PORT_PROFILES_FILTER)
+                                              vcdConstants.GET_ICMP_PORT_PROFILES_FILTER.format(nsxtManagerId))
                     icmpResponse = self.restClientObj.get(icmpurl, self.headers)
                     if icmpResponse.status_code == requests.codes.ok:
                         icmpresponseDict = icmpResponse.json()
