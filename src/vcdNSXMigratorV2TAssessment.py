@@ -152,7 +152,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
         # Login to vCD
         self.vcdValidationObj.vcdLogin()
         self.consoleLogger.info('Logged in to VMware Cloud Director {}'.format(self.inputDict['VCloudDirector']['ipAddress']))
-
+        self.consoleLogger.info('VCD Version - {}'.format(self.vcdValidationObj.getVCDVersion()))
         self.vcdValidationMapping = dict()
 
         # Fetching the datetime from the log file
