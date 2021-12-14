@@ -3625,25 +3625,17 @@ class VCDMigrationValidation:
             if routedVappNetworks:
                 self.vAppNetworkDict[vApp['@name']] = routedVappNetworks
 
-            if self.version >= vcdConstants.API_VERSION_ANDROMEDA:
-                isolatedNetworksWithDhcp = [
-                    vAppNetwork['@networkName']
-                    for vAppNetwork in vAppNetworkList
-                    if vAppNetwork['Configuration']['FenceMode'] == "isolated"
-                    if vAppNetwork['Configuration'].get('Features', {}).get('DhcpService', {}).get('IsEnabled') == 'true'
-                ]
-
-                if isolatedNetworksWithDhcp:
-                    self.DHCPEnabled[vApp['@name']] = isolatedNetworksWithDhcp
-
-    def validateNoVappNetworksExist(self, sourceOrgVDCId):
+    def validateNoRoutedVappNetworksExist(self, sourceOrgVDCId):
         """
         Description :   Validates there exists no vapp routed network in source vapps
         """
         try:
-            vAppNetworkList = list()
-            self.vAppNetworkDict = dict()
-            self.DHCPEnabled = dict()
+            if self.version > vcdConstants.API_VERSION_ANDROMEDA_10_3_1:
+                logger.debug('Skipping routed vApp networks validation')
+                return
+
+            vAppNetworkList = []
+            self.vAppNetworkDict = {}
 
             vAppList = self.getOrgVDCvAppsList(sourceOrgVDCId)
             if not vAppList:
@@ -3672,6 +3664,7 @@ class VCDMigrationValidation:
         Description :   Send get request for vApp and check if vApp has its own vapp routed network in response
         Parameters  :   vApp - data related to a vApp (DICT)
         """
+        # TODO pranshu: remove use on migration=False argument.
         # get api call to retrieve the vapp details
         response = self.restClientObj.get(vApp['@href'], self.headers)
         responseDict = self.vcdUtils.parseXml(response.content)
@@ -4446,7 +4439,7 @@ class VCDMigrationValidation:
 
             # validating that No vApps have its own vApp Networks
             logger.info('Validate vApps have no routed vApp Networks')
-            self.validateNoVappNetworksExist(sourceOrgVDCId)
+            self.validateNoRoutedVappNetworksExist(sourceOrgVDCId)
 
             # validating that No vApps have isolated networks with dhcp configured
             logger.info('Validating isolated vApp networks with DHCP enabled')
@@ -5495,7 +5488,7 @@ class VCDMigrationValidation:
                         orgVDCData - Details of Org VDCs (DICT)
         """
         if not orgVdcNetworkSharedList:
-            return 
+            return
 
         dfwDefaultRules = []
         evaluatedOrgVdcs = []

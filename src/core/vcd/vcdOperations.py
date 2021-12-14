@@ -1696,25 +1696,29 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                           nsxtObj           -   NSX-T Object
                           edgeGatewayDeploymentEdgeCluster - edge gateway deployment edge cluster.
         """
-        try:
-            self.isovAppNetworkDHCPEnabled = dict()
-            vAppList = self.getOrgVDCvAppsList(sourceOrgVDCId.split(":")[-1])
-            if not vAppList:
-                return
+        logger.debug(
+            'Configuring network profile if isolated vApp networks with DHCP or routed vApp networks are present')
+        vAppList = self.getOrgVDCvAppsList(sourceOrgVDCId.split(":")[-1])
+        if not vAppList:
+            return
 
-            # iterating over the source vapps
-            for vApp in vAppList:
-                # spawn thread for check vapp with own network task
-                DHCPEnabledNetworkList = self._checkVappWithIsolatedNetwork(vApp, True)
-                if len(DHCPEnabledNetworkList) > 0:
-                    self.isovAppNetworkDHCPEnabled[vApp['@name']] = DHCPEnabledNetworkList
+        for vApp in vAppList:
+            response = self.restClientObj.get(vApp['@href'], self.headers)
+            responseDict = self.vcdUtils.parseXml(response.content)
+            if not response.status_code == requests.codes.ok:
+                raise Exception('Error occurred while retrieving vapp details while configuring network profile '
+                                'for {} due to {}'.format(vApp['@name'], responseDict['Error']['@message']))
 
-            if self.isovAppNetworkDHCPEnabled:
-                for vApp in vAppList:
+            vAppData = responseDict['VApp']
+            if not vAppData['NetworkConfigSection'].get('NetworkConfig'):
+                continue
+
+            for vAppNetwork in listify(vAppData['NetworkConfigSection']['NetworkConfig']):
+                if (vAppNetwork['Configuration']['FenceMode'] == "natRouted"
+                        or vAppNetwork['Configuration'].get('Features', {}).get('DhcpService', {}).get(
+                            'IsEnabled') == 'true'):
                     self.configureNetworkProfile(targetOrgVDCID, edgeGatewayDeploymentEdgeCluster, nsxtObj)
-                    break
-        except:
-            raise
+                    return
 
     @isSessionExpired
     def configureNetworkProfile(self, targetOrgVDCId, edgeGatewayDeploymentEdgeCluster=None, nsxtObj=None):

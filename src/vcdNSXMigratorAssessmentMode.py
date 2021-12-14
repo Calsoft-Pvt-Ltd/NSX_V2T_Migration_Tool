@@ -171,7 +171,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                     'Validating if fencing is enabled on vApps in source OrgVDC': [vcdValidationObj.validateVappFencingMode, sourceOrgVDCId],
                     'Validating VMs in suspended state do not exists any source vApps': [vcdValidationObj.validateSourceSuspendedVMsInVapp, sourceOrgVDCId],
                     'Validating VMs in vApp are not connected to media': [vcdValidationObj.validateVappVMsMediaNotConnected, sourceOrgVDCId, True],
-                    'Validating vApps do not have routed vApp networks': [vcdValidationObj.validateNoVappNetworksExist, sourceOrgVDCId],
+                    'Validating vApps do not have routed vApp networks': [vcdValidationObj.validateNoRoutedVappNetworksExist, sourceOrgVDCId],
                     'Validating vApps isolated vApp networks with DHCP enabled': [vcdValidationObj.validateDHCPOnIsolatedvAppNetworks, sourceOrgVDCId, edgeGatewayDeploymentEdgeCluster, nsxtObj],
                     'Validating Independent Disks': [vcdValidationObj.validateIndependentDisks, sourceOrgVDCId, False],
                 })
