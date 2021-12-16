@@ -3758,8 +3758,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # NAT service config
             if vAppNetwork['Configuration']['Features'].get('NatService'):
                 natConfig = vAppNetwork['Configuration']['Features']['NatService']
-                natConfig['NatRule'] = listify(natConfig['NatRule'])
+                natConfig['NatRule'] = listify(natConfig.get('NatRule'))
                 featuresConfig['NatService'] = natConfig
+
+            # Static Routing service config
+            if vAppNetwork['Configuration']['Features'].get('StaticRoutingService'):
+                staticRoutingConfig = vAppNetwork['Configuration']['Features']['StaticRoutingService']
+                staticRoutingConfig['StaticRoute'] = listify(staticRoutingConfig.get('StaticRoute'))
+                featuresConfig['StaticRoutingService'] = staticRoutingConfig
 
             return featuresConfig
 

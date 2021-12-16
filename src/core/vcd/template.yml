@@ -296,6 +296,20 @@ vCloudDirector:
               {% endif %} {# elif NatService.NatType is 'portForwarding' \#}
             </root:NatService>
             {% endif %} {# if 'NatService' in network.features \#}
+            {% if 'StaticRoutingService' in network.features %}
+              {% set StaticRoutingService = network.features.StaticRoutingService %}
+            <root:StaticRoutingService>
+              <root:IsEnabled>{{ StaticRoutingService.IsEnabled }}</root:IsEnabled>
+              {% for rule in StaticRoutingService.StaticRoute %}
+              <root:StaticRoute>
+                <root:Name>{{ rule.Name }}</root:Name>
+                <root:Network>{{ rule.Network }}</root:Network>
+                <root:NextHopIp>{{ rule.NextHopIp }}</root:NextHopIp>
+                <root:Interface>{{ rule.Interface }}</root:Interface>
+              </root:StaticRoute>
+              {% endfor %} {# for rule in StaticRoutingService.StaticRoute \#}
+            </root:StaticRoutingService>
+            {% endif %} {# if 'StaticRoutingService' in network.features \#}
           </root:Features>
           {% endif %} {# if 'features' in network and network.features \#}
           {% if 'routerExternalIp' in network and network.routerExternalIp %}
