@@ -454,7 +454,7 @@ VALIDATE_DEDICATED_EXTERNAL_NETWORK_FILTER = '?filter=edgeGatewayUplinks.uplinkI
 ICMP_ALL = 'ICMPv4-ALL'
 
 # get icmp port profiles
-GET_ICMP_PORT_PROFILES_FILTER = '?filter=(applicationPorts.protocol==ICMPv4)'
+GET_ICMP_PORT_PROFILES_FILTER = '?filter=(applicationPorts.protocol==ICMPv4;_context=={})'
 
 # check string for vapps having no vms in it
 CHECK_STRING_FOR_EMPTY_VAPPS = 'The requested operation could not be executed since vApp "{}" is not running.'
