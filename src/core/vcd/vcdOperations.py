@@ -976,7 +976,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             float(self.version) <= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
                         networkConnection['IpAddressAllocationMode'] = 'MANUAL'
                     payloadDict = {'networkName': networkName,
-                                   # TODO pranshu: Add external IP for routed vApp networks
                                    'ipAddress': ipAddress,
                                    'connected': networkConnection['IsConnected'],
                                    'macAddress': networkConnection['MACAddress'],
@@ -3755,6 +3754,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 sourceDhcpConfig = vAppNetwork['Configuration']['Features']['DhcpService']
                 if sourceDhcpConfig.get('IsEnabled') == 'true':
                     featuresConfig['dhcpConfig'] = sourceDhcpConfig
+
+            # NAT service config
+            if vAppNetwork['Configuration']['Features'].get('NatService'):
+                natConfig = vAppNetwork['Configuration']['Features']['NatService']
+                natConfig['NatRule'] = listify(natConfig['NatRule'])
+                featuresConfig['NatService'] = natConfig
 
             return featuresConfig
 

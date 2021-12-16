@@ -241,7 +241,61 @@ vCloudDirector:
                 <root:EndAddress>{{ dhcpConfig.IpRange.EndAddress }}</root:EndAddress>
               </root:IpRange>
             </root:DhcpService>
-            {% endif %} {# if dhcpConfig in network.features \#}
+            {% endif %} {# if 'dhcpConfig' in network.features \#}
+            {% if 'NatService' in network.features %}
+              {% set NatService = network.features.NatService %}
+            <root:FirewallService>
+              <root:IsEnabled>true</root:IsEnabled>
+              <root:DefaultAction>allow</root:DefaultAction>
+              <root:LogDefaultAction>false</root:LogDefaultAction>
+              <root:FirewallRule>
+                <root:IsEnabled>true</root:IsEnabled>
+                <root:Description>Allow all outgoing traffic</root:Description>
+                <root:Policy>allow</root:Policy>
+                <root:Protocols>
+                  <root:Any>true</root:Any>
+                </root:Protocols>
+                <root:DestinationPortRange>Any</root:DestinationPortRange>
+                <root:DestinationIp>external</root:DestinationIp>
+                <root:SourcePortRange>Any</root:SourcePortRange>
+                <root:SourceIp>internal</root:SourceIp>
+                <root:EnableLogging>false</root:EnableLogging>
+              </root:FirewallRule>
+            </root:FirewallService>
+            <root:NatService>
+              <root:IsEnabled>{{ NatService.IsEnabled }}</root:IsEnabled>
+              <root:NatType>{{ NatService.NatType }}</root:NatType>
+              <root:Policy>{{ NatService.Policy }}</root:Policy>
+              {% if NatService.NatType == 'ipTranslation' %}
+                {% for rule in NatService.NatRule %}
+              <root:NatRule>
+                <root:Id>{{ rule.Id }}</root:Id>
+                <root:OneToOneVmRule>
+                  <root:MappingMode>{{ rule.OneToOneVmRule.MappingMode }}</root:MappingMode>
+                  {% if 'ExternalIpAddress' in rule.OneToOneVmRule %}
+                  <root:ExternalIpAddress>{{ rule.OneToOneVmRule.ExternalIpAddress }}</root:ExternalIpAddress>
+                  {% endif %}
+                  <root:VAppScopedVmId>{{ rule.OneToOneVmRule.VAppScopedVmId }}</root:VAppScopedVmId>
+                  <root:VmNicId>{{ rule.OneToOneVmRule.VmNicId }}</root:VmNicId>
+                </root:OneToOneVmRule>
+              </root:NatRule>
+                {% endfor %} {# for rule in NatService.NatRule \#}
+              {% elif NatService.NatType == 'portForwarding' %} {# if NatService.NatType is 'ipTranslation' \#}
+                {% for rule in NatService.NatRule %}
+              <root:NatRule>
+                <root:Id>{{ rule.Id }}</root:Id>
+                <root:VmRule>
+                  <root:ExternalPort>{{ rule.VmRule.ExternalPort }}</root:ExternalPort>
+                  <root:VAppScopedVmId>{{ rule.VmRule.VAppScopedVmId }}</root:VAppScopedVmId>
+                  <root:VmNicId>{{ rule.VmRule.VmNicId }}</root:VmNicId>
+                  <root:InternalPort>{{ rule.VmRule.InternalPort }}</root:InternalPort>
+                  <root:Protocol>{{ rule.VmRule.Protocol }}</root:Protocol>
+                </root:VmRule>
+              </root:NatRule>
+                {% endfor %} {# for rule in NatService.NatRule \#}
+              {% endif %} {# elif NatService.NatType is 'portForwarding' \#}
+            </root:NatService>
+            {% endif %} {# if 'NatService' in network.features \#}
           </root:Features>
           {% endif %} {# if 'features' in network and network.features \#}
           {% if 'routerExternalIp' in network and network.routerExternalIp %}
