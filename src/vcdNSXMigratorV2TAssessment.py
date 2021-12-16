@@ -80,6 +80,7 @@ VALIDATION_CLASSIFICATION = {
     'LoadBalancer: Default pool not configured': 1,
     'LoadBalancer: Unsupported persistence': 1,
     'LoadBalancer: Unsupported algorithm': 1,
+    'LoadBalancer: Application profile is not configured': 1,
     'L2VPN service': 2,
     'SSLVPN service': 2,
     'Distributed Firewall: Invalid objects in rule': 1,
@@ -594,6 +595,12 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 self.orgVDCResult["LoadBalancer: Unsupported algorithm"] = True
                                             else:
                                                 self.orgVDCResult["LoadBalancer: Unsupported algorithm"] = False
+                                            if "Application profile is not configured" in ''.join(result):
+                                                self.orgVDCResult[
+                                                    "LoadBalancer: Application profile is not configured"] = True
+                                            else:
+                                                self.orgVDCResult[
+                                                    "LoadBalancer: Application profile is not configured"] = False
                                         if serviceName == "DHCP":
                                             if "Domain names are configured as a DHCP servers" in ''.join(result):
                                                 self.orgVDCResult["DHCP Relay: Domain names are configured"] = True
@@ -604,9 +611,11 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                             else:
                                                 self.orgVDCResult["DHCP Relay: More than 8 DHCP servers configured"] = False
                                             if "DHCP Binding IP addresses overlaps" in ''.join(result):
-                                                self.orgVDCResult["DHCP Binding: Binding IP addresses overlaps with static IP Pool range"] = True
+                                                self.orgVDCResult[
+                                                    "DHCP Binding: Binding IP addresses overlaps with static IP Pool range"] = True
                                             else:
-                                                self.orgVDCResult["DHCP Binding: Binding IP addresses overlaps with static IP Pool range"] = False
+                                                self.orgVDCResult[
+                                                    "DHCP Binding: Binding IP addresses overlaps with static IP Pool range"] = False
                                         if serviceName == "NAT":
                                             if "Nat64 rule is configured" in ''.join(result):
                                                 self.orgVDCResult["NAT: NAT64 rule"] = True
