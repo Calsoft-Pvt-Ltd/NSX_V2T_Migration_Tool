@@ -23,8 +23,9 @@ import src.core.nsxt.nsxtConstants as nsxtConstants
 from src.constants import rootDir
 from src.commonUtils.sshUtils import SshUtils
 from src.commonUtils.restClient import RestAPIClient
-from src.commonUtils.utils import Utilities
+from src.commonUtils.utils import Utilities, InterOperabilityError
 from src.core.vcd.vcdValidations import description
+
 
 logger = logging.getLogger('mainLogger')
 
@@ -1043,6 +1044,9 @@ class NSXTOperations():
         response = self.restClientObj.get(url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
         responseDict = response.json()
         if response.status_code == requests.codes.ok:
+            if int(responseDict.get('node_version').split(".")[0]) < 3:
+                raise InterOperabilityError('NSX-T v{} is not compatible with current migration tool'.
+                                            format(responseDict.get('node_version')))
             return responseDict.get('node_version')
         raise Exception('Failed to retrieve to NSX-T version due to error - {}'.format(responseDict['error_message']))
 
