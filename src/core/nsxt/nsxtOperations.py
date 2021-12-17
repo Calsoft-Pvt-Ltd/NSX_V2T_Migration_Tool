@@ -7,6 +7,7 @@ Description: NSXT Module which performs the Bridging Operations
 """
 
 import copy
+import traceback
 from functools import wraps
 import inspect
 import logging
@@ -1273,6 +1274,7 @@ class NSXTOperations():
                         SshUtils(edgeNodeData['node_deployment_info']['ip_addresses'][0], 'admin', self.password)
                     except Exception as err:
                         logger.debug(str(err))
+                        logger.debug(traceback.format_exc())
                         nodeListUnaccessible.append(edgeNodeData['display_name'])
                 else:
                     raise Exception('Failed to fetch transport node details')
@@ -1455,6 +1457,7 @@ class NSXTOperations():
                 bridgeTransportZoneData = self.validateTransportZoneExistsInNSXT(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME, returnData=True)
             except Exception:
                 logger.debug(f'Bridge Transport Zone {nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME} does not exist in NSX-T')
+                logger.debug(traceback.format_exc())
                 return
             transportZoneId = bridgeTransportZoneData['id']
             url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.TRANSPORT_ZONE_API) + f"/{transportZoneId}"

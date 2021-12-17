@@ -363,6 +363,7 @@ class VMwareCloudDirectorNSXMigrator():
             self.loginErrorDict[self._loginToVcd.__name__] = True
         except Exception as err:
             logging.error(str(err))
+            logging.debug(traceback.format_exc())
             if re.search(r'Failed to login .* with the given credentials', str(err)):
                 self.loginErrorDict[self._loginToVcd.__name__] = False
             else:
@@ -381,6 +382,7 @@ class VMwareCloudDirectorNSXMigrator():
                 self.loginErrorDict[self._loginToNsxv.__name__] = True
             except Exception as err:
                 logging.error(str(err))
+                logging.debug(traceback.format_exc())
                 if re.search(r'Failed to login .* with the given credentials', str(err)):
                     self.loginErrorDict[self._loginToNsxv.__name__] = False
                 else:
@@ -401,6 +403,7 @@ class VMwareCloudDirectorNSXMigrator():
             self.loginErrorDict[self._loginToNsxt.__name__] = True
         except Exception as err:
             logging.error(str(err))
+            logging.debug(traceback.format_exc())
             if re.search(r'Failed to login .* with the given credentials', str(err)):
                 self.loginErrorDict[self._loginToNsxt.__name__] = False
             else:
@@ -991,6 +994,7 @@ class VMwareCloudDirectorNSXMigrator():
         except KeyboardInterrupt:
             self.consoleLogger.error('Aborting the VCD NSX Migrator tool execution')
         except Exception as err:
+            logging.debug(traceback.format_exc())
             self.consoleLogger.exception(err)
             self.consoleLogger.critical("VCD V2T Migration Tool failed due to errors. For more details, please refer "
                                         "main log file {}".format(self.mainLogfile))

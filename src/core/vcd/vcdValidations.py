@@ -656,6 +656,7 @@ class VCDMigrationValidation:
                                                     metadataDict=self.rollback.executionResult, domain='system')
 
         except Exception as err:
+            logger.debug(traceback.format_exc())
             raise Exception('Failed to save metadata in source Org VDC due to error - {}'.format(err))
 
     @isSessionExpired
@@ -2932,8 +2933,8 @@ class VCDMigrationValidation:
                                   vcdConstants.EDGE_GATEWAY_FIREWALL_CONFIG_BY_ID.format(edgeGatewayId))
             # get api call to retrieve the firewall config details of edge gateway
             response = self.restClientObj.get(url, self.headers)
+            responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
-                responseDict = self.vcdUtils.parseXml(response.content)
                 # checking if firewall is enabled on edge gateway, if so returning the user defined firewall details, else raising exception
                 if responseDict['firewall']['enabled'] != 'false':
                     logger.debug("Firewall configuration of Source Edge Gateway retrieved successfully")
@@ -2953,7 +2954,7 @@ class VCDMigrationValidation:
                         userDefinedFirewall.extend(defaultFirewallRule)
 
                     for rule in userDefinedFirewall:
-                        rule['name'] = rule['name'] or f"rule-{rule['id']}"
+                        rule['name'] = rule.get('name') or f"rule-{rule['id']}"
 
                     if not validation:
                         return userDefinedFirewall
@@ -3003,9 +3004,9 @@ class VCDMigrationValidation:
                 else:
                     errorList.append('Firewall is disabled in source\n')
                     return errorList
-            return [
-                "Failed to retrieve the Firewall Configurations of Source Edge Gateway with error code {} \n".format(
-                    response.status_code)]
+            raise Exception(
+                "Failed to retrieve the Firewall Configurations of Source Edge Gateway with error code {}: {}".format(
+                    response.status_code, responseDict['Error']['@message']))
         except Exception:
             raise
 
@@ -5187,6 +5188,7 @@ class VCDMigrationValidation:
                         try:
                             externalNetworks = self.fetchAllExternalNetworks()
                         except Exception as err:
+                            logger.debug(traceback.format_exc())
                             return None, str(err)
 
                         # Fetching external network used by direct network
@@ -5234,6 +5236,7 @@ class VCDMigrationValidation:
                     try:
                         sourceExternalNetwork = self.fetchAllExternalNetworks()
                     except Exception as err:
+                        logger.debug(traceback.format_exc())
                         return None, str(err)
                     externalList = [externalNetwork['networkBackings'] for externalNetwork in sourceExternalNetwork if
                                     externalNetwork['id'] == parentNetworkId['id']]

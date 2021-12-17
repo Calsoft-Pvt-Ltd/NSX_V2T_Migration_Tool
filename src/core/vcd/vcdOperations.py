@@ -2708,6 +2708,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             endStateLogger.info('\nOrganization Name : {}\nOrgVdc Details\n{}'.format(
                 StateLog[vcdConstants.ORG]['Name'], endStateTable))
         except Exception:
+            logger.debug(traceback.format_exc())
             raise Exception('Failed to create migration end state log table.')
         finally:
             threading.currentThread().name = "MainThread"
@@ -4406,6 +4407,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 return self.getOrgVDCDetails(orgUrl, responseDict['AdminVdc']['@name'], 'targetOrgVDC')
             raise Exception('Failed to create target Org VDC. Errors {}.'.format(responseDict['Error']['@message']))
         except Exception as exception:
+            logger.debug(traceback.format_exc())
             if targetOrgVDCId:
                 logger.debug("Creation of target vdc failed, so removing that entity from vCD")
                 try:

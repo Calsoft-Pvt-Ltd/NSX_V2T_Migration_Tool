@@ -8,6 +8,8 @@ Description: Module which performs the vcenter API related Operations
 
 import atexit
 import logging
+import traceback
+
 import pyVmomi
 import requests
 import ssl
@@ -213,6 +215,7 @@ class VcenterApi():
 
             return clusterRpMapping
         except Exception as err:
+            logger.debug(traceback.format_exc())
             raise Exception(f"Failed to Resource Pool details from vCenter due to error - {str(err)}")
 
     def fetchAgencyClusterMapping(self):
@@ -262,4 +265,5 @@ class VcenterApi():
                     agencyClusterMapping.append([clusterName, agentName])
             return agencyClusterMapping
         except Exception as err:
+            logger.debug(traceback.format_exc())
             raise Exception(f"Failed to fetch agency details from EAM(EsxAgentManager) due to error - {str(err)}")

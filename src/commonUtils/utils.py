@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import traceback
 
 import certifi
 import jinja2
@@ -56,6 +57,7 @@ class Utilities():
             except Exception:
                 invalidYamlMessage = "Invalid YAML file: {}.".format(yamlFile)
                 logger.error(invalidYamlMessage)
+                logger.debug(traceback.format_exc())
                 raise Exception(invalidYamlMessage)
         else:
             yamlNotPresentMessage = "YAML file '{}' does not exists.".format(yamlFile)
@@ -77,6 +79,7 @@ class Utilities():
             except Exception:
                 invalidJsonMessage = "Invalid JSON file: {}.".format(jsonFile)
                 logger.error(invalidJsonMessage)
+                logger.debug(traceback.format_exc())
                 raise Exception(invalidJsonMessage)
         else:
             jsonNotPresentMessage = "JSON file '{}' does not exists.".format(jsonFile)
