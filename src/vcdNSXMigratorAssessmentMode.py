@@ -9,6 +9,8 @@ Description: Module which performs all the clean-up tasks after migrating the VM
 import logging
 import math
 import os
+import traceback
+
 import prettytable
 import sys
 import threading
@@ -77,6 +79,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             targetProviderVDCId, isTargetNSXTbacked = vcdValidationObj.getProviderVDCId(orgVDCDict["NSXTProviderVDCName"])
             vcdValidationObj.getProviderVDCDetails(targetProviderVDCId, isTargetNSXTbacked)
         except Exception as e:
+            logging.debug(traceback.format_exc())
             orgExceptionList.append(e)
         finally:
             return sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked
@@ -392,7 +395,8 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         try:
             method(*args)
         except Exception as e:
-                validationFailures.append([desc, e, 'Failed'])
+            logging.debug(traceback.format_exc())
+            validationFailures.append([desc, e, 'Failed'])
 
     def updateInventoryLogs(self, bridgingReport=False):
         """

@@ -707,6 +707,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
                     except Exception as err:
                         self.logger.debug(f"Failed to evaluate Org VDC '{VDC}' of organization '{org}' due to error - '{str(err)}'")
+                        self.logger.debug(traceback.format_exc())
                         self.orgVDCResult['Status'] = STATUS_CODES[3]
                         # Restoring log level of console logger
                         self.changeLogLevelForConsoleLog(disable=False)

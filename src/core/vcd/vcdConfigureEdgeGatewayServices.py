@@ -4457,6 +4457,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 self._checkTaskStatus(taskUrl=url)
                                 logger.debug("Successfully deleted firewall group '{}'".format(firewallGroupName))
                             except Exception as e:
+                                logger.debug(traceback.format_exc())
                                 errors.append(e)
 
                         if errors:

@@ -8,6 +8,7 @@ Description : Module performs all the rollback related operations during a failu
 
 import copy
 import threading
+import traceback
 
 from src.commonUtils.utils import Utilities
 
@@ -133,6 +134,7 @@ class Rollback:
             raise
         except Exception as error:
             self.logger.exception(error)
+            self.logger.debug(traceback.format_exc())
             # Saving the list of tasks left as part of rollback in metadata to continue rollback from the same step
             vcdObj.createMetaDataInOrgVDC(sourceOrgVDCId,
                                           metadataDict={'rollbackTasks': rollbackTasksLeft}, domain='system')
@@ -184,6 +186,7 @@ class Rollback:
             raise
         except Exception as error:
             self.logger.exception(error)
+            self.logger.debug(traceback.format_exc())
             # Saving the list of tasks left as part of rollback in metadata to continue rollback from the same step
             vcdObj.createMetaDataInOrgVDC(
                 sourceOrgVDCId, metadataDict={'rollbackTasksDfw': rollbackTasksLeft}, domain='system')

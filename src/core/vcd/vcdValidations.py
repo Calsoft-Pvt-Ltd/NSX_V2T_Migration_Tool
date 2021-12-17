@@ -656,6 +656,7 @@ class VCDMigrationValidation:
                                                     metadataDict=self.rollback.executionResult, domain='system')
 
         except Exception as err:
+            logger.debug(traceback.format_exc())
             raise Exception('Failed to save metadata in source Org VDC due to error - {}'.format(err))
 
     @isSessionExpired
@@ -5187,6 +5188,7 @@ class VCDMigrationValidation:
                         try:
                             externalNetworks = self.fetchAllExternalNetworks()
                         except Exception as err:
+                            logger.debug(traceback.format_exc())
                             return None, str(err)
 
                         # Fetching external network used by direct network
@@ -5234,6 +5236,7 @@ class VCDMigrationValidation:
                     try:
                         sourceExternalNetwork = self.fetchAllExternalNetworks()
                     except Exception as err:
+                        logger.debug(traceback.format_exc())
                         return None, str(err)
                     externalList = [externalNetwork['networkBackings'] for externalNetwork in sourceExternalNetwork if
                                     externalNetwork['id'] == parentNetworkId['id']]
