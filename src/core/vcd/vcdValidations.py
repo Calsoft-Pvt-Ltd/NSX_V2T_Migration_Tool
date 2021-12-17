@@ -25,7 +25,8 @@ import src.core.vcd.vcdConstants as vcdConstants
 
 from src.commonUtils.restClient import RestAPIClient
 from src.commonUtils.certUtils import verifyCertificateAgainstCa
-from src.commonUtils.utils import Utilities, listify
+from src.commonUtils.utils import Utilities, listify, InterOperabilityError
+
 
 METADATA_SAVE_FALSE = False
 
@@ -3806,6 +3807,8 @@ class VCDMigrationValidation:
             vCDVersion = values[0].get("productVersion", None)
             if not vCDVersion:
                 raise Exception("Not able to fetch vCD version due to API response difference")
+            elif not(int(vCDVersion.split(".")[0]) >= 10 and int(vCDVersion.split(".")[1]) > 2):
+                raise InterOperabilityError('VCD v{} is not compatible with current migration tool'.format(vCDVersion))
             else:
                 return re.match("\d*\.\d*\.\d*", values[0].get("productVersion")).group()
         else:
