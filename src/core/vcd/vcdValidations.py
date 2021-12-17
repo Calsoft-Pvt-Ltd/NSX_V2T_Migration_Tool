@@ -3597,44 +3597,25 @@ class VCDMigrationValidation:
         vAppData = responseDict['VApp']
         # checking if the networkConfig is present in vapp's NetworkConfigSection
         if vAppData['NetworkConfigSection'].get('NetworkConfig'):
-            vAppNetworkList = vAppData['NetworkConfigSection']['NetworkConfig'] if isinstance(
-                vAppData['NetworkConfigSection']['NetworkConfig'], list) else [
-                vAppData['NetworkConfigSection']['NetworkConfig']]
-            if vAppNetworkList:
-                networkList = []
-                DHCPEnabledNetworkList = []
-                # iterating over the source vapp network list
-                for vAppNetwork in vAppNetworkList:
-                    if vAppNetwork['Configuration'].get('ParentNetwork'):
-                        # if parent network is present, then name of parent network and name of the network itself should be same - means it is an org vdc network present in vapp, else raising exception since it's a vapp network
-                        # Fence mode is always "bridged" for org vdc networks and "natRouted" for vApp routed network which is not supported and vapp network - when network name is not same as that of its parent network name.
-                        if vAppNetwork['Configuration']['FenceMode'] == "natRouted" and vAppNetwork['@networkName'] != vAppNetwork['Configuration']['ParentNetwork']['@name']:
-                            networkList.append(vAppNetwork['@networkName'])
-                        else:
-                            logger.debug("validation successful the vApp networks {} in vApp {} is not routed".format(vAppNetwork['@networkName'], vApp['@name']))
-                    else:
-                        # if parent network is absent then raising exception only if the  network gateway is not dhcp
-                        if vAppNetwork['Configuration']['IpScopes']['IpScope']['Gateway'] != '196.254.254.254':
-                            # the fence mode for isolated vApp network is isolated which is supported and for routed it is natRouted
-                            if vAppNetwork['Configuration']['FenceMode'] != "isolated":
-                                networkList.append(vAppNetwork['@networkName'])
-                            else:
-                                logger.debug("validation successful the vApp networks {} in vApp {} is not routed".format(vAppNetwork['@networkName'], vApp['@name']))
-                            if vAppNetwork['Configuration'].get('Features', {}).get('DhcpService', {}).get('IsEnabled') == 'true':
-                                if self.version >= vcdConstants.API_VERSION_ANDROMEDA:
-                                    logger.debug(
-                                        "validation successful the vApp networks {} in vApp {} is isolated with DHCP enabled".format(
-                                            vAppNetwork['@networkName'], vApp['@name']))
-                                else:
-                                    logger.debug("validation failed the vApp networks {} in vApp {} is isolated with DHCP enabled".format(
-                                                vAppNetwork['@networkName'], vApp['@name']))
-                                DHCPEnabledNetworkList.append(vAppNetwork['@networkName'])
-                        else:
-                            logger.debug("Validated successfully {} network within vApp {} is not a Vapp Network".format(vAppNetwork['@networkName'], vApp['@name']))
-                if networkList:
-                    self.vAppNetworkDict[vApp['@name']] = networkList
-                if DHCPEnabledNetworkList:
-                    self.DHCPEnabled[vApp['@name']] = DHCPEnabledNetworkList
+            vAppNetworkList = listify(vAppData['NetworkConfigSection']['NetworkConfig'])
+            routedVappNetworks = [
+                vAppNetwork['@networkName']
+                for vAppNetwork in vAppNetworkList
+                if vAppNetwork['Configuration']['FenceMode'] == "natRouted"
+            ]
+            if routedVappNetworks:
+                self.vAppNetworkDict[vApp['@name']] = routedVappNetworks
+
+            if self.version >= vcdConstants.API_VERSION_ANDROMEDA:
+                isolatedNetworksWithDhcp = [
+                    vAppNetwork['@networkName']
+                    for vAppNetwork in vAppNetworkList
+                    if vAppNetwork['Configuration']['FenceMode'] == "isolated"
+                    if vAppNetwork['Configuration'].get('Features', {}).get('DhcpService', {}).get('IsEnabled') == 'true'
+                ]
+
+                if isolatedNetworksWithDhcp:
+                    self.DHCPEnabled[vApp['@name']] = isolatedNetworksWithDhcp
 
     def validateNoVappNetworksExist(self, sourceOrgVDCId):
         """

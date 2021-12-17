@@ -21,10 +21,8 @@ import traceback
 from itertools import zip_longest
 from functools import reduce
 from collections import defaultdict
-from src.commonUtils.utils import Utilities
-import src.constants as mainConstants
 import src.core.vcd.vcdConstants as vcdConstants
-from src.commonUtils.utils import Utilities, listify
+from src.commonUtils.utils import listify
 from src.core.vcd.vcdValidations import (
     isSessionExpired, description, remediate, remediate_threaded, METADATA_SAVE_FALSE, getSession)
 from src.core.vcd.vcdConfigureEdgeGatewayServices import ConfigureEdgeGatewayServices
@@ -977,7 +975,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     if networkConnection['IpAddressAllocationMode'] == 'POOL' and \
                             float(self.version) <= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
                         networkConnection['IpAddressAllocationMode'] = 'MANUAL'
-                    payloadDict = {'networkName': networkName, 'ipAddress': ipAddress,
+                    payloadDict = {'networkName': networkName,
+                                   # TODO pranshu: Add external IP for routed vApp networks
+                                   'ipAddress': ipAddress,
                                    'connected': networkConnection['IsConnected'],
                                    'macAddress': networkConnection['MACAddress'],
                                    'allocationModel': networkConnection['IpAddressAllocationMode'],
@@ -3693,6 +3693,105 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
+    def createMoveVappNetworkPayload(self, vAppData, targetOrgVDCNetworkList, filePath, rollback=False):
+        """
+            Description :   Prepares the network config payload for moving the vApp
+            Parameters  :   vAppData  -   Information related to a specific vApp (DICT)
+                            targetOrgVDCNetworkList - All the target org vdc networks (LIST)
+                            filePath - file path of template.yml which holds all the templates (STRING)
+                            rollback - whether to rollback from T2V (BOOLEAN)
+        """
+        def getName(vAppNetwork):
+            """Get name of target vapp network"""
+            if vAppNetwork['@networkName'] == 'none':
+                return vAppNetwork['@networkName']
+
+            if rollback:
+                return vAppNetwork['@networkName'].replace('-v2t', '')
+
+            return vAppNetwork['@networkName'] + '-v2t'
+
+        def prepareIpScopesConfig(vAppNetwork):
+            """Prepare target network ipscopes config"""
+            if (vAppNetwork['Configuration'].get('IpScopes') and
+                    vAppNetwork['Configuration']['IpScopes']['IpScope']['IsInherited'] == 'false'):
+                ipScope = vAppNetwork['Configuration']['IpScopes']['IpScope']
+                return {
+                    'isInherited': ipScope['IsInherited'],
+                    'gateway': ipScope['Gateway'],
+                    'netmask': ipScope['Netmask'],
+                    'subnet': ipScope.get('SubnetPrefixLength'),
+                    'dns1': ipScope.get('Dns1'),
+                    'dns2': ipScope.get('Dns2'),
+                    'dnsSuffix': ipScope.get('DnsSuffix'),
+                    'ipRanges': listify(ipScope.get('IpRanges', {}).get('IpRange')),
+                }
+
+        def getParentNetwork(vAppNetwork):
+            """Get target network's parent network"""
+            if vAppNetwork['Configuration'].get('ParentNetwork'):
+                networkName = (
+                    vAppNetwork['Configuration']['ParentNetwork']['@name'].replace('-v2t', '')
+                    if rollback
+                    else vAppNetwork['Configuration']['ParentNetwork']['@name'] + '-v2t')
+                return "{}network/{}".format(
+                    vcdConstants.XML_API_URL.format(self.ipAddress),
+                    targetOrgVDCNetworks.get(networkName).split(':')[-1])
+
+        def prepareFeaturesConfig(vAppNetwork):
+            """Prepare target network features config"""
+            if not vAppNetwork['Configuration'].get('Features'):
+                return
+
+            featuresConfig = {}
+
+            # DHCP service config
+            if vAppNetwork['Configuration']['Features'].get('DhcpService'):
+                sourceDhcpConfig = vAppNetwork['Configuration']['Features']['DhcpService']
+                if sourceDhcpConfig.get('IsEnabled') == 'true':
+                    featuresConfig['dhcpConfig'] = sourceDhcpConfig
+
+            return featuresConfig
+
+        targetOrgVDCNetworks = {network['name']: network['id'] for network in targetOrgVDCNetworkList}
+
+        # checking for the 'NetworkConfig' in 'NetworkConfigSection' of vapp
+        if vAppData['NetworkConfigSection'].get('NetworkConfig'):
+            networkConfig = [
+                {
+                    'name': getName(vAppNetwork),
+                    'description': vAppNetwork.get('Description') or '',
+                    'ipScopes': prepareIpScopesConfig(vAppNetwork),
+                    'parentNetwork': getParentNetwork(vAppNetwork),
+                    'fenceMode': vAppNetwork['Configuration']['FenceMode'],
+                    'retainNetInfoAcrossDeployments':
+                        vAppNetwork['Configuration'].get('RetainNetInfoAcrossDeployments'),
+                    'features': prepareFeaturesConfig(vAppNetwork),
+                    'routerExternalIp': vAppNetwork['Configuration'].get('RouterInfo', {}).get('ExternalIp'),
+                    'isDeployed': vAppNetwork['IsDeployed'],
+                }
+                for vAppNetwork in listify(vAppData['NetworkConfigSection']['NetworkConfig'])
+            ]
+        else:
+            # TODO pranshu: Need to test this section
+            networkConfig = [
+                {
+                    'name': 'none',
+                    'description': '',
+                    'fenceMode': 'bridged',
+                    'isDeployed': 'true',
+                }
+            ]
+
+        return self.vcdUtils.createPayload(
+            filePath,
+            payloadDict={'networkConfig': networkConfig},
+            fileType='yaml',
+            componentName=vcdConstants.COMPONENT_NAME,
+            templateName=vcdConstants.MOVE_VAPP_NETWORK_CONFIG_TEMPLATE
+        ).strip("\"")
+
+    @isSessionExpired
     def moveVappApiCall(self, vApp, targetOrgVDCNetworkList, targetOrgVDCId, filePath, timeout, sourceOrgVDCName=None, rollback=False):
         """
             Description :   Prepares the payload for moving the vApp and sends post api call for it
@@ -3706,152 +3805,36 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         # Saving thread name as per vdc name
         threading.currentThread().name = sourceOrgVDCName
 
-        otherNetworkList = list()
         if rollback:
             logger.info('Moving vApp - {} to source Org VDC - {}'.format(vApp['@name'], sourceOrgVDCName))
         else:
             logger.info('Moving vApp - {} to target Org VDC - {}'.format(vApp['@name'], sourceOrgVDCName + '-v2t'))
-        networkList = []
+
         response = self.restClientObj.get(vApp['@href'], self.headers)
         responseDict = self.vcdUtils.parseXml(response.content)
+        if response.status_code != requests.codes.ok:
+            raise Exception(f"Failed to get vApp details: {responseDict['Error']['@message']}")
+
         vAppData = responseDict['VApp']
-        # checking for the 'NetworkConfig' in 'NetworkConfigSection' of vapp
-        if vAppData['NetworkConfigSection'].get('NetworkConfig'):
-            vAppNetworkList = vAppData['NetworkConfigSection']['NetworkConfig'] \
-                if isinstance(vAppData['NetworkConfigSection']['NetworkConfig'], list) else [
-                vAppData['NetworkConfigSection']['NetworkConfig']]
-            if rollback:
-                # retrieving the network details list of same name networks from source & target, target networks will have -v2t appended
-                networkList = [(network, vAppNetwork) for network in targetOrgVDCNetworkList for vAppNetwork in
-                               vAppNetworkList if vAppNetwork['@networkName'] == network['name'] + '-v2t']
-            else:
-                # retrieving the network details list of same name networks from source & target
-                networkList = [(network, vAppNetwork) for network in targetOrgVDCNetworkList for vAppNetwork in
-                               vAppNetworkList if vAppNetwork['@networkName'] + '-v2t' == network['name']]
-            # retrieving the network details of other networks other than org vdc networks
-            otherNetworkList = [vAppNetwork for vAppNetwork in vAppNetworkList]
-        # if networks present
-        networkPayloadData = ''
-        if networkList:
-            # iterating over the network list
-            for network, vAppNetwork in networkList:
-                # creating payload dictionary with network details
-                networkName = "{}network/{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                                    network["id"].split(':')[-1])
-                payloadDict = {'networkName': network['name'],
-                               'networkDescription': vAppNetwork['Description'] if vAppNetwork.get(
-                                   'Description') else '',
-                               'parentNetwork': networkName,
-                               'fenceMode': vAppNetwork['Configuration']['FenceMode']}
-                payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                          componentName=vcdConstants.COMPONENT_NAME,
-                                                          templateName=vcdConstants.MOVE_VAPP_NETWORK_CONFIG_TEMPLATE)
-                networkPayloadData += payloadData.strip("\"")
-        # creating payload for no network and vapp network
-        if otherNetworkList:
-            for network in otherNetworkList:
-                if not network['Configuration'].get('ParentNetwork'):
-                    if network['@networkName'] == 'none':
-                        networkName = network['@networkName']
-                    else:
-                        if rollback:
-                            networkName = network['@networkName'].replace('-v2t', '')
-                        else:
-                            networkName = network['@networkName'] + '-v2t'
-                    featuresConfig = ''
-                    # Check DHCP service and Enable DHCP service.
-                    sourceDhcpConfig = network['Configuration'].get('Features', {}).get('DhcpService', {})
-                    if sourceDhcpConfig.get('IsEnabled') == 'true':
-                        payloadDict = {
-                            'isEnabled': sourceDhcpConfig['IsEnabled'],
-                            'defaultLeaseTime': sourceDhcpConfig.get('DefaultLeaseTime'),
-                            'maxLeaseTime': sourceDhcpConfig['MaxLeaseTime'],
-                            'ipRangeStartAddress': sourceDhcpConfig['IpRange']['StartAddress'],
-                            'ipRangeEndAddress': sourceDhcpConfig['IpRange']['EndAddress'],
-                        }
-                        dhcpConfig = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                                 componentName=vcdConstants.COMPONENT_NAME,
-                                                                 templateName='moveVappNetworkConfigFeaturesDhcp',).strip('"')
 
-                        payloadDict = {'dhcpConfig': dhcpConfig, }
-                        featuresConfig = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                                     componentName=vcdConstants.COMPONENT_NAME,
-                                                                     templateName='moveVappNetworkConfigFeatures', ).strip('"')
+        payloadDict = {
+            'vAppHref': vApp['@href'],
+            'networkConfig': self.createMoveVappNetworkPayload(vAppData, targetOrgVDCNetworkList, filePath, rollback),
+            'vmDetails': self.createMoveVappVmPayload(vApp, targetOrgVDCId, rollback=rollback),
+        }
+        payloadData = self.vcdUtils.createPayload(
+            filePath, payloadDict, fileType='yaml', componentName=vcdConstants.COMPONENT_NAME,
+            templateName=vcdConstants.MOVE_VAPP_TEMPLATE)
 
-                    # if static ip pools exist in vapp network
-                    if network['Configuration']['IpScopes']['IpScope'].get('IpRanges'):
-                        payloadDict = {'networkName': networkName,
-                                       'networkDescription': network['Description'] if network.get(
-                                           'Description') else '',
-                                       'fenceMode': network['Configuration']['FenceMode'],
-                                       'isInherited': network['Configuration']['IpScopes']['IpScope']['IsInherited'],
-                                       'gateway': network['Configuration']['IpScopes']['IpScope']['Gateway'],
-                                       'netmask': network['Configuration']['IpScopes']['IpScope']['Netmask'],
-                                       'subnet': network['Configuration']['IpScopes']['IpScope'][
-                                           'SubnetPrefixLength'] if
-                                       network['Configuration']['IpScopes']['IpScope'].get('SubnetPrefixLength') else 1,
-                                       'dns1': network['Configuration']['IpScopes']['IpScope']['Dns1'] if
-                                       network['Configuration']['IpScopes']['IpScope'].get('Dns1') else '',
-                                       'startAddress':
-                                           network['Configuration']['IpScopes']['IpScope']['IpRanges']['IpRange'][
-                                               'StartAddress'],
-                                       'endAddress':
-                                           network['Configuration']['IpScopes']['IpScope']['IpRanges']['IpRange'][
-                                               'EndAddress'],
-                                       'isDeployed': network['IsDeployed'],
-                                       'featuresConfig': featuresConfig,
-                                       }
-                        payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                                  componentName=vcdConstants.COMPONENT_NAME,
-                                                                  templateName=vcdConstants.MOVE_VAPP_NO_NETWORK_IP_POOL_CONFIG_TEMPLATE)
-                    else:
-                        payloadDict = {'networkName': networkName,
-                                       'networkDescription': network['Description'] if network.get(
-                                           'Description') else '',
-                                       'fenceMode': network['Configuration']['FenceMode'],
-                                       'isInherited': network['Configuration']['IpScopes']['IpScope']['IsInherited'],
-                                       'gateway': network['Configuration']['IpScopes']['IpScope']['Gateway'],
-                                       'netmask': network['Configuration']['IpScopes']['IpScope']['Netmask'],
-                                       'subnet': network['Configuration']['IpScopes']['IpScope'][
-                                           'SubnetPrefixLength'] if
-                                       network['Configuration']['IpScopes']['IpScope'].get('SubnetPrefixLength') else 1,
-                                       'dns1': network['Configuration']['IpScopes']['IpScope']['Dns1'] if
-                                       network['Configuration']['IpScopes']['IpScope'].get('Dns1') else '',
-                                       'isDeployed': network['IsDeployed'],
-                                       'featuresConfig': featuresConfig
-                                       }
-                        payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                                  componentName=vcdConstants.COMPONENT_NAME,
-                                                                  templateName=vcdConstants.MOVE_VAPP_NO_NETWORK_CONFIG_TEMPLATE)
-                    networkPayloadData += payloadData.strip("\"")
-        # create vApp children vm's payload
-        vmPayloadData = self.createMoveVappVmPayload(vApp, targetOrgVDCId, rollback=rollback)
-        if vmPayloadData and networkPayloadData:
-            payloadDict = {'vAppHref': vApp['@href'],
-                           'networkConfig': networkPayloadData,
-                           'vmDetails': vmPayloadData}
-            # creating payload data
-            payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                      componentName=vcdConstants.COMPONENT_NAME,
-                                                      templateName=vcdConstants.MOVE_VAPP_TEMPLATE)
-        elif vmPayloadData and not networkPayloadData:
-            payloadDict = {'vAppHref': vApp['@href'],
-                           'vmDetails': vmPayloadData}
-            # creating payload data
-            payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                      componentName=vcdConstants.COMPONENT_NAME,
-                                                      templateName=vcdConstants.MOVE_VAPP_NO_NETWORK_VM_TEMPLATE)
-        payloadData = json.loads(payloadData)
-        # url to compose vapp in target org vdc
-        url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                            vcdConstants.MOVE_VAPP_IN_ORG_VDC.format(targetOrgVDCId))
+        url = "{}{}".format(
+            vcdConstants.XML_API_URL.format(self.ipAddress),
+            vcdConstants.MOVE_VAPP_IN_ORG_VDC.format(targetOrgVDCId))
         self.headers["Content-Type"] = vcdConstants.XML_MOVE_VAPP
-        # post api call to compose vapps in target org vdc
-        response = self.restClientObj.post(url, self.headers, data=payloadData)
+
+        response = self.restClientObj.post(url, self.headers, data=json.loads(payloadData))
         if response.status_code == requests.codes.accepted:
             responseDict = self.vcdUtils.parseXml(response.content)
-            task = responseDict["Task"]
-            taskUrl = task["@href"]
+            taskUrl = responseDict["Task"]["@href"]
             if taskUrl:
                 # checking for the status of the composing vapp task
                 self._checkTaskStatus(taskUrl, timeoutForTask=timeout)
@@ -3859,13 +3842,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             responseDict = self.vcdUtils.parseXml(response.content)
             raise Exception(
                 'Failed to move vApp - {} with errors {}'.format(vApp['@name'], responseDict['Error']['@message']))
+
         if rollback:
             logger.info(
                 'Moved vApp - {} successfully to source Org VDC - {}'.format(vApp['@name'], sourceOrgVDCName))
         else:
             logger.info(
-                'Moved vApp - {} successfully to target Org VDC - {}'.format(vApp['@name'],
-                                                                             sourceOrgVDCName + '-v2t'))
+                'Moved vApp - {} successfully to target Org VDC - {}'.format(vApp['@name'], sourceOrgVDCName + '-v2t'))
 
     @isSessionExpired
     def moveVapp(self, sourceOrgVDCIdList, targetOrgVDCIdList, targetOrgVDCNetworkList, timeout, vcdObjList, sourceOrgVDCNameList=None, rollback=False):
