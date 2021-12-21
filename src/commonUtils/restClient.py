@@ -51,6 +51,10 @@ class RestAPIClient():
                       kwargs      - (OPTIONAL) parameters used in REST request. (DICTIONARY)
         Returns     : Response object
         """
+        # Encode payload in 'utf-8' to support international languages
+        if 'data' in kwargs:
+            kwargs['data'] = kwargs['data'].encode('utf-8')
+
         # post api call of requests module
         responseData = requests.post(url=url, headers=headers, auth=auth, verify=self.verify, timeout=REQUEST_TIMEOUT, **kwargs)
         return responseData
@@ -63,6 +67,10 @@ class RestAPIClient():
                       kwargs      - (OPTIONAL) parameters used in REST request. (DICTIONARY)
         Returns     : Response object
         """
+        # Encode payload in 'utf-8' to support international languages
+        if 'data' in kwargs:
+            kwargs['data'] = kwargs['data'].encode('utf-8')
+
         # put api call of requests module
         responseData = requests.put(url=url, headers=headers, verify=self.verify, timeout=REQUEST_TIMEOUT, **kwargs)
         return responseData
@@ -75,6 +83,10 @@ class RestAPIClient():
                       kwargs      - (OPTIONAL) parameters used in REST request. (DICTIONARY)
         Returns     : Response object
         """
+        # Encode payload in 'utf-8' to support international languages
+        if 'data' in kwargs:
+            kwargs['data'] = kwargs['data'].encode('utf-8')
+
         # patch api call of requests module
         responseData = requests.patch(url=url, headers=headers, verify=self.verify, timeout=REQUEST_TIMEOUT, **kwargs)
         return responseData
