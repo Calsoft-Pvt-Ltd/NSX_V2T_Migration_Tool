@@ -366,7 +366,7 @@ class VCDMigrationValidation:
             responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
                 if responseDict['Metadata'].get('MetadataEntry'):
-                    metaDataList = responseDict['Metadata']['MetadataEntry'] if isinstance(responseDict['Metadata']['MetadataEntry'], list) else [responseDict['Metadata']['MetadataEntry']]
+                    metaDataList = listify(responseDict['Metadata']['MetadataEntry'])
                     if rawData:
                         return metaDataList
                     for data in metaDataList:
@@ -385,14 +385,14 @@ class VCDMigrationValidation:
                             else:
                                 # Replacing -v2t postfix with empty string
                                 metadataKey = metadataKey.replace('-v2t', '')
-                            # Checking and restoring api data from metadata
-                            if '&amp;' in data['TypedValue']['Value']:
-                                metadataValue = metadataValue.replace('&amp;', '&')
 
                             # Converting python objects back from string
                             try:
                                 metadataValue = eval(metadataValue)
-                            except (SyntaxError, NameError, ValueError):
+                            except (SyntaxError, NameError, ValueError) as e:
+                                logger.warning(f'Failed to evaluate {metadataKey}: {e}')
+                                logger.exception(e)
+                                logger.error(metadataValue)
                                 pass
 
                         metaData[metadataKey] = metadataValue
@@ -550,9 +550,6 @@ class VCDMigrationValidation:
                         else:
                             # appending -vdt to metadata key for identification of migration tool metadata
                             key += '-v2t'
-                        # replacing & with escape value for XML based API's
-                        if '&' in str(value):
-                            value = eval(str(value).replace('&', '&amp;'))
                         metadataType = 'MetadataStringValue'
                     else:
                         # Fetch domain of user-defined metadata and create payload from it

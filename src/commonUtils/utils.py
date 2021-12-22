@@ -16,6 +16,7 @@ import certifi
 import jinja2
 import yaml
 import xmltodict
+from xml.sax.saxutils import escape
 
 logger = logging.getLogger('mainLogger')
 
@@ -159,6 +160,18 @@ class Utilities():
         Returns     : payloadData   - Returns the updated payload data of particular template
         """
         try:
+            def normalize_payload(payload):
+                if isinstance(payload, str) and not payload.startswith('<'):
+                    return escape(payload, {'\n': '\\n'})
+
+                if isinstance(payload, dict):
+                    return {key: normalize_payload(value) for key, value in payload.items()}
+
+                if isinstance(payload, list):
+                    return [normalize_payload(item) for item in payload]
+
+                return payload
+
             if fileType.lower() == 'json':
                 # load json file into dict
                 templateData = self.readJsonData(filePath)
@@ -166,6 +179,8 @@ class Utilities():
             else:
                 templateData = self.readYamlData(filePath)
                 templateData = json.dumps(templateData)
+                payloadDict = normalize_payload(payloadDict)
+
             # check if the componentName and templateName exists in File, if exists then return it's data
             if componentName and templateName:
                 templateData = json.loads(templateData)
