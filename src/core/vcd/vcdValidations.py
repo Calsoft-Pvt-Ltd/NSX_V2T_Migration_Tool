@@ -396,6 +396,9 @@ class VCDMigrationValidation:
                                 pass
 
                         metaData[metadataKey] = metadataValue
+
+                logger.debug('Metadata retrieved successfully')
+                logger.debug(metaData)
                 return metaData
             raise Exception("Failed to retrieve metadata")
         except Exception:
@@ -4147,8 +4150,8 @@ class VCDMigrationValidation:
             self.getNsxDetails(inputDict["NSXT"]["Common"]["ipAddress"])
 
             # validating whether target org vdc with same name as that of source org vdc exists
-            logger.info("Validating whether target Org VDC already exists")
-            self.validateNoTargetOrgVDCExists(vdcDict["OrgVDCName"])
+            # logger.info("Validating whether target Org VDC already exists")
+            # self.validateNoTargetOrgVDCExists(vdcDict["OrgVDCName"])
 
             # getting the target External Network details
             logger.info(
@@ -4171,12 +4174,12 @@ class VCDMigrationValidation:
             self.getProviderVDCDetails(sourceProviderVDCId, isNSXTbacked)
 
             # validating the source network pool backing
-            logger.info("Validating Source Network Pool backing")
-            self.validateSourceNetworkPools(cloneOverlayIds=inputDict["VCloudDirector"].get("CloneOverlayIds"))
+            # logger.info("Validating Source Network Pool backing")
+            # self.validateSourceNetworkPools(cloneOverlayIds=inputDict["VCloudDirector"].get("CloneOverlayIds"))
 
             # validating whether source org vdc is NSX-V backed
-            logger.info('Validating whether source Org VDC is NSX-V backed')
-            self.validateOrgVDCNSXbacking(sourceOrgVDCId, sourceProviderVDCId, isNSXTbacked)
+            # logger.info('Validating whether source Org VDC is NSX-V backed')
+            # self.validateOrgVDCNSXbacking(sourceOrgVDCId, sourceProviderVDCId, isNSXTbacked)
 
             #  getting the target provider VDC details and checking if its NSX-T backed
             logger.info(
@@ -4187,32 +4190,32 @@ class VCDMigrationValidation:
             # validating hardware version of source and target Provider VDC
             logging.info('Validating Hardware version of Source Provider VDC: {} and Target Provider VDC: {}'.format(
                 vdcDict["NSXVProviderVDCName"], vdcDict["NSXTProviderVDCName"]))
-            self.validateHardwareVersion()
+            # self.validateHardwareVersion()
 
             # validating if the target provider vdc is enabled or not
-            logger.info(
-                'Validating Target Provider VDC {} is enabled'.format(vdcDict["NSXTProviderVDCName"]))
-            self.validateTargetProviderVdc()
+            # logger.info(
+            #     'Validating Target Provider VDC {} is enabled'.format(vdcDict["NSXTProviderVDCName"]))
+            # self.validateTargetProviderVdc()
 
             # disable the source Org VDC so that operations cant be performed on it
-            logger.info('Disabling the source Org VDC - {}'.format(vdcDict["OrgVDCName"]))
-            disableOrgVDC = self.disableOrgVDC(sourceOrgVDCId)
+            # logger.info('Disabling the source Org VDC - {}'.format(vdcDict["OrgVDCName"]))
+            # disableOrgVDC = self.disableOrgVDC(sourceOrgVDCId)
 
             # validating the source org vdc placement policies exist in target PVDC also
-            logger.info('Validating whether source org vdc - {} placement policies are present in target PVDC'.format(
-                vdcDict["OrgVDCName"]))
-            self.validateVMPlacementPolicy(sourceOrgVDCId)
+            # logger.info('Validating whether source org vdc - {} placement policies are present in target PVDC'.format(
+            #     vdcDict["OrgVDCName"]))
+            # self.validateVMPlacementPolicy(sourceOrgVDCId)
 
             # validating whether source and target P-VDC have same vm storage profiles
-            logger.info('Validating storage profiles in source Org VDC and target Provider VDC')
-            self.validateStorageProfiles()
+            # logger.info('Validating storage profiles in source Org VDC and target Provider VDC')
+            # self.validateStorageProfiles()
 
             # Getting Org VDC Edge Gateway Id
             sourceEdgeGatewayIdList = self.getOrgVDCEdgeGatewayId(sourceOrgVDCId, saveResponse=True)
             self.rollback.apiData['sourceEdgeGatewayId'] = sourceEdgeGatewayIdList
 
-            logger.info("Validating Edge cluster for target edge gateway deployment")
-            self.validateEdgeGatewayDeploymentEdgeCluster(vdcDict.get('EdgeGatewayDeploymentEdgeCluster', None), nsxtObj)
+            # logger.info("Validating Edge cluster for target edge gateway deployment")
+            # self.validateEdgeGatewayDeploymentEdgeCluster(vdcDict.get('EdgeGatewayDeploymentEdgeCluster', None), nsxtObj)
 
             # getting the source External Network details
             logger.info('Getting the source External Network details.')
@@ -4221,20 +4224,20 @@ class VCDMigrationValidation:
                 raise sourceExternalNetwork
 
             # validating whether same subnet exist in source and target External networks
-            logger.info('Validating source and target External networks have same subnets')
-            self.validateExternalNetworkSubnets()
+            # logger.info('Validating source and target External networks have same subnets')
+            # self.validateExternalNetworkSubnets()
 
             # Validate whether the external network is linked to NSXT provided in the input file or not
-            logger.info('Validating Target External Network with NSXT provided in input file')
-            self.validateExternalNetworkWithNSXT()
+            # logger.info('Validating Target External Network with NSXT provided in input file')
+            # self.validateExternalNetworkWithNSXT()
 
-            logger.info('Validating if all edge gateways interfaces are in use')
-            self.validateEdgeGatewayUplinks(sourceOrgVDCId, sourceEdgeGatewayIdList)
+            # logger.info('Validating if all edge gateways interfaces are in use')
+            # self.validateEdgeGatewayUplinks(sourceOrgVDCId, sourceEdgeGatewayIdList)
 
             # validating whether edge gateway have dedicated external network
-            logger.info('Validating whether other Edge gateways are using dedicated external network')
-            self.validateDedicatedExternalNetwork(inputDict, sourceEdgeGatewayIdList,
-                                                  vdcDict.get("AdvertiseRoutedNetworks"))
+            # logger.info('Validating whether other Edge gateways are using dedicated external network')
+            # self.validateDedicatedExternalNetwork(inputDict, sourceEdgeGatewayIdList,
+            #                                       vdcDict.get("AdvertiseRoutedNetworks"))
 
             # getting the source Org VDC networks
             logger.info('Getting the Org VDC networks of source Org VDC {}'.format(vdcDict["OrgVDCName"]))
@@ -4246,31 +4249,31 @@ class VCDMigrationValidation:
 
             # validating whether DHCP is enabled on source Isolated Org VDC network
             edgeGatewayDeploymentEdgeCluster = vdcDict.get('EdgeGatewayDeploymentEdgeCluster', None)
-            self.validateDHCPEnabledonIsolatedVdcNetworks(orgVdcNetworkList, sourceEdgeGatewayIdList, edgeGatewayDeploymentEdgeCluster,nsxtObj)
+            # self.validateDHCPEnabledonIsolatedVdcNetworks(orgVdcNetworkList, sourceEdgeGatewayIdList, edgeGatewayDeploymentEdgeCluster,nsxtObj)
 
             # validating whether any org vdc network is shared or not
-            logger.info('Validating whether shared networks are supported or not')
-            self.validateOrgVDCNetworkShared(sourceOrgVDCId)
+            # logger.info('Validating whether shared networks are supported or not')
+            # self.validateOrgVDCNetworkShared(sourceOrgVDCId)
 
             # validating whether any source org vdc network is not direct network
-            logger.info('Validating Source OrgVDC Direct networks')
+            # logger.info('Validating Source OrgVDC Direct networks')
             providerVDCImportedNeworkTransportZone = inputDict["VCloudDirector"].get("ImportedNetworkTransportZone", None)
-            self.validateOrgVDCNetworkDirect(orgVdcNetworkList, vdcDict["NSXTProviderVDCName"],
-                                             providerVDCImportedNeworkTransportZone, nsxtObj)
+            # self.validateOrgVDCNetworkDirect(orgVdcNetworkList, vdcDict["NSXTProviderVDCName"],
+            #                                  providerVDCImportedNeworkTransportZone, nsxtObj)
 
             # validating NSX-V and NSX-T VNI pool ranges
-            logger.info('Validating whether the source NSX-V Segment ID Pool is subset of target NSX-T VNI pool or not')
-            self.validateVniPoolRanges(nsxtObj, nsxvObj,
-                                       cloneOverlayIds=inputDict['VCloudDirector'].get('CloneOverlayIds'))
+            # logger.info('Validating whether the source NSX-V Segment ID Pool is subset of target NSX-T VNI pool or not')
+            # self.validateVniPoolRanges(nsxtObj, nsxvObj,
+            #                            cloneOverlayIds=inputDict['VCloudDirector'].get('CloneOverlayIds'))
 
             # validating target external network pools
             nsxtNetworkPoolName = vdcDict.get('NSXTNetworkPoolName', None)
-            logger.info('Validating Target NSXT backed Network Pools')
-            self.validateTargetPvdcNetworkPools(nsxtNetworkPoolName)
+            # logger.info('Validating Target NSXT backed Network Pools')
+            # self.validateTargetPvdcNetworkPools(nsxtNetworkPoolName)
 
             # validating cross vdc networking
-            logger.info('Validating Cross VDC Networking is enabled or not')
-            self.validateCrossVdcNetworking(sourceOrgVDCId)
+            # logger.info('Validating Cross VDC Networking is enabled or not')
+            # self.validateCrossVdcNetworking(sourceOrgVDCId)
         except:
             # Enabling source Org VDC if premigration validation fails
             if disableOrgVDC:

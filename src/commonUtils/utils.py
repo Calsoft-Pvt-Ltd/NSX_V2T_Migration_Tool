@@ -161,9 +161,12 @@ class Utilities():
         """
         try:
             fileType = fileType.lower()
+            self.count = 0
             def normalize_payload(payload):
+                self.count += 1
                 if isinstance(payload, str) and not payload.startswith('<'):
                     if fileType == 'json':
+                        # TODO pranshu: check for \n replacement
                         return payload.replace('\\', '\\\\')
                     if fileType == 'yaml':
                         return escape(payload, {'\n': '\\n', '\\': '\\\\'})
@@ -203,8 +206,17 @@ class Utilities():
             # get the template with data which needs to be updated
             template = self.getTemplate(templateData)
             # render the template with the desired payloadDict
-            payloadData = template.render(normalize_payload(payloadDict))
+
+            logger.debug(payloadDict)
+            payloadDict = normalize_payload(payloadDict)
+            logger.debug(payloadDict)
+            logger.warning(self.count)
+
+            payloadData = template.render(payloadDict)
             # payloadData = json.loads(payloadData)
+
+            logger.debug(payloadData)
+
             logger.debug('Successfully created payload.')
             return payloadData
         except Exception as err:

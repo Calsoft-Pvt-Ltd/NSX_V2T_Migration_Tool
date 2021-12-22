@@ -585,6 +585,9 @@ class VMwareCloudDirectorNSXMigrator():
             # Fetching apiData from metadata and send apiData to every class
             if metadata:
                 vcdObj.rollback.apiData.update(vcdObj.getOrgVDCMetadata(sourceOrgVDCId, domain='general'))
+
+            # raise
+
         except:
             self.consoleLogger.error(traceback.format_exc())
             raise
@@ -812,7 +815,7 @@ class VMwareCloudDirectorNSXMigrator():
                                                            self.nsxtObjList[0], self.vcenterObj, self.vcdObjList)
 
             # Perform check for sharedNetwork.
-            self.vcdObjList[0].sharedNetworkChecks(self.inputDict, self.vcdObjList, self.orgVDCData)
+            # self.vcdObjList[0].sharedNetworkChecks(self.inputDict, self.vcdObjList, self.orgVDCData)
             # Preparing Target VDC
             futures = list()
             with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
