@@ -160,14 +160,18 @@ class Utilities():
         Returns     : payloadData   - Returns the updated payload data of particular template
         """
         try:
+            fileType = fileType.lower()
             def normalize_payload(payload):
                 if isinstance(payload, str) and not payload.startswith('<'):
-                    return escape(payload, {'\n': '\\n'})
+                    if fileType == 'json':
+                        return payload.replace('\\', '\\\\')
+                    if fileType == 'yaml':
+                        return escape(payload, {'\n': '\\n', '\\': '\\\\'})
 
                 if isinstance(payload, dict):
                     return {key: normalize_payload(value) for key, value in payload.items()}
 
-                if isinstance(payload, list):
+                if isinstance(payload, (list, tuple)):
                     return [normalize_payload(item) for item in payload]
 
                 return payload
@@ -179,7 +183,6 @@ class Utilities():
             else:
                 templateData = self.readYamlData(filePath)
                 templateData = json.dumps(templateData)
-                payloadDict = normalize_payload(payloadDict)
 
             # check if the componentName and templateName exists in File, if exists then return it's data
             if componentName and templateName:
@@ -200,7 +203,7 @@ class Utilities():
             # get the template with data which needs to be updated
             template = self.getTemplate(templateData)
             # render the template with the desired payloadDict
-            payloadData = template.render(payloadDict)
+            payloadData = template.render(normalize_payload(payloadDict))
             # payloadData = json.loads(payloadData)
             logger.debug('Successfully created payload.')
             return payloadData
