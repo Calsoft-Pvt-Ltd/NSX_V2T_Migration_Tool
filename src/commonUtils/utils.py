@@ -231,17 +231,22 @@ class Utilities():
             yield int(i / n), _list[i:i + n]
 
     @staticmethod
-    def renderInputDict(dataStructure):
+    def renderInputDict(dataStructure, arg = None):
         """Renders all the values to string apart from required ones"""
         if isinstance(dataStructure, dict):
             for key, value in dataStructure.items():
                 if not isinstance(value, (dict, list, bool)) and value != None:
                     dataStructure[key] = str(value)
-                Utilities.renderInputDict(value)
+                if isinstance(value, bool) and key not in ['verify', 'MaxThreadCount', 'TimeoutForVappMigration', \
+                                                           'AdvertiseRoutedNetworks', 'CloneOverlayIds']:
+                    dataStructure[key] = str(value)
+                Utilities.renderInputDict(value, arg)
         elif isinstance(dataStructure, list):
             for index in reversed(range(len(dataStructure))):
                 if isinstance(dataStructure[index], dict):
-                    Utilities.renderInputDict(dataStructure[index])
+                    Utilities.renderInputDict(dataStructure[index], arg)
+                if arg:
+                    dataStructure[index] = str(dataStructure[index])
 
     @staticmethod
     def parseXml(response):

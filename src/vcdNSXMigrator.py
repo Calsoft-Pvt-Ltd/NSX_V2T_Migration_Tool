@@ -674,7 +674,7 @@ class VMwareCloudDirectorNSXMigrator():
             with open(self.userInputFilePath) as f:
                 self.inputDict = yaml.safe_load(f)
                 # Render dict values as strings
-                Utilities.renderInputDict(self.inputDict)
+                Utilities.renderInputDict(self.inputDict, self.v2tAssessment)
 
             # Execute v2tAssessment
             if self.v2tAssessment:
