@@ -242,26 +242,59 @@ vCloudDirector:
               </root:IpRange>
             </root:DhcpService>
             {% endif %} {# if 'dhcpConfig' in network.features \#}
+            {% if 'FirewallService' in network.features %}
+              {% set FirewallService = network.features.FirewallService %}
+            <root:FirewallService>
+              <root:IsEnabled>{{ FirewallService.IsEnabled }}</root:IsEnabled>
+              <root:DefaultAction>{{ FirewallService.DefaultAction }}</root:DefaultAction>
+              <root:LogDefaultAction>{{ FirewallService.LogDefaultAction }}</root:LogDefaultAction>
+              {% for rule in FirewallService.FirewallRule %}
+              <root:FirewallRule>
+                {% if 'Id' in rule %}
+                <root:Id>{{ rule.Id }}</root:Id>
+                {% endif %}
+                <root:IsEnabled>{{ rule.IsEnabled }}</root:IsEnabled>
+                <root:Description>{{ rule.Description }}</root:Description>
+                <root:Policy>{{ rule.Policy }}</root:Policy>
+                <root:Protocols>
+                  {% for protocol, status in rule.Protocols.items() %}
+                  <root:{{ protocol }}>{{ status }}</root:{{ protocol }}>
+                  {% endfor %}
+                </root:Protocols>
+                {% if 'IcmpSubType' in rule %}
+                <root:IcmpSubType>{{ rule.IcmpSubType }}</root:IcmpSubType>
+                {% endif %}
+                <root:DestinationPortRange>{{ rule.DestinationPortRange }}</root:DestinationPortRange>
+                {% if 'DestinationIp' in rule %}
+                <root:DestinationIp>{{ rule.DestinationIp }}</root:DestinationIp>
+                {% endif %}
+                {% if 'DestinationVm' in rule %}
+                <root:DestinationVm>
+                  <root:VAppScopedVmId>{{ rule.DestinationVm.VAppScopedVmId }}</root:VAppScopedVmId>
+                  <root:VmNicId>{{ rule.DestinationVm.VmNicId }}</root:VmNicId>
+                  <root:IpType>{{ rule.DestinationVm.IpType }}</root:IpType>
+                </root:DestinationVm>
+                {% endif %}
+                <root:SourcePortRange>{{ rule.SourcePortRange }}</root:SourcePortRange>
+                {% if 'SourceIp' in rule %}
+                <root:SourceIp>{{ rule.SourceIp }}</root:SourceIp>
+                {% endif %}
+                {% if 'SourceVm' in rule %}
+                <root:SourceVm>
+                  <root:VAppScopedVmId>{{ rule.SourceVm.VAppScopedVmId }}</root:VAppScopedVmId>
+                  <root:VmNicId>{{ rule.SourceVm.VmNicId }}</root:VmNicId>
+                  <root:IpType>{{ rule.SourceVm.IpType }}</root:IpType>
+                </root:SourceVm>
+                {% endif %}
+                {% if 'EnableLogging' in rule %}
+                <root:EnableLogging>{{ rule.EnableLogging }}</root:EnableLogging>
+                {% endif %}
+              </root:FirewallRule>
+              {% endfor %} {# for rule in NatService.FirewallRule \#}
+            </root:FirewallService>
+            {% endif %} {# if 'FirewallService' in network.features \#}
             {% if 'NatService' in network.features %}
               {% set NatService = network.features.NatService %}
-            <root:FirewallService>
-              <root:IsEnabled>true</root:IsEnabled>
-              <root:DefaultAction>allow</root:DefaultAction>
-              <root:LogDefaultAction>false</root:LogDefaultAction>
-              <root:FirewallRule>
-                <root:IsEnabled>true</root:IsEnabled>
-                <root:Description>Allow all outgoing traffic</root:Description>
-                <root:Policy>allow</root:Policy>
-                <root:Protocols>
-                  <root:Any>true</root:Any>
-                </root:Protocols>
-                <root:DestinationPortRange>Any</root:DestinationPortRange>
-                <root:DestinationIp>external</root:DestinationIp>
-                <root:SourcePortRange>Any</root:SourcePortRange>
-                <root:SourceIp>internal</root:SourceIp>
-                <root:EnableLogging>false</root:EnableLogging>
-              </root:FirewallRule>
-            </root:FirewallService>
             <root:NatService>
               <root:IsEnabled>{{ NatService.IsEnabled }}</root:IsEnabled>
               <root:NatType>{{ NatService.NatType }}</root:NatType>
