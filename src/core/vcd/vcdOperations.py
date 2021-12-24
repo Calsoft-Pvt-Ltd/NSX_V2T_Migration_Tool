@@ -3813,6 +3813,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if sourceDhcpConfig.get('IsEnabled') == 'true':
                     featuresConfig['dhcpConfig'] = sourceDhcpConfig
 
+            # Firewall service config
+            if vAppNetwork['Configuration']['Features'].get('FirewallService'):
+                firewallConfig = vAppNetwork['Configuration']['Features']['FirewallService']
+                firewallConfig['FirewallRule'] = listify(firewallConfig.get('FirewallRule'))
+                featuresConfig['FirewallService'] = firewallConfig
+
             # NAT service config
             if vAppNetwork['Configuration']['Features'].get('NatService'):
                 natConfig = vAppNetwork['Configuration']['Features']['NatService']
