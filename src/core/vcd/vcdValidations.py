@@ -4647,8 +4647,8 @@ class VCDMigrationValidation:
         """
         try:
             vAppResponse = self.restClientObj.get(vApp['@href'], self.headers)
+            responseDict = self.vcdUtils.parseXml(vAppResponse.content)
             if vAppResponse.status_code == requests.codes.ok:
-                responseDict = self.vcdUtils.parseXml(vAppResponse.content)
                 # checking if the vapp has vms present in it
                 if 'VApp' in responseDict.keys():
                     if not responseDict['VApp'].get('Children'):
@@ -4656,7 +4656,7 @@ class VCDMigrationValidation:
                 else:
                     raise Exception(f"Failed to get vApp {vApp['@name']} details.")
             else:
-                raise Exception(f"Failed to get vApp {vApp['@name']} details.")
+                raise Exception(f"Failed to get vApp {vApp['@name']} details: {responseDict['Error']['@message']}")
 
         except Exception:
             raise

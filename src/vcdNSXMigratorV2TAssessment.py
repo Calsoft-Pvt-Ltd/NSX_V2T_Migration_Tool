@@ -625,10 +625,10 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                             else:
                                                 orgVDCResult["LoadBalancer: Unsupported algorithm"] = False
                                             if "Application profile is not configured" in ''.join(result):
-                                                self.orgVDCResult[
+                                                orgVDCResult[
                                                     "LoadBalancer: Application profile is not configured"] = True
                                             else:
-                                                self.orgVDCResult[
+                                                orgVDCResult[
                                                     "LoadBalancer: Application profile is not configured"] = False
                                         if serviceName == "DHCP":
                                             if "Domain names are configured as a DHCP servers" in ''.join(result):
