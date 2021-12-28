@@ -334,6 +334,8 @@ class VMwareCloudDirectorNSXMigrator():
 
         if bool(errorInputDict):
             raise Exception('Input Validation Error - {}'.format(errorInputDict))
+        if 'EdgeClusterName' not in self.inputDict["NSXT"]:
+            self.inputDict["NSXT"]["EdgeClusterName"] = []
 
         # Validating thread count in user input yaml file
         try:
@@ -844,9 +846,17 @@ class VMwareCloudDirectorNSXMigrator():
 
             # Check if bridging is to be performed or not
             if mainConstants.BRIDGING_KEYWORD in self.executeList:
-                # Perform checks related to bridging
-                orgVDCIDList = [data["id"] for data in self.orgVDCData.values()]
-                self.vcdObjList[0].checkBridgingComponents(orgVDCIDList, self.inputDict["NSXT"]["EdgeClusterName"],
+                # Getting source org vdc network list
+                orgVdcNetworkList = list()
+                for orgVDCId, vcdObj in zip([data["id"] for data in self.orgVDCData.values()], self.vcdObjList):
+                    orgVdcNetworkList += vcdObj.retrieveNetworkListFromMetadata(orgVDCId, orgVDCType='source')
+                # filtering the org vdc list as direct networks do not need to be bridged
+                filteredList = copy.deepcopy(orgVdcNetworkList)
+                filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', filteredList))
+                if filteredList:
+                    # Perform checks related to bridging
+                    orgVDCIDList = [data["id"] for data in self.orgVDCData.values()]
+                    self.vcdObjList[0].checkBridgingComponents(orgVDCIDList, self.inputDict["NSXT"]["EdgeClusterName"],
                                                            self.nsxtObjList[0], self.vcenterObj, self.vcdObjList)
 
             # Perform check for sharedNetwork.
@@ -868,13 +878,6 @@ class VMwareCloudDirectorNSXMigrator():
 
             # Check if bridging is to be performed or not
             if mainConstants.BRIDGING_KEYWORD in self.executeList:
-                # Getting source org vdc network list
-                orgVdcNetworkList = list()
-                for orgVDCId, vcdObj in zip([data["id"] for data in self.orgVDCData.values()], self.vcdObjList):
-                    orgVdcNetworkList += vcdObj.retrieveNetworkListFromMetadata(orgVDCId, orgVDCType='source')
-                # filtering the org vdc list as direct networks do not need to be bridged
-                filteredList = copy.deepcopy(orgVdcNetworkList)
-                filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', filteredList))
                 # only if org vdc networks exist bridging will be configured
                 if filteredList:
                     # Configuring Bridging
