@@ -3775,19 +3775,23 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
         def prepareIpScopesConfig(vAppNetwork):
             """Prepare target network ipscopes config"""
-            if (vAppNetwork['Configuration'].get('IpScopes') and
-                    vAppNetwork['Configuration']['IpScopes']['IpScope']['IsInherited'] == 'false'):
-                ipScope = vAppNetwork['Configuration']['IpScopes']['IpScope']
-                return {
-                    'isInherited': ipScope['IsInherited'],
-                    'gateway': ipScope['Gateway'],
-                    'netmask': ipScope['Netmask'],
-                    'subnet': ipScope.get('SubnetPrefixLength'),
-                    'dns1': ipScope.get('Dns1'),
-                    'dns2': ipScope.get('Dns2'),
-                    'dnsSuffix': ipScope.get('DnsSuffix'),
-                    'ipRanges': listify(ipScope.get('IpRanges', {}).get('IpRange')),
-                }
+            if vAppNetwork['Configuration'].get('IpScopes'):
+                ipScopes = listify(vAppNetwork['Configuration']['IpScopes']['IpScope'])
+
+                return [
+                    {
+                        'isInherited': ipScope['IsInherited'],
+                        'gateway': ipScope['Gateway'],
+                        'netmask': ipScope['Netmask'],
+                        'subnet': ipScope.get('SubnetPrefixLength'),
+                        'dns1': ipScope.get('Dns1'),
+                        'dns2': ipScope.get('Dns2'),
+                        'dnsSuffix': ipScope.get('DnsSuffix'),
+                        'ipRanges': listify(ipScope.get('IpRanges', {}).get('IpRange')),
+                    }
+                    for ipScope in ipScopes
+                    if ipScope['IsInherited'] == 'false'
+                ]
 
         def getParentNetwork(vAppNetwork):
             """Get target network's parent network"""

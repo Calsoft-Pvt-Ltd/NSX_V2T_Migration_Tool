@@ -232,33 +232,35 @@ vCloudDirector:
         <root:Configuration>
           {% if 'ipScopes' in network and network.ipScopes %}
           <root:IpScopes>
+            {% for ipScope in network.ipScopes %}
             <root:IpScope>
-              <root:IsInherited>{{ network.ipScopes.isInherited }}</root:IsInherited>
-              <root:Gateway>{{ network.ipScopes.gateway }}</root:Gateway>
-              <root:Netmask>{{ network.ipScopes.netmask }}</root:Netmask>
-              {% if network.ipScopes.subnet %}
-              <root:SubnetPrefixLength>{{ network.ipScopes.subnet }}</root:SubnetPrefixLength>
+              <root:IsInherited>{{ ipScope.isInherited }}</root:IsInherited>
+              <root:Gateway>{{ ipScope.gateway }}</root:Gateway>
+              <root:Netmask>{{ ipScope.netmask }}</root:Netmask>
+              {% if ipScope.subnet %}
+              <root:SubnetPrefixLength>{{ ipScope.subnet }}</root:SubnetPrefixLength>
               {% endif %}
-              {% if network.ipScopes.dns1 %}
-              <root:Dns1>{{ network.ipScopes.dns1 }}</root:Dns1>
+              {% if ipScope.dns1 %}
+              <root:Dns1>{{ ipScope.dns1 }}</root:Dns1>
               {% endif %}
-              {% if network.ipScopes.dns2 %}
-              <root:Dns2>{{ network.ipScopes.dns2 }}</root:Dns2>
+              {% if ipScope.dns2 %}
+              <root:Dns2>{{ ipScope.dns2 }}</root:Dns2>
               {% endif %}
-              {% if network.ipScopes.dnsSuffix %}
-              <root:DnsSuffix>{{ network.ipScopes.dnsSuffix }}</root:DnsSuffix>
+              {% if ipScope.dnsSuffix %}
+              <root:DnsSuffix>{{ ipScope.dnsSuffix }}</root:DnsSuffix>
               {% endif %}
-              {% if network.ipScopes.ipRanges %}
+              {% if ipScope.ipRanges %}
               <root:IpRanges>
-                {% for ipRange in network.ipScopes.ipRanges %}
+                {% for ipRange in ipScope.ipRanges %}
                 <root:IpRange>
                   <root:StartAddress>{{ ipRange.StartAddress }}</root:StartAddress>
                   <root:EndAddress>{{ ipRange.EndAddress }}</root:EndAddress>
                 </root:IpRange>
                 {% endfor %} {# for ipRange in ipRanges \#}
               </root:IpRanges>
-              {% endif %} {# if network.ipScopes.ipRanges \#}
+              {% endif %} {# if ipScope.ipRanges \#}
             </root:IpScope>
+            {% endfor %} {# ipScope in network.ipScopes \#}
           </root:IpScopes>
           {% endif %} {# if 'ipScopes' in network and network.ipScopes \#}
           {% if 'parentNetwork' in network and network.parentNetwork %}
