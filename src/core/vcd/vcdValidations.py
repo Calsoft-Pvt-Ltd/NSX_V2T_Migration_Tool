@@ -4201,8 +4201,11 @@ class VCDMigrationValidation:
                 logger.info('Validating NSX-T Bridge Uplink Profile does not exist')
                 nsxtObj.validateBridgeUplinkProfile()
 
-                logger.info('Validating Edge Cluster Exists in NSX-T and Edge Transport Nodes are not in use')
-                nsxtObj.validateEdgeNodesNotInUse(edgeClusterNameList)
+                if edgeClusterNameList:
+                    logger.info('Validating Edge Cluster Exists in NSX-T and Edge Transport Nodes are not in use')
+                    nsxtObj.validateEdgeNodesNotInUse(edgeClusterNameList)
+                else:
+                    raise Exception("EdgeClusterName is not provided")
 
                 nsxtObj.validateOrgVdcNetworksAndEdgeTransportNodes(edgeClusterNameList, orgVdcNetworkList)
 
