@@ -301,7 +301,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if sourceOrgVDCNetwork['name'] + '-v2t' in targetOrgVDCNetworksList:
                     continue
                 if sourceOrgVDCNetwork['networkType'] == "DIRECT":
-                    segmentid, payloadData = self.createDirectNetworkPayload(orgVDCIDList, inputDict, vdcDict, nsxObj, orgvdcNetowork=sourceOrgVDCNetwork, parentNetworkId=sourceOrgVDCNetwork['parentNetworkId'])
+                    segmentid, payloadData = self.createDirectNetworkPayload(inputDict, nsxObj, orgvdcNetowork=sourceOrgVDCNetwork, parentNetworkId=sourceOrgVDCNetwork['parentNetworkId'])
                     if segmentid:
                         segmetList.append(segmentid)
                 else:
@@ -3714,9 +3714,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
         def prepareIpScopesConfig(vAppNetwork):
             """Prepare target network ipscopes config"""
-            if (vAppNetwork['Configuration'].get('IpScopes') and
-                    vAppNetwork['Configuration']['IpScopes']['IpScope']['IsInherited'] == 'false'):
-                ipScope = vAppNetwork['Configuration']['IpScopes']['IpScope']
+            if vAppNetwork['Configuration'].get('IpScopes'):
+                ipScopes = listify(vAppNetwork['Configuration']['IpScopes']['IpScope'])
+
+                if len(ipScopes) > 1 or any(ipScope['IsInherited'] == 'false' for ipScope in ipScopes):
+                    return
+
+                ipScope = ipScopes[0]
                 return {
                     'isInherited': ipScope['IsInherited'],
                     'gateway': ipScope['Gateway'],
@@ -5251,7 +5255,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             self.saveMetadataInOrgVdc()
 
     @isSessionExpired
-    def createDirectNetworkPayload(self, orgVDCIDList, inputDict, vdcDict, nsxObj, orgvdcNetowork, parentNetworkId):
+    def createDirectNetworkPayload(self, inputDict, nsxObj, orgvdcNetowork, parentNetworkId):
         """
         Description: THis method is used to create payload for direct network and imported network
         return: payload data - payload data for creating a network
@@ -5314,29 +5318,27 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             for record in responseDict['record']:
                                 vlanId =record['vlanId']
                             segmetId, segmentName = nsxObj.createLogicalSegments(orgvdcNetowork, inputDict["VCloudDirector"]["ImportedNetworkTransportZone"], vlanId)
-                        ipRanges = [
-                            {
-                                'startAddress': ipRange['startAddress'],
-                                'endAddress': ipRange['endAddress'],
-                            }
-                            for ipRange in orgvdcNetowork['subnets']['values'][0]['ipRanges']['values']
-                        ]
                         payloadDict = {
                             'name': orgvdcNetowork['name'] + '-v2t',
                             'description': orgvdcNetowork['description'] if orgvdcNetowork.get('description') else '',
                             'networkType': 'OPAQUE',
-                            "subnets": {
-                               "values": [{
-                                    "gateway": orgvdcNetowork['subnets']['values'][0]['gateway'],
-                                    "prefixLength":  orgvdcNetowork['subnets']['values'][0]['prefixLength'],
-                                    "dnsSuffix": orgvdcNetowork['subnets']['values'][0]['dnsSuffix'],
-                                    "dnsServer1": orgvdcNetowork['subnets']['values'][0]['dnsServer1'],
-                                    "dnsServer2": orgvdcNetowork['subnets']['values'][0]['dnsServer2'],
-                                    "ipRanges": {
-                                        "values": ipRanges
-                                    },
-                                }]
-                            },
+                            "subnets": {"values": [
+                                {
+                                    "gateway": subnet['gateway'],
+                                    "prefixLength":  subnet['prefixLength'],
+                                    "dnsSuffix": subnet['dnsSuffix'],
+                                    "dnsServer1": subnet['dnsServer1'],
+                                    "dnsServer2": subnet['dnsServer2'],
+                                    "ipRanges": {"values": [
+                                        {
+                                            'startAddress': ipRange['startAddress'],
+                                            'endAddress': ipRange['endAddress'],
+                                        }
+                                        for ipRange in subnet['ipRanges']['values']
+                                    ]},
+                                }
+                                for subnet in orgvdcNetowork['subnets']['values']
+                            ]},
                             'backingNetworkId': segmetId
                         }
                     else:
