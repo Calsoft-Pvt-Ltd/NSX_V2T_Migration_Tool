@@ -9,6 +9,7 @@ import logging
 import queue
 from queue import Empty
 import threading
+import traceback
 from concurrent.futures import wait
 logger = logging.getLogger('mainLogger')
 
@@ -35,7 +36,7 @@ class Thread:
         # dictionary to store the return values from a function executed by a thread
         self.returnValues = {}
 
-    def _createQueue(self, daemon=False):
+    def _createQueue(self, daemon=False, **kwargs):
         """
             Description: This method creates the queue for the specified tasks.
             Parameters: daemon  - Value to decide whether to run thread in background or not(BOOLEAN)
@@ -44,12 +45,12 @@ class Thread:
         for _ in range(threadCount):
             # incrementing the thread counter
             self.threadCounter += 1
-            worker = threading.Thread(target=self._runThread)
+            worker = threading.Thread(target=self._runThread, kwargs=kwargs)
             worker.name = f'Thread-{self.threadCounter}'
             worker.setDaemon(daemon)
             worker.start()
 
-    def _runThread(self):
+    def _runThread(self, **kwargs):
         """
             Description: This method executes the threads.
             Returns: True
@@ -60,9 +61,9 @@ class Thread:
                 # If thread name is provided, set name of thread to that name
                 if threadName:
                     threading.current_thread().name = threadName
-                args, kwargs = arguments
+                _args, _kwargs = arguments
                 try:
-                    output = function(*args, **kwargs)
+                    output = function(*_args, **_kwargs)
                     # saving return value from function
                     if saveOutputKey:
                         self.returnValues[saveOutputKey] = output
@@ -71,7 +72,11 @@ class Thread:
                 except Empty:
                     continue
                 except Exception as err:
-                    logging.exception(err)
+                    if kwargs.get('logException'):
+                        logging.exception(err)
+                    else:
+                        logger.error(f"Error: {str(err)}")
+                        logger.debug(traceback.format_exc())
                     # set the value of stop flag to true in case of any exception
                     self.stopValue = True
                     # Acknowledge the task done
@@ -104,7 +109,7 @@ class Thread:
         """
         self.threadQueue.put((func, saveOutputKey, block, threadName, (args, kwargs)), timeout=10)
 
-    def joinThreads(self):
+    def joinThreads(self, **kwargs):
         """
             Description: This method blocks the main thread till all the tasks in the queue are complete.
         """
@@ -114,7 +119,7 @@ class Thread:
         # Resetting the value of thread counter for new queue
         self.threadCounter = 0
         # Creating a queue for the number of specified threads so that only specified number of threads are spawned at a time
-        self._createQueue()
+        self._createQueue(**kwargs)
         # Wait for all the threads to execute then return to main thread
         self.threadQueue.join()
         logger.debug('All threads executed successfully')
