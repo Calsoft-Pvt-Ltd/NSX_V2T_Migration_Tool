@@ -3786,7 +3786,6 @@ class VCDMigrationValidation:
         except Exception:
             raise
 
-    @isSessionExpired
     def getVCDVersion(self):
         """
            Description : Fetch vcd version from vCD cells information
