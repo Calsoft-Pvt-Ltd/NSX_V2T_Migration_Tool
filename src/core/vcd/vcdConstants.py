@@ -626,6 +626,9 @@ FIREWALL_GROUPS_SUMMARY_PAGE_SIZE = 25
 # vapp vm network connection template
 VAPP_VM_NETWORK_CONNECTION_SECTION_TEMPLATE = 'vAppVMNetworkConnectionDetails'
 
+# vapp vm disk storage policy template
+VAPP_VM_DISK_STORAGE_POLICY_TEMPLATE = 'vAppVMDiskStoragePolicy'
+
 #url for nsx jobs
 NSX_JOBS = '/jobs/{}'
 

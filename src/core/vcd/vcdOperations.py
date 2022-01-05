@@ -901,16 +901,26 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if not responseDict['VApp'].get('Children'):
                 return
             targetSizingPolicyOrgVDCUrn = 'urn:vcloud:vdc:{}'.format(targetOrgVDCId)
-            # checking whether the vapp children vm are single/multiple
-            if isinstance(responseDict['VApp']['Children']['Vm'], list):
-                vmList = responseDict['VApp']['Children']['Vm']
-            else:
-                vmList = [responseDict['VApp']['Children']['Vm']]
+            vmList = listify(responseDict['VApp']['Children']['Vm'])
             # iterating over the vms in vapp
             for vm in vmList:
                 # retrieving the compute policy of vm
                 computePolicyName = vm['ComputePolicy']['VmPlacementPolicy']['@name'] if vm['ComputePolicy'].get(
                     'VmPlacementPolicy') else None
+
+                # Retrieving the Disk storage policy details
+                diskSection = []
+                for diskSetting in listify(vm['VmSpecSection']['DiskSection']['DiskSettings']):
+                    if diskSetting['overrideVmDefault'] == 'true':
+                        diskSection = listify(vm['VmSpecSection']['DiskSection']['DiskSettings'])
+                        break
+
+                # Retrieving hardware version
+                if diskSection:
+                    hardwareVersion = vm['VmSpecSection']['HardwareVersion']
+                else:
+                    hardwareVersion = None
+
                 # retrieving the sizing policy of vm
                 if vm['ComputePolicy'].get('VmSizingPolicy'):
                     if vm['ComputePolicy']['VmSizingPolicy']['@name'] != 'System Default':
@@ -934,13 +944,16 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     storageProfileHref = storageProfileList[0]['@href']
                 else:
                     storageProfileHref = ''
-                # gathering the vm's data required to create payload data and appending the dict to the 'vmInVappList' list
+
+                # gathering the vm's data required to create payload data and appending the dict to the 'vmInVappList'.
                 vmInVappList.append(
                     {'name': vm['@name'], 'description': vm['Description'] if vm.get('Description') else '',
                      'href': vm['@href'], 'networkConnectionSection': vm['NetworkConnectionSection'],
                      'storageProfileHref': storageProfileHref, 'state': responseDict['VApp']['@status'],
                      'computePolicyName': computePolicyName, 'sizingPolicyHref': sizingPolicyHref,
-                     'primaryNetworkConnectionIndex': vm['NetworkConnectionSection']['PrimaryNetworkConnectionIndex']})
+                     'primaryNetworkConnectionIndex': vm['NetworkConnectionSection']['PrimaryNetworkConnectionIndex'],
+                     'diskSection': diskSection if diskSection else None,
+                     'hardwareVersion': hardwareVersion})
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
             # iterating over the above saved vms list of source vapp
             for vm in vmInVappList:
@@ -950,11 +963,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     state = "false"
                 else:
                     state = "true"
-                # checking multiple network connection details inside vm are single/multiple
-                if isinstance(vm['networkConnectionSection']['NetworkConnection'], list):
-                    networkConnectionList = vm['networkConnectionSection']['NetworkConnection']
-                else:
-                    networkConnectionList = [vm['networkConnectionSection']['NetworkConnection']]
+                networkConnectionList = listify(vm['networkConnectionSection']['NetworkConnection'])
                 networkConnectionPayloadData = ''
                 # creating payload for mutiple/single network connections in a vm
                 for networkConnection in networkConnectionList:
@@ -966,11 +975,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             networkName = networkConnection['@network'].replace('-v2t', '')
                         else:
                             networkName = networkConnection['@network'] + '-v2t'
+
                     # checking for the 'IpAddress' attribute if present
                     if networkConnection.get('IpAddress'):
                         ipAddress = networkConnection['IpAddress']
                     else:
                         ipAddress = ""
+
                     # Check ip allocation mode for vm's
                     if networkConnection['IpAddressAllocationMode'] == 'POOL' and \
                             float(self.version) <= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
@@ -988,11 +999,54 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                               componentName=vcdConstants.COMPONENT_NAME,
                                                               templateName=vcdConstants.VAPP_VM_NETWORK_CONNECTION_SECTION_TEMPLATE)
                     networkConnectionPayloadData += payloadData.strip("\"")
+                # getting diskSection data
+                vAppVMDiskStorageProfileData = ''
+                if vm['diskSection']:
+                    payloadDict = {}
+                    diskSection = []
+                    for diskSetting in vm['diskSection']:
+                        diskSettingDict = {"DiskId": diskSetting['DiskId'], "SizeMb": diskSetting['SizeMb'],
+                                           "UnitNumber": diskSetting['UnitNumber'], "BusNumber":
+                                               diskSetting['BusNumber'], "AdapterType": diskSetting['AdapterType'],
+                                           "ThinProvisioned": diskSetting['ThinProvisioned'], "overrideVmDefault":
+                                               diskSetting['overrideVmDefault'], "iops": diskSetting['iops'],
+                                           "VirtualQuantityUnit": diskSetting['VirtualQuantityUnit'], "resizable":
+                                               diskSetting['resizable'], "encrypted": diskSetting['encrypted'],
+                                           "shareable": diskSetting['shareable'], "sharingType":
+                                               diskSetting['sharingType']}
+                        for storagePolicy in targetStorageProfileList:
+                            if storagePolicy['@name'] == diskSetting['StorageProfile']['@name']:
+                                diskSettingDict["StorageProfile"] = {"href": storagePolicy['@href'],
+                                                                     "id": storagePolicy['@id'],
+                                                                     "type": storagePolicy['@type'],
+                                                                     "name": storagePolicy['@name']}
+                                break
+                        else:
+                            raise Exception("Could not find disk storage policy {} in target Org VDC.".
+                                            format(storagePolicy['@name']))
+                        diskSection.append(diskSettingDict)
+
+                    hardwareVersionDict = {"href": vm['hardwareVersion']['@href'],
+                                           "type": vm['hardwareVersion']['@type'],
+                                           "text": vm['hardwareVersion']['#text']}
+                    payloadDict["modifyVmSpecSection"] = "true"
+                    payloadDict["hardwareVersion"] = hardwareVersionDict
+                    payloadDict['DiskSection'] = diskSection
+
+                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
+                                                              componentName=vcdConstants.COMPONENT_NAME,
+                                                              templateName=vcdConstants.VAPP_VM_DISK_STORAGE_POLICY_TEMPLATE)
+                    vAppVMDiskStorageProfileData = payloadData.strip("\"")
+
+                else:
+                    vAppVMDiskStorageProfileData = None
+
                 # handling the case:- if both compute policy & sizing policy are absent
                 if not vm["computePolicyName"] and not vm['sizingPolicyHref']:
                     payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
                                    'storageProfileHref': vm['storageProfileHref'],
                                    'vmNetworkConnectionDetails': networkConnectionPayloadData,
+                                   'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
                                    'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
                     payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                               componentName=vcdConstants.COMPONENT_NAME,
@@ -1029,6 +1083,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                        'storageProfileHref': vm['storageProfileHref'],
                                        'vmPlacementPolicyHref': href,
                                        'vmNetworkConnectionDetails': networkConnectionPayloadData,
+                                       'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
                                        'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
                         # creating the payload data
                         payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
@@ -1041,6 +1096,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                        'storageProfileHref': vm['storageProfileHref'],
                                        'sizingPolicyHref': vm['sizingPolicyHref'],
                                        'vmNetworkConnectionDetails': networkConnectionPayloadData,
+                                       'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
                                        'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
                         # creating the pauload data
                         payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
@@ -1076,12 +1132,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                        'storageProfileHref': vm['storageProfileHref'],
                                        'vmPlacementPolicyHref': href, 'sizingPolicyHref': vm['sizingPolicyHref'],
                                        'vmNetworkConnectionDetails': networkConnectionPayloadData,
+                                       'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
                                        'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
                         # creating the pauload data
                         payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                                   componentName=vcdConstants.COMPONENT_NAME,
                                                                   templateName=vcdConstants.MOVE_VAPP_VM_COMPUTE_POLICY_TEMPLATE)
                 xmlPayloadData += payloadData.strip("\"")
+
             return xmlPayloadData
         except Exception:
             raise
