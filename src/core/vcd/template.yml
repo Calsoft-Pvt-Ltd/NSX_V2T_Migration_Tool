@@ -39,6 +39,9 @@ vCloudDirector:
           <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
           {{vmNetworkConnectionDetails}}
         </root:NetworkConnectionSection>
+        {% if vAppVMDiskStorageProfileDetails %}
+        {{vAppVMDiskStorageProfileDetails}}
+        {% endif %}
       </root:InstantiationParams>
       <root:StorageProfile href="{{storageProfileHref}}"/>
     </root:SourcedItem>
@@ -54,6 +57,9 @@ vCloudDirector:
           <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
           {{vmNetworkConnectionDetails}}
         </root:NetworkConnectionSection>
+        {% if vAppVMDiskStorageProfileDetails %}
+        {{vAppVMDiskStorageProfileDetails}}
+        {% endif %}
       </root:InstantiationParams>
       <root:StorageProfile href="{{storageProfileHref}}"/>
       <root:ComputePolicy>
@@ -72,6 +78,9 @@ vCloudDirector:
           <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
           {{vmNetworkConnectionDetails}}
         </root:NetworkConnectionSection>
+        {% if vAppVMDiskStorageProfileDetails %}
+        {{vAppVMDiskStorageProfileDetails}}
+        {% endif %}
       </root:InstantiationParams>
       <root:StorageProfile href="{{storageProfileHref}}"/>
       <root:ComputePolicy>
@@ -90,6 +99,9 @@ vCloudDirector:
           <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
           {{vmNetworkConnectionDetails}}
         </root:NetworkConnectionSection>
+        {% if vAppVMDiskStorageProfileDetails %}
+        {{vAppVMDiskStorageProfileDetails}}
+        {% endif %}
       </root:InstantiationParams>
       <root:StorageProfile href="{{storageProfileHref}}"/>
       <root:ComputePolicy>
@@ -186,6 +198,31 @@ vCloudDirector:
       <root:IpAddressAllocationMode>{{allocationModel}}</root:IpAddressAllocationMode>
       <root:NetworkAdapterType>{{adapterType}}</root:NetworkAdapterType>
     </root:NetworkConnection>
+  vAppVMDiskStoragePolicy:
+    <root:VmSpecSection Modified="{{modifyVmSpecSection}}">
+      <ns7:Info>The configuration parameters for disk storage policy</ns7:Info>
+      <root:DiskSection>
+        {% for disksetting in DiskSection %}
+        <root:DiskSettings>
+          <root:DiskId>{{disksetting.DiskId}}</root:DiskId>
+          <root:SizeMb>{{disksetting.SizeMb}}</root:SizeMb>
+          <root:UnitNumber>{{disksetting.UnitNumber}}</root:UnitNumber>
+          <root:BusNumber>{{disksetting.BusNumber}}</root:BusNumber>
+          <root:AdapterType>{{disksetting.AdapterType}}</root:AdapterType>
+          <root:ThinProvisioned>{{disksetting.ThinProvisioned}}</root:ThinProvisioned>
+          <root:StorageProfile href="{{disksetting.StorageProfile.href}}" id="{{disksetting.StorageProfile.id}}" type="{{disksetting.StorageProfile.type}}" name="{{disksetting.StorageProfile.name}}"/>
+          <root:overrideVmDefault>{{disksetting.overrideVmDefault}}</root:overrideVmDefault>
+          <root:iops>{{disksetting.iops}}</root:iops>
+          <root:VirtualQuantityUnit>{{disksetting.VirtualQuantityUnit}}</root:VirtualQuantityUnit>
+          <root:resizable>{{disksetting.resizable}}</root:resizable>
+          <root:encrypted>{{disksetting.encrypted}}</root:encrypted>
+          <root:shareable>{{disksetting.shareable}}</root:shareable>
+          <root:sharingType>{{disksetting.sharingType}}</root:sharingType>
+        </root:DiskSettings>
+       {% endfor %} {# for disksetting in DiskSection \#}
+      </root:DiskSection>
+      <root:HardwareVersion href="{{hardwareVersion.href}}" type="{{hardwareVersion.type}}">{{hardwareVersion.text}}</root:HardwareVersion>
+    </root:VmSpecSection>
   moveVappNetworkConfig:
     <root:NetworkConfigSection>
       <ns7:Info>The configuration parameters for logical networks</ns7:Info>
