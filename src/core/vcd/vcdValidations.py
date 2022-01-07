@@ -3150,6 +3150,13 @@ class VCDMigrationValidation:
                     if applicationRules:
                         loadBalancerErrorList.append('Application rules are present in load balancer service but not supported in the Target\n')
 
+                    for pool in listify(responseDict['loadBalancer'].get('pool')):
+                        for monitor in listify(responseDict['loadBalancer'].get('monitor')):
+                            if pool['monitorId'] == monitor['monitorId']:
+                                if any(key in monitor for key in ['expected', 'send', 'recieve', 'extension']) or \
+                                        (monitor.get('url') and monitor.get('url') != '/'):
+                                    loadBalancerErrorList.append("Custom monitor '{}' used in pool '{}'\n".format(monitor['name'], pool['name']))
+
                     # url for getting edge gateway load balancer virtual servers configuration
                     url = '{}{}'.format(
                         vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),

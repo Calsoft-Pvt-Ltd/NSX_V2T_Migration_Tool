@@ -73,6 +73,7 @@ EDGE_GW_SERVICES_VALIDATIONS = {
     'User-defined Static Routes': 1,
     'LoadBalancer: Transparent Mode': 2,
     'LoadBalancer: Application Rules': 2,
+    'LoadBalancer: Custom monitor': 1,
     'LoadBalancer: Default pool not configured': 1,
     'LoadBalancer: Unsupported persistence': 1,
     'LoadBalancer: Unsupported algorithm': 1,
@@ -612,6 +613,10 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 orgVDCResult["LoadBalancer: Application Rules"] = True
                                             else:
                                                 orgVDCResult["LoadBalancer: Application Rules"] = False
+                                            if "Custom monitor detected" in ''.join(result):
+                                                orgVDCResult["LoadBalancer: Custom monitor"] = True
+                                            else:
+                                                orgVDCResult["LoadBalancer: Custom monitor"] = False
                                             if "Default pool is not configured" in ''.join(result):
                                                 orgVDCResult["LoadBalancer: Default pool not configured"] = True
                                             else:
