@@ -613,7 +613,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 orgVDCResult["LoadBalancer: Application Rules"] = True
                                             else:
                                                 orgVDCResult["LoadBalancer: Application Rules"] = False
-                                            if "Custom monitor detected" in ''.join(result):
+                                            if "Custom monitor" in ''.join(result):
                                                 orgVDCResult["LoadBalancer: Custom monitor"] = True
                                             else:
                                                 orgVDCResult["LoadBalancer: Custom monitor"] = False
