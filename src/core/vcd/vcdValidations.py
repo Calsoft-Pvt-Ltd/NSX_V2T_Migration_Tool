@@ -376,7 +376,7 @@ class VCDMigrationValidation:
             responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
                 if responseDict['Metadata'].get('MetadataEntry'):
-                    metaDataList = responseDict['Metadata']['MetadataEntry'] if isinstance(responseDict['Metadata']['MetadataEntry'], list) else [responseDict['Metadata']['MetadataEntry']]
+                    metaDataList = listify(responseDict['Metadata']['MetadataEntry'])
                     if rawData:
                         return metaDataList
                     for data in metaDataList:
@@ -395,15 +395,15 @@ class VCDMigrationValidation:
                             else:
                                 # Replacing -v2t postfix with empty string
                                 metadataKey = metadataKey.replace('-v2t', '')
-                            # Checking and restoring api data from metadata
-                            if '&amp;' in data['TypedValue']['Value']:
-                                metadataValue = metadataValue.replace('&amp;', '&')
 
                             # Converting python objects back from string
                             try:
+                                logger.debug(f"Before: {metadataKey} {metadataValue}")    # TODO pranshu: remove
                                 metadataValue = eval(metadataValue)
-                            except (SyntaxError, NameError, ValueError):
-                                pass
+                                logger.debug(f'After : {metadataKey} {metadataValue}')    # TODO pranshu: remove
+                            except (SyntaxError, NameError, ValueError) as e:
+                                logger.debug(f'Failed to evaluate {metadataKey} - {metadataValue}: {e}')
+                                logger.debug(traceback.format_exc())
 
                         metaData[metadataKey] = metadataValue
                 return metaData
@@ -551,7 +551,7 @@ class VCDMigrationValidation:
 
                 # creating payload for domain in metadata
                 domainPayload = '' if domain == 'general' else "<Domain visibility='PRIVATE'>SYSTEM</Domain>"
-                xmlPayload = ''
+                payload = []
                 for key, value in metadataDict.items():
                     if not migration:
                         if domain.lower().strip() == 'system':
@@ -560,9 +560,6 @@ class VCDMigrationValidation:
                         else:
                             # appending -vdt to metadata key for identification of migration tool metadata
                             key += '-v2t'
-                        # replacing & with escape value for XML based API's
-                        if '&' in str(value):
-                            value = eval(str(value).replace('&', '&amp;'))
                         metadataType = 'MetadataStringValue'
                     else:
                         # Fetch domain of user-defined metadata and create payload from it
@@ -571,15 +568,10 @@ class VCDMigrationValidation:
                             domainPayload = f"<Domain visibility='{domain['@visibility']}'>{domain['#text']}</Domain>"
                         else:
                             domainPayload = ''
-                    payloadDict = {'key': key, 'value': value, 'domain': domainPayload, 'metadataType': metadataType}
-                    # creating payload data
-                    xmlPayload += self.vcdUtils.createPayload(filePath,
-                                                              payloadDict,
-                                                              fileType='yaml',
-                                                              componentName=vcdConstants.COMPONENT_NAME,
-                                                              templateName=vcdConstants.CREATE_ORG_VDC_METADATA_ENTRY_TEMPLATE).strip('"')
 
-                payloadDict = {'MetadataEntry': xmlPayload}
+                    payload.append({'key': key, 'value': value, 'domain': domainPayload, 'metadataType': metadataType})
+
+                payloadDict = {'metadata': payload}
                 # creating payload data
                 payloadData = self.vcdUtils.createPayload(filePath,
                                                           payloadDict,
@@ -587,7 +579,7 @@ class VCDMigrationValidation:
                                                           componentName=vcdConstants.COMPONENT_NAME,
                                                           templateName=vcdConstants.CREATE_ORG_VDC_METADATA_TEMPLATE)
 
-                payloadData = json.loads(payloadData)
+                payloadData = json.loads(payloadData.replace('&apos;', '\\\\&apos;'))
 
                 # post api to create meta data in org vdc
                 response = self.restClientObj.post(url, self.headers, data=payloadData)

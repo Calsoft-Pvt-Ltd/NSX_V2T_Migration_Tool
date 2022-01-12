@@ -16,6 +16,7 @@ import certifi
 import jinja2
 import yaml
 import xmltodict
+from xml.sax.saxutils import escape
 
 logger = logging.getLogger('mainLogger')
 
@@ -147,7 +148,6 @@ class Utilities():
                 if isinstance(templateData[index], dict):
                     self.fetchJSON(templateData[index], apiVersion)
 
-
     def createPayload(self, filePath, payloadDict, fileType='yaml', componentName=None, templateName=None, apiVersion='34.0'):
         """
         Description : This function creates payload for particular template which can be used in Rest API for vmware component.
@@ -158,20 +158,47 @@ class Utilities():
                       templateName  - Name of template for payload (STRING) DEFAULT None
         Returns     : payloadData   - Returns the updated payload data of particular template
         """
+        def encodeSpecialCharacters(payload):
+            """
+            Handling special characters in each string value in payload recursively
+            """
+            if isinstance(payload, str) and not payload.startswith('<') and not payload.isalnum():
+                if fileType == 'yaml':
+                    # escape is used for xml payload only to encrypt special characters like <, >, ', ", and &
+                    payload = escape(payload, {"'": "&apos;", '"': '&quot;'})
+
+                # json.dumps will encrypt  special characters like \, \r and \n
+                # Removing quotes (") at the beginning and end after json.dumps
+                payload = json.dumps(payload)[1:-1]
+                return payload
+
+            if isinstance(payload, dict):
+                return {encodeSpecialCharacters(key): encodeSpecialCharacters(value) for key, value in payload.items()}
+
+            if isinstance(payload, (list, tuple)):
+                return [encodeSpecialCharacters(item) for item in payload]
+
+            # Return as it is if datatype is other than evaluated above.
+            return payload
+
+        logger.debug(payloadDict)   # TODO pranshu: remove
+
         try:
-            if fileType.lower() == 'json':
+            fileType = fileType.lower()
+            if fileType == 'json':
                 # load json file into dict
                 templateData = self.readJsonData(filePath)
                 templateData = json.dumps(templateData)
             else:
                 templateData = self.readYamlData(filePath)
                 templateData = json.dumps(templateData)
+
             # check if the componentName and templateName exists in File, if exists then return it's data
             if componentName and templateName:
                 templateData = json.loads(templateData)
                 if templateData[componentName][templateName]:
                     templateData = templateData[componentName][templateName]
-                    if apiVersion and fileType.lower() == 'yaml':
+                    if apiVersion and fileType == 'yaml':
                         apiVersionMatches = re.findall(r'<APIVERSION-\d+\.\d+>.*?</APIVERSION-\d+\.\d+>', templateData)
                         for match in apiVersionMatches:
                             if not re.search(f'APIVERSION-{apiVersion}', match):
@@ -179,15 +206,15 @@ class Utilities():
                         if re.search(r'</?APIVERSION-\d+\.\d+>', templateData):
                             templateData = re.sub(r'</?APIVERSION-\d+\.\d+>', '', templateData)
 
-                    if apiVersion and fileType.lower() == 'json':
+                    if apiVersion and fileType == 'json':
                         self.fetchJSON(templateData, apiVersion)
                     templateData = json.dumps(templateData)
             # get the template with data which needs to be updated
             template = self.getTemplate(templateData)
             # render the template with the desired payloadDict
-            payloadData = template.render(payloadDict)
-            # payloadData = json.loads(payloadData)
+            payloadData = template.render(encodeSpecialCharacters(payloadDict))
             logger.debug('Successfully created payload.')
+            logger.debug(payloadData)   # TODO pranshu: remove
             return payloadData
         except Exception as err:
             logger.error(err)
