@@ -3574,7 +3574,7 @@ class VCDMigrationValidation:
             responseDict['VApp']['Children']['Vm']]
         # iterating over the vms in the vapp
         for vm in vmList:
-            if vm["@status"] == "3":
+            if vm["@status"] == "3" or vm["@status"] == "21":
                 self.suspendedVMList.append(vm['@name'])
 
     def validateSourceSuspendedVMsInVapp(self, sourceOrgVDCId):
