@@ -5514,6 +5514,9 @@ class VCDMigrationValidation:
                 evaluatedOrgVdcs.append(orgVdcName)
             except DfwRulesAbsentError as e:
                 logger.debug(f"{e} on {orgVdcName}")
+            except Exception as e:
+                logger.debug(traceback.format_exc())
+                raise Exception("Unable to get distributed firewall rules")
 
         allValues = [
             (param, set(rule.get(param) for rule in dfwDefaultRules))
