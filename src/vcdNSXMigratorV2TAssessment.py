@@ -67,7 +67,6 @@ EDGE_GW_SERVICES_VALIDATIONS = {
     'NAT: Range of IPs or network in DNAT rule': 1,
     'IPsec: Route based session type': 2,
     'IPsec: Unsupported Encryption Algorithm': 1,
-    'IPsec: CA certificate is missing': 1,
     'IPsec: DNAT rules not supported with Policy-based session type': 2,
     'OSPF routing protocol': 2,
     'User-defined Static Routes': 1,
@@ -668,10 +667,6 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 orgVDCResult["IPsec: Unsupported Encryption Algorithm"] = True
                                             else:
                                                 orgVDCResult["IPsec: Unsupported Encryption Algorithm"] = False
-                                            if "CA certificate not found" in ''.join(result):
-                                                orgVDCResult["IPsec: CA certificate is missing"] = True
-                                            else:
-                                                orgVDCResult["IPsec: CA certificate is missing"] = False
                                             if 'DNAT is not supported on a tier-1' in ''.join(result):
                                                 orgVDCResult["IPsec: DNAT rules not supported with Policy-based session type"] = True
                                             else:
