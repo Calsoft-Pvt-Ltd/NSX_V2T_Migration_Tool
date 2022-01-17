@@ -212,7 +212,6 @@ vCloudDirector:
               {% if ipScope.dnsSuffix %}
               <root:DnsSuffix>{{ ipScope.dnsSuffix }}</root:DnsSuffix>
               {% endif %}
-              {% if ipScope.ipRanges %}
               <root:IpRanges>
                 {% for ipRange in ipScope.ipRanges %}
                 <root:IpRange>
@@ -221,7 +220,6 @@ vCloudDirector:
                 </root:IpRange>
                 {% endfor %} {# for ipRange in ipRanges \#}
               </root:IpRanges>
-              {% endif %} {# if ipScope.ipRanges \#}
             </root:IpScope>
             {% endfor %} {# ipScope in network.ipScopes \#}
           </root:IpScopes>
