@@ -2271,8 +2271,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         return
                     continue
 
-                # Creating dc group for direct networks
-                self.createOrgvDCGroupForImportedNetworks(sourceOrgVDCName, vcdObjList)
+            # Creating dc group for direct networks
+            self.createOrgvDCGroupForImportedNetworks(sourceOrgVDCName, vcdObjList)
 
             # Check if bridging is to be performed
             if configureBridging:
