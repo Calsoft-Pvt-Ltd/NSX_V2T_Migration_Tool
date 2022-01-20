@@ -3783,7 +3783,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         'isInherited': ipScope['IsInherited'],
                         'gateway': ipScope['Gateway'],
                         'netmask': ipScope['Netmask'],
-                        'subnet': ipScope.get('SubnetPrefixLength'),
+                        'subnet': ipScope.get('SubnetPrefixLength', 1),
                         'dns1': ipScope.get('Dns1'),
                         'dns2': ipScope.get('Dns2'),
                         'dnsSuffix': ipScope.get('DnsSuffix'),
