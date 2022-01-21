@@ -179,16 +179,16 @@ vCloudDirector:
     <ovf:Item ovf:id = "{{ovfId}}" ovf:order = "{{ovfOrder}}" ovf:startAction = "{{ovfStartAction}}" ovf:startDelay = "{{ovfStartDelay}}" ovf:stopAction = "{{ovfStopAction}}" ovf:stopDelay = "{{ovfStopDelay}}" />
   createOrgVDCMetadata:
     <Metadata xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://www.w3.org/2001/XMLSchema-instance">
-    {{MetadataEntry}}
-    </Metadata>
-  createOrgVDCMetadataEntry:
+    {% for MetadataEntry in metadata %}
     <MetadataEntry>
-      {{domain}}
-      <Key>{{key}}</Key>
-      <TypedValue ovf:type="{{metadataType}}">
-        <Value>{{value}}</Value>
+      {{ MetadataEntry.domain }}
+      <Key>{{ MetadataEntry.key }}</Key>
+      <TypedValue ovf:type="{{ MetadataEntry.metadataType }}">
+        <Value>{{ MetadataEntry.value }}</Value>
       </TypedValue>
     </MetadataEntry>
+    {% endfor %} {# for MetadataEntry in metadata \#}
+    </Metadata>
   vAppVMNetworkConnectionDetails:
     <root:NetworkConnection network="{{networkName}}">
       <root:NetworkConnectionIndex>{{networkConnectionIndex}}</root:NetworkConnectionIndex>
