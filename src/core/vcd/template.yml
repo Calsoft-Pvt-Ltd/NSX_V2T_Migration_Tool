@@ -210,6 +210,9 @@ vCloudDirector:
           <root:BusNumber>{{disksetting.BusNumber}}</root:BusNumber>
           <root:AdapterType>{{disksetting.AdapterType}}</root:AdapterType>
           <root:ThinProvisioned>{{disksetting.ThinProvisioned}}</root:ThinProvisioned>
+          {% if disksetting.Disk %}
+          <root:Disk href="{{disksetting.Disk}}"/>
+          {% endif %}
           <root:StorageProfile href="{{disksetting.StorageProfile.href}}" id="{{disksetting.StorageProfile.id}}" type="{{disksetting.StorageProfile.type}}" name="{{disksetting.StorageProfile.name}}"/>
           <root:overrideVmDefault>{{disksetting.overrideVmDefault}}</root:overrideVmDefault>
           <root:iops>{{disksetting.iops}}</root:iops>

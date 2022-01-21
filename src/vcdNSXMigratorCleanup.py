@@ -158,10 +158,6 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             self.consoleLogger.info('Deleting the source Org VDC Edge Gateway.')
             self.vcdObj.deleteNsxVBackedOrgVDCEdgeGateways(sourceOrgVDCId)
 
-            # Delete Named Disks metadata
-            for disk in self.vcdObj.namedDisks.get(self.targetOrgVDCId, []):
-                self.vcdObj.deleteMetadata(disk['id'], entity=f"disk {disk['name']}")
-
             # delete the source Org VDC
             self.consoleLogger.info('Deleting the source Org VDC.')
             self.vcdObj.deleteOrgVDC(sourceOrgVDCId)
