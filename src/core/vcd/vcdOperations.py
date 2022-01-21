@@ -1002,15 +1002,22 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     payloadDict = {}
                     diskSection = []
                     for diskSetting in vm['diskSection']:
-                        diskSettingDict = {"DiskId": diskSetting['DiskId'], "SizeMb": diskSetting['SizeMb'],
-                                           "UnitNumber": diskSetting['UnitNumber'], "BusNumber":
-                                               diskSetting['BusNumber'], "AdapterType": diskSetting['AdapterType'],
-                                           "ThinProvisioned": diskSetting['ThinProvisioned'], "overrideVmDefault":
-                                               diskSetting['overrideVmDefault'], "iops": diskSetting['iops'],
-                                           "VirtualQuantityUnit": diskSetting['VirtualQuantityUnit'], "resizable":
-                                               diskSetting['resizable'], "encrypted": diskSetting['encrypted'],
-                                           "shareable": diskSetting['shareable'], "sharingType":
-                                               diskSetting['sharingType']}
+                        diskSettingDict = {
+                            "DiskId": diskSetting['DiskId'],
+                            "SizeMb": diskSetting['SizeMb'],
+                            "UnitNumber": diskSetting['UnitNumber'],
+                            "BusNumber": diskSetting['BusNumber'],
+                            "AdapterType": diskSetting['AdapterType'],
+                            "ThinProvisioned": diskSetting['ThinProvisioned'],
+                            "Disk": diskSetting.get('Disk', {}).get('@href'),    # present in named disk
+                            "overrideVmDefault":diskSetting['overrideVmDefault'],
+                            "iops": diskSetting['iops'],
+                            "VirtualQuantityUnit": diskSetting['VirtualQuantityUnit'],
+                            "resizable": diskSetting['resizable'],
+                            "encrypted": diskSetting['encrypted'],
+                            "shareable": diskSetting['shareable'],
+                            "sharingType": diskSetting['sharingType'],
+                        }
                         for storagePolicy in targetStorageProfileList:
                             if storagePolicy['@name'] == diskSetting['StorageProfile']['@name']:
                                 diskSettingDict["StorageProfile"] = {"href": storagePolicy['@href'],
