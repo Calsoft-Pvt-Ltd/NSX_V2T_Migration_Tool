@@ -402,6 +402,118 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
+    def getEdgeGatewayRateLimit(self, edgeGatewayId):
+        """
+            Description :   Validate Edge Gateway uplinks
+            Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
+        """
+        url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                            vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
+        acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
+        headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
+        # retrieving the details of the edge gateway
+        response = self.restClientObj.get(url, headers)
+        if response.status_code == requests.codes.ok:
+            responseDict = response.json()
+            ifaceRateLimitInfo = {}
+            gatewayInterfaces = responseDict['configuration']['gatewayInterfaces']['gatewayInterface']
+
+            # checking whether source edge gateway has rate limit configured
+            rateLimitEnabledIfaces = [interface for interface in gatewayInterfaces if
+                                          interface.get('applyRateLimit')]
+            # get rate limits of all interfaces and find lowest amongst all for both In and Out rate limits.
+            inRateLimit = [int(iface['inRateLimit']) for iface in rateLimitEnabledIfaces if iface['inRateLimit']]
+            outRateLimit = [int(iface['outRateLimit']) for iface in rateLimitEnabledIfaces if iface['outRateLimit']]
+            if inRateLimit:
+                ifaceRateLimitInfo['inRateLimit'] = min(inRateLimit)
+            if outRateLimit:
+                ifaceRateLimitInfo['outRateLimit'] = min(outRateLimit)
+            return ifaceRateLimitInfo
+        else:
+            raise Exception("Failed to get edgeGateway Rate Limit.")
+
+    @isSessionExpired
+    def getNsxtManagerQos(self, nsxtManagerId, qosName):
+        """
+        Description :   Get QOS profiles from NSXT-Manager
+        Parameters  :   nsxtManagerId -  NSXT-Manager ID
+                        qosName - Name of the QOS profile
+        """
+        # Get the all QOS profile details
+        url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                            vcdConstants.NSX_T_QOS_PROFILE.format(nsxtManagerId))
+        response = self.restClientObj.get(url, self.headers)
+        responseDict = response.json()
+        if not response.status_code == requests.codes.ok:
+            raise Exception("Failed to get NSXT-Manager QOS profiles.")
+
+        # find the QOS profile from the available QOS, if absent then create new QOS.
+        for qosProfile in responseDict["values"]:
+            if qosName == qosProfile["displayName"]:
+                qosProfileDetails = {"name": qosProfile["displayName"], "id": qosProfile["id"]}
+                return qosProfileDetails
+        else:
+            logger.debug("QOS profile {} is not present on NSXT-Manager.".format(qosName))
+            return None
+
+    @description("Configure Edge gateway rate limits.")
+    @remediate
+    def configureEdgeGWRateLimit(self, nsxObj):
+        """
+        Description :   Configure Edge gateway rate limits.
+        Parameters  :   OrgVDCId  -   Id of the Organization VDC that is to be deleted (STRING)
+        """
+        logger.debug('Edge GateWay Rate limiting (QOS) is getting configured')
+        targetEdgeGateway = copy.deepcopy(self.rollback.apiData['targetEdgeGateway'])
+
+        # fetching NSX-T manager id
+        tpvdcName = self.rollback.apiData['targetProviderVDC']['@name']
+        nsxtManagerId = self.getNsxtManagerId(tpvdcName)
+        for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
+            logger.debug("Rate Limiting (QoS) configuration for EdgeGateway - {}".format(sourceEdgeGateway['name']))
+            sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
+            targetEdgeGatewayId = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'], targetEdgeGateway))[0]['id']
+            targetEdgeGatewayName = list(
+                filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
+                       targetEdgeGateway))[0]['name']
+            interfaceRateLimitInfo = self.getEdgeGatewayRateLimit(sourceEdgeGatewayId)
+            if not interfaceRateLimitInfo:
+                logger.debug("Rate Limiting (QoS) configuration not present on EdgeGateway : {}".format(sourceEdgeGateway['name']))
+                continue
+            inRateLimit, outRateLimit = interfaceRateLimitInfo.get('inRateLimit'), interfaceRateLimitInfo.get('outRateLimit')
+            # get the QOS profiles from NSX-T for rate limits and create Payload.
+            payloadDict = {}
+            if inRateLimit:
+                inQOSName = "{} Mbps".format(inRateLimit)
+                inQOSProfileDetails = self.getNsxtManagerQos(nsxtManagerId, inQOSName)
+                if not inQOSProfileDetails:
+                    nsxObj.createNsxtManagerQos(inQOSName.split()[0])
+                    inQOSProfileDetails = self.getNsxtManagerQos(nsxtManagerId, inQOSName)
+                payloadDict["egressProfile"] = inQOSProfileDetails
+            if outRateLimit:
+                outQOSName = "{} Mbps".format(outRateLimit)
+                outQOSProfileDetails = self.getNsxtManagerQos(nsxtManagerId, outQOSName)
+                if not outQOSProfileDetails:
+                    nsxObj.createNsxtManagerQos(outQOSName.split()[0])
+                    outQOSProfileDetails = self.getNsxtManagerQos(nsxtManagerId, outQOSName)
+                payloadDict["ingressProfile"] = outQOSProfileDetails
+
+            # Configure rate limit on target edge gateway
+            qosProfileUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                          vcdConstants.QOS_PROFILE.format(targetEdgeGatewayId))
+            payloadData = json.dumps(payloadDict)
+            apiResponse = self.restClientObj.put(qosProfileUrl, self.headers, data=payloadData)
+            if apiResponse.status_code == requests.codes.accepted:
+                taskUrl = apiResponse.headers['Location']
+                # checking the status of the Rate Limiting (QoS) configuration for EdgeGateway
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.info("Updated Rate Limiting (QoS) configuration for EdgeGateway {}."
+                            .format(targetEdgeGatewayName))
+            else:
+                raise Exception("Failed to update Rate Limiting (QoS) configuration for EdgeGateway : ",
+                                apiResponse.json())
+
+    @isSessionExpired
     def deleteOrgVDC(self, orgVDCId, rollback=False):
         """
         Description :   Deletes the specified Organization VDC
@@ -2115,6 +2227,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             # creating target Org VDC Edge Gateway
             self.createEdgeGateway(inputDict, vdcDict, nsxObj)
+
+            # Configure Edge gateway RateLimits
+            self.configureEdgeGWRateLimit(nsxObj)
 
             # only if source org vdc networks exist
             if orgVdcNetworkList:

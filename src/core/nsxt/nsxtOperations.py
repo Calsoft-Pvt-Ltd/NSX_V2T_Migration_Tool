@@ -1641,3 +1641,26 @@ class NSXTOperations():
             return set(vniPoolIds)
         except:
             raise
+
+    def createNsxtManagerQos(self, qosProfileName):
+        """
+        Description :   Validate Edge Gateway uplinks
+        Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
+        """
+        url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                            nsxtConstants.NSXT_QOS_PROFILE.format(qosProfileName))
+        burstSize = int(qosProfileName) * 6250
+        intentPath = nsxtConstants.NSXT_QOS_PROFILE.format(qosProfileName)
+        payloadDict = {"display_name": "{} Mbps".format(qosProfileName),
+                       "description": "Rate profile created during NSX-V to T migration",
+                       "burst_size": burstSize,
+                       "committed_bandwitdth": qosProfileName,
+                       "excess_action": "DROP"}
+        payloadData = json.dumps(payloadDict)
+        # create QOS profile for the rate limit
+        response = self.restClientObj.patch(url=url, headers=nsxtConstants.NSXT_API_HEADER,
+                                            auth=self.restClientObj.auth, data=str(payloadData))
+        if not response.status_code == requests.codes.ok:
+            raise Exception("Failed to create NSXT-Manager QOS profiles : {}".format(response.json()))
+        self.checkRealizedState(intentPath)
+        logger.debug("QOS profile {} created successfully.".format(qosProfileName))
