@@ -19,6 +19,7 @@ XML_ADMIN_API_URL = "https://{}/api/admin/"
 # API version for Andromeda builds
 API_VERSION_ANDROMEDA = "36.0"
 API_VERSION_ANDROMEDA_10_3_1 = "36.1"
+API_VERSION_ANDROMEDA_10_3_2 = "36.2"
 
 # API version for Zeus builds
 API_VERSION_ZEUS = "35.0"
@@ -746,3 +747,9 @@ FETCH_VC_NSXV_SETTINGS = "extension/vsm/{}"
 
 # IP Prefix list name
 TARGET_BGP_IP_PREFIX_NAME = "v-t migrated IP prefix list"
+
+# Get NSX-T Manager QOS Profiles.
+NSX_T_QOS_PROFILE = "nsxTResources/gatewayQoSProfiles?filter=nsxTManagerRef.id=={}"
+
+# Configure Edge gateway QOS profile for rate limit
+QOS_PROFILE = "edgeGateways/{}/qos"

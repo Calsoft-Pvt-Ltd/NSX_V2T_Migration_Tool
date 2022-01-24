@@ -150,3 +150,6 @@ REALIZED_STATE_API = "/infra/realized-state/status?intent_path={}"
 
 # API to check NSX-T version
 NSXT_VERSION = "api/v1/node"
+
+# NSXT QOS profile
+NSXT_QOS_PROFILE = "/infra/gateway-qos-profiles/{}_Mbps"
