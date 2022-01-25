@@ -747,3 +747,9 @@ FETCH_VC_NSXV_SETTINGS = "extension/vsm/{}"
 
 # IP Prefix list name
 TARGET_BGP_IP_PREFIX_NAME = "v-t migrated IP prefix list"
+
+# Get NSX-T Manager QOS Profiles.
+NSX_T_QOS_PROFILE = "nsxTResources/gatewayQoSProfiles?filter=nsxTManagerRef.id=={}"
+
+# Configure Edge gateway QOS profile for rate limit
+QOS_PROFILE = "edgeGateways/{}/qos"

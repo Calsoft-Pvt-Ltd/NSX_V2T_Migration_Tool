@@ -2003,11 +2003,12 @@ class VCDMigrationValidation:
                     rateLimitEnabledInterfaces = [interface for interface in gatewayInterfaces if interface['applyRateLimit']]
                     for rateLimitEnabledInterface in rateLimitEnabledInterfaces:
                         logger.info(f"Validating whether source Org VDC Edge Gateway {responseDict['name']} has rate limit configured")
-                        logger.warning(f"The source Org VDC Edge Gateway {responseDict['name']} has rate limit configured."
-                                       f" External Network {rateLimitEnabledInterface['name']} Incoming {rateLimitEnabledInterface['inRateLimit']} Mbps,"
-                                       f" Outgoing {rateLimitEnabledInterface['outRateLimit']} Mbps. "
-                                       "After migration apply equivalent Gateway QOS Profile "
-                                       "to Tier-1 GW backing the target Org VDC Edge Gateway directly in NSX-T.")
+                        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
+                            logger.warning(f"The source Org VDC Edge Gateway {responseDict['name']} has rate limit configured."
+                                           f" External Network {rateLimitEnabledInterface['name']} Incoming {rateLimitEnabledInterface['inRateLimit']} Mbps,"
+                                           f" Outgoing {rateLimitEnabledInterface['outRateLimit']} Mbps. "
+                                           "After migration apply equivalent Gateway QOS Profile "
+                                           "to Tier-1 GW backing the target Org VDC Edge Gateway directly in NSX-T.")
                 else:
                     raise Exception('Failed to get Edge Gateway:{} Uplink details: {}'.format(
                         edgeGatewayId, responseDict['message']))
