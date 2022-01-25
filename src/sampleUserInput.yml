@@ -5,31 +5,33 @@ VCloudDirector:
     username: administrator # VMware Cloud Director system administrator login name
     verify: False # Certificate validation enabled
   Organization:
-    OrgName: Acme # Short name of the organization containing Org VDC to be migrated
+    OrgName: Coke # Short name of the organization containing Org VDC to be migrated
   SourceOrgVDC:
     # Single/multiple source Org VDCs in the form of a list that needs to be migrated
-    - OrgVDCName: Acme-1-vdc # Name of the source organization VDC
+    - OrgVDCName: Atest-VDC # Name of the source organization VDC
       NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
       NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
-      ExternalNetwork: tpm-externalnetwork # Name of the external network to which all target NSX-T edge gateways will be connected to
-      NSXTNetworkPoolName: 2nd-t-network-pool # Name of the nsxt backed network pool which needs to be added incase of multiple network pools
+      ExternalNetwork: tpm-externalnetwork-vrf1 # Name of the external network to which all target NSX-T edge gateways will be connected to
+      NSXTNetworkPoolName: t-network-pool # Name of the nsxt backed network pool which needs to be added incase of multiple network pools
       NoSnatDestinationSubnet: 10.100.0.0/16 # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
       ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
       LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
-      EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
+      EdgeGatewayDeploymentEdgeCluster: tpm-edge-cluster # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
       AdvertiseRoutedNetworks: False #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
-    - OrgVDCName: Acme-2-vdc # Name of the source organization VDC
-      NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
-      NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
-      ExternalNetwork: tpm-externalnetwork # Name of the external network to which all target NSX-T edge gateways will be connected to
-      NSXTNetworkPoolName: 2nd-t-network-pool # Name of the nsxt backed network pool which needs to be added incase of multiple network pools
-      NoSnatDestinationSubnet: 10.100.0.0/16 # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
-      ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
-      LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
-      EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
-      AdvertiseRoutedNetworks: False #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
+      NonDistributedNetworks: True # (optional) Option to create the non-distributed routing for routed OrgVDC network.
+#    - OrgVDCName: Acme-2-vdc # Name of the source organization VDC
+#      NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
+#      NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
+#      ExternalNetwork: tpm-externalnetwork # Name of the external network to which all target NSX-T edge gateways will be connected to
+#      NSXTNetworkPoolName: 2nd-t-network-pool # Name of the nsxt backed network pool which needs to be added incase of multiple network pools
+#      NoSnatDestinationSubnet: 10.100.0.0/16 # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
+#      ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
+#      LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
+#      EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
+#      AdvertiseRoutedNetworks: False #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
+#      NonDistributedNetworks: True # (optional) Option to create the non-distributed routing for routed OrgVDC network.
   ImportedNetworkTransportZone: Direct-TZ # NSX-T VLAN transport zone used for segment creation for imported networks
-  DummyExternalNetwork: Dummy-ext # Name of the dummy external network which will be temporarily attached to source edge gateway during network disconnection.
+  DummyExternalNetwork: dummy # Name of the dummy external network which will be temporarily attached to source edge gateway during network disconnection.
   CloneOverlayIds: False # (optional) Flag that instructs migration tool to clone the overlay id's of org vdc networks
 
 NSXT:

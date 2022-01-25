@@ -249,6 +249,56 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             except RuntimeError:
                 pass
 
+    @description("Allowing of non distributed routing for edge gateway.")
+    @remediate
+    def allowNonDistributedRouting(self):
+        """
+        Description : Allow Non-Distributed routing on edge gateway of Organization VDC
+        """
+        # Check if org vdc edge gateways were created or not
+        if not self.rollback.metadata.get("prepareTargetVDC", {}).get("createEdgeGateway"):
+            return
+
+        logger.debug('Allow Non-Distributed Routing is getting configured')
+        targetEdgeGateway = copy.deepcopy(self.rollback.apiData['targetEdgeGateway'])
+        for edgeGateway in targetEdgeGateway:
+            gatewayId = edgeGateway['id']
+            gatewayName = edgeGateway['name']
+            url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                vcdConstants.UPDATE_EDGE_GATEWAYS_BY_ID.format(gatewayId))
+            response = self.restClientObj.get(url, self.headers)
+
+            # Fetching JSON response from API call
+            responseDict = response.json()
+            if response.status_code == requests.codes.ok:
+                logger.debug(
+                    'Fetched source orgvdc edge gateway "{}"  successfully.'.format(gatewayName))
+            else:
+                raise Exception(
+                    'Failed to fetch target orgvdc edge gateway "{}" due to error- "{}"'.format(
+                        gatewayName, responseDict['message']))
+
+            # create paylaod for the allowing non distributed routing.
+            payLoadDict = responseDict
+
+            # set a flag for allow non distributed routing
+            payLoadDict['nonDistributedRoutingEnabled'] = True
+            payLoadData = json.dumps(payLoadDict)
+
+            # put api call to configure allow non distributed routing on target edge gateway.
+            response = self.restClientObj.put(url, self.headers, data=payLoadData)
+            if response.status_code == requests.codes.accepted:
+                # successful configuration of non distributed routing on target edgeGateway
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug('Allow non distributed routing configuration updated successfully for edge gateway {}.'
+                             .format(gatewayName))
+            else:
+                # failure in configuring allow non distributed routing on target edge gateway
+                response = response.json()
+                raise Exception('Failed to configure non distributed routing in Target Edge Gateway {} - {}'
+                                .format(gatewayName, response['message']))
+
     @description("creation of target Org VDC Networks")
     @remediate
     def createOrgVDCNetwork(self, orgVDCIDList, sourceOrgVDCNetworks, inputDict, vdcDict, nsxObj):
@@ -257,6 +307,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         try:
             segmetList = list()
+
             # Check if overlay id's are to be cloned or not
             cloneOverlayIds = inputDict['VCloudDirector'].get('CloneOverlayIds')
 
@@ -264,7 +315,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             data = self.rollback.apiData
             targetOrgVDC = data['targetOrgVDC']
             targetEdgeGateway = data['targetEdgeGateway']
-            # org vdc network create URL
+
+            # create org vdc network URL
             url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_ORG_VDC_NETWORKS)
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
 
@@ -331,7 +383,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                               componentName=vcdConstants.COMPONENT_NAME,
                                                               templateName=vcdConstants.CREATE_ORG_VDC_NETWORK_TEMPLATE, apiVersion=self.version)
 
-                #Loading JSON payload data to python Dict Structure
+                # Loading JSON payload data to python Dict Structure
                 payloadData = json.loads(payloadData)
 
                 if float(self.version) < float(vcdConstants.API_VERSION_ZEUS):
@@ -366,6 +418,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # if overlay id exists for corresponding org vdc network
                 if cloneOverlayIds and overlayId:
                     payloadData.update({'overlayId': overlayId})
+
+                # Creat the non distributed routed nework.
 
                 # Setting headers for the OPENAPI requests
                 self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
@@ -2115,6 +2169,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             # creating target Org VDC Edge Gateway
             self.createEdgeGateway(inputDict, vdcDict, nsxObj)
+
+            # Allow Non distributed routing for edge gateways
+            if vdcDict.get('NonDistributedNetworks') and float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
+                self.allowNonDistributedRouting()
 
             # only if source org vdc networks exist
             if orgVdcNetworkList:
