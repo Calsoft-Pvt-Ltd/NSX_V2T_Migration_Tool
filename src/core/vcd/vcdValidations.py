@@ -3080,6 +3080,11 @@ class VCDMigrationValidation:
                         if not virtualServer.get('defaultPoolId', None):
                             loadBalancerErrorList.append("Default pool is not configured in load balancer virtual server '{}'\n".format(virtualServer['name']))
 
+                    for virtualServer in virtualServersData:
+                        #check for IPV4 Address for virtual server
+                        if type(ipaddress.ip_address(virtualServer['ipAddress'])) is ipaddress.IPv6Address:
+                            loadBalancerErrorList.append("IPV6 Address used as VIP in virtual Server '{}'\n".format(virtualServer['name']))
+
                     # Fetching application profiles data from response
                     if responseDict['loadBalancer'].get('applicationProfile'):
                         applicationProfiles = responseDict['loadBalancer'].get('applicationProfile') \
