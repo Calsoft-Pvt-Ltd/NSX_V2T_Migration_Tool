@@ -1188,7 +1188,7 @@ class NSXTOperations():
 
             logger.debug("Fetching the cluster resource-pool mappings")
             clusterResourcePoolMapping = vcenterObj.fetchClusterResourcePoolMapping()
-            logger.debug(f"CLUSTER RESOURCE-POOL MAPPING: {agencyClusterMapping}")
+            logger.debug(f"CLUSTER RESOURCE-POOL MAPPING: {clusterResourcePoolMapping}")
 
             logger.debug("Retrieving data of edge transport nodes present in edge cluster: {}".format(
                 ', '.join(edgeClusterNameList)))

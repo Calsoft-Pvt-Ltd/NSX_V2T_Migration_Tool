@@ -395,11 +395,11 @@ class VCDMigrationValidation:
 
                             # Converting python objects back from string
                             try:
-                                logger.debug(f"Before: {metadataKey} {metadataValue}")    # TODO pranshu: remove
+                                logger.debug(f"{metadataKey} {metadataValue}")    # TODO pranshu: remove
                                 metadataValue = eval(metadataValue)
-                                logger.debug(f'After : {metadataKey} {metadataValue}')    # TODO pranshu: remove
                             except (SyntaxError, NameError, ValueError) as e:
-                                logger.debug(f'Failed to evaluate {metadataKey} - {metadataValue}: {e}')
+                                # TODO pranshu: uncomment when previous TODO is removed
+                                # logger.debug(f'Failed to evaluate {metadataKey} - {metadataValue}: {e}')
                                 logger.debug(traceback.format_exc())
 
                         metaData[metadataKey] = metadataValue
