@@ -255,13 +255,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         Description : Allow Non-Distributed routing on edge gateway of Organization VDC
         """
-        # Check if org vdc edge gateways were created or not
-        if not self.rollback.metadata.get("prepareTargetVDC", {}).get("createEdgeGateway"):
-            return
-
         logger.debug('Allow Non-Distributed Routing is getting configured')
-        targetEdgeGateway = copy.deepcopy(self.rollback.apiData['targetEdgeGateway'])
-        for edgeGateway in targetEdgeGateway:
+        # get the target edge gateway data and enable non distributed routing.
+        for index, edgeGateway in enumerate(self.rollback.apiData['targetEdgeGateway']):
             gatewayId = edgeGateway['id']
             gatewayName = edgeGateway['name']
             url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
@@ -291,6 +287,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # successful configuration of non distributed routing on target edgeGateway
                 taskUrl = response.headers['Location']
                 self._checkTaskStatus(taskUrl=taskUrl)
+                self.rollback.apiData['targetEdgeGateway'][index]['nonDistributedRoutingEnabled'] = True
                 logger.debug('Allow non distributed routing configuration updated successfully for edge gateway {}.'
                              .format(gatewayName))
             else:
@@ -419,7 +416,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if cloneOverlayIds and overlayId:
                     payloadData.update({'overlayId': overlayId})
 
-                # Creat the non distributed routed nework.
+                # Create the non distributed routed network.
+                if (float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2)
+                        and payloadData['networkType'] == 'NAT_ROUTED'
+                        and payloadData['connection']['connectionType'] == "INTERNAL"
+                        and vdcDict.get('NonDistributedNetworks')):
+                    payloadData['connection']['connectionType'] = None
+                    payloadData['connection']['connectionTypeValue'] = "NON_DISTRIBUTED"
 
                 # Setting headers for the OPENAPI requests
                 self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
@@ -454,6 +457,111 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 self.rollback.apiData['ConflictNetworks'] = networkList
         except:
             raise
+
+    @description("creation of target DNAT for non distributed OrgVDC Networks")
+    @remediate
+    def configureTargetDNAT(self, vdcDict):
+        """
+            Description :  Configure DNAT rules on edge gateway for non distributed networks
+        """
+        # Added a interop handler to work this feature only with vcd version 10.3.2 and later.
+        if not (vdcDict.get('NonDistributedNetworks') and float(self.version) >= float(
+                vcdConstants.API_VERSION_ANDROMEDA_10_3_2)):
+            return
+
+        targetOrgVDCId = self.rollback.apiData['targetOrgVDC']['@id']
+        logger.debug('DNAT rules are getting configured')
+
+        # application port profile list
+        applicationPortProfileList = self.getApplicationPortProfiles()
+        tcpPortName, tcpPortId = self._searchApplicationPortProfile(applicationPortProfileList, 'tcp', '53')
+        udpPortName, udpPortId = self._searchApplicationPortProfile(applicationPortProfileList, 'udp', '53')
+
+        # get taregt OrgVDC Network details.
+        orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
+
+        # iterate over the OrgVDC networks and configure DNAT rule. Each non-distributed routed networks will
+        # have two DNAT rules are needed - one for TCP and another for UDP DNS traffic.
+        for network in orgvdcNetworks:
+            if not (network['networkType'] == 'NAT_ROUTED'
+                    and network['connection']['connectionTypeValue'] == 'NON_DISTRIBUTED'):
+                continue
+
+            # add DNAT rules for non distributed routed networks.
+            edgeGatewayId = network['connection']['routerRef']['id']
+            edgeGatewayName = network['connection']['routerRef']['name']
+            edgeGatewayIp = network['subnets']['values'][0]['gateway']
+
+            # get DNS relay configuration of target edge gateway.
+            url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                  vcdConstants.ALL_EDGE_GATEWAYS,
+                                  vcdConstants.CREATE_DNS_CONFIG.format(edgeGatewayId))
+            self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+
+            # get api call to get dns listener ip
+            response = self.restClientObj.get(url, headers=self.headers)
+            if response.status_code == requests.codes.ok:
+                responseDict = response.json()
+                if responseDict['enabled']:
+                    listnerIp = responseDict['listenerIp']
+                else:
+                    # NSX-T backed Org VDC Edge Gateway has DNS forwarding service running on the SR
+                    # component of Tier-1 GW on a loopback interface with an arbitrary non-overlapping IP which
+                    # by default uses 192.168.255.228 IP address
+                    listnerIp = "192.168.255.228"
+            else:
+                raise Exception("Failed to get edgeGateway DNS relay config.")
+
+            # API to configure NAT rules on edge gateway
+            url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                  vcdConstants.ALL_EDGE_GATEWAYS,
+                                  vcdConstants.T1_ROUTER_NAT_CONFIG.format(edgeGatewayId))
+
+            # Create a payload for DNAT rules for TCP on port 53 for DNS forwarding
+            tcpDNATPayload = {"name": "DNS Forwarding DNAT for network {} TCP".format(network['name']),
+                              "description": "Created during NSX-V to T migration",
+                              "enabled": True, "type": "DNAT", "externalAddresses": edgeGatewayIp,
+                              "internalAddresses": listnerIp, "appliedTo": {"id": network['id']},
+                              "applicationPortProfile": {"id": tcpPortId, "name": tcpPortName},
+                              "firewallMatch": "MATCH_INTERNAL_ADDRESS"}
+            self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+            tcpDNATPayloadData = json.dumps(tcpDNATPayload)
+
+            # post api call to configure DNAT rule in target edge gateway.
+            response = self.restClientObj.post(url, headers=self.headers, data=tcpDNATPayloadData)
+            if response.status_code == requests.codes.accepted:
+                # successful configuration of ip prefix list
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug("Successfully created DNAT rules for TCP on target edge gateway: {}".format(
+                    edgeGatewayName))
+            else:
+                errorResponse = response.json()
+                raise Exception("Failed create DNAT rules for TCP on target edge gateway {}:{} ".format(
+                    edgeGatewayName, errorResponse['message']))
+
+            # Create a payload for DNAT rules for UDP on port 53 for DNS forwarding
+            udpDNATPayload = {"name": "DNS Forwarding DNAT for network {} UDP".format(network['name']),
+                              "description": "Created during NSX-V to T migration",
+                              "enabled": True, "type": "DNAT", "externalAddresses": edgeGatewayIp,
+                              "internalAddresses": listnerIp, "appliedTo": {"id": network['id']},
+                              "applicationPortProfile": {"id": udpPortId, "name": udpPortName},
+                              "firewallMatch": "MATCH_INTERNAL_ADDRESS"}
+            self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+            udpDNATPayloadData = json.dumps(udpDNATPayload)
+
+            # post api call to configure DNAT rule in target edge gateway.
+            response = self.restClientObj.post(url, headers=self.headers, data=udpDNATPayloadData)
+            if response.status_code == requests.codes.accepted:
+                # successful configuration of ip prefix list
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug("Successfully created DNAT rules for UDP on target edge gateway: {}".format(
+                    edgeGatewayName))
+            else:
+                errorResponse = response.json()
+                raise Exception("Failed create DNAT rules for UDP on target edge gateway {}:{} ".format(
+                    edgeGatewayName, errorResponse['message']))
 
     @isSessionExpired
     def getEdgeGatewayRateLimit(self, edgeGatewayId):
@@ -2298,6 +2406,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # disconnecting target Org VDC networks
                 self.disconnectTargetOrgVDCNetwork()
 
+                # Configure DNAT rules for non-distributed network if NonDistributedNetworks is set from user input.
+                # if vdcDict.get('NonDistributedNetworks') and float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
+                #     self.configureTargetDNAT()
             else:
                 # If not source Org VDC networks are not present target Org VDC networks will also be empty
                 logger.debug('Skipping Target Org VDC Network creation as no source Org VDC network exist.')

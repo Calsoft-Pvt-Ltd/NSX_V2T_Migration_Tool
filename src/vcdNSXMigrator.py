@@ -874,6 +874,14 @@ class VMwareCloudDirectorNSXMigrator():
                 self.consoleLogger.warning(
                     'Skipping the EdgeGateway Services configuration and Network Switchover as per the input parameters provided')
 
+            # Configure DNAT rules for non-distributed network if NonDistributedNetworks is set from user input.
+            futures = list()
+            with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+                for vcdObj, orgVdcDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                    futures.append(
+                        executor.submit(vcdObj.configureTargetDNAT, orgVdcDict))
+                waitForThreadToComplete(futures)
+
             # Save No of Source vApp to Metadata
             futures = list()
             with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
