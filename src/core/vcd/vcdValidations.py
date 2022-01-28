@@ -395,11 +395,11 @@ class VCDMigrationValidation:
 
                             # Converting python objects back from string
                             try:
-                                logger.debug(f"Before: {metadataKey} {metadataValue}")    # TODO pranshu: remove
+                                logger.debug(f"{metadataKey} {metadataValue}")    # TODO pranshu: remove
                                 metadataValue = eval(metadataValue)
-                                logger.debug(f'After : {metadataKey} {metadataValue}')    # TODO pranshu: remove
                             except (SyntaxError, NameError, ValueError) as e:
-                                logger.debug(f'Failed to evaluate {metadataKey} - {metadataValue}: {e}')
+                                # TODO pranshu: uncomment when previous TODO is removed
+                                # logger.debug(f'Failed to evaluate {metadataKey} - {metadataValue}: {e}')
                                 logger.debug(traceback.format_exc())
 
                         metaData[metadataKey] = metadataValue
@@ -3079,6 +3079,11 @@ class VCDMigrationValidation:
                     for virtualServer in virtualServersData:
                         if not virtualServer.get('defaultPoolId', None):
                             loadBalancerErrorList.append("Default pool is not configured in load balancer virtual server '{}'\n".format(virtualServer['name']))
+
+                    for virtualServer in virtualServersData:
+                        #check for IPV4 Address for virtual server
+                        if type(ipaddress.ip_address(virtualServer['ipAddress'])) is ipaddress.IPv6Address:
+                            loadBalancerErrorList.append("IPV6 Address used as VIP in virtual Server '{}'\n".format(virtualServer['name']))
 
                     # Fetching application profiles data from response
                     if responseDict['loadBalancer'].get('applicationProfile'):
