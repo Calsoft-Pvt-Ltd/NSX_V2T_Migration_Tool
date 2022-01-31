@@ -8,7 +8,7 @@ VCloudDirector:
     OrgName: Acme # Short name of the organization containing Org VDC to be migrated
   SourceOrgVDC:
     # Single/multiple source Org VDCs in the form of a list that needs to be migrated
-    - OrgVDCName: Acme1-vdc # Name of the source organization VDC
+    - OrgVDCName: Acme-1-vdc # Name of the source organization VDC
       NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
       NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
       ExternalNetwork: tpm-externalnetwork # Name of the external network to which all target NSX-T edge gateways will be connected to
@@ -18,7 +18,7 @@ VCloudDirector:
       LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
       AdvertiseRoutedNetworks: False #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
-      NonDistributedNetworks: True # (optional) Option to create the non-distributed routing for routed OrgVDC network.
+      NonDistributedNetworks: False # (optional) Option to create the non-distributed routing for routed OrgVDC network.
     - OrgVDCName: Acme-2-vdc # Name of the source organization VDC
       NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
       NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
@@ -29,9 +29,9 @@ VCloudDirector:
       LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
       AdvertiseRoutedNetworks: False #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
-      NonDistributedNetworks: True # (optional) Option to create the non-distributed routing for routed OrgVDC network.
+      NonDistributedNetworks: False # (optional) Option to create the non-distributed routing for routed OrgVDC network.
   ImportedNetworkTransportZone: Direct-TZ # NSX-T VLAN transport zone used for segment creation for imported networks
-  DummyExternalNetwork: dummy # Name of the dummy external network which will be temporarily attached to source edge gateway during network disconnection.
+  DummyExternalNetwork: Dummy-Ext # Name of the dummy external network which will be temporarily attached to source edge gateway during network disconnection.
   CloneOverlayIds: False # (optional) Flag that instructs migration tool to clone the overlay id's of org vdc networks
 
 NSXT:
