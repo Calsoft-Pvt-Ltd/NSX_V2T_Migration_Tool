@@ -1942,6 +1942,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         if not ipsetresponseDict['ipset'].get('value'):
                             logger.debug(
                                 f"Ignoring IPset '{ipsetgroup['name']}' that does not have IP addresses present in it.")
+                            continue
 
                         # storing the ip-address and range present in the IPSET
                         ipsetipaddress = ipsetresponseDict['ipset']['value']
