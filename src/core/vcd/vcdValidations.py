@@ -774,14 +774,11 @@ class VCDMigrationValidation:
         """
         Description :   Validates whether fast provisioning is enabled on the Org VDC
         """
-        try:
-            data = self.rollback.apiData
-            # checking if the source org vdc uses fast provisioning, if so raising exception
-            if data['sourceOrgVDC']['UsesFastProvisioning'] == "true":
-                raise Exception("Fast Provisioning enabled on source Org VDC. Will not migrate fast provisioned org vdc")
-            logger.debug("Validated Succesfully, Fast Provisioning is not enabled on source Org VDC")
-        except Exception:
-            raise
+        if self.rollback.apiData['sourceOrgVDC']['UsesFastProvisioning'] == "true":
+            return True
+
+        logger.debug("Fast Provisioning is not enabled on source Org VDC")
+        return False
 
     @isSessionExpired
     def getSourceExternalNetwork(self, sourceOrgVDCId):
@@ -2645,7 +2642,7 @@ class VCDMigrationValidation:
 
         # Validation fails if shared disks exists
         if shared_disks:
-            raise Exception(f"Independent Disks in Org VDC are shared. Shared disks: {', '.join(shared_disks)}")
+            raise ValidationError(f"Independent Disks in Org VDC are shared. Shared disks: {', '.join(shared_disks)}")
 
         logger.debug("Validated Successfully, Independent Disks in Source Org VDC are not shared")
 
@@ -3659,6 +3656,45 @@ class VCDMigrationValidation:
         except Exception:
             raise
 
+    def _validateNamedDiskWithFastProvisioned(self, vApp, unsupportedVms):
+        vAppResponse = self.restClientObj.get(vApp['@href'], self.headers)
+        responseDict = self.vcdUtils.parseXml(vAppResponse.content)
+        if not vAppResponse.status_code == requests.codes.ok:
+            raise Exception("Failed to get vapp details in validateNamedDiskWithFastProvisioned due to {}".format(
+                responseDict['Error']['@message']))
+
+        if not responseDict['VApp'].get('Children'):
+            logger.debug('Source vApp {} has no VM present in it.'.format(vApp['@name']))
+            return
+
+        for vm in listify(responseDict['VApp']['Children']['Vm']):
+            for disk in listify(vm['VmSpecSection'].get('DiskSection', {}).get('DiskSettings')):
+                if disk.get('Disk') and disk['StorageProfile']['@id'] != vm.get('StorageProfile', {}).get('@id'):
+                    unsupportedVms['vm'].append(vm['@name'])
+                    break
+
+    def validateNamedDiskWithFastProvisioned(self, sourceOrgVDCId):
+        if not self.validateOrgVDCFastProvisioned():
+            return
+
+        vAppList = self.getOrgVDCvAppsList(sourceOrgVDCId)
+        if not vAppList:
+            return
+
+        unsupportedVms = {'vm': []}
+        for vApp in vAppList:
+            self.thread.spawnThread(self._validateNamedDiskWithFastProvisioned, vApp, unsupportedVms)
+
+        self.thread.joinThreads()
+        if self.thread.stop():
+            raise Exception("Failed to validate independent Disks with Fast Provisioned enabled. Check log file for errors")
+
+        if unsupportedVms['vm']:
+            raise ValidationError("VM/s ({}) has independent disk attached with different storage policies.".format(
+                ','.join(unsupportedVms['vm'])))
+
+        logger.debug("Validated Successfully, Independent Disks with Fast Provisioned enabled")
+
     @isSessionExpired
     def _checkMediaAttachedToVM(self, vApp):
         """
@@ -4362,6 +4398,9 @@ class VCDMigrationValidation:
 
             logger.info("Validating Independent Disks")
             self.validateIndependentDisks(sourceOrgVDCId)
+
+            logger.info('Validating a VM does not have independent disks with different storage policies when fast provisioning is enabled')
+            self.validateNamedDiskWithFastProvisioned(sourceOrgVDCId)
 
             logger.info('Validating whether media is attached to any vApp VMs')
             self.validateVappVMsMediaNotConnected(sourceOrgVDCId)
