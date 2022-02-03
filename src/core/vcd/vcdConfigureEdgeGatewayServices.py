@@ -1688,8 +1688,12 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             FilterpayloadDict = {'prefixes': []}
             # iterating over the bgp filters
             for bgpFilter in bgpFilters:
+                if 'network' in bgpFilter.keys():
+                    network = bgpFilter['network']
+                else:
+                    network = 'ANY'
                 FilterpayloadDict['prefixes'].append({
-                    "network": bgpFilter['network'], "action": bgpFilter['action'].upper(),
+                    "network": network, "action": bgpFilter['action'].upper(),
                     "greaterThanEqualTo": bgpFilter['ipPrefixGe'] if 'ipPrefixGe' in bgpFilter.keys() else "",
                     "lessThanEqualTo": bgpFilter['ipPrefixLe'] if 'ipPrefixLe' in bgpFilter.keys() else ""})
             if filtertype == "in":
