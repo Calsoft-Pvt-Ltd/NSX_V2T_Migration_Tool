@@ -19,21 +19,25 @@ handlers:
     formatter: colored_format
     stream: ext://sys.stdout
 
+
   main:
     class: logging.FileHandler
     level: DEBUG
     formatter: simple
     filename: VCD-NSX-Migrator-{}.log
+    encoding: utf-8
 
   pre-assessment:
     class: logging.FileHandler
     level: INFO
     filename: VCD-NSX-Migrator-preCheck-Summary.log
+    encoding: utf-8
 
   end-state-log:
     class: logging.FileHandler
     level: INFO
     filename: VCD-NSX-Migrator-Statelog-{}.log
+    encoding: utf-8
 
 loggers:
   consoleLogger:
