@@ -30,6 +30,7 @@ parentDir = os.path.abspath(os.path.join(cwd, os.pardir))
 sys.path.append(parentDir)
 
 import src.constants as mainConstants
+import codecs
 
 from src.commonUtils.threadUtils import Thread, waitForThreadToComplete
 from src.rollback import Rollback
@@ -639,7 +640,7 @@ class VMwareCloudDirectorNSXMigrator():
             self.consoleLogger.warning("Log Filepath: {}".format(self.mainLogfile))
 
             # reading the input yaml file
-            with open(self.userInputFilePath) as f:
+            with codecs.open(self.userInputFilePath, encoding = "utf_8") as f:
                 self.inputDict = yaml.safe_load(f)
                 # Render dict values as strings
                 Utilities.renderInputDict(self.inputDict)
