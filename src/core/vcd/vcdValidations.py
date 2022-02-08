@@ -3085,6 +3085,10 @@ class VCDMigrationValidation:
                         if type(ipaddress.ip_address(virtualServer['ipAddress'])) is ipaddress.IPv6Address:
                             loadBalancerErrorList.append("IPV6 Address used as VIP in virtual Server '{}'\n".format(virtualServer['name']))
 
+                    for virtualServer in virtualServersData:
+                        if not(virtualServer.get('applicationProfileId')):
+                            loadBalancerErrorList.append("Application profile is not added in virtual Server '{}'\n".format(virtualServer['name']))
+
                     # Fetching application profiles data from response
                     if responseDict['loadBalancer'].get('applicationProfile'):
                         applicationProfiles = responseDict['loadBalancer'].get('applicationProfile') \
@@ -3092,8 +3096,6 @@ class VCDMigrationValidation:
                             else [responseDict['loadBalancer'].get('applicationProfile')]
                     else:
                         applicationProfiles = []
-                        loadBalancerErrorList.append(
-                            "Application profile is not configured in load balancer virtual server.\n")
 
                     for profile in applicationProfiles:
                         if profile.get('persistence') and profile['persistence']['method'] not in supportedLoadBalancerPersistence:
