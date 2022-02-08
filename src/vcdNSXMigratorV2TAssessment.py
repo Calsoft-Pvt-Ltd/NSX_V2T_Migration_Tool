@@ -98,6 +98,7 @@ VALIDATION_CLASSIFICATION = {
     'Suspended VMs': 1,
     'Routed vApp Networks': 2,
     'Fencing enabled on vApps': 2,
+    'VM with Independent disks having different storage policies and fast provisioning enabled': 1,
     'No free interface on edge gateways': 1,
     'Edge Gateway Rate Limit': 1,
     'Shared Independent Disks': 2,
@@ -269,6 +270,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                      vdcId, self.edgeGatewayIdList],
                 'Edge Gateway Rate Limit': [self.vcdValidationObj.validateEdgeGatewayRateLimit, self.edgeGatewayIdList],
                 'Shared Independent Disks': [self.vcdValidationObj.validateIndependentDisks, vdcId, OrgId, True],
+                'VM with Independent disks having different storage policies and fast provisioning enabled': [self.vcdValidationObj.validateNamedDiskWithFastProvisioned, vdcId],
                 'Validating Source Edge gateway services': [self.vcdValidationObj.getEdgeGatewayServices, None, None, None, True, None, True],
                 'Unsupported DFW configuration': [self.vcdValidationObj.getDistributedFirewallConfig, vdcId, True, True, True],
                 'Cross VDC Networking': [self.vcdValidationObj.validateCrossVdcNetworking, vdcId]

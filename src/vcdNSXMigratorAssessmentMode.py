@@ -174,6 +174,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                     'Validating vApps do not have routed vApp networks': [vcdValidationObj.validateNoVappNetworksExist, sourceOrgVDCId],
                     'Validating vApps isolated vApp networks with DHCP enabled': [vcdValidationObj.validateDHCPOnIsolatedvAppNetworks, sourceOrgVDCId, edgeGatewayDeploymentEdgeCluster, nsxtObj],
                     'Validating Independent Disks': [vcdValidationObj.validateIndependentDisks, sourceOrgVDCId, False],
+                    'Validating a VM does not have independent disks with different storage policies when fast provisioning is enabled': [vcdValidationObj.validateNamedDiskWithFastProvisioned, sourceOrgVDCId],
                 })
             # Perform these validations only if services are to be configured
             if mainConstants.SERVICES_KEYWORD in self.executeList:
