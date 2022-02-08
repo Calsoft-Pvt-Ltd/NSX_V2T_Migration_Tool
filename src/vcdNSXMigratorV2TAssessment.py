@@ -77,7 +77,7 @@ EDGE_GW_SERVICES_VALIDATIONS = {
     'LoadBalancer: IPv6 Virtual Server Address': 1,
     'LoadBalancer: Unsupported persistence': 1,
     'LoadBalancer: Unsupported algorithm': 1,
-    'LoadBalancer: Application profile is not configured': 1,
+    'LoadBalancer: Application profile is not added': 1,
     'L2VPN service': 2,
     'SSLVPN service': 2,
     'Syslog service': 1,
@@ -627,12 +627,12 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 orgVDCResult["LoadBalancer: Unsupported algorithm"] = True
                                             else:
                                                 orgVDCResult["LoadBalancer: Unsupported algorithm"] = False
-                                            if "Application profile is not configured" in ''.join(result):
+                                            if "Application profile is not added" in ''.join(result):
                                                 orgVDCResult[
-                                                    "LoadBalancer: Application profile is not configured"] = True
+                                                    "LoadBalancer: Application profile is not added"] = True
                                             else:
                                                 orgVDCResult[
-                                                    "LoadBalancer: Application profile is not configured"] = False
+                                                    "LoadBalancer: Application profile is not added"] = False
                                         if serviceName == "DHCP":
                                             if "Domain names are configured as a DHCP servers" in ''.join(result):
                                                 orgVDCResult["DHCP Relay: Domain names are configured"] = True
