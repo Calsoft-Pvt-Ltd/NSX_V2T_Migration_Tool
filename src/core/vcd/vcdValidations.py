@@ -1941,33 +1941,6 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def validateEdgeGatewayRateLimit(self, edgeGatewayIdList):
-        """
-            Description :   Validate Edge Gateway uplinks
-            Parameters  :   edgeGatewayIdList   -   List of Id's of the Edge Gateway  (STRING)
-        """
-        try:
-            for sourceEdgeGatewayId in edgeGatewayIdList:
-                edgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
-                url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                    vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
-                acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
-                headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
-                # retrieving the details of the edge gateway
-                response = self.restClientObj.get(url, headers)
-                if response.status_code == requests.codes.ok:
-                    responseDict = response.json()
-                    gatewayInterfaces = responseDict['configuration']['gatewayInterfaces']['gatewayInterface']
-                    # checking whether source edge gateway has rate limit configured
-                    rateLimitEnabledInterfaces = [interface for interface in gatewayInterfaces if
-                                                  interface.get('applyRateLimit', None)]
-                    if rateLimitEnabledInterfaces:
-                        raise ValidationError("Rate Limit is configured on edge gateway")
-        except Exception:
-            raise
-
-
-    @isSessionExpired
     def validateEdgeGatewayUplinks(self, sourceOrgVDCId, edgeGatewayIdList):
         """
             Description :   Validate Edge Gateway uplinks
