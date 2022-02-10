@@ -1670,8 +1670,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     GatewayID = vdcNetwork['connection']['routerRef']['id']
                     listenerIpexist = GatewayID in listenerIp.keys()
                     if listenerIpexist and vdcNetwork.get('connection'):
-                        #if vdcNetwork['subnets']['values'][0]['dnsServer1'] == vdcNetwork['subnets']['values'][0]['gateway']:
-                        vdcNetwork['subnets']['values'][0]['dnsServer1'] = listenerIp[GatewayID]
+                        if vdcNetwork['subnets']['values'][0]['dnsServer1'] == vdcNetwork['subnets']['values'][0]['gateway']:
+                            vdcNetwork['subnets']['values'][0]['dnsServer1'] = listenerIp[GatewayID]
                     # url to reconnect the org vdc network
                     url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                            vcdConstants.ALL_ORG_VDC_NETWORKS,
