@@ -163,6 +163,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 # creating a dict with firewallName as key and firewallIDs as value
                                 # firewallIdDict = dict(zip(firewallName, firewallIDs))
                         firewallIdDict = self.rollback.apiData.get('firewallIdDict')
+                    else:
+                        raise Exception("Failed to retrieve application port profiles - {}".format(response['error']['details']))
                 # if firewall rules are configured on source edge gateway
                 if sourceFirewallRules:
                     # firstTime variable is to check whether security groups are getting configured for the first time
@@ -238,6 +240,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                 if firewallIdDict[edgeGatewayId].get(ipsetresponseDict['ipset']['name']):
                                                     ipsetDict = firewallIdDict[edgeGatewayId][ipsetresponseDict['ipset']['name']]
                                                     sourcefirewallGroupId.append(ipsetDict)
+                                        else:
+                                            raise Exception("Failed to retrieve ipset group {} info - {}".format(ipsetgroup, ipsetresponse['error']['details']))
                             # checking if any routed org vdc networks added in the firewall rule and networktype should be true
                             if networkgroups and networktype:
                                 # checking if there are any network present in the fire wall rule
@@ -285,6 +289,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                 response = response.json()
                                                 raise Exception(
                                                     'Failed to update Firewall rule - {}'.format(response['message']))
+                                else:
+                                    raise Exception("Failed to retrieve firewall info - {}".format(response['message']))
                         ipAddressList = list()
                         # checking for the destination key in firewallRule dictionary
                         if firewallRule.get('destination', None):
@@ -344,6 +350,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                 if firewallIdDict[edgeGatewayId].get(ipsetresponseDict['ipset']['name']):
                                                     ipsetDict = firewallIdDict[edgeGatewayId][ipsetresponseDict['ipset']['name']]
                                                     destinationfirewallGroupId.append(ipsetDict)
+                                        else:
+                                            raise Exception("Failed to retrieve ipset group {} info - {}".format(ipsetgroup, ipsetresponse['error']['details']))
                             # checking if any routed org vdc networks added in the firewall rule and networktype should be true
                             if networkgroups and networktype:
                                 # checking if there are any network present in the fire wall rule
@@ -391,6 +399,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                 response = response.json()
                                                 raise Exception(
                                                     'Failed to update Firewall rule - {}'.format(response['message']))
+                                else:
+                                    raise Exception("Failed to retrieve firewall info - {}".format(response['message']))
                         if not networktype:
                             userDefinedRulesList = list()
                             # get api call to retrieve firewall info of target edge gateway
@@ -399,6 +409,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 # successful retrieval of firewall info
                                 responseDict = response.json()
                                 userDefinedRulesList = responseDict['userDefinedRules']
+                            else:
+                                raise Exception("Failed to retrieve firewall info - {}".format(response['message']))
                             # updating the payload with source firewall groups, destination firewall groups, user defined firewall rules, application port profiles
                             action = 'ALLOW' if firewallRule['action'] == 'accept' else 'DROP'
                             payloadDict.update({
@@ -1159,6 +1171,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 "Use this Listener IP address {} when configuring VM's DNS server. The Org VDC network's"
                                 " DNS server will be configured with this listener IP".format(responseDict['listenerIp']))
                             self.rollback.apiData['listenerIp'][edgeGatewayID] = responseDict['listenerIp']
+                        else:
+                            raise Exception("Failed to dns get listener ip - {}".format(response['message']))
                     else:
                         # failure in configuring dns
                         errorResponse = apiResponse.json()
@@ -1243,6 +1257,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             raise Exception(
                                 "Failed to enable DHCP in EDGE mode on OrgVDC network {}, error : {}.".format(
                                     networkName, errorResponse))
+                else:
+                    raise Exception("Failed to retrieve DHCP configuration info for network {} - {}".format(networkId, response['message']))
 
                 # Enables the DHCP bindings on OrgVDC network.
                 DHCPBindingUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
@@ -1539,6 +1555,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             network_name = target_network['name']
                             network_id = target_network['id']
                             members.append({'name': network_name, 'id': network_id})
+                else:
+                    raise Exception("Failed to retrieve network info for {} - {}".format(networkgroup, getnetworkResponse['message']))
             # getting the already created firewall groups summaries
             summaryValues = self.fetchFirewallGroups()
             for summary in summaryValues:
@@ -1562,6 +1580,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             # for every group checking if both network and group members are same then appending it in list
                             if member in members:
                                 groupId.append(firewallGroupId)
+                else:
+                    raise Exception("Failed to retrieve firewall group {} info - {}".format(firewallGroupId, getGroupResponse['message']))
             for member in members:
                 # validating if the network member doesn't exists in the members of the firewall groups which are already created
                 # then adding it to the list which will be used for the creation of the new firewall group
@@ -1832,6 +1852,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 payloadData["applicationPortProfile"] = {"name": protocol_port_name,
                                                                          "id": protocol_port_id}
                                 break
+                    else:
+                        raise Exception("Failed to get icmp port profiles - {}".format(icmpResponse['message']))
             else:
                 payloadData["applicationPortProfile"] = None
         # configuring SNAT
@@ -2225,7 +2247,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 responseDict = response.json()
                 resultTotal = responseDict['resultTotal']
             else:
-                raise Exception('Failed to fetch load balancer pool details')
+                raise Exception('Failed to fetch load balancer pool details: {}'.format(response['message']))
             pageNo = 1
             pageSizeCount = 0
             targetLoadBalancerPoolSummary = []
@@ -2243,6 +2265,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     logger.debug('pool summary result pageSize = {}'.format(pageSizeCount))
                     pageNo += 1
                     resultTotal = responseDict['resultTotal']
+                else:
+                    raise Exception('Failed to fetch load balancer pool details: {}'.format(response['message']))
             return targetLoadBalancerPoolSummary
         except:
             raise
