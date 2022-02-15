@@ -125,9 +125,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # Checking if default edge gateway is configured on edge gateway
                 sourceEdgeGatewayId = sourceEdgeGatewayDict['id'].split(':')[-1]
                 defaultGatewayData = self.getEdgeGatewayAdminApiDetails(sourceEdgeGatewayId, returnDefaultGateway=True)
-                if isinstance(defaultGatewayData, list):
-                    raise Exception(
-                        'Default gateway is not configured on edge gateway - {}'.format(sourceEdgeGatewayDict['name']))
                 defaultGateway = defaultGatewayData.get('gateway')
 
                 bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)

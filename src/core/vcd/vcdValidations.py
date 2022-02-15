@@ -1507,11 +1507,11 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getEdgeGatewayAdminApiDetails(self, edgeGatewayId, staticRouteDetails = None, returnDefaultGateway = False):
+    def getEdgeGatewayAdminApiDetails(self, edgeGatewayId, staticRouteDetails=None, returnDefaultGateway=False):
         """
             Description :   Get details of edge gateway from admin API
             Parameters  :   edgeGatewayId   -   Edge Gateway ID  (STRING)
-                            staticRouteDetails  -   Destails of static routes
+                            staticRouteDetails  -   Details of static routes
                             returnDefaultGateway    -   Flag if default gateway details are to be returned
             Returns     :   Details of edge gateway
         """
@@ -1525,7 +1525,7 @@ class VCDMigrationValidation:
             headers = {'Authorization': self.headers['Authorization'],
                        'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
             response = self.restClientObj.get(url, headers)
-            if response.status_code == requests.codes.ok:
+            if response.status_code != requests.codes.ok:
                 responseDict = response.json()
                 for eachGatewayInterface in responseDict['configuration']['gatewayInterfaces']['gatewayInterface']:
                     for eachSubnetParticipant in eachGatewayInterface['subnetParticipation']:
@@ -1535,16 +1535,16 @@ class VCDMigrationValidation:
                             defaultGatewayDict['netmask'] = eachSubnetParticipant['netmask']
                             defaultGatewayDict['subnetPrefixLength'] = eachSubnetParticipant['subnetPrefixLength']
                             defaultGatewayDict['ipRanges'] = list()
+
                             if eachSubnetParticipant['ipRanges'] is not None:
                                 for eachIpRange in eachSubnetParticipant['ipRanges']['ipRange']:
                                     defaultGatewayDict['ipRanges'].append('{}-{}'.format(eachIpRange['startAddress'],
                                                                                          eachIpRange['endAddress']))
                             # if ip range is not present assign ip address as ipRange
-                            elif eachSubnetParticipant['ipRanges'] is None:
+                            else:
                                 defaultGatewayDict['ipRanges'].append('{}-{}'.format(eachSubnetParticipant['ipAddress'],
                                                                                      eachSubnetParticipant['ipAddress']))
-                            else:
-                                return ['Failed to get default gateway sub allocated IPs\n']
+
                         else:
                             if eachGatewayInterface['interfaceType'] == 'uplink':
                                 allnonDefaultGatewaySubnetList.extend(eachGatewayInterface['subnetParticipation'])
@@ -1552,14 +1552,21 @@ class VCDMigrationValidation:
                                 # if current interface has static routes
                                 if eachGatewayInterface['name'] in staticRouteDetails.keys():
                                     noSnatList.append(staticRouteDetails[eachGatewayInterface['name']]['network'])
-                if defaultGatewayDict == {} and returnDefaultGateway is True:
-                    return ['Default Gateway not configured on Edge Gateway\n']
-                if returnDefaultGateway is False and noSnatList is not []:
+
+                if returnDefaultGateway:
+                    if defaultGatewayDict == {}:
+                        logger.debug(f"Default gateway is not configured on {edgeGatewayId}")
+                    return defaultGatewayDict
+
+                if noSnatList is not []:
                     return allnonDefaultGatewaySubnetList, defaultGatewayDict, noSnatList
                 else:
-                    return defaultGatewayDict
+                    raise Exception('Failed to get edge gateway admin api details for NOSNAT')
+
             else:
-                return ['Failed to get edge gateway admin api response\n']
+                logger.debug(response.json())
+                raise Exception('Failed to get edge gateway admin api response')
+
         except Exception:
             raise
 
@@ -2447,16 +2454,17 @@ class VCDMigrationValidation:
                 syslogErrorList = self.thread.returnValues['getEdgeGatewaySyslogConfig']
                 sshErrorList = self.thread.returnValues['getEdgeGatewaySSHConfig']
                 greTunnelErrorList = self.thread.returnValues['getEdgeGatewayGreTunnel']
+
                 if bgpStatus is True and edgeGatewayCount > 1:
                     bgpErrorList.append('BGP is enabled on: {} and more than 1 edge gateway present'.format(gatewayName))
+
                 currentErrorList = currentErrorList + dhcpErrorList + firewallErrorList + natErrorList + ipsecErrorList \
                                + bgpErrorList + routingErrorList + loadBalancingErrorList + L2VpnErrorList \
                                + SslVpnErrorList + dnsErrorList + syslogErrorList + sshErrorList + greTunnelErrorList
-                defaultGatewayDetails = self.getEdgeGatewayAdminApiDetails(gatewayId, returnDefaultGateway=True)
-                if isinstance(defaultGatewayDetails, list):
-                    currentErrorList = currentErrorList + defaultGatewayDetails
                 if len(currentErrorList) > 1:
                     allErrorList = allErrorList + currentErrorList
+
+                defaultGatewayDetails = self.getEdgeGatewayAdminApiDetails(gatewayId, returnDefaultGateway=True)
                 if preCheckMode is False and isinstance(defaultGatewayDetails, dict):
                     ifRouterIdInDefaultGateway = False
                     ifSnatOnDefaultGateway = False
