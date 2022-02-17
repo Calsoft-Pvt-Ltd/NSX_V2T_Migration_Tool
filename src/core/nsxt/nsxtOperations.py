@@ -508,13 +508,15 @@ class NSXTOperations():
         Parameters  : edgeClusterNameList - List of names of the edge cluster participating in bridging (LIST)
                       portgroupList       - List containing details of vxlan backed logical switch (LIST)
         """
+        def replace_unsupported_chars(text):
+            for c in ";|=,-@":
+                text = text.replace(c, '')
+            return text
+
         try:
             logger.info('Attaching bridge endpoint profile to Logical Switch.')
-            transportZoneName = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME
-            transportZoneId = self.getNsxtComponentIdByName(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName)
-            transportZonePath = self.getTransportZoneData(transportZoneId)
-            data = self.rollback.apiData
             apiVersion = self.getNsxtAPIVersion()
+
             switchList = []
             for orgVdcNetwork in targetOrgVDCNetworks:
                 if orgVdcNetwork['networkType'] != 'DIRECT' and orgVdcNetwork['networkType'] != 'OPAQUE':
@@ -535,13 +537,22 @@ class NSXTOperations():
             edgeSwitchList = []
             for item in portgroupList:
                 for item1 in switchList:
-                    if item['networkName'] in item1[0]:
+                    if replace_unsupported_chars(item['networkName']) in item1[0]:
                         edgeSwitchList.append((item, item1[1], item1[2], item1[0]))
+
+            if not edgeSwitchList or len(portgroupList) != len(edgeSwitchList):
+                logger.debug(f'portgroupList {portgroupList}')
+                logger.debug(f'switchList {switchList}')
+                raise Exception('Unable to parse PortGroups')
+
             bridgeEndpointUrl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.CREATE_BRIDGE_ENDPOINT_API)
             logicalPorturl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.CREATE_LOGICAL_SWITCH_PORT_API)
             filePath = os.path.join(nsxtConstants.NSXT_ROOT_DIRECTORY, 'template.json')
 
             # Get transport Zone /infra/sites path.
+            transportZoneName = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME
+            transportZoneId = self.getNsxtComponentIdByName(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName)
+            transportZonePath = self.getTransportZoneData(transportZoneId)
             if transportZonePath is None:
                 transportZonePath = nsxtConstants.TRANSPORT_ZONE_PATH.format(transportZoneId)
 
@@ -575,6 +586,7 @@ class NSXTOperations():
                             else [edgeClusterData['members']]
                     else:
                         raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
+
             edgeNodeSwitchList = zip(edgeClusterMembers, edgeSwitchList)
             for data, geneveLogicalSwitch in edgeNodeSwitchList:
                 edgeNodeId = data['transport_node_id']
