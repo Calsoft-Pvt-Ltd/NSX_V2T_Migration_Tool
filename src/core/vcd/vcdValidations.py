@@ -799,6 +799,7 @@ class VCDMigrationValidation:
                     sourceExternalNetworkData.append(response)
                     logger.debug("Retrieved External Network {} details Successfully".format(response['name']))
             self.rollback.apiData['sourceExternalNetwork'] = sourceExternalNetworkData
+            # TODO pranshu: sourceExternalNetwork metadata is saved here
             return sourceExternalNetworkData
         except Exception:
             raise
@@ -1033,17 +1034,6 @@ class VCDMigrationValidation:
                 raise Exception('Incorrect NSX-T IP Address in input file. Please check if the NSX-T IP Address matches the one in NSXT-Managers in vCD')
         except Exception:
             raise
-
-    @isSessionExpired
-    def validateExternalNetworkIsVRFLiteBacked(self):
-        try:
-            data = self.rollback.apiData
-            if data['targetExternalNetwork']['networkBackings']['values'][0]['backingTypeValue'] == "NSXT_VRF_TIER0":
-                logger.info("Target external network: {} is VRF-Lite backed".format(data['targetExternalNetwork']['name']))
-                return True
-        except Exception:
-            raise
-
 
     @isSessionExpired
     def validateVappFencingMode(self, sourceOrgVDCId):
