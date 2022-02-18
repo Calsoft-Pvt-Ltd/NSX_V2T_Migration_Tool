@@ -47,7 +47,7 @@ def isSessionExpired(func):
     """
     @wraps(func)
     def inner(self, *args, **kwargs):
-        getSession(self)
+        # getSession(self)
         result = func(self, *args, **kwargs)
         return result
     return inner
@@ -839,6 +839,27 @@ class VCDMigrationValidation:
         return externalNetwork[0]
 
     @isSessionExpired
+    def getTargetExternalNetworks(self, extNetInput):
+        # Dev Notes:
+        # Collect target external network
+        # Map external network to gateway names if necessary
+        # Identify what to save in metadata
+        # Identify changes in metadata in current implementation
+        # Identify at which points external network (source or target) is updated
+        # metadata = {
+        #     'ext_net_name': {'ext_net_dict'}
+        # }
+        # user_input = {
+        #     'egde_gw_name': 'ext_net_name'
+        # }
+
+        self.rollback.apiData['targetExternalNetwork'] = {
+            extNet: self.getExternalNetworkByName(extNet)
+            for extNet in set(extNetInput.values())
+        }
+        return self.rollback.apiData['targetExternalNetwork']
+
+    @isSessionExpired
     def getExternalNetwork(self, networkName, isDummyNetwork=False, validateVRF=False):
         """
         Description :   Gets the details of external networks
@@ -850,7 +871,7 @@ class VCDMigrationValidation:
             key = None
             logger.debug("Getting External Network {} details ".format(networkName))
             # iterating over all the external networks
-            for response in self.fetchAllExternalNetworks():
+            for response in [self.getExternalNetworkByName(networkName)]:
                 # checking if networkName is present in the list
                 if response['name'] == networkName:
                     if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
@@ -4215,11 +4236,8 @@ class VCDMigrationValidation:
             self.validateNoTargetOrgVDCExists(vdcDict["OrgVDCName"])
 
             # getting the target External Network details
-            logger.info(
-                'Getting the target External Network - {} details.'.format(vdcDict["ExternalNetwork"]))
-            targetExternalNetwork = self.getExternalNetwork(vdcDict["ExternalNetwork"], validateVRF=True)
-            if isinstance(targetExternalNetwork, Exception):
-                raise targetExternalNetwork
+            logger.info('Getting the target External Network - {} details.'.format(vdcDict["ExternalNetwork"]))
+            self.getTargetExternalNetworks(vdcDict["ExternalNetwork"])
 
             # getting the source dummy External Network details
             logger.info('Getting the source dummy External Network - {} details.'.format(
