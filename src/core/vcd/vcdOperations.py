@@ -18,6 +18,7 @@ import prettytable
 import requests
 import threading
 import traceback
+from collections import defaultdict
 from itertools import zip_longest
 from functools import reduce
 import src.core.vcd.vcdConstants as vcdConstants
@@ -39,9 +40,66 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         vcdConstants.GENERAL_JSON_ACCEPT_HEADER = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
         vcdConstants.OPEN_API_CONTENT_TYPE = vcdConstants.OPEN_API_CONTENT_TYPE.format(self.version)
 
+    def updateTargetExternalNetworkPool(self, vdcDict):
+        # Acquiring lock as only one operation can be performed on an external network at a time
+        self.lock.acquire(blocking=True)
+        logger.debug(
+            "Updating Target External network {} with sub allocated ip pools".format(vdcDict["ExternalNetwork"]))
+        # getting details of ip ranges used in source edge gateways
+        edgeGatewaySubnetDict = defaultdict(list)
+        for edgeGateway in copy.deepcopy(self.rollback.apiData['sourceEdgeGateway']):
+            for edgeGatewayUplink in edgeGateway['edgeGatewayUplinks']:
+                for subnet in edgeGatewayUplink['subnets']['values']:
+                    networkAddress = ipaddress.ip_network(
+                        '{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
+                        strict=False)
+                    edgeGatewaySubnetDict[networkAddress].extend(subnet['ipRanges']['values'])
+
+                    # adding primary ip to sub alloacated ip pool
+                    primaryIp = subnet.get('primaryIp')
+                    if primaryIp and ipaddress.ip_address(primaryIp) in networkAddress:
+                        edgeGatewaySubnetDict[networkAddress].extend(
+                            [{'startAddress': primaryIp, 'endAddress': primaryIp}]
+                        )
+
+        # Getting target external network details
+        externalDict = self.getExternalNetwork(vdcDict["ExternalNetwork"])
+        external_network_id = externalDict['id']
+        for index, subnet in enumerate(externalDict['subnets']['values']):
+            subnetOfTargetExtNetToUpdate = ipaddress.ip_network(
+                '{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
+            # if no ip present to update of corrensponding subnet skip the operation
+            if not edgeGatewaySubnetDict.get(subnetOfTargetExtNetToUpdate):
+                continue
+            externalDict['subnets']['values'][index]['ipRanges']['values'].extend(
+                edgeGatewaySubnetDict.get(subnetOfTargetExtNetToUpdate))
+
+        # url to update external network properties
+        url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                               vcdConstants.ALL_EXTERNAL_NETWORKS, external_network_id)
+        # put api call to update external netowork
+        self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+        payloadData = json.dumps(externalDict)
+
+        response = self.restClientObj.put(url, self.headers, data=payloadData)
+        if response.status_code == requests.codes.accepted:
+            taskUrl = response.headers['Location']
+            # checking the status of the updating external network task
+            self._checkTaskStatus(taskUrl=taskUrl)
+            logger.debug('Target External network {} updated successfully with sub allocated ip pools.'.format(
+                externalDict['name']))
+            self.isExternalNetworkUpdated = True
+        else:
+            errorResponse = response.json()
+            raise Exception('Failed to update External network {} with sub allocated ip pools - {}'.format(
+                externalDict['name'], errorResponse['message']))
+
+        # Releasing lock
+        self.lock.release()
+
     @description("creation of target Org VDC Edge Gateway")
     @remediate
-    def createEdgeGateway(self, inputDict, vdcDict, nsxObj):
+    def createEdgeGateway(self, vdcDict, nsxObj):
         """
         Description :   Creates an Edge Gateway in the specified Organization VDC
         """
@@ -54,69 +112,18 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 return
 
             logger.info('Creating target Org VDC Edge Gateway')
+
+            self.updateTargetExternalNetworkPool(vdcDict)
+
             # reading data from apiOutput.json
             data = self.rollback.apiData
 
-            # Acquiring lock as only one operation can be performed on an external network at a time
-            self.lock.acquire(blocking=True)
-            logger.debug("Updating Target External network {} with sub allocated ip pools".format(vdcDict["ExternalNetwork"]))
-            # getting details of ip ranges used in source edge gateways
-            edgeGatewaySubnetDict = {}
-            for edgeGateway in copy.deepcopy(data['sourceEdgeGateway']):
-                for edgeGatewayUplink in edgeGateway['edgeGatewayUplinks']:
-                    for subnet in edgeGatewayUplink['subnets']['values']:
-                        # Getting value of primary ip
-                        primaryIp = subnet.get('primaryIp')
-                        # Creating ip range for primary ip
-                        subIpRange = [{'startAddress': primaryIp, 'endAddress': primaryIp}]
-                        networkAddress = ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
-                                                              strict=False)
-                        if networkAddress in edgeGatewaySubnetDict:
-                            edgeGatewaySubnetDict[networkAddress].extend(subnet['ipRanges']['values'])
-                        else:
-                            edgeGatewaySubnetDict[networkAddress] = subnet['ipRanges']['values']
-
-                        # adding primary ip to sub alloacated ip pool
-                        if primaryIp and ipaddress.ip_address(primaryIp) in networkAddress:
-                            edgeGatewaySubnetDict[networkAddress].extend(subIpRange)
-
-            # Getting target external network details
-            externalDict = self.getExternalNetwork(vdcDict["ExternalNetwork"])
-            external_network_id = externalDict['id']
-            for index, subnet in enumerate(externalDict['subnets']['values']):
-                subnetOfTargetExtNetToUpdate = ipaddress.ip_network(
-                    '{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
-                # if no ip present to update of corrensponding subnet skip the operation
-                if not edgeGatewaySubnetDict.get(subnetOfTargetExtNetToUpdate):
-                    continue
-                externalDict['subnets']['values'][index]['ipRanges']['values'].extend(
-                    edgeGatewaySubnetDict.get(subnetOfTargetExtNetToUpdate))
-
-            # url to update external network properties
-            url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                   vcdConstants.ALL_EXTERNAL_NETWORKS, external_network_id)
-            # put api call to update external netowork
-            self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-            payloadData = json.dumps(externalDict)
-
-            response = self.restClientObj.put(url, self.headers, data=payloadData)
-            if response.status_code == requests.codes.accepted:
-                taskUrl = response.headers['Location']
-                # checking the status of the updating external network task
-                self._checkTaskStatus(taskUrl=taskUrl)
-                logger.debug('Target External network {} updated successfully with sub allocated ip pools.'.format(
-                    externalDict['name']))
-                self.isExternalNetworkUpdated = True
-            else:
-                errorResponse = response.json()
-                raise Exception('Failed to update External network {} with sub allocated ip pools - {}'.format(
-                    externalDict['name'], errorResponse['message']))
-            # Releasing lock
-            self.lock.release()
-
-            # getting the edge gateway details of the target org vdc
-            targetEdgeGatewayNames = [edgeGateway['name'] for edgeGateway in
-                                      self.getOrgVDCEdgeGateway(data['targetOrgVDC']['@id'])['values']]
+            # Getting the edge gateway details of the target org vdc.
+            # In case of remediation these gateway creation will not be attempted.
+            targetEdgeGatewayNames = [
+                edgeGateway['name']
+                for edgeGateway in self.getOrgVDCEdgeGateway(data['targetOrgVDC']['@id'])['values']
+            ]
 
             for sourceEdgeGatewayDict in copy.deepcopy(data['sourceEdgeGateway']):
                 if sourceEdgeGatewayDict['name'] in targetEdgeGatewayNames:
@@ -130,57 +137,32 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         'Default gateway is not configured on edge gateway - {}'.format(sourceEdgeGatewayDict['name']))
                 defaultGateway = defaultGatewayData.get('gateway')
 
+                # Prepare payload for edgeGatewayUplinks->dedicated
                 bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
-                data = self.rollback.apiData
-                externalDict = self.getExternalNetwork(vdcDict["ExternalNetwork"])
-                # edge gateway create URL
-                url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS)
-                filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
-                # creating payload dictionary
-                payloadDict = {'edgeGatewayName': sourceEdgeGatewayDict['name'],
-                               'edgeGatewayDescription': sourceEdgeGatewayDict[
-                                   'description'] if sourceEdgeGatewayDict.get('description') else '',
-                               'orgVDCName': data['targetOrgVDC']['@name'],
-                               'orgVDCId': data['targetOrgVDC']['@id'],
-                               'orgName': data['Organization']['@name'],
-                               'orgId': data['Organization']['@id'],
-                               'externalNetworkId': externalDict['id'],
-                               'externalNetworkName': externalDict['name'],
-                               'nsxtManagerName': externalDict['networkBackings']['values'][0]['networkProvider'][
-                                   'name'],
-                               'nsxtManagerId': externalDict['networkBackings']['values'][0]['networkProvider']['id']
-                               }
-
                 # Use dedicated external network if BGP is configured
                 # or AdvertiseRoutedNetworks parameter is set to True
                 if ((isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or
-                        not bgpConfigDict or
-                        bgpConfigDict['enabled'] != "true") and \
+                    not bgpConfigDict or
+                    bgpConfigDict['enabled'] != "true") and \
                         not vdcDict.get('AdvertiseRoutedNetworks'):
-                    payloadDict['dedicated'] = False
+                    dedicated = False
                 else:
-                    payloadDict['dedicated'] = True
-                # creating payload data
-                payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='json',
-                                                          componentName=vcdConstants.COMPONENT_NAME,
-                                                          templateName=vcdConstants.CREATE_ORG_VDC_EDGE_GATEWAY_TEMPLATE)
+                    dedicated = True
 
-                # adding sub allocated ip pool in edge gateway payload
+                # Prepare payload for edgeGatewayUplinks->subnets->values
                 subnetData = []
-
-                # Adding primary ip in sub - allocated pool of egde gateway
                 for uplink in sourceEdgeGatewayDict['edgeGatewayUplinks']:
                     for subnet in uplink['subnets']['values']:
-                        # Getting value of primary ip
+                        networkAddress = ipaddress.ip_network(
+                            '{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
+                            strict=False
+                        )
+                        # adding primary ip to sub allocated ip pool
                         primaryIp = subnet.get('primaryIp')
-                        # Creating ip range for primary ip
-                        subIpRange = [{'startAddress': primaryIp, 'endAddress': primaryIp}]
-
-                        networkAddress = ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
-                                                              strict=False)
-                        # adding primary ip to sub alloacated ip pool
                         if primaryIp and ipaddress.ip_address(primaryIp) in networkAddress:
-                            subnet['ipRanges']['values'].extend(subIpRange)
+                            subnet['ipRanges']['values'].extend(
+                                [{'startAddress': primaryIp, 'endAddress': primaryIp}]
+                            )
 
                     subnetData += uplink['subnets']['values']
 
@@ -191,41 +173,55 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     else:
                         subnet['primaryIp'] = None
 
-                payloadData = json.loads(payloadData)
-                payloadData['edgeGatewayUplinks'][0]['subnets'] = {}
-                payloadData['edgeGatewayUplinks'][0]['subnets']['values'] = subnetData
-
+                # Prepare payload for edgeClusterConfig->primaryEdgeCluster->backingId
                 # Checking if edge cluster is specified in user input yaml
                 if vdcDict.get('EdgeGatewayDeploymentEdgeCluster'):
                     # Fetch edge cluster id
                     edgeClusterId = nsxObj.fetchEdgeClusterDetails(vdcDict["EdgeGatewayDeploymentEdgeCluster"]).get('id')
                 else:
-                    tier0RouterName = \
-                    data['targetExternalNetwork']['networkBackings']['values'][0]['name']
-                    edgeClusterId = nsxObj.fetchEdgeClusterIdForTier0Gateway(tier0RouterName)
+                    edgeClusterId = nsxObj.fetchEdgeClusterIdForTier0Gateway(
+                        data['targetExternalNetwork']['networkBackings']['values'][0]['name'])
 
-                # Create edge cluster config payload for edge gateway
-                edgeClusterConfigPayload = {"edgeClusterConfig":
-                                                {"primaryEdgeCluster":
-                                                     {"backingId": edgeClusterId}}}
-                # Updating edge cluster configuration payload in edge gateway creation payload
-                payloadData.update(edgeClusterConfigPayload)
-
-                if float(self.version) < float(vcdConstants.API_VERSION_ZEUS):
-                    payloadData['orgVdc'] = {
+                # TODO pranshu: multiple T0
+                externalDict = self.getExternalNetwork(vdcDict["ExternalNetwork"])
+                payloadData = {
+                    'name': sourceEdgeGatewayDict['name'],
+                    'description': sourceEdgeGatewayDict.get('description') or '',
+                    'edgeGatewayUplinks': [
+                        {
+                            'uplinkId': externalDict['id'],
+                            'uplinkName': externalDict['name'],
+                            'connected': False,
+                            'dedicated': dedicated,
+                            'subnets': {
+                                'values': subnetData
+                            }
+                        }
+                    ],
+                    'distributedRoutingEnabled': False,
+                    'orgVdc': {
+                        'name': data['targetOrgVDC']['@name'],
+                        'id': data['targetOrgVDC']['@id'],
+                    },
+                    'ownerRef': {
                         "name": data['targetOrgVDC']['@name'],
                         "id": data['targetOrgVDC']['@id'],
-                    }
-                else:
-                    payloadData['ownerRef'] = {
-                        "name": data['targetOrgVDC']['@name'],
-                        "id": data['targetOrgVDC']['@id'],
-                    }
-                payloadData = json.dumps(payloadData)
+                    },
+                    'orgRef': {
+                        'name': data['Organization']['@name'],
+                        'id': data['Organization']['@id'],
+                    },
+                    "edgeClusterConfig": {
+                        "primaryEdgeCluster": {
+                            "backingId": edgeClusterId
+                        }
+                    },
+                }
 
+                # edge gateway create URL
+                url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS)
                 self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-                # post api to create edge gateway
-                response = self.restClientObj.post(url, self.headers, data=payloadData)
+                response = self.restClientObj.post(url, self.headers, data=json.dumps(payloadData))
                 if response.status_code == requests.codes.accepted:
                     taskUrl = response.headers['Location']
                     # checking the status of creating target edge gateway task
@@ -2226,7 +2222,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             self.createACL()
 
             # creating target Org VDC Edge Gateway
-            self.createEdgeGateway(inputDict, vdcDict, nsxObj)
+            self.createEdgeGateway(vdcDict, nsxObj)
 
             # Configure Edge gateway RateLimits
             self.configureEdgeGWRateLimit(nsxObj)
