@@ -806,6 +806,39 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
+    def getDummyExternalNetwork(self, networkName):
+        """
+        Description :   Gets the details of external networks
+        Parameters  :   networkName - Name of the external network (STRING)
+                        isDummyNetwork - is the network dummy (BOOL)
+                        validateVRF - Flag that decides to validate vrf backed external network (BOOL)
+        """
+        externalNetwork = self.getExternalNetworkByName(networkName)
+        self.rollback.apiData['dummyExternalNetwork'] = externalNetwork
+        return externalNetwork
+
+    @isSessionExpired
+    def getExternalNetworkByName(self, networkName):
+        """
+        Description :   Gets the details of external networks
+        Parameters  :   networkName - Name of the external network (STRING)
+                        isDummyNetwork - is the network dummy (BOOL)
+                        validateVRF - Flag that decides to validate vrf backed external network (BOOL)
+        """
+        logger.debug(f"Getting External Network {networkName} details ")
+        externalNetwork = self.getPaginatedResults(
+            entity=f'External Network ({networkName})',
+            baseUrl='{}{}'.format(
+                vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                vcdConstants.ALL_EXTERNAL_NETWORKS),
+            urlFilter=f'filter=name=={networkName}')
+        if len(externalNetwork) != 1:
+            raise Exception(f'External Network "{networkName}" is not present or not unique')
+
+        logger.debug("Retrieved External Network {} details Successfully".format(networkName))
+        return externalNetwork[0]
+
+    @isSessionExpired
     def getExternalNetwork(self, networkName, isDummyNetwork=False, validateVRF=False):
         """
         Description :   Gets the details of external networks
@@ -4191,10 +4224,7 @@ class VCDMigrationValidation:
             # getting the source dummy External Network details
             logger.info('Getting the source dummy External Network - {} details.'.format(
                 inputDict["VCloudDirector"]["DummyExternalNetwork"]))
-            dummyExternalNetwork = self.getExternalNetwork(inputDict["VCloudDirector"]["DummyExternalNetwork"],
-                                                           isDummyNetwork=True)
-            if isinstance(dummyExternalNetwork, Exception):
-                raise dummyExternalNetwork
+            self.getDummyExternalNetwork(inputDict["VCloudDirector"]["DummyExternalNetwork"])
 
             # getting the source provider VDC details and checking if its NSX-V backed
             logger.info('Getting the source Provider VDC - {} details.'.format(vdcDict["NSXVProviderVDCName"]))

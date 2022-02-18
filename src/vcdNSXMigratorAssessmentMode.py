@@ -117,7 +117,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                                     saveOutputKey='targetExternalNetwork')
             # fetch details of dummy external network
             self.consoleLogger.info(getDummyExternalNetworkDesc.format(self.inputDict["VCloudDirector"]["DummyExternalNetwork"]))
-            threadObj.spawnThread(vcdValidationObj.getExternalNetwork,
+            threadObj.spawnThread(vcdValidationObj.getDummyExternalNetwork,
                                     self.inputDict["VCloudDirector"]["DummyExternalNetwork"],
                                     saveOutputKey='dummyNetwork', isDummyNetwork=True)
 
