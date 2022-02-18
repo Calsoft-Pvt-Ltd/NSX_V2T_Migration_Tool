@@ -3207,7 +3207,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             logger.debug("Connecting another uplink to source Edge Gateway")
 
             data = self.rollback.apiData
-            dummyExternalNetwork = self.getExternalNetwork(data['dummyExternalNetwork']['name'], isDummyNetwork=True)
+            dummyExternalNetwork = self.getDummyExternalNetwork(data['dummyExternalNetwork']['name'])
             if not rollback:
                 # Validating if sufficient free IP's are present in dummy external network
                 freeIpCount = dummyExternalNetwork['totalIpCount'] - dummyExternalNetwork['usedIpCount']
