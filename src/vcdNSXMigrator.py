@@ -282,15 +282,19 @@ class VMwareCloudDirectorNSXMigrator():
         Description - Validation of user input values and convert nested user spec dict to simple dict
         """
         errorInputDict = dict()
+
+        # Level 1: VCloudDirector, NSXT, NSXV, Vcenter
         for componentName, componentValues in self.inputDict.items():
+            # Level 2: Common, Organization, SourceOrgVDC
             for componentKey, componentValue in componentValues.items():
                 if isinstance(componentValue, dict):
+                    # Level 3: ipAddress, username, verify, OrgName
                     for item, value in componentValue.items():
                         dictKey = "{}['{}']['{}']".format(componentName, componentKey, item)
-                        if not componentValue[item] and not isinstance(componentValue[item], bool):
+                        if not value and not isinstance(value, bool):
                             errorInputDict[dictKey] = "Value must be provided."
                         # validate verify key value is boolean or not
-                        if item == 'verify' and not isinstance(componentValue[item], bool):
+                        if item == 'verify' and not isinstance(value, bool):
                             errorInputDict[dictKey] = "Value must be boolean i.e either True or False."
                         # validate ip address or fqdn
                         if item == 'ipAddress':
@@ -329,6 +333,12 @@ class VMwareCloudDirectorNSXMigrator():
                                     mainConstants.VALID_IP_CIDR_FORMAT_REGEX,
                                     sourceOrgVdc['LoadBalancerVIPSubnet']):
                                 errorInputDict[dictKey] = "Input IP value is not in proper CIDR format"
+                            if not isinstance(sourceOrgVdc.get('ExternalNetwork'), (str, dict)):
+                                errorInputDict[dictKey] = "ExternalNetwork is either missing or in invalid format"
+                            if isinstance(sourceOrgVdc.get('ExternalNetwork'), str):
+                                sourceOrgVdc['ExternalNetwork'] = {
+                                    'default': sourceOrgVdc.get('ExternalNetwork')
+                                }
 
         if not isinstance(self.inputDict['VCloudDirector'].get('SourceOrgVDC'), list):
             errorInputDict["VCloudDirector['SourceOrgVDC']"] = 'Value should be list'

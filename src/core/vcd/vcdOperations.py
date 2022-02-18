@@ -43,6 +43,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
     def updateTargetExternalNetworkPool(self, vdcDict):
         # Acquiring lock as only one operation can be performed on an external network at a time
         self.lock.acquire(blocking=True)
+        # TODO pranshu: multiple T0
         logger.debug(
             "Updating Target External network {} with sub allocated ip pools".format(vdcDict["ExternalNetwork"]))
         # getting details of ip ranges used in source edge gateways
@@ -62,6 +63,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             [{'startAddress': primaryIp, 'endAddress': primaryIp}]
                         )
 
+        # TODO pranshu: multiple T0
         # Getting target external network details
         externalDict = self.getExternalNetwork(vdcDict["ExternalNetwork"])
         external_network_id = externalDict['id']
