@@ -851,44 +851,19 @@ class VCDMigrationValidation:
         # user_input = {
         #     'egde_gw_name': 'ext_net_name'
         # }
+        # extNetInput = user_input['ExternalNetwork']
+        # target_ext_net_name = extNetInput.get(source_egw_name, extNetInput.get('default'))
+        #
+        # New validations:
+        # 1. all edge GW should be listed in user input file or default key should be present
+        #
+
 
         self.rollback.apiData['targetExternalNetwork'] = {
             extNet: self.getExternalNetworkByName(extNet)
             for extNet in set(extNetInput.values())
         }
         return self.rollback.apiData['targetExternalNetwork']
-
-    @isSessionExpired
-    def getExternalNetwork(self, networkName, isDummyNetwork=False, validateVRF=False):
-        """
-        Description :   Gets the details of external networks
-        Parameters  :   networkName - Name of the external network (STRING)
-                        isDummyNetwork - is the network dummy (BOOL)
-                        validateVRF - Flag that decides to validate vrf backed external network (BOOL)
-        """
-        try:
-            key = None
-            logger.debug("Getting External Network {} details ".format(networkName))
-            # iterating over all the external networks
-            for response in [self.getExternalNetworkByName(networkName)]:
-                # checking if networkName is present in the list
-                if response['name'] == networkName:
-                    if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
-                        key = 'targetExternalNetwork' if response['networkBackings']['values'][0]['backingTypeValue'] in ['NSXT_TIER0', 'NSXT_VRF_TIER0'] else 'sourceExternalNetwork'
-                        if response['networkBackings']['values'][0]['backingTypeValue'] == 'NSXT_VRF_TIER0' and validateVRF:
-                            logger.warning('Target External Network {} is VRF backed.'.format(networkName))
-                    elif float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
-                        key = 'targetExternalNetwork' if response['networkBackings']['values'][0]['backingType'] in ['NSXT_TIER0', 'NSXT_VRF_TIER0'] else 'sourceExternalNetwork'
-                    data = self.rollback.apiData
-                    if isDummyNetwork:
-                        key = 'dummyExternalNetwork'
-                    data[key] = response
-                    logger.debug("Retrieved External Network {} details Successfully".format(networkName))
-                    return response
-            if key is None:
-                return Exception('External Network: {} not present'.format(networkName))
-        except Exception:
-            raise
 
     @isSessionExpired
     def getNsxtManagerId(self, pvdcName):
@@ -5114,41 +5089,12 @@ class VCDMigrationValidation:
 
     @isSessionExpired
     def fetchAllExternalNetworks(self):
-        try:
-            # url to get all the external networks
-            url = "{}{}?sortAsc=name".format(
-                vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EXTERNAL_NETWORKS)
-            # get api call to get all the external networks
-            response = self.restClientObj.get(url, self.headers)
-            responseDict = response.json()
-            if response.status_code == requests.codes.ok:
-                logger.debug("External network details retrieved successfully.")
-                resultTotal = responseDict['resultTotal']
-                extNetData = []
-            else:
-                raise Exception('Failed to retrieve External network details due to: {}'.format(responseDict['message']))
-            pageNo = 1
-            pageSizeCount = 0
-            while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}&sortAsc=name".format(
-                    vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EXTERNAL_NETWORKS, pageNo, 15)
-                getSession(self)
-                response = self.restClientObj.get(url, self.headers)
-                if response.status_code == requests.codes.ok:
-                    responseDict = response.json()
-                    extNetData.extend(responseDict['values'])
-                    pageSizeCount += len(responseDict['values'])
-                    logger.debug('External network result pageSize = {}'.format(pageSizeCount))
-                    pageNo += 1
-                    resultTotal = responseDict['resultTotal']
-                else:
-                    responseDict = response.json()
-                    raise Exception('Failed to get External network details due to: {}'.format(responseDict['message']))
-            logger.debug('Total External network result count = {}'.format(len(extNetData)))
-            logger.debug('All External network successfully retrieved')
-            return extNetData
-        except:
-            raise
+        return self.getPaginatedResults(
+            entity='External Networks',
+            baseUrl='{}{}'.format(
+                vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                vcdConstants.ALL_EXTERNAL_NETWORKS),
+            urlFilter='sortAsc=name')
 
     @isSessionExpired
     def validateExternalNetworkdvpg(self, parentNetworkId, nsxtProviderVDCName, orgvdcNetwork, networkData):
