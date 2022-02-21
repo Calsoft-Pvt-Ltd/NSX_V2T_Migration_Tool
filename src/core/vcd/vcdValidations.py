@@ -4728,7 +4728,7 @@ class VCDMigrationValidation:
         """
         try:
             # url to get vapp template info
-            url = "{}{}?sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+            url = "{}{}&sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
                                 vcdConstants.GET_VAPP_TEMPLATE_INFO)
             acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,
