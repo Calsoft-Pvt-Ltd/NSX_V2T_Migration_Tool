@@ -3080,8 +3080,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                   vcdConstants.ASSIGN_SERVICE_ENGINE_GROUP_URI)
             payloadDict = {
-                            "minVirtualServices": 0,
-                            "maxVirtualServices": serviceEngineGroupDetails['maxVirtualServices'],
+                            "minVirtualServices": 0 if serviceEngineGroupDetails['reservationType'] == 'SHARED' else None,
+                            "maxVirtualServices": serviceEngineGroupDetails['maxVirtualServices'] if serviceEngineGroupDetails['reservationType'] == 'SHARED' else None,
                             "serviceEngineGroupRef": {
                                 "name": self.serviceEngineGroupName,
                                 "id": self.serviceEngineGroupId
