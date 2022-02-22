@@ -40,7 +40,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         vcdConstants.GENERAL_JSON_ACCEPT_HEADER = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
         vcdConstants.OPEN_API_CONTENT_TYPE = vcdConstants.OPEN_API_CONTENT_TYPE.format(self.version)
 
-    def updateTargetExternalNetworkPool(self, extNetInput):
+    def _updateTargetExternalNetworkPool(self, extNetInput):
         # Acquiring lock as only one operation can be performed on an external network at a time
         self.lock.acquire(blocking=True)
         logger.debug("Updating Target External networks with sub allocated ip pools")
@@ -91,6 +91,124 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         # Releasing lock
         self.lock.release()
 
+    def _createEdgeGateway(self, vdcDict, extNetInput, nsxObj):
+        data = self.rollback.apiData
+        # Getting the edge gateway details of the target org vdc.
+        # In case of remediation these gateway creation will not be attempted.
+        targetEdgeGatewayNames = [
+            edgeGateway['name']
+            for edgeGateway in self.getOrgVDCEdgeGateway(data['targetOrgVDC']['@id'])['values']
+        ]
+
+        for sourceEdgeGatewayDict in copy.deepcopy(data['sourceEdgeGateway']):
+            if sourceEdgeGatewayDict['name'] in targetEdgeGatewayNames:
+                continue
+
+            # Checking if default edge gateway is configured on edge gateway
+            sourceEdgeGatewayId = sourceEdgeGatewayDict['id'].split(':')[-1]
+            defaultGatewayData = self.getEdgeGatewayAdminApiDetails(sourceEdgeGatewayId, returnDefaultGateway=True)
+            if isinstance(defaultGatewayData, list):
+                raise Exception(
+                    'Default gateway is not configured on edge gateway - {}'.format(sourceEdgeGatewayDict['name']))
+            defaultGateway = defaultGatewayData.get('gateway')
+
+            # Prepare payload for edgeGatewayUplinks->dedicated
+            bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
+            # Use dedicated external network if BGP is configured
+            # or AdvertiseRoutedNetworks parameter is set to True
+            if ((isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or
+                not bgpConfigDict or
+                bgpConfigDict['enabled'] != "true") and \
+                    not vdcDict.get('AdvertiseRoutedNetworks'):
+                dedicated = False
+            else:
+                dedicated = True
+
+            # Prepare payload for edgeGatewayUplinks->subnets->values
+            subnetData = []
+            for uplink in sourceEdgeGatewayDict['edgeGatewayUplinks']:
+                for subnet in uplink['subnets']['values']:
+                    networkAddress = ipaddress.ip_network(
+                        '{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
+                        strict=False
+                    )
+                    # adding primary ip to sub allocated ip pool
+                    primaryIp = subnet.get('primaryIp')
+                    if primaryIp and ipaddress.ip_address(primaryIp) in networkAddress:
+                        subnet['ipRanges']['values'].extend(
+                            [{'startAddress': primaryIp, 'endAddress': primaryIp}]
+                        )
+
+                subnetData += uplink['subnets']['values']
+
+            # Setting primary ip to be used for edge gateway creation
+            for subnet in subnetData:
+                if subnet['gateway'] == defaultGateway:
+                    continue
+                else:
+                    subnet['primaryIp'] = None
+
+            # Prepare payload for edgeClusterConfig->primaryEdgeCluster->backingId
+            # Checking if edge cluster is specified in user input yaml
+            # TODO pranshu: multiple T0 - get target external network, verify why metadata save required here.
+            externalDict = self.getExternalNetworkByName(
+                extNetInput.get(sourceEdgeGatewayDict['name'], extNetInput.get('default')))
+
+            if vdcDict.get('EdgeGatewayDeploymentEdgeCluster'):
+                # Fetch edge cluster id
+                edgeClusterId = nsxObj.fetchEdgeClusterDetails(vdcDict["EdgeGatewayDeploymentEdgeCluster"]).get('id')
+            else:
+                edgeClusterId = nsxObj.fetchEdgeClusterIdForTier0Gateway(
+                    externalDict['networkBackings']['values'][0]['name'])
+
+            payloadData = {
+                'name': sourceEdgeGatewayDict['name'],
+                'description': sourceEdgeGatewayDict.get('description') or '',
+                'edgeGatewayUplinks': [
+                    {
+                        'uplinkId': externalDict['id'],
+                        'uplinkName': externalDict['name'],
+                        'connected': False,
+                        'dedicated': dedicated,
+                        'subnets': {
+                            'values': subnetData
+                        }
+                    }
+                ],
+                'distributedRoutingEnabled': False,
+                'orgVdc': {
+                    'name': data['targetOrgVDC']['@name'],
+                    'id': data['targetOrgVDC']['@id'],
+                },
+                'ownerRef': {
+                    "name": data['targetOrgVDC']['@name'],
+                    "id": data['targetOrgVDC']['@id'],
+                },
+                'orgRef': {
+                    'name': data['Organization']['@name'],
+                    'id': data['Organization']['@id'],
+                },
+                "edgeClusterConfig": {
+                    "primaryEdgeCluster": {
+                        "backingId": edgeClusterId
+                    }
+                },
+            }
+
+            # edge gateway create URL
+            url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS)
+            self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+            response = self.restClientObj.post(url, self.headers, data=json.dumps(payloadData))
+            if response.status_code == requests.codes.accepted:
+                taskUrl = response.headers['Location']
+                # checking the status of creating target edge gateway task
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug('Target Edge Gateway created successfully.')
+            else:
+                errorResponse = response.json()
+                raise Exception(
+                    'Failed to create target Org VDC Edge Gateway - {}'.format(errorResponse['message']))
+
     @description("creation of target Org VDC Edge Gateway")
     @remediate
     def createEdgeGateway(self, vdcDict, nsxObj):
@@ -99,139 +217,17 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         try:
             if not self.rollback.apiData['sourceEdgeGateway']:
-                logger.debug('Skipping Target Edge Gateway creation as no source '
-                             'Edge Gateway exist.')
+                logger.debug('Skipping Target Edge Gateway creation as no source Edge Gateway exist')
                 # If source Edge Gateway are not present, target Edge Gateway will also be empty
                 self.rollback.apiData['targetEdgeGateway'] = list()
                 return
 
             logger.info('Creating target Org VDC Edge Gateway')
-
             extNetInput = vdcDict['ExternalNetwork']
-            self.updateTargetExternalNetworkPool(extNetInput)
-
-            # reading data from apiOutput.json
-            data = self.rollback.apiData
-
-            # Getting the edge gateway details of the target org vdc.
-            # In case of remediation these gateway creation will not be attempted.
-            targetEdgeGatewayNames = [
-                edgeGateway['name']
-                for edgeGateway in self.getOrgVDCEdgeGateway(data['targetOrgVDC']['@id'])['values']
-            ]
-
-            for sourceEdgeGatewayDict in copy.deepcopy(data['sourceEdgeGateway']):
-                if sourceEdgeGatewayDict['name'] in targetEdgeGatewayNames:
-                    continue
-
-                # Checking if default edge gateway is configured on edge gateway
-                sourceEdgeGatewayId = sourceEdgeGatewayDict['id'].split(':')[-1]
-                defaultGatewayData = self.getEdgeGatewayAdminApiDetails(sourceEdgeGatewayId, returnDefaultGateway=True)
-                if isinstance(defaultGatewayData, list):
-                    raise Exception(
-                        'Default gateway is not configured on edge gateway - {}'.format(sourceEdgeGatewayDict['name']))
-                defaultGateway = defaultGatewayData.get('gateway')
-
-                # Prepare payload for edgeGatewayUplinks->dedicated
-                bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
-                # Use dedicated external network if BGP is configured
-                # or AdvertiseRoutedNetworks parameter is set to True
-                if ((isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or
-                    not bgpConfigDict or
-                    bgpConfigDict['enabled'] != "true") and \
-                        not vdcDict.get('AdvertiseRoutedNetworks'):
-                    dedicated = False
-                else:
-                    dedicated = True
-
-                # Prepare payload for edgeGatewayUplinks->subnets->values
-                subnetData = []
-                for uplink in sourceEdgeGatewayDict['edgeGatewayUplinks']:
-                    for subnet in uplink['subnets']['values']:
-                        networkAddress = ipaddress.ip_network(
-                            '{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
-                            strict=False
-                        )
-                        # adding primary ip to sub allocated ip pool
-                        primaryIp = subnet.get('primaryIp')
-                        if primaryIp and ipaddress.ip_address(primaryIp) in networkAddress:
-                            subnet['ipRanges']['values'].extend(
-                                [{'startAddress': primaryIp, 'endAddress': primaryIp}]
-                            )
-
-                    subnetData += uplink['subnets']['values']
-
-                # Setting primary ip to be used for edge gateway creation
-                for subnet in subnetData:
-                    if subnet['gateway'] == defaultGateway:
-                        continue
-                    else:
-                        subnet['primaryIp'] = None
-
-                # Prepare payload for edgeClusterConfig->primaryEdgeCluster->backingId
-                # Checking if edge cluster is specified in user input yaml
-                # TODO pranshu: multiple T0 - get target external network, verify why metadata save required here.
-                externalDict = self.getExternalNetworkByName(
-                    extNetInput.get(sourceEdgeGatewayDict['name'], extNetInput.get('default')))
-
-                if vdcDict.get('EdgeGatewayDeploymentEdgeCluster'):
-                    # Fetch edge cluster id
-                    edgeClusterId = nsxObj.fetchEdgeClusterDetails(vdcDict["EdgeGatewayDeploymentEdgeCluster"]).get('id')
-                else:
-                    edgeClusterId = nsxObj.fetchEdgeClusterIdForTier0Gateway(
-                        externalDict['networkBackings']['values'][0]['name'])
-
-                payloadData = {
-                    'name': sourceEdgeGatewayDict['name'],
-                    'description': sourceEdgeGatewayDict.get('description') or '',
-                    'edgeGatewayUplinks': [
-                        {
-                            'uplinkId': externalDict['id'],
-                            'uplinkName': externalDict['name'],
-                            'connected': False,
-                            'dedicated': dedicated,
-                            'subnets': {
-                                'values': subnetData
-                            }
-                        }
-                    ],
-                    'distributedRoutingEnabled': False,
-                    'orgVdc': {
-                        'name': data['targetOrgVDC']['@name'],
-                        'id': data['targetOrgVDC']['@id'],
-                    },
-                    'ownerRef': {
-                        "name": data['targetOrgVDC']['@name'],
-                        "id": data['targetOrgVDC']['@id'],
-                    },
-                    'orgRef': {
-                        'name': data['Organization']['@name'],
-                        'id': data['Organization']['@id'],
-                    },
-                    "edgeClusterConfig": {
-                        "primaryEdgeCluster": {
-                            "backingId": edgeClusterId
-                        }
-                    },
-                }
-
-                # edge gateway create URL
-                url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS)
-                self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-                response = self.restClientObj.post(url, self.headers, data=json.dumps(payloadData))
-                if response.status_code == requests.codes.accepted:
-                    taskUrl = response.headers['Location']
-                    # checking the status of creating target edge gateway task
-                    self._checkTaskStatus(taskUrl=taskUrl)
-                    logger.debug('Target Edge Gateway created successfully.')
-                else:
-                    errorResponse = response.json()
-                    raise Exception(
-                        'Failed to create target Org VDC Edge Gateway - {}'.format(errorResponse['message']))
-
-            # getting the edge gateway details of the target org vdc
-            responseDict = self.getOrgVDCEdgeGateway(data['targetOrgVDC']['@id'])
-            data['targetEdgeGateway'] = responseDict['values']
+            self._updateTargetExternalNetworkPool(extNetInput)
+            self._createEdgeGateway(vdcDict, extNetInput, nsxObj)
+            responseDict = self.getOrgVDCEdgeGateway(self.rollback.apiData['targetOrgVDC']['@id'])
+            self.rollback.apiData['targetEdgeGateway'] = responseDict['values']
             return [value['id'] for value in responseDict['values']]
         except Exception:
             raise
