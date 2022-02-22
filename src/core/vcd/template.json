@@ -1,26 +1,5 @@
 {
   "vCloudDirector": {
-    "createEdgeGateway": {
-      "name": "{{edgeGatewayName}}",
-      "description": "{{edgeGatewayDescription}}",
-      "edgeGatewayUplinks": [
-        {
-          "uplinkId": "{{externalNetworkId}}",
-          "uplinkName": "{{externalNetworkName}}",
-          "connected": false,
-          "dedicated": "{{dedicated}}"
-        }
-      ],
-      "distributedRoutingEnabled": false,
-      "orgVdc": {
-        "name": "{{orgVDCName}}",
-        "id": "{{orgVDCId}}"
-      },
-      "orgRef": {
-        "name": "{{orgName}}",
-        "id": "{{orgId}}"
-      }
-    },
     "createOrgVDCNetwork": {
       "name": "{{orgVDCNetworkName}}",
       "description": "{{orgVDCNetworkDescription}}",
