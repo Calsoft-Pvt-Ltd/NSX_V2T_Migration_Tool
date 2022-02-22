@@ -57,11 +57,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         strict=False)
                     edgeGatewaySubnetDict[extNet][networkAddress].extend(subnet['ipRanges']['values'])
 
-                    # adding primary ip to sub allocated ip pool
-                    primaryIp = subnet.get('primaryIp')
-                    if primaryIp and ipaddress.ip_address(primaryIp) in networkAddress:
-                        edgeGatewaySubnetDict[extNet][networkAddress].extend([{
-                            'startAddress': primaryIp, 'endAddress': primaryIp}])
+                    # TODO pranshu: multiple T0 - this can be removed.
+                    #  Check self.rollback.apiData['sourceEdgeGateway'] in older versions
+                    # # adding primary ip to sub allocated ip pool
+                    # primaryIp = subnet.get('primaryIp')
+                    # if primaryIp and ipaddress.ip_address(primaryIp) in networkAddress:
+                    #     edgeGatewaySubnetDict[extNet][networkAddress].extend([{
+                    #         'startAddress': primaryIp, 'endAddress': primaryIp}])
 
         for extNet, subnets in edgeGatewaySubnetDict.items():
             logger.debug("Updating Target External network {} with sub allocated ip pools".format(extNet))
@@ -81,7 +83,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if response.status_code == requests.codes.accepted:
                 taskUrl = response.headers['Location']
                 self._checkTaskStatus(taskUrl=taskUrl)
-                logger.debug('Target External network {} updated successfully with sub allocated ip pools.'.format(
+                logger.warning('Target External network {} updated successfully with sub allocated ip pools.'.format(
                     externalDict['name']))
             else:
                 errorResponse = response.json()
@@ -127,25 +129,25 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # Prepare payload for edgeGatewayUplinks->subnets->values
             subnetData = []
             for uplink in sourceEdgeGatewayDict['edgeGatewayUplinks']:
-                for subnet in uplink['subnets']['values']:
-                    networkAddress = ipaddress.ip_network(
-                        '{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
-                        strict=False
-                    )
-                    # adding primary ip to sub allocated ip pool
-                    primaryIp = subnet.get('primaryIp')
-                    if primaryIp and ipaddress.ip_address(primaryIp) in networkAddress:
-                        subnet['ipRanges']['values'].extend(
-                            [{'startAddress': primaryIp, 'endAddress': primaryIp}]
-                        )
+                # TODO pranshu: multiple T0 - this can be removed.
+                #  Check self.rollback.apiData['sourceEdgeGateway'] in older versions
+                # for subnet in uplink['subnets']['values']:
+                #     networkAddress = ipaddress.ip_network(
+                #         '{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
+                #         strict=False
+                #     )
+                #     # adding primary ip to sub allocated ip pool
+                #     primaryIp = subnet.get('primaryIp')
+                #     if primaryIp and ipaddress.ip_address(primaryIp) in networkAddress:
+                #         subnet['ipRanges']['values'].extend(
+                #             [{'startAddress': primaryIp, 'endAddress': primaryIp}]
+                #         )
 
                 subnetData += uplink['subnets']['values']
 
             # Setting primary ip to be used for edge gateway creation
             for subnet in subnetData:
-                if subnet['gateway'] == defaultGateway:
-                    continue
-                else:
+                if subnet['gateway'] != defaultGateway:
                     subnet['primaryIp'] = None
 
             # Prepare payload for edgeClusterConfig->primaryEdgeCluster->backingId
@@ -203,7 +205,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 taskUrl = response.headers['Location']
                 # checking the status of creating target edge gateway task
                 self._checkTaskStatus(taskUrl=taskUrl)
-                logger.debug('Target Edge Gateway created successfully.')
+                logger.warning(f"Target Edge Gateway ({sourceEdgeGatewayDict['name']}) created successfully.")
             else:
                 errorResponse = response.json()
                 raise Exception(
@@ -228,7 +230,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             self._createEdgeGateway(vdcDict, extNetInput, nsxObj)
             responseDict = self.getOrgVDCEdgeGateway(self.rollback.apiData['targetOrgVDC']['@id'])
             self.rollback.apiData['targetEdgeGateway'] = responseDict['values']
-            return [value['id'] for value in responseDict['values']]
+
         except Exception:
             raise
         finally:
