@@ -42,6 +42,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     def _getEdgeGatewaySubnets(self, extNetInput):
         # getting details of ip ranges used in source edge gateways
+        # Schema of return value edgeGatewaySubnetDict:
         # edgeGatewaySubnetDict = {
         #     target_ext_net_name : {
         #         network_address: {
@@ -85,7 +86,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     '{}/{}'.format(targetExtNetSubnet['gateway'], targetExtNetSubnet['prefixLength']), strict=False)
                 targetExtNetSubnet['ipRanges']['values'].extend(sourceEgwSubnets.get(targetExtNetSubnetAddress, []))
 
-            # TODO pranshu: multiple T0 - migration - target network update
             url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                    vcdConstants.ALL_EXTERNAL_NETWORKS, targetExtNetData['id'])
             self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
@@ -152,7 +152,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 #         subnet['ipRanges']['values'].extend(
                 #             [{'startAddress': primaryIp, 'endAddress': primaryIp}]
                 #         )
-
                 subnetData += uplink['subnets']['values']
 
             # Setting primary ip to be used for edge gateway creation
@@ -162,7 +161,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             # Prepare payload for edgeClusterConfig->primaryEdgeCluster->backingId
             # Checking if edge cluster is specified in user input yaml
-            # TODO pranshu: multiple T0 - get target external network, verify why metadata save required here.
             externalDict = self.getExternalNetworkByName(
                 extNetInput.get(sourceEdgeGatewayDict['name'], extNetInput.get('default')))
 
@@ -2060,7 +2058,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 ipRangePayload = self.createExternalNetworkSubPoolRangePayload(ipList)
                                 subnet['ipRanges']['values'] = ipRangePayload
                     # url to update external network properties
-                    # TODO pranshu: SKIP - direct networks
                     url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                            vcdConstants.ALL_EXTERNAL_NETWORKS, extNetData['id'])
                     # put api call to update external network
@@ -2164,7 +2161,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             break
 
                 # url to update external network properties
-                # TODO pranshu: SKIP - direct networks
                 url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                        vcdConstants.ALL_EXTERNAL_NETWORKS, segmentBackedExtNetData['id'])
                 # put api call to update external network
@@ -3804,7 +3800,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 payloadData = json.dumps(targetExtNetData)
 
                 # url to update the target external networks
-                # TODO pranshu: multiple T0 - rollback - update target external network
                 url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                        vcdConstants.ALL_EXTERNAL_NETWORKS,
                                        targetExtNetData['id'])

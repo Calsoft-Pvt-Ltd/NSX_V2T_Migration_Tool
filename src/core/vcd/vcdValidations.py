@@ -800,7 +800,6 @@ class VCDMigrationValidation:
                     sourceExternalNetworkData.append(response)
                     logger.debug("Retrieved External Network {} details Successfully".format(response['name']))
             self.rollback.apiData['sourceExternalNetwork'] = sourceExternalNetworkData
-            # TODO pranshu: sourceExternalNetwork metadata is saved here
             return sourceExternalNetworkData
         except Exception:
             raise
@@ -808,10 +807,8 @@ class VCDMigrationValidation:
     @isSessionExpired
     def getDummyExternalNetwork(self, networkName):
         """
-        Description :   Gets the details of external networks
+        Description :   Gets the details of dummy external networks and saves metadata
         Parameters  :   networkName - Name of the external network (STRING)
-                        isDummyNetwork - is the network dummy (BOOL)
-                        validateVRF - Flag that decides to validate vrf backed external network (BOOL)
         """
         externalNetwork = self.getExternalNetworkByName(networkName)
         self.rollback.apiData['dummyExternalNetwork'] = externalNetwork
@@ -820,17 +817,13 @@ class VCDMigrationValidation:
     @isSessionExpired
     def getExternalNetworkByName(self, networkName):
         """
-        Description :   Gets the details of external networks
+        Description :   Gets the details of external networks by name
         Parameters  :   networkName - Name of the external network (STRING)
-                        isDummyNetwork - is the network dummy (BOOL)
-                        validateVRF - Flag that decides to validate vrf backed external network (BOOL)
         """
         logger.debug(f"Getting External Network {networkName} details ")
         externalNetwork = self.getPaginatedResults(
             entity=f'External Network ({networkName})',
-            baseUrl='{}{}'.format(
-                vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                vcdConstants.ALL_EXTERNAL_NETWORKS),
+            baseUrl=f'{vcdConstants.OPEN_API_URL.format(self.ipAddress)}{vcdConstants.ALL_EXTERNAL_NETWORKS}',
             urlFilter=f'filter=name=={networkName}')
         if len(externalNetwork) != 1:
             raise Exception(f'External Network "{networkName}" is not present or not unique')
@@ -839,32 +832,27 @@ class VCDMigrationValidation:
         return externalNetwork[0]
 
     @isSessionExpired
-    def getTargetExternalNetworks(self, extNetInput):
-        # Dev Notes:
-        # Collect target external network
-        # Map external network to gateway names if necessary
-        # Identify what to save in metadata
-        # Identify changes in metadata in current implementation
-        # Identify at which points external network (source or target) is updated
-        # metadata = {
-        #     'ext_net_name': {'ext_net_dict'}
-        # }
-        # user_input = {
-        #     'egde_gw_name': 'ext_net_name'
-        # }
+    def getTargetExternalNetworks(self, extNetInput, validateVRF):
+        """
+        Description :   Gets the details of all target external networks and saves metadata
+        Parameters  :   extNetInput - ExternalNetwork value from User Input (DICT)
+                        validateVRF - Flag that decides to validate vrf backed external network (BOOL)
+        """
+        # Schema of Target External Network Metadata = {'ext_net_name': {'ext_net_dict'}}
+        # Schema of user_input ExternalNetwork = {'egde_gw_name': 'ext_net_name'}
+        # Target External network name can be fetched as follows:
         # extNetInput = user_input['ExternalNetwork']
         # target_ext_net_name = extNetInput.get(source_egw_name, extNetInput.get('default'))
-        #
-        # New validations:
-        # 1. all edge GW should be listed in user input file or default key should be present
-        #
-
-
-        self.rollback.apiData['targetExternalNetwork'] = {
+        targetExternalNetwork = {
             extNet: self.getExternalNetworkByName(extNet)
             for extNet in set(extNetInput.values())
         }
-        return self.rollback.apiData['targetExternalNetwork']
+        for extNetName, extNetDetails in targetExternalNetwork.items():
+            if extNetDetails['networkBackings']['values'][0]['backingTypeValue'] == 'NSXT_VRF_TIER0' and validateVRF:
+                logger.warning('Target External Network {} is VRF backed.'.format(extNetName))
+
+        self.rollback.apiData['targetExternalNetwork'] = targetExternalNetwork
+        return targetExternalNetwork
 
     @isSessionExpired
     def getNsxtManagerId(self, pvdcName):
