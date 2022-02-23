@@ -106,13 +106,12 @@ class Rollback:
 
         try:
             # List of tasks to be performed as part of rollback
-            listOfRollbackTasks = []
             if rollbackTasks:
                 self.logger.info("Continuing rollback from its last failed state")
                 listOfRollbackTasks = rollbackTasks
-            # Checking if rollback key exists
             else:
                 listOfRollbackTasks = self.rollbackTask
+
             if listOfRollbackTasks:
                 # List of task left to pe performed as part of rollback
                 rollbackTasksLeft = copy.deepcopy(listOfRollbackTasks)
