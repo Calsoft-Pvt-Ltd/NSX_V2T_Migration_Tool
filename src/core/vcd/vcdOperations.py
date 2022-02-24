@@ -4008,9 +4008,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             for targetExtNetName, sourceEgwSubnets in edgeGatewaySubnetDict.items():
                 logger.debug("Updating Target External network {} with sub allocated ip pools".format(targetExtNetName))
                 targetExtNetData = self.getExternalNetworkByName(targetExtNetName)
-
-                print('Before', targetExtNetData)
-
                 for targetExtNetSubnet in targetExtNetData['subnets']['values']:
                     targetExtNetSubnetAddress = ipaddress.ip_network(
                         '{}/{}'.format(targetExtNetSubnet['gateway'], targetExtNetSubnet['prefixLength']), strict=False)
@@ -4042,8 +4039,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     # creating the range of each single ip in target external network's ips
                     targetExtNetSubnet['ipRanges']['values'] = self.createExternalNetworkSubPoolRangePayload(
                         targetExtNetIpRange)
-
-                print('After', targetExtNetData)
 
                 payloadData = json.dumps(targetExtNetData)
 
