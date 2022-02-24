@@ -1016,6 +1016,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # retrieving the compute policy of vm
                 computePolicyName = vm['ComputePolicy']['VmPlacementPolicy']['@name'] if vm['ComputePolicy'].get(
                     'VmPlacementPolicy') else None
+                # retrieving the compute policy id of vm
+                computePolicyId = vm['ComputePolicy']['VmPlacementPolicy']['@id'] if vm['ComputePolicy'].get(
+                    'VmPlacementPolicy') else None
 
                 # Retrieving the Disk storage policy details
                 diskSection = []
@@ -1059,7 +1062,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     {'name': vm['@name'], 'description': vm['Description'] if vm.get('Description') else '',
                      'href': vm['@href'], 'networkConnectionSection': vm['NetworkConnectionSection'],
                      'storageProfileHref': storageProfileHref, 'state': responseDict['VApp']['@status'],
-                     'computePolicyName': computePolicyName, 'sizingPolicyHref': sizingPolicyHref,
+                     'computePolicyName': computePolicyName, 'computePolicyId': computePolicyId,
+                     'sizingPolicyHref': sizingPolicyHref,
                      'primaryNetworkConnectionIndex': vm['NetworkConnectionSection']['PrimaryNetworkConnectionIndex'],
                      'diskSection': diskSection if diskSection else None,
                      'hardwareVersion': hardwareVersion})
@@ -1183,12 +1187,19 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         # iterating over the org vdc compute policies
                         for eachComputPolicy in orgVDCComputePolicesList:
                             # checking if the org vdc compute policy name is same as the source vm's applied compute policy & org vdc compute policy id is same as that of target provider vdc's id
-                            if eachComputPolicy["name"] == vm["computePolicyName"] and \
-                                    eachComputPolicy["pvdcId"] == targetProviderVDCid:
-                                # creating the href of compute policy that should be passed in the payload data for recomposing the vapp
-                                href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                        vcdConstants.VDC_COMPUTE_POLICIES,
-                                                        eachComputPolicy["id"])
+                            if eachComputPolicy["name"] == vm["computePolicyName"] and not eachComputPolicy["isSizingOnly"]:
+                                if not eachComputPolicy["pvdcId"]:
+                                    if vm['computePolicyId'] == eachComputPolicy['id']:
+                                        # creating the href of compute policy that should be passed in the payload data for recomposing the vapp
+                                        href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                                vcdConstants.VDC_COMPUTE_POLICIES,
+                                                                eachComputPolicy["id"])
+                                        break
+                                elif eachComputPolicy["pvdcId"] == targetProviderVDCid:
+                                    # creating the href of compute policy that should be passed in the payload data for recomposing the vapp
+                                    href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                            vcdConstants.VDC_COMPUTE_POLICIES,
+                                                            eachComputPolicy["id"])
                         # if vm's compute policy does not match with org vdc compute policy or org vdc compute policy's id does not match with target provider vdc's id then href will be set none
                         # resulting into raising the exception that source vm's applied placement policy is absent in target org vdc
                         if not href:
@@ -1232,12 +1243,19 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         # iterating over the org vdc compute policies
                         for eachComputPolicy in orgVDCComputePolicesList:
                             # checking if the org vdc compute policy name is same as the source vm's applied compute policy & org vdc compute policy id is same as that of target provider vdc's id
-                            if eachComputPolicy["name"] == vm["computePolicyName"] and \
-                                    eachComputPolicy["pvdcId"] == targetProviderVDCid:
-                                # creating the href of compute policy that should be passed in the payload data for recomposing the vapp
-                                href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                        vcdConstants.VDC_COMPUTE_POLICIES,
-                                                        eachComputPolicy["id"])
+                            if eachComputPolicy["name"] == vm["computePolicyName"] and not eachComputPolicy["isSizingOnly"]:
+                                if not eachComputPolicy["pvdcId"]:
+                                    if vm['computePolicyId'] == eachComputPolicy['id']:
+                                        # creating the href of compute policy that should be passed in the payload data for recomposing the vapp
+                                        href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                                vcdConstants.VDC_COMPUTE_POLICIES,
+                                                                eachComputPolicy["id"])
+                                        break
+                                elif eachComputPolicy["pvdcId"] == targetProviderVDCid:
+                                    # creating the href of compute policy that should be passed in the payload data for recomposing the vapp
+                                    href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                            vcdConstants.VDC_COMPUTE_POLICIES,
+                                                            eachComputPolicy["id"])
                         # if vm's compute policy does not match with org vdc compute policy or org vdc compute policy's id does not match with target provider vdc's id then href will be set none
                         # resulting into raising the exception that source vm's applied placement policy is absent in target org vdc
                         if not href:
@@ -1363,18 +1381,26 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                                                    dict) else allOrgVDCComputePolicesList
             # iterating over the org vdc compute policies
             for eachComputePolicy in orgVDCComputePolicesList:
-                if eachComputePolicy["pvdcId"] == targetProviderVDCId:
+                if (eachComputePolicy["pvdcId"] == targetProviderVDCId or not eachComputePolicy["pvdcId"]) and \
+                        not eachComputePolicy["isSizingOnly"]:
                     # if compute policy's id is same as target provider vdc id and compute policy is not the system default
                     if eachComputePolicy["name"] != 'System Default':
                         # iterating over the source compute policies
                         for computePolicy in sourceComputePolicyList:
                             if computePolicy['@name'] == eachComputePolicy['name'] and eachComputePolicy['name'] != \
                                     data['targetOrgVDC']['DefaultComputePolicy']['@name']:
-                                # creating the href of the org vdc compute policy
-                                href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                        vcdConstants.VDC_COMPUTE_POLICIES,
-                                                        eachComputePolicy["id"])
-                                computePolicyHrefList.append({'href': href})
+                                # get api call to retrieve compute policy details
+                                response = self.restClientObj.get(computePolicy['@href'], self.headers)
+                                if response.status_code == requests.codes.ok:
+                                    responseDict = response.json()
+                                else:
+                                    raise Exception("Failed to retrieve ComputePolicy with error {}".format(responseDict["message"]))
+                                if responseDict["pvdcComputePolicy"] == eachComputePolicy["pvdcComputePolicy"]:
+                                    # creating the href of the org vdc compute policy
+                                    href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                            vcdConstants.VDC_COMPUTE_POLICIES,
+                                                            eachComputePolicy["id"])
+                                    computePolicyHrefList.append({'href': href})
             # url to get the compute policy details of target org vdc
             url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
                                 vcdConstants.ORG_VDC_COMPUTE_POLICY.format(targetOrgVDCId))

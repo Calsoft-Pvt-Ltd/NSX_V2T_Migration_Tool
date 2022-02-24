@@ -1271,10 +1271,17 @@ class VCDMigrationValidation:
                     # iterating over the source org vdc compute policies
                     for computePolicy in sourceComputePolicyList:
                         if computePolicy['@name'] == eachComputePolicy['name']:
-                            # handling the multiple occurrences of same policy, but adding the policy just once in the  list 'targetPVDCComputePolicyList'
-                            if eachComputePolicy['name'] not in targetTemporaryList:
-                                targetTemporaryList.append(eachComputePolicy['name'])
-                                targetPVDCComputePolicyList.append(eachComputePolicy)
+                            # get api call to retrieve compute policy details
+                            response = self.restClientObj.get(computePolicy['@href'], self.headers)
+                            if response.status_code == requests.codes.ok:
+                                responseDict = response.json()
+                            else:
+                                raise Exception("Failed to retrieve ComputePolicy with error {}".format(responseDict["message"]))
+                            if responseDict['pvdcComputePolicy'] == eachComputePolicy['pvdcComputePolicy']:
+                                # handling the multiple occurrences of same policy, but adding the policy just once in the  list 'targetPVDCComputePolicyList'
+                                if eachComputePolicy['name'] not in targetTemporaryList:
+                                    targetTemporaryList.append(eachComputePolicy['name'])
+                                    targetPVDCComputePolicyList.append(eachComputePolicy)
 
             # creating list of source org vdc compute policies excluding system default
             sourceOrgVDCComputePolicyList = [sourceComputePolicy for sourceComputePolicy in sourceComputePolicyList if sourceComputePolicy['@name'] != 'System Default']
@@ -1286,7 +1293,7 @@ class VCDMigrationValidation:
                 response = self.restClientObj.get(vdcComputePolicy['@href'], self.headers)
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
-                    if not responseDict['isSizingOnly']:
+                    if not responseDict['isSizingOnly'] and responseDict['pvdcId']:
                         # handling the multiple occurrences of same policy, but adding the policy just once in the  list 'sourceOrgVDCPlacementPolicyList'
                         if vdcComputePolicy['@name'] not in sourceTemporaryList:
                             sourceTemporaryList.append(vdcComputePolicy['@name'])
