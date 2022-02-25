@@ -164,6 +164,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 # firewallIdDict = dict(zip(firewallName, firewallIDs))
                         firewallIdDict = self.rollback.apiData.get('firewallIdDict')
                     else:
+                        response = self.vcdUtils.parseXml(response.content)
                         raise Exception("Failed to retrieve application port profiles - {}".format(response['error']['details']))
                 # if firewall rules are configured on source edge gateway
                 if sourceFirewallRules:
@@ -241,6 +242,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                     ipsetDict = firewallIdDict[edgeGatewayId][ipsetresponseDict['ipset']['name']]
                                                     sourcefirewallGroupId.append(ipsetDict)
                                         else:
+                                            ipsetresponse = self.vcdUtils.parseXml(ipsetresponse.content)
                                             raise Exception("Failed to retrieve ipset group {} info - {}".format(ipsetgroup, ipsetresponse['error']['details']))
                             # checking if any routed org vdc networks added in the firewall rule and networktype should be true
                             if networkgroups and networktype:
@@ -290,6 +292,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                 raise Exception(
                                                     'Failed to update Firewall rule - {}'.format(response['message']))
                                 else:
+                                    response = response.json()
                                     raise Exception("Failed to retrieve firewall info - {}".format(response['message']))
                         ipAddressList = list()
                         # checking for the destination key in firewallRule dictionary
@@ -351,6 +354,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                     ipsetDict = firewallIdDict[edgeGatewayId][ipsetresponseDict['ipset']['name']]
                                                     destinationfirewallGroupId.append(ipsetDict)
                                         else:
+                                            ipsetresponse = self.vcdUtils.parseXml(ipsetresponse.content)
                                             raise Exception("Failed to retrieve ipset group {} info - {}".format(ipsetgroup, ipsetresponse['error']['details']))
                             # checking if any routed org vdc networks added in the firewall rule and networktype should be true
                             if networkgroups and networktype:
@@ -400,6 +404,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                 raise Exception(
                                                     'Failed to update Firewall rule - {}'.format(response['message']))
                                 else:
+                                    response = response.json()
                                     raise Exception("Failed to retrieve firewall info - {}".format(response['message']))
                         if not networktype:
                             userDefinedRulesList = list()
@@ -410,6 +415,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 responseDict = response.json()
                                 userDefinedRulesList = responseDict['userDefinedRules']
                             else:
+                                response = response.json()
                                 raise Exception("Failed to retrieve firewall info - {}".format(response['message']))
                             # updating the payload with source firewall groups, destination firewall groups, user defined firewall rules, application port profiles
                             action = 'ALLOW' if firewallRule['action'] == 'accept' else 'DROP'
@@ -1172,6 +1178,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 " DNS server will be configured with this listener IP".format(responseDict['listenerIp']))
                             self.rollback.apiData['listenerIp'][edgeGatewayID] = responseDict['listenerIp']
                         else:
+                            response = response.json()
                             raise Exception("Failed to dns get listener ip - {}".format(response['message']))
                     else:
                         # failure in configuring dns
@@ -1258,6 +1265,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 "Failed to enable DHCP in EDGE mode on OrgVDC network {}, error : {}.".format(
                                     networkName, errorResponse))
                 else:
+                    response = response.json()
                     raise Exception("Failed to retrieve DHCP configuration info for network {} - {}".format(networkId, response['message']))
 
                 # Enables the DHCP bindings on OrgVDC network.
@@ -1556,6 +1564,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             network_id = target_network['id']
                             members.append({'name': network_name, 'id': network_id})
                 else:
+                    getnetworkResponse = getnetworkResponse.json()
                     raise Exception("Failed to retrieve network info for {} - {}".format(networkgroup, getnetworkResponse['message']))
             # getting the already created firewall groups summaries
             summaryValues = self.fetchFirewallGroups()
@@ -1581,6 +1590,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             if member in members:
                                 groupId.append(firewallGroupId)
                 else:
+                    getGroupResponse = json.loads(getGroupResponse.content)
                     raise Exception("Failed to retrieve firewall group {} info - {}".format(firewallGroupId, getGroupResponse['message']))
             for member in members:
                 # validating if the network member doesn't exists in the members of the firewall groups which are already created
@@ -1853,6 +1863,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                                          "id": protocol_port_id}
                                 break
                     else:
+                        icmpResponse = icmpResponse.json()
                         raise Exception("Failed to get icmp port profiles - {}".format(icmpResponse['message']))
             else:
                 payloadData["applicationPortProfile"] = None
@@ -2247,6 +2258,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 responseDict = response.json()
                 resultTotal = responseDict['resultTotal']
             else:
+                response = response.json()
                 raise Exception('Failed to fetch load balancer pool details: {}'.format(response['message']))
             pageNo = 1
             pageSizeCount = 0
@@ -2266,6 +2278,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     pageNo += 1
                     resultTotal = responseDict['resultTotal']
                 else:
+                    response = response.json()
                     raise Exception('Failed to fetch load balancer pool details: {}'.format(response['message']))
             return targetLoadBalancerPoolSummary
         except:
@@ -3080,8 +3093,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                   vcdConstants.ASSIGN_SERVICE_ENGINE_GROUP_URI)
             payloadDict = {
-                            "minVirtualServices": 0,
-                            "maxVirtualServices": serviceEngineGroupDetails['maxVirtualServices'],
+                            "minVirtualServices": 0 if serviceEngineGroupDetails['reservationType'] == 'SHARED' else None,
+                            "maxVirtualServices": serviceEngineGroupDetails['maxVirtualServices'] if serviceEngineGroupDetails['reservationType'] == 'SHARED' else None,
                             "serviceEngineGroupRef": {
                                 "name": self.serviceEngineGroupName,
                                 "id": self.serviceEngineGroupId

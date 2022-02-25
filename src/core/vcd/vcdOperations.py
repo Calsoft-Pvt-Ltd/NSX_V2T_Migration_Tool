@@ -3230,10 +3230,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 responseDict = response.json()
                 if response.status_code == requests.codes.ok:
                     gatewayInterfaces = responseDict['configuration']['gatewayInterfaces']['gatewayInterface']
-                    if len(gatewayInterfaces) >= 9:
-                        raise Exception(
-                            'No more uplinks present on source Edge Gateway to connect dummy External Uplink.')
                     if not rollback:
+                        if len(gatewayInterfaces) >= 9:
+                            raise Exception(
+                                f'No more uplinks present on source Edge Gateway ({sourceEdgeGatewayId}) to connect '
+                                f'dummy External Uplink.')
+
                         dummyUplinkAlreadyConnected = True if [interface for interface in gatewayInterfaces
                                                                if interface['name'] == dummyExternalNetwork['name']] \
                                                                 else False
