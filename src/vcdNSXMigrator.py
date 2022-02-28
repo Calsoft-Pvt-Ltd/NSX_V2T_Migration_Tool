@@ -483,7 +483,7 @@ class VMwareCloudDirectorNSXMigrator():
         except Exception:
             raise
 
-    def performRollback(self):
+    def runRollback(self):
         """
         Description : Perform rollback if rollback parameter is provided
         """
@@ -627,321 +627,364 @@ class VMwareCloudDirectorNSXMigrator():
         except:
             raise
 
+    def renderInputFile(self):
+        if not os.path.exists(self.userInputFilePath):
+            raise Exception("User Input File: '{}' does not Exist".format(self.userInputFilePath))
+
+        # reading the input yaml file
+        with codecs.open(self.userInputFilePath, encoding = "utf_8") as f:
+            self.inputDict = yaml.safe_load(f)
+            # Render dict values as strings
+            Utilities.renderInputDict(self.inputDict)
+
+    def runV2tAssessment(self):
+        V2TAssessmentModeObj = VMwareCloudDirectorNSXMigratorV2T(self.inputDict, buildVersion=self.buildVersion)
+        self.consoleLogger.info('Starting V2T-Assessment mode for NSX-V migration to NSX-T')
+
+        # Executing v2t-Assessment mode
+        V2TAssessmentModeObj.run()
+        # Creating csv report
+        V2TAssessmentModeObj.createReport()
+
+    def getPassword(self):
+        # password prompt from user
+        self._getPasswordFromUser()
+
+        # updating the password in the input dict
+        self.inputDict['VCloudDirector']['Common']['password'] = self.vCloudDirectorPassword
+        self.inputDict['NSXT']['Common']['password'] = self.nsxtPassword
+        self.inputDict['Vcenter']['Common']['password'] = self.vcenterPassword
+        if self.inputDict.get("NSXV"):
+            self.inputDict['NSXV']['Common']['password'] = self.nsxvPassword
+
+    def certificateValidation(self):
+        # if verify is false on any component then logging a message
+        if not all([self.inputDict["VCloudDirector"]["Common"]["verify"], self.inputDict["NSXT"]["Common"]["verify"], self.inputDict["Vcenter"]["Common"]["verify"]]):
+            componentsWithCertificateValidationDisabled = ['VMware vCloud Director' if not self.inputDict["VCloudDirector"]["Common"]["verify"] else str(),
+                            'NSX-T' if not self.inputDict["NSXT"]["Common"]["verify"] else str(),
+                            'vCenter' if not self.inputDict["Vcenter"]["Common"]["verify"] else str(),
+                            'NSX-V' if self.inputDict.get("NSXV", {}).get("Common", {}).get("verify", {}) is False else str()]
+
+            warningMessage = '\n'+'*'*100+'\n*'+(('Certificate validation disabled for - ' +
+                             ', '.join([component for component in componentsWithCertificateValidationDisabled if component != str()]))
+                             .center(98)+'*\n'+'*'*100)
+            logging.warning(warningMessage)
+
+        # if verify is set to True on any one component then we have to update certificates in requests
+        if self.inputDict["VCloudDirector"]["Common"]["verify"] or self.inputDict["NSXT"]["Common"]["verify"] or self.inputDict["Vcenter"]["Common"]["verify"] or self.inputDict.get('NSXV', {}).get("Common", {}).get("verify", None):
+            certPath = self.inputDict["Common"].get("CertificatePath")
+            # checking for certificate path is present in user input
+            if not certPath:
+                self.consoleLogger.error("Please enter the certificate path in user Input file.")
+                os._exit(0)
+            # checking for the path provided in user input whether its valid
+            if not os.path.exists(certPath):
+                self.consoleLogger.error("The provided certificate path in user Input file does not exist.")
+                os._exit(0)
+            # update certificate path in requests
+            self.utils.updateRequestsPemCert(certPath)
+
+    def initialization(self):
+        # Initializing the list of objects that will hold all the vcd and nsxt objects
+        self.vcdObjList, self.nsxtObjList = list(), list()
+
+        # lock object common for all objects/classes
+        lockObj = threading.RLock()
+
+        # Fetching the number of parallel migrations
+        self.numberOfParallelMigrations = len(self.inputDict["VCloudDirector"]["SourceOrgVDC"])
+
+        # Calculating number of threads for each org vdc
+        maxNumberOfThreads = 1 if not math.floor(self.threadCount / self.numberOfParallelMigrations) else math.floor(
+            self.threadCount / self.numberOfParallelMigrations)
+
+        # Iterating over the org vdcs provided in the user input and creating desired number of objects
+        for index, orgVDCDict in enumerate(self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+            # Initializing thread class with specified number of threads common for all objects
+            threadObj = Thread(maxNumberOfThreads=maxNumberOfThreads)
+
+            # Creating object of rollback class and initializing the class the variables
+            rollback = Rollback(self.consoleLogger)
+            rollback.retryRollback = self.retryRollback
+            rollback.mainLogfile = self.mainLogfile
+            rollback.vcdDict = self.inputDict
+            rollback.timeoutForVappMigration = self.timeoutForVappMigration
+            # initializing vmware cloud director Operations class
+            self.vcdObjList.append(VCloudDirectorOperations(self.inputDict["VCloudDirector"]["Common"]["ipAddress"], self.inputDict["VCloudDirector"]["Common"]["username"],
+                                                           self.inputDict['VCloudDirector']['Common']['password'], self.inputDict['VCloudDirector']['Common']['verify'],
+                                                           rollback, threadObj, lockObj=lockObj, vdcName=orgVDCDict["OrgVDCName"]))
+
+            # preparing the nsxt dict for bridging
+            self.nsxtObjList.append(NSXTOperations(self.inputDict["NSXT"]["Common"]["ipAddress"], self.inputDict["NSXT"]["Common"]["username"],
+                                          self.inputDict["NSXT"]["Common"]["password"], rollback, self.vcdObjList[index], self.inputDict["NSXT"]["Common"]["verify"]))
+
+        # initializing nsxv operations class
+        if self.inputDict.get("NSXV", None):
+            self.nsxvObj = NSXVOperations(self.inputDict.get("NSXV", {})["Common"]["ipAddress"], self.inputDict.get("NSXV", {})["Common"]["username"],
+                                      self.nsxvPassword, self.inputDict.get("NSXV", {})["Common"]["verify"])
+        else:
+            self.nsxvObj = NSXVOperations()
+
+        # initializing vcenter Api class
+        self.vcenterObj = VcenterApi(self.inputDict["Vcenter"]["Common"]["ipAddress"], self.inputDict["Vcenter"]["Common"]["username"],
+                                     self.inputDict["Vcenter"]["Common"]["password"], self.inputDict["Vcenter"]["Common"]["verify"])
+
+    def runPrecheck(self):
+        assessmentModeObj = VMwareCloudDirectorNSXMigratorAssessmentMode \
+            (self.inputDict, self.vcdObjList, self.nsxtObjList, self.nsxvObj, self.vcenterObj, self.executeList)
+        assessmentModeObj.run()
+
+    def runPreparation(self):
+        # Warning table for workflows that will be skipped
+        self.skipWorkflowsTable()
+        if not self.retryRollback:
+            self.consoleLogger.info(
+                f'Started migration of NSX-V backed Org VDC to NSX-T backed for org vdc/s - "'
+                f'{", ".join([vdc["OrgVDCName"] for vdc in self.inputDict["VCloudDirector"]["SourceOrgVDC"]])}"')
+
+        # Fetching metadata and performing all metadata related operation required for migration
+        futures = list()
+        with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+            for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                futures.append(executor.submit(self.fetchMetadataFromOrgVDC, vcdObj, orgVDCDict))
+            waitForThreadToComplete(futures)
+
+    def runCleanup(self):
+        self.CLEAN_UP_SCRIPT_RUN = True
+        passFilePath = self.passFile if self.passFile else self.defaultPassFileName
+
+        cleanupObjectsList = [VMwareCloudDirectorNSXMigratorCleanup(orgVDCDict, self.inputDict, vcdObj, nsxtObj,
+                                                                    passFilePath)
+                              for orgVDCDict, nsxtObj, vcdObj in zip(self.inputDict["VCloudDirector"]["SourceOrgVDC"],
+                                                                     self.nsxtObjList, self.vcdObjList)]
+
+        # Spawning threads for org vdc cleanup
+        futures = list()
+        with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+            for cleanup in cleanupObjectsList:
+                # Passing corresponding vcdobj, nsxtobj, orgvdcdict and inputdict to cleanup.
+                futures.append(executor.submit(cleanup.checkTargetOrgVDCStatus))
+            waitForThreadToComplete(futures)
+
+        # Bridging cleanup
+        VMwareCloudDirectorNSXMigratorCleanup(inputDict=self.inputDict).cleanupBridging(self.vcdObjList,
+                                                                                        self.nsxtObjList[0])
+
+        # Spawning threads for org vdc cleanup
+        futures = list()
+        with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+            for cleanup in cleanupObjectsList:
+                futures.append(executor.submit(cleanup.run))
+            waitForThreadToComplete(futures)
+
+    def runPreMigrationValidation(self):
+        # Perform premigration validations
+        futures = list()
+        with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+            for vcdObj, nsxtObj, orgVDCDict in zip(self.vcdObjList, self.nsxtObjList,
+                                                   self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                futures.append(executor.submit(vcdObj.preMigrationValidation, self.inputDict, orgVDCDict,
+                                               self.orgVDCData[orgVDCDict["OrgVDCName"]]["id"], nsxtObj,
+                                               self.nsxvObj,
+                                               validateVapp=mainConstants.MOVEVAPP_KEYWORD in self.executeList,
+                                               validateServices=mainConstants.SERVICES_KEYWORD in self.executeList))
+            waitForThreadToComplete(futures)
+
+        # Check if bridging is to be performed or not
+        if mainConstants.BRIDGING_KEYWORD in self.executeList:
+            # Getting source org vdc network list
+            orgVdcNetworkList = list()
+            for orgVDCId, vcdObj in zip([data["id"] for data in self.orgVDCData.values()], self.vcdObjList):
+                orgVdcNetworkList += vcdObj.retrieveNetworkListFromMetadata(orgVDCId, orgVDCType='source')
+            # filtering the org vdc list as direct networks do not need to be bridged
+            filteredList = copy.deepcopy(orgVdcNetworkList)
+            filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', filteredList))
+            if filteredList:
+                # Perform checks related to bridging
+                orgVDCIDList = [data["id"] for data in self.orgVDCData.values()]
+                self.vcdObjList[0].checkBridgingComponents(orgVDCIDList, self.inputDict["NSXT"]["EdgeClusterName"],
+                                                           self.nsxtObjList[0], self.vcenterObj, self.vcdObjList)
+
+        # Perform check for sharedNetwork.
+        self.vcdObjList[0].sharedNetworkChecks(self.inputDict, self.vcdObjList, self.orgVDCData)
+
+    def runPrepareTarget(self):
+        # Preparing Target VDC
+        futures = list()
+        with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+            orgVDCIDList = [data["id"] for data in self.orgVDCData.values()]
+            for vcdObj, nsxtObj, orgVDCDict in zip(self.vcdObjList, self.nsxtObjList,
+                                                   self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                futures.append(executor.submit(vcdObj.prepareTargetVDC, self.vcdObjList,
+                                               self.orgVDCData[orgVDCDict["OrgVDCName"]]["id"],
+                                               self.inputDict, orgVDCDict, nsxtObj, orgVDCDict["OrgVDCName"],
+                                               orgVDCIDList, self.vcenterObj,
+                                               configureBridging=mainConstants.BRIDGING_KEYWORD in self.executeList,
+                                               configureServices=mainConstants.SERVICES_KEYWORD in self.executeList)
+                               )
+            waitForThreadToComplete(futures)
+
+    def runBridging(self):
+        # Check if bridging is to be performed or not
+        if mainConstants.BRIDGING_KEYWORD in self.executeList:
+            orgVdcNetworkList = list()
+            for orgVDCId, vcdObj in zip([data["id"] for data in self.orgVDCData.values()], self.vcdObjList):
+                orgVdcNetworkList += vcdObj.retrieveNetworkListFromMetadata(orgVDCId, orgVDCType='source')
+            # filtering the org vdc list as direct networks do not need to be bridged
+            filteredList = copy.deepcopy(orgVdcNetworkList)
+            filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', filteredList))
+
+            # only if org vdc networks exist bridging will be configured
+            if filteredList:
+                # Configuring Bridging
+                self.nsxtObjList[0].configureNSXTBridging(self.inputDict["NSXT"]["EdgeClusterName"], self.vcdObjList)
+                # verify bridge connectivity
+                self.nsxtObjList[0].verifyBridgeConnectivity(self.vcdObjList, self.vcenterObj)
+            elif orgVdcNetworkList:
+                self.consoleLogger.warning('Skipping the NSXT Bridging configuration and connectivity verification check as the networks are type "Direct"')
+            else:
+                self.consoleLogger.warning('Skipping the NSXT Bridging configuration and connectivity verification check as no source Org VDC network exist')
+        else:
+            self.consoleLogger.warning('Skipping the NSXT Bridging configuration as per the input parameters provided')
+
+    def runServices(self):
+        # Check if services are to configured or not
+        if mainConstants.SERVICES_KEYWORD in self.executeList:
+            # Services configuration
+            futures = list()
+            with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+                for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                    # Configuring services
+                    futures.append(executor.submit(vcdObj.configureServices, self.nsxvObj, orgVDCDict))
+                waitForThreadToComplete(futures)
+
+            # configuring target vdc i.e reconnecting target vdc networks and edge gateway
+            futures = list()
+            with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+                for vcdObj, orgVdcDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                    edgeGatewayDeploymentEdgeCluster = orgVdcDict.get('EdgeGatewayDeploymentEdgeCluster', None)
+                    futures.append(executor.submit(vcdObj.configureTargetVDC, self.vcdObjList, edgeGatewayDeploymentEdgeCluster, self.nsxtObjList[0]))
+                waitForThreadToComplete(futures)
+        else:
+            self.consoleLogger.warning(
+                'Skipping the EdgeGateway Services configuration and Network Switchover as per the input parameters provided')
+
+    def runWorkload(self):
+        # Save No of Source vApp to Metadata
+        futures = list()
+        with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+            for vcdObj in self.vcdObjList:
+                futures.append(executor.submit(vcdObj.savevAppNoToMetadata))
+            waitForThreadToComplete(futures)
+
+        # Check if vApp migration is to be performed
+        if mainConstants.MOVEVAPP_KEYWORD in self.executeList:
+            # Migrating IP/s from v-external network to NSX-T segment backed external network
+            futures = list()
+            with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+                orgVDCIDList = [data["id"] for data in self.orgVDCData.values()]
+                for vcdObj in self.vcdObjList:
+                    futures.append(executor.submit(vcdObj.copyIPToSegmentBackedExtNet, orgVDCIDList=orgVDCIDList))
+                waitForThreadToComplete(futures)
+
+            # update network profile
+            futures = list()
+            with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+                for vcdObj, orgVdcDict in zip(self.vcdObjList,
+                                              self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                    edgeGatewayDeploymentEdgeCluster = orgVdcDict.get('EdgeGatewayDeploymentEdgeCluster', None)
+                    sourceOrgVDCID = vcdObj.rollback.apiData['sourceOrgVDC']['@id']
+                    targetOrgVDCID = vcdObj.rollback.apiData['targetOrgVDC']['@id']
+                    futures.append(executor.submit(vcdObj.updateNetworkProfileIsolatedvAppDHCP, sourceOrgVDCID,
+                                                   targetOrgVDCID, edgeGatewayDeploymentEdgeCluster,
+                                                   self.nsxtObjList[0]))
+                waitForThreadToComplete(futures)
+
+            # perform vApp Migration
+            self.vcdObjList[0].migrateVapps(
+                self.vcdObjList, self.inputDict, self.timeoutForVappMigration, threadCount=self.threadCount)
+            self.vcdObjList[0].moveNamedDisks(
+                self.vcdObjList, self.timeoutForVappMigration, threadCount=self.threadCount)
+
+            # Enable target affinity rules
+            futures = list()
+            with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+                for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                    futures.append(executor.submit(vcdObj.enableTargetAffinityRules))
+                waitForThreadToComplete(futures)
+
+            # Removing IP/s from v-external network after vApp migration
+            futures = list()
+            with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+                for vcdObj, orgVDCDict in zip(self.vcdObjList,
+                                              self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                    futures.append(executor.submit(vcdObj.directNetworkIpCleanup, source=True))
+                waitForThreadToComplete(futures)
+        else:
+            self.consoleLogger.warning("Skipping vApp migration as the input parameters provided")
+
+    def runPostMigrationSteps(self):
+        # Disabling target vdc only if source org vdc is disabled
+        futures = list()
+        with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+            for vcdObj in self.vcdObjList:
+                futures.append(executor.submit(vcdObj.disableTargetOrgVDC))
+            waitForThreadToComplete(futures)
+
+        # Migration end state log.
+        endStateLogger = logging.getLogger("endstateLogger")
+        for vcdObj in self.vcdObjList:
+            # Dump Migration end state log to file.
+            vcdObj.dumpEndStateLog(endStateLogger)
+
+        self.consoleLogger.info(
+            f'Successfully completed migration of NSX-V backed to NSX-T backed for Org VDC/s '
+            f'{", ".join([vdc["OrgVDCName"] for vdc in self.inputDict["VCloudDirector"]["SourceOrgVDC"]])}.')
+
     def run(self):
         """
         Description : This method runs the migration process of VMware Cloud Director from V2T
         """
         try:
-            if not os.path.exists(self.userInputFilePath):
-                raise Exception("User Input File: '{}' does not Exist".format(self.userInputFilePath))
-
             # read release version
             self.releaseVersion()
             self.consoleLogger.warning("Log Filepath: {}".format(self.mainLogfile))
 
-            # reading the input yaml file
-            with codecs.open(self.userInputFilePath, encoding = "utf_8") as f:
-                self.inputDict = yaml.safe_load(f)
-                # Render dict values as strings
-                Utilities.renderInputDict(self.inputDict)
+            self.renderInputFile()
 
             # Execute v2tAssessment
             if self.v2tAssessment:
-                V2TAssessmentModeObj = VMwareCloudDirectorNSXMigratorV2T(self.inputDict, buildVersion=self.buildVersion)
-                self.consoleLogger.info('Starting V2T-Assessment mode for NSX-V migration to NSX-T')
-
-                # Executing v2t-Assessment mode
-                V2TAssessmentModeObj.run()
-                # Creating csv report
-                V2TAssessmentModeObj.createReport()
+                self.runV2tAssessment()
                 os._exit(0)
 
-            # password prompt from user
-            self._getPasswordFromUser()
-
-            # updating the password in the input dict
-            self.inputDict['VCloudDirector']['Common']['password'] = self.vCloudDirectorPassword
-            self.inputDict['NSXT']['Common']['password'] = self.nsxtPassword
-            self.inputDict['Vcenter']['Common']['password'] = self.vcenterPassword
-            if self.inputDict.get("NSXV"):
-                self.inputDict['NSXV']['Common']['password'] = self.nsxvPassword
-
-            # validating user input
+            self.getPassword()
             self.inputValidation()
-
-            # if verify is false on any component then logging a message
-            if not all([self.inputDict["VCloudDirector"]["Common"]["verify"], self.inputDict["NSXT"]["Common"]["verify"], self.inputDict["Vcenter"]["Common"]["verify"]]):
-                componentsWithCertificateValidationDisabled = ['VMware vCloud Director' if not self.inputDict["VCloudDirector"]["Common"]["verify"] else str(),
-                                'NSX-T' if not self.inputDict["NSXT"]["Common"]["verify"] else str(),
-                                'vCenter' if not self.inputDict["Vcenter"]["Common"]["verify"] else str(),
-                                'NSX-V' if self.inputDict.get("NSXV", {}).get("Common", {}).get("verify", {}) is False else str()]
-
-                warningMessage = '\n'+'*'*100+'\n*'+(('Certificate validation disabled for - ' +
-                                 ', '.join([component for component in componentsWithCertificateValidationDisabled if component != str()]))
-                                 .center(98)+'*\n'+'*'*100)
-                logging.warning(warningMessage)
-
-            # if verify is set to True on any one component then we have to update certificates in requests
-            if self.inputDict["VCloudDirector"]["Common"]["verify"] or self.inputDict["NSXT"]["Common"]["verify"] or self.inputDict["Vcenter"]["Common"]["verify"] or self.inputDict.get('NSXV', {}).get("Common", {}).get("verify", None):
-                certPath = self.inputDict["Common"].get("CertificatePath")
-                # checking for certificate path is present in user input
-                if not certPath:
-                    self.consoleLogger.error("Please enter the certificate path in user Input file.")
-                    os._exit(0)
-                # checking for the path provided in user input whether its valid
-                if not os.path.exists(certPath):
-                    self.consoleLogger.error("The provided certificate path in user Input file does not exist.")
-                    os._exit(0)
-                # update certificate path in requests
-                self.utils.updateRequestsPemCert(certPath)
-
-            # Initializing the list of objects that will hold all the vcd and nsxt objects
-            self.vcdObjList, self.nsxtObjList = list(), list()
-
-            # lock object common for all objects/classes
-            lockObj = threading.RLock()
-
-            # Fetching the number of parallel migrations
-            self.numberOfParallelMigrations = len(self.inputDict["VCloudDirector"]["SourceOrgVDC"])
-
-            # Calculating number of threads for each org vdc
-            maxNumberOfThreads = 1 if not math.floor(self.threadCount / self.numberOfParallelMigrations) else math.floor(
-                self.threadCount / self.numberOfParallelMigrations)
-
-            # Iterating over the org vdcs provided in the user input and creating desired number of objects
-            for index, orgVDCDict in enumerate(self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
-                # Initializing thread class with specified number of threads common for all objects
-                threadObj = Thread(maxNumberOfThreads=maxNumberOfThreads)
-
-                # Creating object of rollback class and initializing the class the variables
-                rollback = Rollback(self.consoleLogger)
-                rollback.retryRollback = self.retryRollback
-                rollback.mainLogfile = self.mainLogfile
-                rollback.vcdDict = self.inputDict
-                rollback.timeoutForVappMigration = self.timeoutForVappMigration
-                # initializing vmware cloud director Operations class
-                self.vcdObjList.append(VCloudDirectorOperations(self.inputDict["VCloudDirector"]["Common"]["ipAddress"], self.inputDict["VCloudDirector"]["Common"]["username"],
-                                                               self.inputDict['VCloudDirector']['Common']['password'], self.inputDict['VCloudDirector']['Common']['verify'],
-                                                               rollback, threadObj, lockObj=lockObj, vdcName=orgVDCDict["OrgVDCName"]))
-
-                # preparing the nsxt dict for bridging
-                self.nsxtObjList.append(NSXTOperations(self.inputDict["NSXT"]["Common"]["ipAddress"], self.inputDict["NSXT"]["Common"]["username"],
-                                              self.inputDict["NSXT"]["Common"]["password"], rollback, self.vcdObjList[index], self.inputDict["NSXT"]["Common"]["verify"]))
-
-            # initializing nsxv operations class
-            if self.inputDict.get("NSXV", None):
-                self.nsxvObj = NSXVOperations(self.inputDict.get("NSXV", {})["Common"]["ipAddress"], self.inputDict.get("NSXV", {})["Common"]["username"],
-                                          self.nsxvPassword, self.inputDict.get("NSXV", {})["Common"]["verify"])
-            else:
-                self.nsxvObj = NSXVOperations()
-
-            # initializing vcenter Api class
-            self.vcenterObj = VcenterApi(self.inputDict["Vcenter"]["Common"]["ipAddress"], self.inputDict["Vcenter"]["Common"]["username"],
-                                         self.inputDict["Vcenter"]["Common"]["password"], self.inputDict["Vcenter"]["Common"]["verify"])
-
-            # Initiate login
+            self.certificateValidation()
+            self.initialization()
             self.loginToAllComponents()
-
-            # validate login
             self.validateLogin()
-
-            # Warning table for workflows that will be skipped
-            self.skipWorkflowsTable()
 
             # Running migration script in assessment Mode
             if self.assessmentMode:
-                assessmentModeObj = VMwareCloudDirectorNSXMigratorAssessmentMode \
-                    (self.inputDict, self.vcdObjList, self.nsxtObjList, self.nsxvObj, self.vcenterObj, self.executeList)
-                assessmentModeObj.run()
+                self.runPrecheck()
                 return
 
-            if not self.retryRollback:
-                self.consoleLogger.info(f'Started migration of NSX-V backed Org VDC to NSX-T backed for org vdc/s - "{", ".join([vdc["OrgVDCName"] for vdc in self.inputDict["VCloudDirector"]["SourceOrgVDC"]])}"')
-
-            # Fetching metadata and performing all metadata related operation required for migration
-            futures = list()
-            with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
-                    futures.append(executor.submit(self.fetchMetadataFromOrgVDC, vcdObj, orgVDCDict))
-                waitForThreadToComplete(futures)
+            self.runPreparation()
 
             # Perform rollback if rollback parameter is provided
-            self.performRollback()
+            self.runRollback()
+
             # Running cleanup script if cleanup parameter is provided
             if self.cleanup:
-                self.CLEAN_UP_SCRIPT_RUN = True
-                passFilePath = self.passFile if self.passFile else self.defaultPassFileName
-
-                cleanupObjectsList = [VMwareCloudDirectorNSXMigratorCleanup(orgVDCDict, self.inputDict, vcdObj, nsxtObj,
-                                                                            passFilePath)
-                                      for orgVDCDict, nsxtObj, vcdObj in zip(self.inputDict["VCloudDirector"]["SourceOrgVDC"],
-                                                                     self.nsxtObjList, self.vcdObjList)]
-
-                # Spawning threads for org vdc cleanup
-                futures = list()
-                with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                    for cleanup in cleanupObjectsList:
-                        # Passing corresponding vcdobj, nsxtobj, orgvdcdict and inputdict to cleanup.
-                        futures.append(executor.submit(cleanup.checkTargetOrgVDCStatus))
-                    waitForThreadToComplete(futures)
-
-                # Bridging cleanup
-                VMwareCloudDirectorNSXMigratorCleanup(inputDict=self.inputDict).cleanupBridging(self.vcdObjList, self.nsxtObjList[0])
-
-                # Spawning threads for org vdc cleanup
-                futures = list()
-                with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                    for cleanup in cleanupObjectsList:
-                        futures.append(executor.submit(cleanup.run))
-                    waitForThreadToComplete(futures)
+                self.runCleanup()
                 os._exit(0)
 
-            # Perform premigration validations
-            futures = list()
-            with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                for vcdObj, nsxtObj, orgVDCDict in zip(self.vcdObjList, self.nsxtObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
-                    futures.append(executor.submit(vcdObj.preMigrationValidation, self.inputDict, orgVDCDict,
-                                                   self.orgVDCData[orgVDCDict["OrgVDCName"]]["id"], nsxtObj,
-                                                   self.nsxvObj,
-                                                   validateVapp=mainConstants.MOVEVAPP_KEYWORD in self.executeList,
-                                                   validateServices=mainConstants.SERVICES_KEYWORD in self.executeList))
-                waitForThreadToComplete(futures)
-
-            # Check if bridging is to be performed or not
-            if mainConstants.BRIDGING_KEYWORD in self.executeList:
-                # Getting source org vdc network list
-                orgVdcNetworkList = list()
-                for orgVDCId, vcdObj in zip([data["id"] for data in self.orgVDCData.values()], self.vcdObjList):
-                    orgVdcNetworkList += vcdObj.retrieveNetworkListFromMetadata(orgVDCId, orgVDCType='source')
-                # filtering the org vdc list as direct networks do not need to be bridged
-                filteredList = copy.deepcopy(orgVdcNetworkList)
-                filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', filteredList))
-                if filteredList:
-                    # Perform checks related to bridging
-                    orgVDCIDList = [data["id"] for data in self.orgVDCData.values()]
-                    self.vcdObjList[0].checkBridgingComponents(orgVDCIDList, self.inputDict["NSXT"]["EdgeClusterName"],
-                                                           self.nsxtObjList[0], self.vcenterObj, self.vcdObjList)
-
-            # Perform check for sharedNetwork.
-            self.vcdObjList[0].sharedNetworkChecks(self.inputDict, self.vcdObjList, self.orgVDCData)
-            # Preparing Target VDC
-            futures = list()
-            with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                orgVDCIDList = [data["id"] for data in self.orgVDCData.values()]
-                for vcdObj, nsxtObj, orgVDCDict in zip(self.vcdObjList, self.nsxtObjList,
-                                                       self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
-                    futures.append(executor.submit(vcdObj.prepareTargetVDC, self.vcdObjList,
-                                                   self.orgVDCData[orgVDCDict["OrgVDCName"]]["id"],
-                                                   self.inputDict, orgVDCDict, nsxtObj, orgVDCDict["OrgVDCName"],
-                                                   orgVDCIDList, self.vcenterObj,
-                                                   configureBridging=mainConstants.BRIDGING_KEYWORD in self.executeList,
-                                                   configureServices=mainConstants.SERVICES_KEYWORD in self.executeList)
-                                   )
-                waitForThreadToComplete(futures)
-
-            # Check if bridging is to be performed or not
-            if mainConstants.BRIDGING_KEYWORD in self.executeList:
-                # only if org vdc networks exist bridging will be configured
-                if filteredList:
-                    # Configuring Bridging
-                    self.nsxtObjList[0].configureNSXTBridging(self.inputDict["NSXT"]["EdgeClusterName"], self.vcdObjList)
-                    # verify bridge connectivity
-                    self.nsxtObjList[0].verifyBridgeConnectivity(self.vcdObjList, self.vcenterObj)
-                elif orgVdcNetworkList:
-                    self.consoleLogger.warning('Skipping the NSXT Bridging configuration and connectivity verification check as the networks are type "Direct"')
-                else:
-                    self.consoleLogger.warning('Skipping the NSXT Bridging configuration and connectivity verification check as no source Org VDC network exist')
-            else:
-                self.consoleLogger.warning('Skipping the NSXT Bridging configuration as per the input parameters provided')
-
-            # Check if services are to configured or not
-            if mainConstants.SERVICES_KEYWORD in self.executeList:
-                # Services configuration
-                futures = list()
-                with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                    for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
-                        # Configuring services
-                        futures.append(executor.submit(vcdObj.configureServices, self.nsxvObj, orgVDCDict))
-                    waitForThreadToComplete(futures)
-
-                # configuring target vdc i.e reconnecting target vdc networks and edge gateway
-                futures = list()
-                with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                    for vcdObj, orgVdcDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
-                        edgeGatewayDeploymentEdgeCluster = orgVdcDict.get('EdgeGatewayDeploymentEdgeCluster', None)
-                        futures.append(executor.submit(vcdObj.configureTargetVDC, self.vcdObjList, edgeGatewayDeploymentEdgeCluster, self.nsxtObjList[0]))
-                    waitForThreadToComplete(futures)
-            else:
-                self.consoleLogger.warning(
-                    'Skipping the EdgeGateway Services configuration and Network Switchover as per the input parameters provided')
-
-            # Save No of Source vApp to Metadata
-            futures = list()
-            with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                for vcdObj in self.vcdObjList:
-                    futures.append(executor.submit(vcdObj.savevAppNoToMetadata))
-                waitForThreadToComplete(futures)
-
-            # Check if vApp migration is to be performed
-            if mainConstants.MOVEVAPP_KEYWORD in self.executeList:
-                # Migrating IP/s from v-external network to NSX-T segment backed external network
-                futures = list()
-                with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                    orgVDCIDList = [data["id"] for data in self.orgVDCData.values()]
-                    for vcdObj in self.vcdObjList:
-                        futures.append(executor.submit(vcdObj.copyIPToSegmentBackedExtNet, orgVDCIDList=orgVDCIDList))
-                    waitForThreadToComplete(futures)
-
-                # update network profile
-                futures = list()
-                with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                    for vcdObj, orgVdcDict in zip(self.vcdObjList,
-                                                  self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
-                        edgeGatewayDeploymentEdgeCluster = orgVdcDict.get('EdgeGatewayDeploymentEdgeCluster', None)
-                        sourceOrgVDCID = vcdObj.rollback.apiData['sourceOrgVDC']['@id']
-                        targetOrgVDCID = vcdObj.rollback.apiData['targetOrgVDC']['@id']
-                        futures.append(executor.submit(vcdObj.updateNetworkProfileIsolatedvAppDHCP, sourceOrgVDCID,
-                                                       targetOrgVDCID, edgeGatewayDeploymentEdgeCluster,
-                                                       self.nsxtObjList[0]))
-                    waitForThreadToComplete(futures)
-
-                # perform vApp Migration
-                self.vcdObjList[0].migrateVapps(
-                    self.vcdObjList, self.inputDict, self.timeoutForVappMigration, threadCount=self.threadCount)
-                self.vcdObjList[0].moveNamedDisks(
-                    self.vcdObjList, self.timeoutForVappMigration, threadCount=self.threadCount)
-
-                # Enable target affinity rules
-                futures = list()
-                with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                    for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
-                        futures.append(executor.submit(vcdObj.enableTargetAffinityRules))
-                    waitForThreadToComplete(futures)
-
-                # Removing IP/s from v-external network after vApp migration
-                futures = list()
-                with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                    for vcdObj, orgVDCDict in zip(self.vcdObjList,
-                                                  self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
-                        futures.append(executor.submit(vcdObj.directNetworkIpCleanup, source=True))
-                    waitForThreadToComplete(futures)
-            else:
-                self.consoleLogger.warning("Skipping vApp migration as the input parameters provided")
-
-            # Disabling target vdc only if source org vdc is disabled
-            futures = list()
-            with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                for vcdObj in self.vcdObjList:
-                    futures.append(executor.submit(vcdObj.disableTargetOrgVDC))
-                waitForThreadToComplete(futures)
-
-            # Migration end state log.
-            endStateLogger = logging.getLogger("endstateLogger")
-            for vcdObj in self.vcdObjList:
-                # Dump Migration end state log to file.
-                vcdObj.dumpEndStateLog(endStateLogger)
-
-            self.consoleLogger.info(f'Successfully completed migration of NSX-V backed to NSX-T backed for Org VDC/s {", ".join([vdc["OrgVDCName"] for vdc in self.inputDict["VCloudDirector"]["SourceOrgVDC"]])}.')
+            self.runPreMigrationValidation()
+            self.runPrepareTarget()
+            self.runBridging()
+            self.runServices()
+            self.runWorkload()
+            self.runPostMigrationSteps()
 
         except requests.exceptions.SSLError as e:
             # catching the exception for ssl error.
