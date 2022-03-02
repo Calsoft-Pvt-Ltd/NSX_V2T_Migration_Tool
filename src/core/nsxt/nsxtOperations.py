@@ -1550,19 +1550,13 @@ class NSXTOperations():
                     vlanid - vlan id of the external network
         """
         try:
-            vdcNetworkName = orgvdcNetwork['name']
+            vdcNetworkName = replace_unsupported_chars(orgvdcNetwork['name'])
             vdcNetworkId = orgvdcNetwork['id'].split(':')[-1]
-            segmentId = ''
-            if len(vdcNetworkName)+len(vdcNetworkId)+1 > 80:
-                charsTodelete = abs(len(vdcNetworkName)+len(vdcNetworkId)+1-80)
-                charList = list(vdcNetworkName)
-                for i in range(0, charsTodelete):
-                    charList.pop()
-                name = "".join(charList)
-                segmentName = name+'-'+vdcNetworkId
-            else:
-                segmentName = vdcNetworkName+'-'+vdcNetworkId
+            segmentName = f"{vdcNetworkName}-{vdcNetworkId}"
+            if len(segmentName) > 80:
+                segmentName = f"{vdcNetworkName[:-(len(segmentName) - 80)]}-{vdcNetworkId}"
             segmentId = segmentName.replace(' ', '_')
+
             url = "{}{}".format(
                 nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
                 nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(segmentId))
