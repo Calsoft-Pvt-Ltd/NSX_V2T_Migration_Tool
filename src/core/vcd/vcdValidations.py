@@ -1941,7 +1941,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def validateEdgeGatewayUplinks(self, sourceOrgVDCId, edgeGatewayIdList):
+    def validateEdgeGatewayUplinks(self, sourceOrgVDCId, edgeGatewayIdList, preCheck=False):
         """
             Description :   Validate Edge Gateway uplinks
             Parameters  :   edgeGatewayIdList   -   List of Id's of the Edge Gateway  (STRING)
@@ -1974,11 +1974,18 @@ class VCDMigrationValidation:
                     for rateLimitEnabledInterface in rateLimitEnabledInterfaces:
                         logger.info(f"Validating whether source Org VDC Edge Gateway {responseDict['name']} has rate limit configured")
                         if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
-                            logger.warning(f"The source Org VDC Edge Gateway {responseDict['name']} has rate limit configured."
-                                           f" External Network {rateLimitEnabledInterface['name']} Incoming {rateLimitEnabledInterface['inRateLimit']} Mbps,"
-                                           f" Outgoing {rateLimitEnabledInterface['outRateLimit']} Mbps. "
-                                           "After migration apply equivalent Gateway QOS Profile "
-                                           "to Tier-1 GW backing the target Org VDC Edge Gateway directly in NSX-T.")
+                            if preCheck:
+                                errorList.append(f"The source OrgVDC EdgeGateway {responseDict['name']} has rate limit "
+                                                 f"configured. External Network {rateLimitEnabledInterface['name']} "
+                                                 f"Incoming {rateLimitEnabledInterface['inRateLimit']} Mbps, "
+                                                 f"Outgoing {rateLimitEnabledInterface['outRateLimit']} Mbps. ")
+                            else:
+                                logger.warning(f"The source Org VDC Edge Gateway {responseDict['name']} has rate limit "
+                                               f"configured. External Network {rateLimitEnabledInterface['name']} "
+                                               f"Incoming {rateLimitEnabledInterface['inRateLimit']} Mbps, "
+                                               f"Outgoing {rateLimitEnabledInterface['outRateLimit']} Mbps. "
+                                               f"After migration apply equivalent Gateway QOS Profile to Tier-1 GW "
+                                               f"backing the target Org VDC Edge Gateway directly in NSX-T.")
                 else:
                     raise Exception('Failed to get Edge Gateway:{} Uplink details: {}'.format(
                         edgeGatewayId, responseDict['message']))
@@ -4262,7 +4269,7 @@ class VCDMigrationValidation:
             self.validateExternalNetworkWithNSXT()
 
             logger.info('Validating if all edge gateways interfaces are in use')
-            self.validateEdgeGatewayUplinks(sourceOrgVDCId, sourceEdgeGatewayIdList)
+            self.validateEdgeGatewayUplinks(sourceOrgVDCId, sourceEdgeGatewayIdList, False)
 
             # validating whether edge gateway have dedicated external network
             logger.info('Validating whether other Edge gateways are using dedicated external network')
