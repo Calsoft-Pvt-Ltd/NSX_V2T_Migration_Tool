@@ -266,7 +266,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                 'Routed vApp Networks': [self.vcdValidationObj.validateNoVappNetworksExist, vdcId],
                 'Fencing enabled on vApps': [self.vcdValidationObj.validateVappFencingMode, vdcId],
                 'No free interface on edge gateways': [self.vcdValidationObj.validateEdgeGatewayUplinks,
-                                                     vdcId, self.edgeGatewayIdList],
+                                                     vdcId, self.edgeGatewayIdList, False],
                 'Shared Independent Disks': [self.vcdValidationObj.validateIndependentDisks, vdcId, OrgId, True],
                 'VM with Independent disks having different storage policies and fast provisioning enabled': [self.vcdValidationObj.validateNamedDiskWithFastProvisioned, vdcId],
                 'Validating Source Edge gateway services': [self.vcdValidationObj.getEdgeGatewayServices, None, None, None, True, None, True],
