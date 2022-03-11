@@ -399,7 +399,8 @@ class VCDMigrationValidation:
                                 metadataValue = eval(metadataValue)
                             except (SyntaxError, NameError, ValueError) as e:
                                 # TODO pranshu: uncomment when previous TODO is removed
-                                # logger.debug(f'Failed to evaluate {metadataKey} - {metadataValue}: {e}')
+                                # logger.debug(f'Failed to evaluate: {e})
+                                # logger.debug(f'{metadataKey}: {metadataValue}: ')
                                 logger.debug(traceback.format_exc())
 
                         metaData[metadataKey] = metadataValue
@@ -5168,14 +5169,17 @@ class VCDMigrationValidation:
                             return None, f"NSXT segment backed external network {parentNetworkId['name']+'-v2t'} is not present, and it is required for this direct shared network - {orgvdcNetwork}\n"
                     else:
                         targetProviderVDCId, isNSXTbacked = self.getProviderVDCId(nsxtProviderVDCName)
-                        # url to get all the external networks
-                        url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EXTERNAL_NETWORKS, vcdConstants.SCOPE_EXTERNAL_NETWORK_QUERY.format(targetProviderVDCId))
-                        response = self.restClientObj.get(url, self.headers)
-                        if response.status_code == requests.codes.ok:
-                            responseDict = response.json()
-                            externalNetworkIds = [values['name'] for values in responseDict['values']]
-                            if parentNetworkId['name'] not in externalNetworkIds:
-                                return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, nsxtProviderVDCName)
+                        responseValues = self.getPaginatedResults(
+                            entity='External Networks',
+                            baseUrl='{}{}'.format(
+                                vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                vcdConstants.ALL_EXTERNAL_NETWORKS,
+                            ),
+                            urlFilter=vcdConstants.SCOPE_EXTERNAL_NETWORK_QUERY.format(targetProviderVDCId),
+                        )
+                        externalNetworkIds = [values['name'] for values in responseValues]
+                        if parentNetworkId['name'] not in externalNetworkIds:
+                            return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, nsxtProviderVDCName)
                         else:
                             return None, 'Failed to get external network scoped to target PVDC - {} with error code - {}\n'.format(nsxtProviderVDCName, response.status_code)
                 else:

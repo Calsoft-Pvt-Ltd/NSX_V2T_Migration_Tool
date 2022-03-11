@@ -181,8 +181,6 @@ class Utilities():
             # Return as it is if datatype is other than evaluated above.
             return payload
 
-        logger.debug(payloadDict)   # TODO pranshu: remove
-
         try:
             fileType = fileType.lower()
             if fileType == 'json':
@@ -214,9 +212,9 @@ class Utilities():
             # render the template with the desired payloadDict
             payloadData = template.render(encodeSpecialCharacters(payloadDict))
             logger.debug('Successfully created payload.')
-            logger.debug(payloadData)   # TODO pranshu: remove
             return payloadData
         except Exception as err:
+            logger.debug(f"Error occured while parsing payload {payloadDict}")
             logger.error(err)
             raise
 
