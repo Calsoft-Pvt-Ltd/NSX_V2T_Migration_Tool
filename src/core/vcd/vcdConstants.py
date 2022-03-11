@@ -678,7 +678,7 @@ APPLIED_TO_LIST = ['VDC', 'Network']
 QUERY_EXTERNAL_NETWORK = '?filterEncoded=true&filter=((parentNetworkId.id=={}))'
 
 # query to check the scope of external network
-SCOPE_EXTERNAL_NETWORK_QUERY = '?filterEncoded=true&filter=(_context=={})'
+SCOPE_EXTERNAL_NETWORK_QUERY = 'filterEncoded=true&filter=(_context=={})'
 
 # Qurey API tp get vlan id of the port groups
 
