@@ -4369,21 +4369,21 @@ class VCDMigrationValidation:
             if isinstance(sourceExternalNetwork, Exception):
                 raise sourceExternalNetwork
 
-            # # validating whether same subnet exist in source and target External networks
-            # logger.info('Validating source and target External networks have same subnets')
-            # self.validateExternalNetworkSubnets(vdcDict["ExternalNetwork"])
-            #
-            #  # Validate whether the external network is linked to NSXT provided in the input file or not
-            # logger.info('Validating Target External Network with NSXT provided in input file')
-            # self.validateExternalNetworkWithNSXT()
+            # validating whether same subnet exist in source and target External networks
+            logger.info('Validating source and target External networks have same subnets')
+            self.validateExternalNetworkSubnets(vdcDict["ExternalNetwork"])
+
+            #  Validate whether the external network is linked to NSXT provided in the input file or not
+            logger.info('Validating Target External Network with NSXT provided in input file')
+            self.validateExternalNetworkWithNSXT()
 
             logger.info('Validating if all edge gateways interfaces are in use')
             self.validateEdgeGatewayUplinks(sourceOrgVDCId, sourceEdgeGatewayIdList, False)
 
-            # # validating whether edge gateway have dedicated external network
-            # logger.info('Validating whether other Edge gateways are using dedicated external network')
-            # self.validateDedicatedExternalNetwork(inputDict, vdcDict, sourceEdgeGatewayIdList,
-            #                                       vdcDict.get("AdvertiseRoutedNetworks"))
+            # validating whether edge gateway have dedicated external network
+            logger.info('Validating whether other Edge gateways are using dedicated external network')
+            self.validateDedicatedExternalNetwork(inputDict, vdcDict, sourceEdgeGatewayIdList,
+                                                  vdcDict.get("AdvertiseRoutedNetworks"))
 
             # getting the source Org VDC networks
             logger.info('Getting the Org VDC networks of source Org VDC {}'.format(vdcDict["OrgVDCName"]))
