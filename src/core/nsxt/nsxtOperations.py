@@ -64,6 +64,15 @@ def remediate(func):
     return inner
 
 
+def replace_unsupported_chars(text):
+    """
+    Description: Removes unsupported characters by replacing with empty string
+    """
+    for c in ";|=,~@":
+        text = text.replace(c, '')
+    return text
+
+
 class NSXTOperations():
     """
     Description: Class that performs the NSXT bridging Operations
@@ -508,11 +517,6 @@ class NSXTOperations():
         Parameters  : edgeClusterNameList - List of names of the edge cluster participating in bridging (LIST)
                       portgroupList       - List containing details of vxlan backed logical switch (LIST)
         """
-        def replace_unsupported_chars(text):
-            for c in ";|=,-@":
-                text = text.replace(c, '')
-            return text
-
         try:
             logger.info('Attaching bridge endpoint profile to Logical Switch.')
             apiVersion = self.getNsxtAPIVersion()
