@@ -31,7 +31,6 @@ from src.commonUtils.utils import Utilities, listify, InterOperabilityError
 logger = logging.getLogger('mainLogger')
 
 def getSession(self):
-    return
     if hasattr(self, '__threadname__') and self.__threadname__:
         threading.current_thread().name = self.__threadname__
     threading.current_thread().name = self.vdcName
@@ -400,7 +399,8 @@ class VCDMigrationValidation:
                                 metadataValue = eval(metadataValue)
                             except (SyntaxError, NameError, ValueError) as e:
                                 # TODO pranshu: uncomment when previous TODO is removed
-                                # logger.debug(f'Failed to evaluate {metadataKey} - {metadataValue}: {e}')
+                                # logger.debug(f'Failed to evaluate: {e})
+                                # logger.debug(f'{metadataKey}: {metadataValue}: ')
                                 logger.debug(traceback.format_exc())
 
                         metaData[metadataKey] = metadataValue
@@ -2038,7 +2038,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def validateEdgeGatewayUplinks(self, sourceOrgVDCId, edgeGatewayIdList):
+    def validateEdgeGatewayUplinks(self, sourceOrgVDCId, edgeGatewayIdList, preCheck=False):
         """
             Description :   Validate Edge Gateway uplinks
             Parameters  :   edgeGatewayIdList   -   List of Id's of the Edge Gateway  (STRING)
@@ -2071,11 +2071,18 @@ class VCDMigrationValidation:
                     for rateLimitEnabledInterface in rateLimitEnabledInterfaces:
                         logger.info(f"Validating whether source Org VDC Edge Gateway {responseDict['name']} has rate limit configured")
                         if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
-                            logger.warning(f"The source Org VDC Edge Gateway {responseDict['name']} has rate limit configured."
-                                           f" External Network {rateLimitEnabledInterface['name']} Incoming {rateLimitEnabledInterface['inRateLimit']} Mbps,"
-                                           f" Outgoing {rateLimitEnabledInterface['outRateLimit']} Mbps. "
-                                           "After migration apply equivalent Gateway QOS Profile "
-                                           "to Tier-1 GW backing the target Org VDC Edge Gateway directly in NSX-T.")
+                            if preCheck:
+                                errorList.append(f"The source OrgVDC EdgeGateway {responseDict['name']} has rate limit "
+                                                 f"configured. External Network {rateLimitEnabledInterface['name']} "
+                                                 f"Incoming {rateLimitEnabledInterface['inRateLimit']} Mbps, "
+                                                 f"Outgoing {rateLimitEnabledInterface['outRateLimit']} Mbps. ")
+                            else:
+                                logger.warning(f"The source Org VDC Edge Gateway {responseDict['name']} has rate limit "
+                                               f"configured. External Network {rateLimitEnabledInterface['name']} "
+                                               f"Incoming {rateLimitEnabledInterface['inRateLimit']} Mbps, "
+                                               f"Outgoing {rateLimitEnabledInterface['outRateLimit']} Mbps. "
+                                               f"After migration apply equivalent Gateway QOS Profile to Tier-1 GW "
+                                               f"backing the target Org VDC Edge Gateway directly in NSX-T.")
                 else:
                     raise Exception('Failed to get Edge Gateway:{} Uplink details: {}'.format(
                         edgeGatewayId, responseDict['message']))
@@ -4362,21 +4369,21 @@ class VCDMigrationValidation:
             if isinstance(sourceExternalNetwork, Exception):
                 raise sourceExternalNetwork
 
-            # validating whether same subnet exist in source and target External networks
-            logger.info('Validating source and target External networks have same subnets')
-            self.validateExternalNetworkSubnets(vdcDict["ExternalNetwork"])
-
-            #  Validate whether the external network is linked to NSXT provided in the input file or not
-            logger.info('Validating Target External Network with NSXT provided in input file')
-            self.validateExternalNetworkWithNSXT()
+            # # validating whether same subnet exist in source and target External networks
+            # logger.info('Validating source and target External networks have same subnets')
+            # self.validateExternalNetworkSubnets(vdcDict["ExternalNetwork"])
+            #
+            #  # Validate whether the external network is linked to NSXT provided in the input file or not
+            # logger.info('Validating Target External Network with NSXT provided in input file')
+            # self.validateExternalNetworkWithNSXT()
 
             logger.info('Validating if all edge gateways interfaces are in use')
-            self.validateEdgeGatewayUplinks(sourceOrgVDCId, sourceEdgeGatewayIdList)
+            self.validateEdgeGatewayUplinks(sourceOrgVDCId, sourceEdgeGatewayIdList, False)
 
-            # validating whether edge gateway have dedicated external network
-            logger.info('Validating whether other Edge gateways are using dedicated external network')
-            self.validateDedicatedExternalNetwork(inputDict, vdcDict, sourceEdgeGatewayIdList,
-                                                  vdcDict.get("AdvertiseRoutedNetworks"))
+            # # validating whether edge gateway have dedicated external network
+            # logger.info('Validating whether other Edge gateways are using dedicated external network')
+            # self.validateDedicatedExternalNetwork(inputDict, vdcDict, sourceEdgeGatewayIdList,
+            #                                       vdcDict.get("AdvertiseRoutedNetworks"))
 
             # getting the source Org VDC networks
             logger.info('Getting the Org VDC networks of source Org VDC {}'.format(vdcDict["OrgVDCName"]))
@@ -5264,14 +5271,17 @@ class VCDMigrationValidation:
                             return None, f"NSXT segment backed external network {parentNetworkId['name']+'-v2t'} is not present, and it is required for this direct shared network - {orgvdcNetwork}\n"
                     else:
                         targetProviderVDCId, isNSXTbacked = self.getProviderVDCId(nsxtProviderVDCName)
-                        # url to get all the external networks
-                        url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EXTERNAL_NETWORKS, vcdConstants.SCOPE_EXTERNAL_NETWORK_QUERY.format(targetProviderVDCId))
-                        response = self.restClientObj.get(url, self.headers)
-                        if response.status_code == requests.codes.ok:
-                            responseDict = response.json()
-                            externalNetworkIds = [values['name'] for values in responseDict['values']]
-                            if parentNetworkId['name'] not in externalNetworkIds:
-                                return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, nsxtProviderVDCName)
+                        responseValues = self.getPaginatedResults(
+                            entity='External Networks',
+                            baseUrl='{}{}'.format(
+                                vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                vcdConstants.ALL_EXTERNAL_NETWORKS,
+                            ),
+                            urlFilter=vcdConstants.SCOPE_EXTERNAL_NETWORK_QUERY.format(targetProviderVDCId),
+                        )
+                        externalNetworkIds = [values['name'] for values in responseValues]
+                        if parentNetworkId['name'] not in externalNetworkIds:
+                            return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, nsxtProviderVDCName)
                         else:
                             return None, 'Failed to get external network scoped to target PVDC - {} with error code - {}\n'.format(nsxtProviderVDCName, response.status_code)
                 else:
