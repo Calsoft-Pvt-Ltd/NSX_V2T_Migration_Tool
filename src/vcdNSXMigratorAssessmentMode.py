@@ -119,7 +119,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             self.consoleLogger.info(getDummyExternalNetworkDesc.format(self.inputDict["VCloudDirector"]["DummyExternalNetwork"]))
             threadObj.spawnThread(vcdValidationObj.getDummyExternalNetwork,
                                     self.inputDict["VCloudDirector"]["DummyExternalNetwork"],
-                                    saveOutputKey='dummyNetwork', isDummyNetwork=True)
+                                    saveOutputKey='dummyNetwork')
 
             self.consoleLogger.info(getOrgVdcNetworkDesc)
             threadObj.spawnThread(vcdValidationObj.getOrgVDCNetworks, sourceOrgVDCId,
@@ -145,14 +145,15 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             vcdValidationMapping = {
                 'Validating NSX-T manager Ip Address and version': [vcdValidationObj.getNsxDetails, self.inputDict["NSXT"]["Common"]["ipAddress"]],
                 'Validating if target OrgVDC do not exists': [vcdValidationObj.validateNoTargetOrgVDCExists, orgVDCDict["OrgVDCName"]],
-                'Validating whether other Edge gateways are using dedicated external network': [vcdValidationObj.validateDedicatedExternalNetwork, self.inputDict, edgeGatewayIdList, orgVDCDict.get("AdvertiseRoutedNetworks")],
+                'Validating external network mapping with Gateway mentioned in userInput file': [vcdValidationObj.validateEdgeGatewayToExternalNetworkMapping, sourceOrgVDCId, orgVDCDict["ExternalNetwork"]],
+                'Validating whether other Edge gateways are using dedicated external network': [vcdValidationObj.validateDedicatedExternalNetwork, self.inputDict, orgVDCDict, edgeGatewayIdList, orgVDCDict.get("AdvertiseRoutedNetworks")],
                 'Validating Source Network Pool backing': [vcdValidationObj.validateSourceNetworkPools, self.inputDict["VCloudDirector"].get("CloneOverlayIds")],
                 'Validating whether source Org VDC is NSX-V backed': [vcdValidationObj.validateOrgVDCNSXbacking, sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked],
                 'Validating Target Provider VDC is enabled': [vcdValidationObj.validateTargetProviderVdc],
                 'Validating Hardware version of Source Provider VDC: {} and Target Provider VDC: {}'.format(orgVDCDict["NSXVProviderVDCName"], orgVDCDict["NSXTProviderVDCName"]): [vcdValidationObj.validateHardwareVersion],
                 'Validating whether source Org VDC placement policies are present in target PVDC': [vcdValidationObj.validateVMPlacementPolicy, sourceOrgVDCId],
                 'Validating storage profiles in source Org VDC and target Provider VDC': [vcdValidationObj.validateStorageProfiles],
-                'Validating if source and target External networks have same subnets': [vcdValidationObj.validateExternalNetworkSubnets],
+                'Validating if source and target External networks have same subnets': [vcdValidationObj.validateExternalNetworkSubnets, orgVDCDict],
                 'Validating Target External Network with NSXT provided in input file': [vcdValidationObj.validateExternalNetworkWithNSXT],
                 'Validating if all edge gateways interfaces are in use': [vcdValidationObj.validateEdgeGatewayUplinks, sourceOrgVDCId, edgeGatewayIdList],
                 'Validating whether DHCP is enabled on source Isolated Org VDC network': [vcdValidationObj.validateDHCPEnabledonIsolatedVdcNetworks, orgVdcNetworkList, edgeGatewayIdList, edgeGatewayDeploymentEdgeCluster, nsxtObj],
@@ -179,7 +180,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             # Perform these validations only if services are to be configured
             if mainConstants.SERVICES_KEYWORD in self.executeList:
                 vcdValidationMapping.update({
-                    'Validating Source Edge gateway services': [vcdValidationObj.getEdgeGatewayServices, nsxtObj, self.nsxvObj, noSnatDestSubnet, True, serviceEngineGroupName],
+                    'Validating Source Edge gateway services': [vcdValidationObj.getEdgeGatewayServices, orgVDCDict, nsxtObj, self.nsxvObj, noSnatDestSubnet, True, serviceEngineGroupName],
                     'Validating Distributed Firewall configuration': [vcdValidationObj.getDistributedFirewallConfig, sourceOrgVDCId, True, True, False]
                 })
 
