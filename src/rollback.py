@@ -113,7 +113,6 @@ class Rollback:
             # Checking if rollback key exists
             else:
                 listOfRollbackTasks = self.rollbackTask
-
             if listOfRollbackTasks:
                 # List of task left to pe performed as part of rollback
                 rollbackTasksLeft = copy.deepcopy(listOfRollbackTasks)
