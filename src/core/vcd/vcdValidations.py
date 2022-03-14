@@ -31,6 +31,7 @@ from src.commonUtils.utils import Utilities, listify, InterOperabilityError
 logger = logging.getLogger('mainLogger')
 
 def getSession(self):
+    return
     if hasattr(self, '__threadname__') and self.__threadname__:
         threading.current_thread().name = self.__threadname__
     threading.current_thread().name = self.vdcName
@@ -47,7 +48,7 @@ def isSessionExpired(func):
     """
     @wraps(func)
     def inner(self, *args, **kwargs):
-        # getSession(self)
+        getSession(self)
         result = func(self, *args, **kwargs)
         return result
     return inner
@@ -837,8 +838,8 @@ class VCDMigrationValidation:
         Parameters  :   extNetInput - ExternalNetwork value from User Input (DICT)
                         validateVRF - Flag that decides to validate vrf backed external network (BOOL)
         """
-        # Schema of Target External Network Metadata = {'ext_net_name': {'ext_net_dict'}}
-        # Schema of user_input ExternalNetwork = {'egde_gw_name': 'ext_net_name'}
+        # Schema of Target External Network Metadata = {'ext_net_name': dict('ext_net_details')}
+        # Schema of user_input ExternalNetwork = {'source_egw_name': 'ext_net_name'}
         # Target External network name can be fetched as follows:
         # extNetInput = user_input['ExternalNetwork']
         # target_ext_net_name = extNetInput.get(source_egw_name, extNetInput.get('default'))
@@ -846,9 +847,13 @@ class VCDMigrationValidation:
             extNet: self.getExternalNetworkByName(extNet)
             for extNet in set(extNetInput.values())
         }
-        for extNetName, extNetDetails in targetExternalNetwork.items():
-            if extNetDetails['networkBackings']['values'][0]['backingTypeValue'] == 'NSXT_VRF_TIER0' and validateVRF:
-                logger.warning('Target External Network {} is VRF backed.'.format(extNetName))
+        if validateVRF:
+            vrfs = [
+                extNetName
+                for extNetName, extNetDetails in targetExternalNetwork.items()
+                if extNetDetails['networkBackings']['values'][0]['backingTypeValue'] == 'NSXT_VRF_TIER0'
+            ]
+            logger.warning(f"Target External Network/s {', '.join(vrfs)} are VRF backed.")
 
         self.rollback.apiData['targetExternalNetwork'] = targetExternalNetwork
         return targetExternalNetwork
@@ -4294,8 +4299,8 @@ class VCDMigrationValidation:
             self.validateEdgeGatewayToExternalNetworkMapping(sourceOrgVDCId, vdcDict['ExternalNetwork'])
 
             # getting the target External Network details
-            logger.info('Getting the target External Network - {} details.'.format(vdcDict["ExternalNetwork"]))
-            self.getTargetExternalNetworks(vdcDict["ExternalNetwork"])
+            logger.info('Getting the target External Network details')
+            self.getTargetExternalNetworks(vdcDict["ExternalNetwork"], validateVRF=True)
 
             # getting the source dummy External Network details
             logger.info('Getting the source dummy External Network - {} details.'.format(
