@@ -106,6 +106,10 @@ class VMwareCloudDirectorNSXMigratorCleanup():
         except:
             raise
         else:
+            if vcdObjList[0].rollback.metadata.get('configureNSXTBridging'):
+                # If bridging cleanup is successful, remove the bridging key from metadata
+                vcdObjList[0].deleteMetadataApiCall(key='configureNSXTBridging-system-v2t',
+                                                    orgVDCId=vcdObjList[0].rollback.apiData.get('sourceOrgVDC', {}).get('@id'))
             # Restore thread name
             threading.current_thread().name = currentThreadName
 
