@@ -125,7 +125,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             defaultGateway = defaultGatewayData.get('gateway')
 
             # Prepare payload for edgeGatewayUplinks->dedicated
-            bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
+            bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, vdcDict, validation=False)
             # Use dedicated external network if BGP is configured
             # or AdvertiseRoutedNetworks parameter is set to True
             if ((isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or

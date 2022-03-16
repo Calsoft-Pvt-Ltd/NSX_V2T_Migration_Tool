@@ -4577,7 +4577,9 @@ class VCDMigrationValidation:
                                 orgVdcNameList, externalNetworkName))
                     if len(sourceEdgeGatewayIdList) > 1:
                         errorList.append("BGP is not supported in case of multiple edge gateways")
-                    if data['targetExternalNetwork']['usedIpCount'] > 0:
+
+                    if data['targetExternalNetwork'].get('usedIpCount') and data['targetExternalNetwork'].get(
+                            'usedIpCount') > 0:
                         errorList.append(
                             "Dedicated target external network is required as BGP is configured on source edge gateway")
 
@@ -4589,7 +4591,7 @@ class VCDMigrationValidation:
                     if len(sourceEdgeGatewayIdList) > 1:
                         errorList.append(
                             "'AdvertiseRoutedNetworks' is set to 'True' but route advertisement is not supported in case of multiple edge gateways")
-                    if targetExternalNetwork['usedIpCount'] > 0:
+                    if targetExternalNetwork.get('usedIpCount') and targetExternalNetwork.get('usedIpCount') > 0:
                         errorList.append(
                             "'AdvertiseRoutedNetworks' is set to 'True', so Dedicated target external network is required. But another edge gateway is already connected to {}".format(
                                 externalNetworkName))
