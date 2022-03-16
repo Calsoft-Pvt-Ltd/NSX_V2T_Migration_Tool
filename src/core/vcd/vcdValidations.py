@@ -1402,28 +1402,13 @@ class VCDMigrationValidation:
                 filter(lambda edgeGatewayData: edgeGatewayData['id'] == edgeGatewayId, sourceEdgeGateways))[0]['name']
             extNetName = extNetDict.get(sourceEdgeGatewayName, extNetDict.get('default'))
             if not extNetName:
-                return
+                return None
 
             # Fetch target external network data from apiData
             targetExternalNetwork = self.rollback.apiData['targetExternalNetwork']
             return targetExternalNetwork[extNetName]
         except:
             raise
-
-    # @isSessionExpired
-    # def validateEdgeGatewayExistOnOrgVDC(self, edgeGatewayName):
-    #     """
-    #         Description : Validate whether the external network is linked to NSXT provided in the input file
-    #     """
-    #     try:
-    #         sourceEdgeGateway = copy.deepcopy(self.rollback.apiData['sourceEdgeGateway'])
-    #         sourceEdgeGatewayNames = list(filter(lambda edgeGatewayData: edgeGatewayData['name'], sourceEdgeGateway))
-    #         if edgeGatewayName not in sourceEdgeGatewayNames:
-    #             return False
-    #         return True
-    #     except:
-    #         raise
-
 
     @isSessionExpired
     def validateExternalNetworkWithNSXT(self):
@@ -1455,12 +1440,12 @@ class VCDMigrationValidation:
                     errorList.append("Target external network - {}, is not linked to NSX-T provided in the input "
                                      "file.".format(extNetName))
             if errorList:
-                raise Exception(''.join(errorList))
+                raise Exception('; '.join(errorList))
         except:
             raise
 
     @isSessionExpired
-    def validateExternalNetworkSubnets(self, orgVdcDict=None):
+    def validateExternalNetworkSubnets(self, orgVdcDict):
         """
         Description :  Validate the external networks subnet configuration
         """
@@ -1507,7 +1492,7 @@ class VCDMigrationValidation:
                             extNetName, edgeGateway['name']))
 
             if errorList:
-                raise Exception(''.join(errorList))
+                raise Exception('; '.join(errorList))
             else:
                 logger.debug(
                     'Validated successfully, all the Source External Networks Subnets are present in Target External Network.')
@@ -1987,7 +1972,7 @@ class VCDMigrationValidation:
             elif float(self.version) <= float(vcdConstants.API_VERSION_ZEUS):
                 logger.debug("Validated Successfully, No direct networks exist in Source Org VDC")
             if errorlist:
-                raise Exception(''.join(errorlist))
+                raise Exception('; '.join(errorlist))
         except Exception:
             raise
 
@@ -2598,7 +2583,7 @@ class VCDMigrationValidation:
             if v2tAssessmentMode:
                 return errorData
             if allErrorList:
-                raise Exception(''.join(allErrorList))
+                raise Exception('; '.join(allErrorList))
 
         except Exception:
             raise
@@ -3384,8 +3369,7 @@ class VCDMigrationValidation:
             extNetDict = vdcDict.get('ExternalNetwork')
             targetExternalNetwork = self.getExternalNetworkMappedToEdgeGateway(edgeGatewayId, extNetDict)
             if not targetExternalNetwork:
-                return ["Failed to get targetExternalNetwork details mapped to edgeGateway {}.".format(
-                    edgeGatewayId)], False
+                return ["Failed to get targetExternalNetwork details mapped to edgeGateway."], False
 
             logger.debug("Getting BGP Services Configuration Details of Source Edge Gateway")
             # url to retrieve the bgp config into
@@ -4364,7 +4348,7 @@ class VCDMigrationValidation:
 
             # validating whether same subnet exist in source and target External networks
             logger.info('Validating source and target External networks have same subnets')
-            self.validateExternalNetworkSubnets(vdcDict["ExternalNetwork"])
+            self.validateExternalNetworkSubnets(vdcDict)
 
             #  Validate whether the external network is linked to NSXT provided in the input file or not
             logger.info('Validating Target External Network with NSXT provided in input file')
@@ -4574,7 +4558,7 @@ class VCDMigrationValidation:
                 targetExternalNetwork = self.getExternalNetworkMappedToEdgeGateway(sourceEdgeGatewayId, extNetDict)
                 if not targetExternalNetwork:
                     errorList.append(
-                        "Failed to get targetExternalNetwork mapped to edgeGateway {}.".format(sourceEdgeGatewayId))
+                        "Failed to get targetExternalNetwork mapped to edgeGateway.")
                     continue
                 externalNetworkName = targetExternalNetwork['name']
                 orgVdcNameList = self.checkSameExternalNetworkUsedByOtherVDC(sourceOrgVDC, inputDict,
@@ -4605,7 +4589,7 @@ class VCDMigrationValidation:
 
             # Only validate dedicated ext-net if source edge gateways are present
             if not sourceEdgeGatewayIdList and errorList:
-                raise Exception(''.join(errorList))
+                raise Exception('; '.join(errorList))
 
             for extNetName, extNetDetails in data['targetExternalNetwork'].items():
                 external_network_id = extNetDetails['id']
