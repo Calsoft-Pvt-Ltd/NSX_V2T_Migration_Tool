@@ -3037,11 +3037,12 @@ class VCDMigrationValidation:
                                 if monitor['type'] in ['tcp', 'http', 'https', 'icmp']:
                                     if any(key in monitor and monitor[key] for key in ['expected', 'send', 'recieve', 'extension']) or \
                                             (monitor.get('url') and monitor.get('url') != '/'):
-                                        loadBalancerErrorList.append("Custom monitor '{}' used in pool '{}'\n".format(monitor['name'], pool['name']))
+                                        loadBalancerErrorList.append("Load balancer pool '{}' have unsupported values configured in monitor '{}'\n".format(pool['name'], monitor['name']))
                                 elif monitor['type'] == 'udp':
-                                    logger.warning("UDP monitor {} send / receive will be set based on the Avi System-UDP".format(monitor['name']))
-                                    if any(key in monitor and monitor[key] for key in ['extension']) or (monitor.get('url') and monitor.get('url') != '/'):
-                                        loadBalancerErrorList.append("Custom monitor '{}' used in pool '{}'\n".format(monitor['name'], pool['name']))
+                                    if v2tAssessmentMode:
+                                        loadBalancerErrorList.append("Load balancer pool '{}' have unsupported values configured in monitor '{}'\n".format(pool['name'], monitor['name']))
+                                    else:
+                                        logger.warning("UDP monitor '{}' send / receive will be set based on the Avi System-UDP".format(monitor['name']))
 
 
                     # url for getting edge gateway load balancer virtual servers configuration
