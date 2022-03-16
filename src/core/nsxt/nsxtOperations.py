@@ -440,7 +440,6 @@ class NSXTOperations():
                                               }]
                                          }
                     hostSwitchSpec.append(newHostSwitchSpec)
-                    transportZoneList = edgeNodeData['transport_zone_endpoints']
                     dataNetworkList = edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config']['data_network_ids']
                     # since nsxt 3.0 null coming in data_network_ids while getting edge transport node details
                     if None in dataNetworkList:
@@ -448,7 +447,6 @@ class NSXTOperations():
                     newDataNetworkList = portGroup['moref']
                     dataNetworkList.append(newDataNetworkList)
                     edgeNodeData["host_switch_spec"]["host_switches"] = hostSwitchSpec
-                    edgeNodeData["transport_zone_endpoints"] = transportZoneList
                     edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config']['data_network_ids'] = dataNetworkList
                     del edgeNodeData['_create_time']
                     del edgeNodeData['_last_modified_user']
@@ -972,12 +970,10 @@ class NSXTOperations():
                     hostSwitchSpec = edgeNodeData["host_switch_spec"]["host_switches"]
                     # Removing last switch for host switch specification
                     hostSwitchSpec.pop()
-                    transportZoneList = edgeNodeData['transport_zone_endpoints']
                     dataNetworkList = edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config']['data_network_ids']
                     # Removing last uplink from edge transport node uplink list
                     dataNetworkList.pop()
                     edgeNodeData["host_switch_spec"]["host_switches"] = hostSwitchSpec
-                    edgeNodeData["transport_zone_endpoints"] = transportZoneList
                     edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config'][
                         'data_network_ids'] = dataNetworkList
                     del edgeNodeData['_create_time']
@@ -1445,9 +1441,11 @@ class NSXTOperations():
             payloadData = {
                         "display_name": nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME,
                         "transport_type": "VLAN",
-                        "host_switch_name": nsxtConstants.BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME,
                         "description": "Transport zone to be used for bridging"
                       }
+            nsxtVersion = self.getNsxtVersion().split('.')
+            if int(nsxtVersion[0]) == 3 and int(nsxtVersion[1]) < 2:
+                payloadData["host_switch_name"] = nsxtConstants.BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME
             payloadData = json.dumps(payloadData)
             response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth,
                                                data=payloadData)
