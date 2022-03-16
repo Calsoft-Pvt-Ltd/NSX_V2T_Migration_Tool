@@ -181,8 +181,6 @@ class Utilities():
             # Return as it is if datatype is other than evaluated above.
             return payload
 
-        logger.debug(payloadDict)   # TODO pranshu: remove
-
         try:
             fileType = fileType.lower()
             if fileType == 'json':
@@ -214,9 +212,9 @@ class Utilities():
             # render the template with the desired payloadDict
             payloadData = template.render(encodeSpecialCharacters(payloadDict))
             logger.debug('Successfully created payload.')
-            logger.debug(payloadData)   # TODO pranshu: remove
             return payloadData
         except Exception as err:
+            logger.debug(f"Error occured while parsing payload {payloadDict}")
             logger.error(err)
             raise
 
@@ -271,10 +269,15 @@ class Utilities():
                     Utilities.renderInputDict(dataStructure[index])
 
     @staticmethod
-    def parseXml(response):
+    def parseXml(response, **kwargs):
         """Parses XML API Response to dict along with namespace parsing"""
-        # Fetching all namespaces present in the response and creating mapping with None as value
-        namespaces = {ns.split("=")[-1].strip('"'): None
-                      for ns in re.findall("xmlns.*?\".*?\"", str(response))}
+        kwargs.setdefault('process_namespaces', True)
+        if kwargs.get('process_namespaces'):
+            # Fetching all namespaces present in the response and creating mapping with None as value
+            namespaces = {
+                ns.split("=")[-1].strip('"'): None
+                for ns in re.findall("xmlns.*?\".*?\"", str(response))
+            }
+            kwargs.setdefault('namespaces', namespaces)
 
-        return xmltodict.parse(response, process_namespaces=True, namespaces=namespaces)
+        return xmltodict.parse(response, **kwargs)

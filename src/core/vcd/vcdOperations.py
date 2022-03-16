@@ -463,6 +463,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Description :   Configure Edge gateway rate limits.
         Parameters  :   OrgVDCId  -   Id of the Organization VDC that is to be deleted (STRING)
         """
+        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
+            return
+
         logger.debug('Edge GateWay Rate limiting (QOS) is getting configured')
         targetEdgeGateway = copy.deepcopy(self.rollback.apiData['targetEdgeGateway'])
 
@@ -2229,7 +2232,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             self.createEdgeGateway(vdcDict, nsxObj)
 
             # Configure Edge gateway RateLimits
-            self.configureEdgeGWRateLimit(nsxObj)
+            if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
+                self.configureEdgeGWRateLimit(nsxObj)
 
             # only if source org vdc networks exist
             if orgVdcNetworkList:
