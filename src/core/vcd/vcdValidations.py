@@ -31,7 +31,6 @@ from src.commonUtils.utils import Utilities, listify, InterOperabilityError
 logger = logging.getLogger('mainLogger')
 
 def getSession(self):
-    return
     if hasattr(self, '__threadname__') and self.__threadname__:
         threading.current_thread().name = self.__threadname__
     threading.current_thread().name = self.vdcName
