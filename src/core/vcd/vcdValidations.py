@@ -3360,7 +3360,7 @@ class VCDMigrationValidation:
         return errorList
 
     @isSessionExpired
-    def getEdgegatewayBGPconfig(self, edgeGatewayId, vdcDict=None, validation=True, nsxtObj=None, v2tAssessmentMode=False):
+    def getEdgegatewayBGPconfig(self, edgeGatewayId, vdcDict, validation=True, nsxtObj=None, v2tAssessmentMode=False):
         """
         Description :   Gets the BGP Configuration details on the Edge Gateway
         Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
@@ -4562,6 +4562,7 @@ class VCDMigrationValidation:
             for sourceEdgeGatewayId in sourceEdgeGatewayIdList:
                 sourceEdgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
                 bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, vdcDict, validation=False)
+                print(bgpConfigDict)
                 targetExternalNetwork = self.getExternalNetworkMappedToEdgeGateway(sourceEdgeGatewayId, extNetDict)
                 if not targetExternalNetwork:
                     errorList.append(
@@ -4578,7 +4579,7 @@ class VCDMigrationValidation:
                     if len(sourceEdgeGatewayIdList) > 1:
                         errorList.append("BGP is not supported in case of multiple edge gateways")
 
-                    if data['targetExternalNetwork'].get('usedIpCount') and data['targetExternalNetwork'].get(
+                    if targetExternalNetwork.get('usedIpCount') and targetExternalNetwork.get(
                             'usedIpCount') > 0:
                         errorList.append(
                             "Dedicated target external network is required as BGP is configured on source edge gateway")

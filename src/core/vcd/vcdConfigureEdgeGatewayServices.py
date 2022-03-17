@@ -857,7 +857,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
     @description("configuration of BGP")
     @remediate
-    def configBGP(self, orgVDCDict=None):
+    def configBGP(self, orgVDCDict):
         """
         Description :   Configure BGP on the Target Edge Gateway
         """
