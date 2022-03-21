@@ -8,7 +8,7 @@ Description : Module performs VMware Cloud Director validations related for NSX-
 
 import inspect
 from functools import wraps
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, Counter
 import copy
 import json
 import logging
@@ -4531,13 +4531,13 @@ class VCDMigrationValidation:
             orgVdcList = inputDict['VCloudDirector']['SourceOrgVDC']
             orgVdcNameList = list()
             for orgVdc in orgVdcList:
-                if orgVdc['OrgVDCName'] != sourceOrgVDC and orgVdc['ExternalNetwork'] == externalNetworkName:
-                    orgUrl = self.getOrgUrl(inputDict["VCloudDirector"]["Organization"]["OrgName"])
-                    sourceOrgVDCId = self.getOrgVDCDetails(orgUrl, orgVdc["OrgVDCName"], 'sourceOrgVDC',
-                                                           saveResponse=False)
-                    sourceEdgeGatewayIdList = self.getOrgVDCEdgeGatewayId(sourceOrgVDCId)
-                    if len(sourceEdgeGatewayIdList) > 0:
-                        orgVdcNameList.append(orgVdc['OrgVDCName'])
+                if orgVdc['OrgVDCName'] != sourceOrgVDC and externalNetworkName in orgVdc.get('ExternalNetwork').values():
+                    # orgUrl = self.getOrgUrl(inputDict["VCloudDirector"]["Organization"]["OrgName"])
+                    # sourceOrgVDCId = self.getOrgVDCDetails(orgUrl, orgVdc["OrgVDCName"], 'sourceOrgVDC',
+                    #                                        saveResponse=False)
+                    # sourceEdgeGatewayIdList = self.getOrgVDCEdgeGatewayId(sourceOrgVDCId)
+                    # if len(sourceEdgeGatewayIdList) > 0:
+                    orgVdcNameList.append(orgVdc['OrgVDCName'])
             return orgVdcNameList
         except:
             raise
@@ -4558,6 +4558,15 @@ class VCDMigrationValidation:
 
             # Get external network details mapped to edgeGateway
             extNetDict = vdcDict.get('ExternalNetwork')
+            print("Validate if the External network is dedicatedly used by any other edge gateway")
+            # Map edgeGateway to external network.
+            edgeGatwayToExtNetMappedDict = dict()
+            sourceEdgeGateways = copy.deepcopy(self.rollback.apiData['sourceEdgeGateway'])
+            sourceEdgeGatewayNames = [gateway['name'] for gateway in sourceEdgeGateways]
+            for edgeGatwayName in sourceEdgeGatewayNames:
+                edgeGatwayToExtNetMappedDict[edgeGatwayName] = extNetDict.get(edgeGatwayName, extNetDict.get('default'))
+            print("sourceEdgeGatewayNames : ", sourceEdgeGatewayNames)
+            print("edgeGatwayToExtNetMappedDict : ", edgeGatwayToExtNetMappedDict)
 
             for sourceEdgeGatewayId in sourceEdgeGatewayIdList:
                 sourceEdgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
@@ -4572,12 +4581,16 @@ class VCDMigrationValidation:
                 orgVdcNameList = self.checkSameExternalNetworkUsedByOtherVDC(sourceOrgVDC, inputDict,
                                                                              externalNetworkName)
                 if bgpConfigDict and isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == 'true':
+                    # user input validation
                     if orgVdcNameList:
                         errorList.append(
-                            "BGP is not supported if multiple Org VDCs {} are using the same target external network {}.".format(
+                            "BGP is not supported if multiple edge gateways across multiplr Org VDCs {}, are mapped to the same Tier-0 Gateway - {}, in user input file {}.".format(
                                 orgVdcNameList, externalNetworkName))
-                    if len(sourceEdgeGatewayIdList) > 1:
+                    if Counter(edgeGatwayToExtNetMappedDict.values()).get(externalNetworkName) > 1:
                         errorList.append("BGP is not supported in case of multiple edge gateways")
+
+                    # if len(sourceEdgeGatewayIdList) > 1:
+                    #     errorList.append("BGP is not supported in case of multiple edge gateways")
 
                     if targetExternalNetwork.get('usedIpCount') and targetExternalNetwork.get(
                             'usedIpCount') > 0:
@@ -4598,7 +4611,8 @@ class VCDMigrationValidation:
                                 externalNetworkName))
 
             # Only validate dedicated ext-net if source edge gateways are present
-            if not sourceEdgeGatewayIdList and errorList:
+            print(errorList)
+            if errorList:
                 raise Exception('; '.join(errorList))
 
             for extNetName, extNetDetails in data['targetExternalNetwork'].items():
