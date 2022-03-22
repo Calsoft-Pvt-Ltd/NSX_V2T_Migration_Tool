@@ -3894,6 +3894,28 @@ class VCDMigrationValidation:
         return resultList
 
     @isSessionExpired
+    def getSourceNetworkPoolBacking(self):
+        """
+        Description :  Get source org vdc network pool Backing
+        """
+        # source org vdc network pool reference dict
+        networkPool = self.rollback.apiData['sourceOrgVDC'].get('NetworkPoolReference')
+
+        # If no network pool is present return an empty dictionary
+        if not networkPool:
+            return dict()
+
+        # get api call to retrieve the info of source org vdc network pool backing details
+        url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.NETWORK_POOL.format(
+            networkPool['@id']))
+        networkPoolResponse = self.restClientObj.get(url, self.headers)
+        if networkPoolResponse.status_code != requests.codes.ok:
+            raise Exception("Failed to fetch source network pool backing")
+
+        networkPoolDict = networkPoolResponse.json()
+        return networkPoolDict.get('poolType')
+
+    @isSessionExpired
     def getSourceNetworkPoolDetails(self):
         """
         Description :  Get source org vdc network pool details
@@ -3921,20 +3943,24 @@ class VCDMigrationValidation:
         """
         try:
             # Getting source network pool details
+            networkPoolBackingType = self.getSourceNetworkPoolBacking()
             networkPoolDict = self.getSourceNetworkPoolDetails()
 
             # checking for the network pool associated with source org vdc
             if not networkPoolDict:
                 return
 
-            networkPoolType = networkPoolDict['VMWNetworkPool']['@type']
+            # checking if cloneOverlayIds parameter is set to true
+            if cloneOverlayIds and float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
+                raise Exception("'cloneOverlayIds' parameter is set to 'True' but "
+                                "not supported on current VCD version : ", self.version)
 
             # checking if the source network pool is VXLAN backed if cloneOverlayIds parameter is set to true
-            if cloneOverlayIds and networkPoolType != vcdConstants.VXLAN_NETWORK_POOL_TYPE:
+            if cloneOverlayIds and networkPoolBackingType != vcdConstants.VXLAN:
                 raise Exception("'cloneOverlayIds' parameter is set to 'True' but "
                                 "source Org VDC network pool is not VXLAN backed")
             # checking if the source network pool is PortGroup backed
-            if networkPoolDict['VMWNetworkPool']['@type'] == vcdConstants.PORTGROUP_NETWORK_POOL_TYPE:
+            if networkPoolBackingType == vcdConstants.PORT_GROUP:
                 # Fetching the moref and type of all the port groups backing the network pool
                 portGroupMoref = {portGroup['MoRef']: portGroup['VimObjectType']
                                   for portGroup in listify(
@@ -4097,9 +4123,9 @@ class VCDMigrationValidation:
         """
         try:
             # If clone overlay id parameter is False, then we don't need to validate the pool ranges
-            if not cloneOverlayIds:
-                logger.debug("'CloneOverlayIds' parameter is set to 'False' or not provided in user input file, "
-                             "so skipping the VNI pool validation")
+            if not cloneOverlayIds or (float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1)):
+                logger.debug("'CloneOverlayIds' parameter is set to 'False' or not provided in user input file or not "
+                             "supported in current vcd version, so skipping the VNI pool validation")
                 return
 
             # If clone overlay id parameter is True,
@@ -4141,12 +4167,9 @@ class VCDMigrationValidation:
             if orgVdcNetworkList:
                 # Checking if any org vdc has network pool with VXLAN backing
                 vxlanBackingPresent = any([True if
-                                           vcdObj.getSourceNetworkPoolDetails().get(
-                                               'VMWNetworkPool', {}).get(
-                                               '@type') == vcdConstants.VXLAN_NETWORK_POOL_TYPE
+                                           vcdObj.getSourceNetworkPoolBacking() == vcdConstants.VXLAN
                                            else False
                                            for vcdObj in vcdObjList])
-
                 threading.current_thread().name = "BridgingChecks"
                 logger.info("Checking for Bridging Components")
                 logger.info('Validating NSX-T Bridge Uplink Profile does not exist')
