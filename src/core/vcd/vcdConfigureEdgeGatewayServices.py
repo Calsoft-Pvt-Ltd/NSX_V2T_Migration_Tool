@@ -878,7 +878,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 if not isinstance(bgpConfigDict, dict) or bgpConfigDict['enabled'] == 'false':
                     logger.debug('BGP service is disabled or not configured in '
                                  'Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
-                    return
+                    continue
                 logger.debug('BGP is getting configured in Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
                 ecmp = "true" if data['routingGlobalConfig']['ecmp'] == "true" else "false"
                 # url to get the details of the bgp configuration on T1 router i.e target edge gateway
