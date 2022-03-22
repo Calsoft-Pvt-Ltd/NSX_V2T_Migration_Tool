@@ -4571,14 +4571,17 @@ class VCDMigrationValidation:
             print("edgeGatwayToExtNetMappedDict : ", edgeGatwayToExtNetMappedDict)
 
             for sourceEdgeGatewayId in sourceEdgeGatewayIdList:
+                sourceEdgeGatewayName = list(
+                    filter(lambda edgeGatewayData: edgeGatewayData['id'] == sourceEdgeGatewayId,
+                           self.rollback.apiData['sourceEdgeGateway']))[0]['name']
                 sourceEdgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
                 bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, vdcDict, validation=False)
                 print(bgpConfigDict)
                 targetExternalNetwork = self.getExternalNetworkMappedToEdgeGateway(sourceEdgeGatewayId, extNetDict)
                 if not targetExternalNetwork:
                     raise Exception(
-                        "Failed to get target ExternalNetwork mapped to SourceEdgeGatewayID {} from user Input.".format(
-                            sourceEdgeGatewayId))
+                        "Failed to get target ExternalNetwork mapped to SourceEdgeGateway {} from user Input.".format(
+                            sourceEdgeGatewayName))
 
                 externalNetworkName = targetExternalNetwork['name']
                 orgVdcNameList = self.checkSameExternalNetworkUsedByOtherVDC(sourceOrgVDC, inputDict,
@@ -4590,7 +4593,7 @@ class VCDMigrationValidation:
                     if orgVdcNameList:
                         errorList.append(
                             "SourceEdgeGateway - {} : BGP is not supported if multiple edge gateways across multiple Org VDCs {}, are mapped to the same Tier-0 Gateway - {}, in user input file.".format(
-                                sourceEdgeGatewayId, orgVdcNameList, externalNetworkName))
+                                sourceEdgeGatewayName, orgVdcNameList, externalNetworkName))
 
                     # Validation for edgeGatways on particular Org VDC.
                     if Counter(edgeGatwayToExtNetMappedDict.values()).get(externalNetworkName) > 1:
@@ -4598,7 +4601,7 @@ class VCDMigrationValidation:
                         print(sourceEdgeGatewayNameList)
                         errorList.append(
                             "SourceEdgeGateway - {} : BGP is not supported in case of multiple edge gateways using same external network : {}.".format(
-                                sourceEdgeGatewayId, ', '.join(sourceEdgeGatewayNameList)))
+                                sourceEdgeGatewayName, ', '.join(sourceEdgeGatewayNameList)))
 
                     # if len(sourceEdgeGatewayIdList) > 1:
                     #     errorList.append("BGP is not supported in case of multiple edge gateways")
@@ -4607,21 +4610,21 @@ class VCDMigrationValidation:
                             'usedIpCount') > 0:
                         errorList.append(
                             "SourceEdgeGateway - {} : Dedicated target external network is required as BGP is configured on source edge gateway.".format(
-                                sourceEdgeGatewayId))
+                                sourceEdgeGatewayName))
 
                 if advertiseRoutedNetworks:
                     if orgVdcNameList:
                         errorList.append(
                             "SourceEdgeGateway - {} : 'AdvertiseRoutedNetworks' is set to 'True' but multiple Org VDCs {} are using the same target external network {}.".format(
-                                sourceEdgeGatewayId, orgVdcNameList, externalNetworkName))
+                                sourceEdgeGatewayName, orgVdcNameList, externalNetworkName))
                     if len(sourceEdgeGatewayIdList) > 1:
                         errorList.append(
                             "SourceEdgeGateway - {} : 'AdvertiseRoutedNetworks' is set to 'True' but route advertisement is not supported in case of multiple edge gateways".format(
-                                sourceEdgeGatewayId))
+                                sourceEdgeGatewayName))
                     if targetExternalNetwork.get('usedIpCount') and targetExternalNetwork.get('usedIpCount') > 0:
                         errorList.append(
                             "SourceEdgeGateway - {} : 'AdvertiseRoutedNetworks' is set to 'True', so Dedicated target external network is required. But another edge gateway is already connected to {}".format(
-                                sourceEdgeGatewayId, externalNetworkName))
+                                sourceEdgeGatewayName, externalNetworkName))
 
             # Only validate dedicated ext-net if source edge gateways are present
             if errorList:
