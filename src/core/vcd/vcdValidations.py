@@ -9,6 +9,7 @@ Description : Module performs VMware Cloud Director validations related for NSX-
 import inspect
 from functools import wraps
 from collections import OrderedDict, defaultdict
+from pkg_resources._vendor.packaging import version
 import copy
 import json
 import logging
@@ -25,7 +26,7 @@ import src.core.vcd.vcdConstants as vcdConstants
 
 from src.commonUtils.restClient import RestAPIClient
 from src.commonUtils.certUtils import verifyCertificateAgainstCa
-from src.commonUtils.utils import Utilities, listify, InterOperabilityError
+from src.commonUtils.utils import Utilities, listify
 
 
 logger = logging.getLogger('mainLogger')
@@ -3740,8 +3741,8 @@ class VCDMigrationValidation:
             vCDVersion = values[0].get("productVersion", None)
             if not vCDVersion:
                 raise Exception("Not able to fetch vCD version due to API response difference")
-            elif not(int(vCDVersion.split(".")[0]) >= 10 and int(vCDVersion.split(".")[1]) > 2):
-                raise InterOperabilityError('VCD v{} is not compatible with current migration tool'.format(vCDVersion))
+            elif version.parse(vCDVersion) < version.parse("10.3"):
+                logger.warning("VCD {} is not supported with current migration tool. Some features may not work as expected.".format(vCDVersion))
             else:
                 return re.match("\d*\.\d*\.\d*", values[0].get("productVersion")).group()
         else:

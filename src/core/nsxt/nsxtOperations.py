@@ -17,14 +17,14 @@ import re
 import requests
 import threading
 import time
-
+from pkg_resources._vendor.packaging import version
 import src.core.nsxt.nsxtConstants as nsxtConstants
 
 
 from src.constants import rootDir
 from src.commonUtils.sshUtils import SshUtils
 from src.commonUtils.restClient import RestAPIClient
-from src.commonUtils.utils import Utilities, InterOperabilityError
+from src.commonUtils.utils import Utilities
 from src.core.vcd.vcdValidations import description
 
 
@@ -1057,9 +1057,8 @@ class NSXTOperations():
         response = self.restClientObj.get(url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
         responseDict = response.json()
         if response.status_code == requests.codes.ok:
-            if int(responseDict.get('node_version').split(".")[0]) < 3:
-                raise InterOperabilityError('NSX-T v{} is not compatible with current migration tool'.
-                                            format(responseDict.get('node_version')))
+            if version.parse(responseDict.get('node_version')) < version.parse("3.0"):
+                logger.warning("NSXT {} is not supported with current migration tool. Some features may not work as expected.".format(responseDict.get('node_version')))
             return responseDict.get('node_version')
         raise Exception('Failed to retrieve to NSX-T version due to error - {}'.format(responseDict['error_message']))
 
@@ -1447,8 +1446,7 @@ class NSXTOperations():
                         "transport_type": "VLAN",
                         "description": "Transport zone to be used for bridging"
                       }
-            nsxtVersion = self.getNsxtVersion().split('.')
-            if int(nsxtVersion[0]) == 3 and int(nsxtVersion[1]) < 2:
+            if version.parse(self.getNsxtVersion()) < version.parse("3.2"):
                 payloadData["host_switch_name"] = nsxtConstants.BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME
             payloadData = json.dumps(payloadData)
             response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth,
