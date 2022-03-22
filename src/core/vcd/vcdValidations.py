@@ -3035,7 +3035,7 @@ class VCDMigrationValidation:
                         for monitor in listify(responseDict['loadBalancer'].get('monitor')):
                             if pool['monitorId'] == monitor['monitorId']:
                                 if monitor['type'] in ['tcp', 'http', 'https', 'icmp']:
-                                    if any(key in monitor and monitor[key] for key in ['expected', 'send', 'recieve', 'extension']) or \
+                                    if any(key in monitor and monitor[key] for key in ['expected', 'send', 'receive', 'extension']) or \
                                             (monitor.get('url') and monitor.get('url') != '/'):
                                         loadBalancerErrorList.append("Load balancer pool '{}' have unsupported values configured in monitor '{}'\n".format(pool['name'], monitor['name']))
                                 elif monitor['type'] == 'udp':
