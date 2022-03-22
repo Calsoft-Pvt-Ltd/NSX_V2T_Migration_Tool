@@ -438,6 +438,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if cloneOverlayIds and overlayId:
                     payloadData.update({'overlayId': overlayId})
 
+                # Enable guest vlan
+                if sourceOrgVDCNetwork.get('guestVlanTaggingAllowed'):
+                    payloadData['guestVlanTaggingAllowed'] = sourceOrgVDCNetwork['guestVlanTaggingAllowed']
+
                 # Create the non distributed routed network.
                 if (float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2)
                         and payloadData['networkType'] == 'NAT_ROUTED'
@@ -961,7 +965,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     responseDict['networkType'] = 'ISOLATED'
                     del responseDict['status']
                     del responseDict['lastTaskFailureMessage']
-                    # del(responseDict['guestVlanTaggingAllowed'])
                     del responseDict['retainNicResources']
                     del responseDict['crossVdcNetworkId']
                     del responseDict['crossVdcNetworkLocationId']
