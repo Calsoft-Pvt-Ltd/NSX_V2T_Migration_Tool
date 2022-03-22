@@ -753,3 +753,9 @@ NSX_T_QOS_PROFILE = "nsxTResources/gatewayQoSProfiles?filter=nsxTManagerRef.id==
 
 # Configure Edge gateway QOS profile for rate limit
 QOS_PROFILE = "edgeGateways/{}/qos"
+
+# Get networkPool backing Details
+NETWORK_POOL = "networkPools/{}"
+VXLAN = "VXLAN"
+VLAN = "VLAN"
+PORT_GROUP = "PORTGROUP_BACKED"

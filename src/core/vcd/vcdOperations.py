@@ -274,7 +274,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             for sourceOrgVDCNetwork in sourceOrgVDCNetworks:
                 overlayId = None
                 # Fetching overlay id of the org vdc network, if CloneOverlayIds parameter is set to true
-                if cloneOverlayIds:
+                if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1) and cloneOverlayIds:
                     # URL to fetch overlay id of source org vdc networks
                     overlayIdUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                  vcdConstants.ORG_VDC_NETWORK_ADDITIONAL_PROPERTIES.format(
