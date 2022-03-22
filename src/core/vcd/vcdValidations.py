@@ -3376,7 +3376,7 @@ class VCDMigrationValidation:
             extNetDict = vdcDict.get('ExternalNetwork')
             targetExternalNetwork = self.getExternalNetworkMappedToEdgeGateway(edgeGatewayId, extNetDict)
             sourceEdgeGatewayName = list(
-                filter(lambda edgeGatewayData: edgeGatewayData['id'] == edgeGatewayId,
+                filter(lambda edgeGatewayData: edgeGatewayData['id'] == "urn:vcloud:gateway:{}".format(edgeGatewayId),
                        self.rollback.apiData['sourceEdgeGateway']))[0]['name']
             if not targetExternalNetwork:
                 raise Exception(
@@ -4590,7 +4590,6 @@ class VCDMigrationValidation:
                 orgVdcNameList = self.checkSameExternalNetworkUsedByOtherVDC(sourceOrgVDC, inputDict,
                                                                              externalNetworkName)
 
-                print(bgpConfigDict['enabled'])
                 if bgpConfigDict and isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == 'true':
                     # user input validation Across Org VDC
                     if orgVdcNameList:
