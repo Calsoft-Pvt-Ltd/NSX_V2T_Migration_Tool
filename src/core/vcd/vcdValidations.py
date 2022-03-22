@@ -3375,10 +3375,13 @@ class VCDMigrationValidation:
             # Get external network details mapped to edgeGateway
             extNetDict = vdcDict.get('ExternalNetwork')
             targetExternalNetwork = self.getExternalNetworkMappedToEdgeGateway(edgeGatewayId, extNetDict)
+            sourceEdgeGatewayName = list(
+                filter(lambda edgeGatewayData: edgeGatewayData['id'] == edgeGatewayId,
+                       self.rollback.apiData['sourceEdgeGateway']))[0]['name']
             if not targetExternalNetwork:
                 raise Exception(
-                    "Failed to get target ExternalNetwork details mapped to SourceEdgeGatewayID - {}.".format(
-                        edgeGatewayId))
+                    "Failed to get target ExternalNetwork details mapped to SourceEdgeGateway - {}.".format(
+                        sourceEdgeGatewayName))
 
             logger.debug("Getting BGP Services Configuration Details of Source Edge Gateway")
             # url to retrieve the bgp config into
