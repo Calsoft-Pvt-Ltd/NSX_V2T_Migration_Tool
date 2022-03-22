@@ -4699,7 +4699,7 @@ class VCDMigrationValidation:
         """
         try:
             # url to get the media info of specified organization
-            url = "{}{}?sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+            url = "{}{}&sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
                                 vcdConstants.GET_MEDIA_INFO)
             acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,
