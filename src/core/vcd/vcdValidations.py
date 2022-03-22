@@ -4599,7 +4599,9 @@ class VCDMigrationValidation:
 
                     # Validation for edgeGatways on particular Org VDC.
                     if Counter(edgeGatwayToExtNetMappedDict.values()).get(externalNetworkName) > 1:
-                        sourceEdgeGatewayNameList = [edgeGateway for (edgeGateway, extNet) in edgeGatwayToExtNetMappedDict.items()]
+                        sourceEdgeGatewayNameList = [edgeGateway for (edgeGateway, extNet) in
+                                                     edgeGatwayToExtNetMappedDict.items() if
+                                                     extNet == externalNetworkName]
                         print(sourceEdgeGatewayNameList)
                         errorList.append(
                             "SourceEdgeGateway - {} : BGP is not supported in case of multiple edge gateways using same external network : {}.".format(
