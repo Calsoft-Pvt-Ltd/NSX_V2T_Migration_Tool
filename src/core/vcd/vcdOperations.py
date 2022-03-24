@@ -128,10 +128,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, vdcDict, validation=False)
             # Use dedicated external network if BGP is configured
             # or AdvertiseRoutedNetworks parameter is set to True
-            if ((isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or
-                not bgpConfigDict or
-                bgpConfigDict['enabled'] != "true") and \
-                    not vdcDict.get('AdvertiseRoutedNetworks'):
+            if (((isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or not bgpConfigDict or bgpConfigDict[
+                        'enabled'] != "true")
+                    and not self.orgVdcDict.get(sourceEdgeGatewayDict['name'], {}).get(
+                        'AdvertiseRoutedNetworks', self.orgVdcDict.get('AdvertiseRoutedNetworks', False))):
                 dedicated = False
             else:
                 dedicated = True

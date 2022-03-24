@@ -73,7 +73,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # Configuring BGP
             self.configBGP(orgVDCDict)
             # Configuring Route Advertisement
-            self.configureRouteAdvertisement(orgVDCDict.get("AdvertiseRoutedNetworks"))
+            self.configureRouteAdvertisement()
             # Configuring DNS
             self.configureDNS()
             # configuring loadbalancer
@@ -1029,7 +1029,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
     @description("configuration of Route Advertisement")
     @remediate
-    def configureRouteAdvertisement(self, advertiseRoutedNetworks=False):
+    def configureRouteAdvertisement(self):
         """
         Description :  Configure Route Advertisement on the Target Edge Gateway
         Parameters  :  advertiseRoutedNetworks - Flag the informs whether to advertise routed networks or not
@@ -1084,7 +1084,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         subnetsToAdvertise += [subnet['network'] for subnet in ipPrefix['prefixes']
                                                if subnet['action'] == 'PERMIT']
                         break
-            elif advertiseRoutedNetworks:
+            elif self.orgVdcDict.get(sourceEdgeGateway['name'], {}).get(
+                    'AdvertiseRoutedNetworks', self.orgVdcDict.get('AdvertiseRoutedNetworks', False)):
                 # If advertiseRoutedNetworks param is True,
                 # advertise all routed networks subnets connected to this edge gateway
                 subnetsToAdvertise += allRoutedNetworkSubnets
