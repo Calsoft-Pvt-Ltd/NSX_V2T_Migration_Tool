@@ -21,12 +21,11 @@ VCloudDirector:
       ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
       LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
-      AdvertiseRoutedNetworks: False #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
+      AdvertiseRoutedNetworks: #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
+        gw1: True
+        gw2: True
+        default: False
       NonDistributedNetworks: False # (optional) Option to create the non-distributed routing for routed OrgVDC network.
-      gw1:
-        AdvertiseRoutedNetworks: True
-      gw2:
-        AdvertiseRoutedNetworks: True
     - OrgVDCName: Acme-2-vdc # Name of the source organization VDC
       NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
       NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T

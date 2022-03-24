@@ -333,6 +333,7 @@ class VMwareCloudDirectorNSXMigrator():
                                     mainConstants.VALID_IP_CIDR_FORMAT_REGEX,
                                     sourceOrgVdc['LoadBalancerVIPSubnet']):
                                 errorInputDict[dictKey] = "Input IP value is not in proper CIDR format"
+
                             if not isinstance(sourceOrgVdc.get('ExternalNetwork'), (str, dict)):
                                 errorInputDict[dictKey] = "ExternalNetwork is either missing or in invalid format, " \
                                                           "please provide in the string or Dict format."
@@ -340,6 +341,20 @@ class VMwareCloudDirectorNSXMigrator():
                                 sourceOrgVdc['ExternalNetwork'] = {
                                     'default': sourceOrgVdc.get('ExternalNetwork')
                                 }
+
+                            if sourceOrgVdc.get('AdvertiseRoutedNetworks'):
+                                if isinstance(sourceOrgVdc['AdvertiseRoutedNetworks'], bool):
+                                    sourceOrgVdc['AdvertiseRoutedNetworks'] = {
+                                        'default': sourceOrgVdc['AdvertiseRoutedNetworks']
+                                    }
+                                elif isinstance(sourceOrgVdc['AdvertiseRoutedNetworks'], dict):
+                                    sourceOrgVdc['AdvertiseRoutedNetworks'].setdefault('default', False)
+                                else:
+                                    errorInputDict[dictKey] = (
+                                        "AdvertiseRoutedNetworks is in invalid format, please provide in the Bool or"
+                                        " Dict format.")
+                            else:
+                                sourceOrgVdc['AdvertiseRoutedNetworks'] = {'default': False}
 
         if not isinstance(self.inputDict['VCloudDirector'].get('SourceOrgVDC'), list):
             errorInputDict["VCloudDirector['SourceOrgVDC']"] = 'Value should be list'

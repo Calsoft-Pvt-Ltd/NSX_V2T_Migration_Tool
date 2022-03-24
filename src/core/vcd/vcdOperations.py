@@ -130,8 +130,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # or AdvertiseRoutedNetworks parameter is set to True
             if (((isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or not bgpConfigDict or bgpConfigDict[
                         'enabled'] != "true")
-                    and not self.orgVdcDict.get(sourceEdgeGatewayDict['name'], {}).get(
-                        'AdvertiseRoutedNetworks', self.orgVdcDict.get('AdvertiseRoutedNetworks', False))):
+                    and not self.orgVdcDict['AdvertiseRoutedNetworks'].get(
+                        sourceEdgeGatewayDict['name'], self.orgVdcDict['AdvertiseRoutedNetworks']['default'])):
                 dedicated = False
             else:
                 dedicated = True

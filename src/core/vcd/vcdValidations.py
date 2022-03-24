@@ -4669,8 +4669,8 @@ class VCDMigrationValidation:
                     sourceOrgVDC, inputDict, externalNetworkName)
 
                 bgpEnabled = bgpConfigDict and isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == 'true'
-                advertiseRoutedNetworks = self.orgVdcDict.get(sourceEdgeGateway['name'], {}).get(
-                        'AdvertiseRoutedNetworks', self.orgVdcDict.get('AdvertiseRoutedNetworks', False))
+                advertiseRoutedNetworks = self.orgVdcDict['AdvertiseRoutedNetworks'].get(
+                    sourceEdgeGateway['name'], self.orgVdcDict['AdvertiseRoutedNetworks']['default'])
 
                 # 1. User input validation Across Org VDC
                 if orgVdcNameList:

@@ -1084,8 +1084,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         subnetsToAdvertise += [subnet['network'] for subnet in ipPrefix['prefixes']
                                                if subnet['action'] == 'PERMIT']
                         break
-            elif self.orgVdcDict.get(sourceEdgeGateway['name'], {}).get(
-                    'AdvertiseRoutedNetworks', self.orgVdcDict.get('AdvertiseRoutedNetworks', False)):
+            elif self.orgVdcDict['AdvertiseRoutedNetworks'].get(
+                    sourceEdgeGateway['name'], self.orgVdcDict['AdvertiseRoutedNetworks']['default']):
                 # If advertiseRoutedNetworks param is True,
                 # advertise all routed networks subnets connected to this edge gateway
                 subnetsToAdvertise += allRoutedNetworkSubnets
