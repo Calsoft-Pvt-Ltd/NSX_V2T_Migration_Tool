@@ -178,17 +178,21 @@ class VCDMigrationValidation:
     """
     VCD_SESSION_CREATED = False
 
-    def __init__(self, ipAddress, username, password, verify, rollback, threadObj=None, lockObj=None ,vdcName=None):
+    def __init__(
+            self, ipAddress, username, password, verify, rollback, threadObj=None, lockObj=None , vdcName=None,
+            orgVDCDict=None):
         """
         Description :   Initializer method of VMware Cloud Director Operations
         Parameters  :   ipAddress      -   ipAddress of the VMware vCloud Director (STRING)
                         username       -   Username of the VMware vCloud Director (STRING)
                         password       -   Password of the VMware vCloud Director (STRING)
                         verify         -   whether to validate certficate (BOOLEAN)
-                        rollback       -   Object of rollback class which also acts as shared memory between classes (OBJECT)
+                        rollback       -   Object of rollback class which also acts as shared memory between classes
+                        (OBJECT)
                         maxThreadCount -   Number of maximum threads to be spawned (INTEGER)
                         vdcName        -   Name of the vdc which this object is associated to (STRING)
-                        lockObj     -   Shared object of threading.Rlock() to implement locking for threads (OBJECT)
+                        lockObj        -   Shared object of threading.Rlock() to implement locking for threads (OBJECT)
+                        orgVDCDict     -   orgvdc specific section of input yaml (DICT)
         """
         self.ipAddress = ipAddress
         self.username = '{}@system'.format(username)
@@ -206,6 +210,7 @@ class VCDMigrationValidation:
         self.l3DfwRules = None
         self.dfwSecurityTags = dict()
         self._isSharedNetworkPresent = None
+        self.orgVDCDict = orgVDCDict
         vcdConstants.VCD_API_HEADER = vcdConstants.VCD_API_HEADER.format(self.version)
         vcdConstants.GENERAL_JSON_ACCEPT_HEADER = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
         vcdConstants.OPEN_API_CONTENT_TYPE = vcdConstants.OPEN_API_CONTENT_TYPE.format(self.version)

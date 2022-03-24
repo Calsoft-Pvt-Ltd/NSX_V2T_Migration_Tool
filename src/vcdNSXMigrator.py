@@ -721,9 +721,13 @@ class VMwareCloudDirectorNSXMigrator():
             rollback.vcdDict = self.inputDict
             rollback.timeoutForVappMigration = self.timeoutForVappMigration
             # initializing vmware cloud director Operations class
-            self.vcdObjList.append(VCloudDirectorOperations(self.inputDict["VCloudDirector"]["Common"]["ipAddress"], self.inputDict["VCloudDirector"]["Common"]["username"],
-                                                           self.inputDict['VCloudDirector']['Common']['password'], self.inputDict['VCloudDirector']['Common']['verify'],
-                                                           rollback, threadObj, lockObj=lockObj, vdcName=orgVDCDict["OrgVDCName"]))
+            self.vcdObjList.append(VCloudDirectorOperations(
+                self.inputDict["VCloudDirector"]["Common"]["ipAddress"],
+                self.inputDict["VCloudDirector"]["Common"]["username"],
+                self.inputDict['VCloudDirector']['Common']['password'],
+                self.inputDict['VCloudDirector']['Common']['verify'],
+                rollback, threadObj, lockObj=lockObj, vdcName=orgVDCDict["OrgVDCName"], orgVDCDict=orgVDCDict,
+            ))
 
             # preparing the nsxt dict for bridging
             self.nsxtObjList.append(NSXTOperations(self.inputDict["NSXT"]["Common"]["ipAddress"], self.inputDict["NSXT"]["Common"]["username"],
