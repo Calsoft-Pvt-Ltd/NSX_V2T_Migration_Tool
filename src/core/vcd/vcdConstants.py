@@ -502,8 +502,8 @@ CIDR_DICT = {"1": "32", "2": "31", "4": "30", "8": "29", "16": "28", "32": "27",
 # dns config uri for edge gateway by id
 EDGE_GATEWAY_DNS_CONFIG_BY_ID = "/{}/dns/config"
 
-# create dns  uri for t1 router by id
-CREATE_DNS_CONFIG = "/{}/dns"
+# dns  uri for t1 router by id
+DNS_CONFIG = "/{}/dns"
 
 # create dns task name used to check if the task completed successfully
 CONFIGURE_DNS_TASK_NAME = 'orgVdcGatewayDnsUpdate'
@@ -538,6 +538,9 @@ UPDATE_IPSEC_TUNNEL_PROPERTIES = 'updateIpSecVpnTunnelProperties'
 
 # get org vcd network by id
 GET_ORG_VDC_NETWORK_BY_ID = "orgVdcNetworks/{}"
+
+# get org vcd network allocated IPs
+GET_ORG_VDC_NETWORK_ALLOCATED_IP = "/allocatedIpAddresses"
 
 #security_group_types
 SECURITY_GROUP_IPSET = 'IP_SET'
@@ -753,6 +756,9 @@ NSX_T_QOS_PROFILE = "nsxTResources/gatewayQoSProfiles?filter=nsxTManagerRef.id==
 
 # Configure Edge gateway QOS profile for rate limit
 QOS_PROFILE = "edgeGateways/{}/qos"
+
+# DNS for DLR interface of distributed network.
+DLR_DNR_IFACE = "10.255.255.249"
 
 # Get networkPool backing Details
 NETWORK_POOL = "networkPools/{}"

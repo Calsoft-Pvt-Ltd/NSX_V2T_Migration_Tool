@@ -18,6 +18,7 @@ import prettytable
 import requests
 import threading
 import traceback
+from collections import defaultdict
 from itertools import zip_longest
 from functools import reduce
 import src.core.vcd.vcdConstants as vcdConstants
@@ -39,9 +40,66 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         vcdConstants.GENERAL_JSON_ACCEPT_HEADER = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
         vcdConstants.OPEN_API_CONTENT_TYPE = vcdConstants.OPEN_API_CONTENT_TYPE.format(self.version)
 
+    def updateTargetExternalNetworkPool(self, vdcDict):
+        # Acquiring lock as only one operation can be performed on an external network at a time
+        self.lock.acquire(blocking=True)
+        logger.debug(
+            "Updating Target External network {} with sub allocated ip pools".format(vdcDict["ExternalNetwork"]))
+        # getting details of ip ranges used in source edge gateways
+        edgeGatewaySubnetDict = defaultdict(list)
+        for edgeGateway in copy.deepcopy(self.rollback.apiData['sourceEdgeGateway']):
+            for edgeGatewayUplink in edgeGateway['edgeGatewayUplinks']:
+                for subnet in edgeGatewayUplink['subnets']['values']:
+                    networkAddress = ipaddress.ip_network(
+                        '{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
+                        strict=False)
+                    edgeGatewaySubnetDict[networkAddress].extend(subnet['ipRanges']['values'])
+
+                    # adding primary ip to sub alloacated ip pool
+                    primaryIp = subnet.get('primaryIp')
+                    if primaryIp and ipaddress.ip_address(primaryIp) in networkAddress:
+                        edgeGatewaySubnetDict[networkAddress].extend(
+                            [{'startAddress': primaryIp, 'endAddress': primaryIp}]
+                        )
+
+        # Getting target external network details
+        externalDict = self.getExternalNetwork(vdcDict["ExternalNetwork"])
+        external_network_id = externalDict['id']
+        for index, subnet in enumerate(externalDict['subnets']['values']):
+            subnetOfTargetExtNetToUpdate = ipaddress.ip_network(
+                '{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
+            # if no ip present to update of corrensponding subnet skip the operation
+            if not edgeGatewaySubnetDict.get(subnetOfTargetExtNetToUpdate):
+                continue
+            externalDict['subnets']['values'][index]['ipRanges']['values'].extend(
+                edgeGatewaySubnetDict.get(subnetOfTargetExtNetToUpdate))
+
+        # url to update external network properties
+        url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                               vcdConstants.ALL_EXTERNAL_NETWORKS, external_network_id)
+        # put api call to update external netowork
+        self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+        payloadData = json.dumps(externalDict)
+
+        response = self.restClientObj.put(url, self.headers, data=payloadData)
+        if response.status_code == requests.codes.accepted:
+            taskUrl = response.headers['Location']
+            # checking the status of the updating external network task
+            self._checkTaskStatus(taskUrl=taskUrl)
+            logger.debug('Target External network {} updated successfully with sub allocated ip pools.'.format(
+                externalDict['name']))
+            self.isExternalNetworkUpdated = True
+        else:
+            errorResponse = response.json()
+            raise Exception('Failed to update External network {} with sub allocated ip pools - {}'.format(
+                externalDict['name'], errorResponse['message']))
+
+        # Releasing lock
+        self.lock.release()
+
     @description("creation of target Org VDC Edge Gateway")
     @remediate
-    def createEdgeGateway(self, inputDict, vdcDict, nsxObj):
+    def createEdgeGateway(self, vdcDict, nsxObj):
         """
         Description :   Creates an Edge Gateway in the specified Organization VDC
         """
@@ -54,69 +112,18 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 return
 
             logger.info('Creating target Org VDC Edge Gateway')
+
+            self.updateTargetExternalNetworkPool(vdcDict)
+
             # reading data from apiOutput.json
             data = self.rollback.apiData
 
-            # Acquiring lock as only one operation can be performed on an external network at a time
-            self.lock.acquire(blocking=True)
-            logger.debug("Updating Target External network {} with sub allocated ip pools".format(vdcDict["ExternalNetwork"]))
-            # getting details of ip ranges used in source edge gateways
-            edgeGatewaySubnetDict = {}
-            for edgeGateway in copy.deepcopy(data['sourceEdgeGateway']):
-                for edgeGatewayUplink in edgeGateway['edgeGatewayUplinks']:
-                    for subnet in edgeGatewayUplink['subnets']['values']:
-                        # Getting value of primary ip
-                        primaryIp = subnet.get('primaryIp')
-                        # Creating ip range for primary ip
-                        subIpRange = [{'startAddress': primaryIp, 'endAddress': primaryIp}]
-                        networkAddress = ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
-                                                              strict=False)
-                        if networkAddress in edgeGatewaySubnetDict:
-                            edgeGatewaySubnetDict[networkAddress].extend(subnet['ipRanges']['values'])
-                        else:
-                            edgeGatewaySubnetDict[networkAddress] = subnet['ipRanges']['values']
-
-                        # adding primary ip to sub alloacated ip pool
-                        if primaryIp and ipaddress.ip_address(primaryIp) in networkAddress:
-                            edgeGatewaySubnetDict[networkAddress].extend(subIpRange)
-
-            # Getting target external network details
-            externalDict = self.getExternalNetwork(vdcDict["ExternalNetwork"])
-            external_network_id = externalDict['id']
-            for index, subnet in enumerate(externalDict['subnets']['values']):
-                subnetOfTargetExtNetToUpdate = ipaddress.ip_network(
-                    '{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
-                # if no ip present to update of corrensponding subnet skip the operation
-                if not edgeGatewaySubnetDict.get(subnetOfTargetExtNetToUpdate):
-                    continue
-                externalDict['subnets']['values'][index]['ipRanges']['values'].extend(
-                    edgeGatewaySubnetDict.get(subnetOfTargetExtNetToUpdate))
-
-            # url to update external network properties
-            url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                   vcdConstants.ALL_EXTERNAL_NETWORKS, external_network_id)
-            # put api call to update external netowork
-            self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-            payloadData = json.dumps(externalDict)
-
-            response = self.restClientObj.put(url, self.headers, data=payloadData)
-            if response.status_code == requests.codes.accepted:
-                taskUrl = response.headers['Location']
-                # checking the status of the updating external network task
-                self._checkTaskStatus(taskUrl=taskUrl)
-                logger.debug('Target External network {} updated successfully with sub allocated ip pools.'.format(
-                    externalDict['name']))
-                self.isExternalNetworkUpdated = True
-            else:
-                errorResponse = response.json()
-                raise Exception('Failed to update External network {} with sub allocated ip pools - {}'.format(
-                    externalDict['name'], errorResponse['message']))
-            # Releasing lock
-            self.lock.release()
-
-            # getting the edge gateway details of the target org vdc
-            targetEdgeGatewayNames = [edgeGateway['name'] for edgeGateway in
-                                      self.getOrgVDCEdgeGateway(data['targetOrgVDC']['@id'])['values']]
+            # Getting the edge gateway details of the target org vdc.
+            # In case of remediation these gateway creation will not be attempted.
+            targetEdgeGatewayNames = [
+                edgeGateway['name']
+                for edgeGateway in self.getOrgVDCEdgeGateway(data['targetOrgVDC']['@id'])['values']
+            ]
 
             for sourceEdgeGatewayDict in copy.deepcopy(data['sourceEdgeGateway']):
                 if sourceEdgeGatewayDict['name'] in targetEdgeGatewayNames:
@@ -130,57 +137,32 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         'Default gateway is not configured on edge gateway - {}'.format(sourceEdgeGatewayDict['name']))
                 defaultGateway = defaultGatewayData.get('gateway')
 
+                # Prepare payload for edgeGatewayUplinks->dedicated
                 bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
-                data = self.rollback.apiData
-                externalDict = self.getExternalNetwork(vdcDict["ExternalNetwork"])
-                # edge gateway create URL
-                url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS)
-                filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
-                # creating payload dictionary
-                payloadDict = {'edgeGatewayName': sourceEdgeGatewayDict['name'],
-                               'edgeGatewayDescription': sourceEdgeGatewayDict[
-                                   'description'] if sourceEdgeGatewayDict.get('description') else '',
-                               'orgVDCName': data['targetOrgVDC']['@name'],
-                               'orgVDCId': data['targetOrgVDC']['@id'],
-                               'orgName': data['Organization']['@name'],
-                               'orgId': data['Organization']['@id'],
-                               'externalNetworkId': externalDict['id'],
-                               'externalNetworkName': externalDict['name'],
-                               'nsxtManagerName': externalDict['networkBackings']['values'][0]['networkProvider'][
-                                   'name'],
-                               'nsxtManagerId': externalDict['networkBackings']['values'][0]['networkProvider']['id']
-                               }
-
                 # Use dedicated external network if BGP is configured
                 # or AdvertiseRoutedNetworks parameter is set to True
                 if ((isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or
-                        not bgpConfigDict or
-                        bgpConfigDict['enabled'] != "true") and \
+                    not bgpConfigDict or
+                    bgpConfigDict['enabled'] != "true") and \
                         not vdcDict.get('AdvertiseRoutedNetworks'):
-                    payloadDict['dedicated'] = False
+                    dedicated = False
                 else:
-                    payloadDict['dedicated'] = True
-                # creating payload data
-                payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='json',
-                                                          componentName=vcdConstants.COMPONENT_NAME,
-                                                          templateName=vcdConstants.CREATE_ORG_VDC_EDGE_GATEWAY_TEMPLATE)
+                    dedicated = True
 
-                # adding sub allocated ip pool in edge gateway payload
+                # Prepare payload for edgeGatewayUplinks->subnets->values
                 subnetData = []
-
-                # Adding primary ip in sub - allocated pool of egde gateway
                 for uplink in sourceEdgeGatewayDict['edgeGatewayUplinks']:
                     for subnet in uplink['subnets']['values']:
-                        # Getting value of primary ip
+                        networkAddress = ipaddress.ip_network(
+                            '{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
+                            strict=False
+                        )
+                        # adding primary ip to sub allocated ip pool
                         primaryIp = subnet.get('primaryIp')
-                        # Creating ip range for primary ip
-                        subIpRange = [{'startAddress': primaryIp, 'endAddress': primaryIp}]
-
-                        networkAddress = ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
-                                                              strict=False)
-                        # adding primary ip to sub alloacated ip pool
                         if primaryIp and ipaddress.ip_address(primaryIp) in networkAddress:
-                            subnet['ipRanges']['values'].extend(subIpRange)
+                            subnet['ipRanges']['values'].extend(
+                                [{'startAddress': primaryIp, 'endAddress': primaryIp}]
+                            )
 
                     subnetData += uplink['subnets']['values']
 
@@ -191,41 +173,55 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     else:
                         subnet['primaryIp'] = None
 
-                payloadData = json.loads(payloadData)
-                payloadData['edgeGatewayUplinks'][0]['subnets'] = {}
-                payloadData['edgeGatewayUplinks'][0]['subnets']['values'] = subnetData
-
+                # Prepare payload for edgeClusterConfig->primaryEdgeCluster->backingId
                 # Checking if edge cluster is specified in user input yaml
                 if vdcDict.get('EdgeGatewayDeploymentEdgeCluster'):
                     # Fetch edge cluster id
                     edgeClusterId = nsxObj.fetchEdgeClusterDetails(vdcDict["EdgeGatewayDeploymentEdgeCluster"]).get('id')
                 else:
-                    tier0RouterName = \
-                    data['targetExternalNetwork']['networkBackings']['values'][0]['name']
-                    edgeClusterId = nsxObj.fetchEdgeClusterIdForTier0Gateway(tier0RouterName)
+                    edgeClusterId = nsxObj.fetchEdgeClusterIdForTier0Gateway(
+                        data['targetExternalNetwork']['networkBackings']['values'][0]['name'])
 
-                # Create edge cluster config payload for edge gateway
-                edgeClusterConfigPayload = {"edgeClusterConfig":
-                                                {"primaryEdgeCluster":
-                                                     {"backingId": edgeClusterId}}}
-                # Updating edge cluster configuration payload in edge gateway creation payload
-                payloadData.update(edgeClusterConfigPayload)
-
-                if float(self.version) < float(vcdConstants.API_VERSION_ZEUS):
-                    payloadData['orgVdc'] = {
+                # TODO pranshu: multiple T0
+                externalDict = self.getExternalNetwork(vdcDict["ExternalNetwork"])
+                payloadData = {
+                    'name': sourceEdgeGatewayDict['name'],
+                    'description': sourceEdgeGatewayDict.get('description') or '',
+                    'edgeGatewayUplinks': [
+                        {
+                            'uplinkId': externalDict['id'],
+                            'uplinkName': externalDict['name'],
+                            'connected': False,
+                            'dedicated': dedicated,
+                            'subnets': {
+                                'values': subnetData
+                            }
+                        }
+                    ],
+                    'distributedRoutingEnabled': False,
+                    'orgVdc': {
+                        'name': data['targetOrgVDC']['@name'],
+                        'id': data['targetOrgVDC']['@id'],
+                    },
+                    'ownerRef': {
                         "name": data['targetOrgVDC']['@name'],
                         "id": data['targetOrgVDC']['@id'],
-                    }
-                else:
-                    payloadData['ownerRef'] = {
-                        "name": data['targetOrgVDC']['@name'],
-                        "id": data['targetOrgVDC']['@id'],
-                    }
-                payloadData = json.dumps(payloadData)
+                    },
+                    'orgRef': {
+                        'name': data['Organization']['@name'],
+                        'id': data['Organization']['@id'],
+                    },
+                    "edgeClusterConfig": {
+                        "primaryEdgeCluster": {
+                            "backingId": edgeClusterId
+                        }
+                    },
+                }
 
+                # edge gateway create URL
+                url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS)
                 self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-                # post api to create edge gateway
-                response = self.restClientObj.post(url, self.headers, data=payloadData)
+                response = self.restClientObj.post(url, self.headers, data=json.dumps(payloadData))
                 if response.status_code == requests.codes.accepted:
                     taskUrl = response.headers['Location']
                     # checking the status of creating target edge gateway task
@@ -249,6 +245,79 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             except RuntimeError:
                 pass
 
+    @description("Allowing of non distributed routing for edge gateway.")
+    @remediate
+    def allowNonDistributedRouting(self, edgegatewayId=None, implicit=False):
+        """
+        Description : Allow Non-Distributed routing on edge gateway of Organization VDC
+        """
+        logger.debug('Allow Non-Distributed Routing is getting configured')
+        # get the target edge gateway data and enable non distributed routing.
+        for index, edgeGateway in enumerate(self.rollback.apiData['targetEdgeGateway']):
+            if implicit and edgegatewayId != edgeGateway['id']:
+                continue
+
+            gatewayId = edgeGateway['id']
+            gatewayName = edgeGateway['name']
+            url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                vcdConstants.UPDATE_EDGE_GATEWAYS_BY_ID.format(gatewayId))
+            response = self.restClientObj.get(url, self.headers)
+
+            # Fetching JSON response from API call
+            responseDict = response.json()
+            if response.status_code == requests.codes.ok:
+                logger.debug(
+                    'Fetched source orgvdc edge gateway "{}"  successfully.'.format(gatewayName))
+            else:
+                raise Exception(
+                    'Failed to fetch target orgvdc edge gateway "{}" due to error- "{}"'.format(
+                        gatewayName, responseDict['message']))
+
+            # create paylaod for the allowing non distributed routing.
+            payLoadDict = responseDict
+
+            # set a flag for allow non distributed routing
+            if payLoadDict['nonDistributedRoutingEnabled']:
+                logger.debug('Allow non distributed routing is already enabled for edge gateway {}.'
+                             .format(gatewayName))
+                return
+
+            payLoadDict['nonDistributedRoutingEnabled'] = True
+            payLoadData = json.dumps(payLoadDict)
+
+            # put api call to configure allow non distributed routing on target edge gateway.
+            response = self.restClientObj.put(url, self.headers, data=payLoadData)
+            if response.status_code == requests.codes.accepted:
+                # successful configuration of non distributed routing on target edgeGateway
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl=taskUrl)
+                self.rollback.apiData['targetEdgeGateway'][index]['nonDistributedRoutingEnabled'] = True
+                logger.debug('Allow non distributed routing configuration updated successfully for edge gateway {}.'
+                             .format(gatewayName))
+            else:
+                # failure in configuring allow non distributed routing on target edge gateway
+                response = response.json()
+                raise Exception('Failed to configure non distributed routing in Target Edge Gateway {} - {}'
+                                .format(gatewayName, response['message']))
+
+    def getEdgeGatewayDnsrelayConfig(self, edgeGatewayId):
+        """
+            Description :  Get DNS relay config on edge gateway
+        """
+        logger.debug('Getting edge gateway DNS relay configuration.')
+        # get DNS relay configuration of target edge gateway.
+        url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                              vcdConstants.ALL_EDGE_GATEWAYS,
+                              vcdConstants.DNS_CONFIG.format(edgeGatewayId))
+        self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+        # get api call to get dns listener ip
+        response = self.restClientObj.get(url, headers=self.headers)
+        responseDict = response.json()
+        if response.status_code != requests.codes.ok:
+            raise Exception("Failed to get edgeGateway DNS relay configuration : ", responseDict['message'])
+
+        return responseDict
+
     @description("creation of target Org VDC Networks")
     @remediate
     def createOrgVDCNetwork(self, orgVDCIDList, sourceOrgVDCNetworks, inputDict, vdcDict, nsxObj):
@@ -257,6 +326,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         try:
             segmetList = list()
+
             # Check if overlay id's are to be cloned or not
             cloneOverlayIds = inputDict['VCloudDirector'].get('CloneOverlayIds')
 
@@ -264,7 +334,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             data = self.rollback.apiData
             targetOrgVDC = data['targetOrgVDC']
             targetEdgeGateway = data['targetEdgeGateway']
-            # org vdc network create URL
+
+            # create org vdc network URL
             url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_ORG_VDC_NETWORKS)
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
 
@@ -331,7 +402,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                               componentName=vcdConstants.COMPONENT_NAME,
                                                               templateName=vcdConstants.CREATE_ORG_VDC_NETWORK_TEMPLATE, apiVersion=self.version)
 
-                #Loading JSON payload data to python Dict Structure
+                # Loading JSON payload data to python Dict Structure
                 payloadData = json.loads(payloadData)
 
                 if float(self.version) < float(vcdConstants.API_VERSION_ZEUS):
@@ -367,11 +438,31 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if cloneOverlayIds and overlayId:
                     payloadData.update({'overlayId': overlayId})
 
+                # Create the non distributed routed network.
+                if (float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2)
+                        and payloadData['networkType'] == 'NAT_ROUTED'
+                        and sourceOrgVDCNetwork['connection']['connectionType'] == "INTERNAL"):
+
+                    # check for implicite type creation of Non-Distributed OrgVDC network.
+                    dnsRelayConfig = self.getEdgeGatewayDnsConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
+                                                                  split(':')[-1], False)
+                    orgvdcNetworkGatewayIp = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
+                    orgvdcNetworkDns = sourceOrgVDCNetwork['subnets']['values'][0]['dnsServer1']
+                    edgeGatewayName = sourceOrgVDCNetwork['connection']['routerRef']['name']
+                    edgeGatewayId = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == edgeGatewayName,
+                                                targetEdgeGateway))[0]['id']
+                    if (dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns) or vdcDict.get('NonDistributedNetworks'):
+                        if not vdcDict.get('NonDistributedNetworks'):
+                            self.allowNonDistributedRouting(edgeGatewayId, True)
+                        payloadData['connection']['connectionType'] = None
+                        payloadData['connection']['connectionTypeValue'] = "NON_DISTRIBUTED"
+
                 # Setting headers for the OPENAPI requests
                 self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
 
                 payloadData = json.dumps(payloadData)
                 # post api to create org vdc network
+
                 response = self.restClientObj.post(url, self.headers, data=payloadData)
                 if response.status_code == requests.codes.accepted:
                     taskUrl = response.headers['Location']
@@ -400,6 +491,118 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 self.rollback.apiData['ConflictNetworks'] = networkList
         except:
             raise
+
+    @description("creation of target DNAT for non distributed OrgVDC Networks")
+    @remediate
+    def configureTargetDnatForDns(self):
+        """
+            Description :  Configure DNAT rules on edge gateway for non distributed networks
+        """
+        # Added a interop handler to work this feature only with vcd version 10.3.2 and later.
+        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
+            return
+
+        targetOrgVDCId = self.rollback.apiData['targetOrgVDC']['@id']
+        logger.debug('DNAT rules are getting configured for Non-Distributed networks.')
+
+        # application port profile list
+        applicationPortProfileList = self.getApplicationPortProfiles()
+        tcpPortName, tcpPortId = self._searchApplicationPortProfile(applicationPortProfileList, 'tcp', '53')
+        udpPortName, udpPortId = self._searchApplicationPortProfile(applicationPortProfileList, 'udp', '53')
+
+        # get taregt OrgVDC Network details.
+        orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
+        sourceEdgeGateway = copy.deepcopy(self.rollback.apiData['sourceEdgeGateway'])
+
+        # iterate over the OrgVDC networks and configure DNAT rule. Each non-distributed routed networks will
+        # have two DNAT rules are needed - one for TCP and another for UDP DNS traffic.
+        for network in orgvdcNetworks:
+            logger.debug(f"Checking {network['name']}")
+            # If network is not routed or distributed then do not configure DNAT rules.
+            if not (network['networkType'] == 'NAT_ROUTED'
+                    and network['connection']['connectionTypeValue'] == 'NON_DISTRIBUTED'):
+                logger.debug(f"{network['name']} is not distributed")
+                continue
+
+            # add DNAT rules for non distributed routed networks.
+            edgeGatewayId = network['connection']['routerRef']['id']
+            edgeGatewayName = network['connection']['routerRef']['name']
+            # Parse Source edge gateway id
+            sourceEdgeGatewayId = list(
+                filter(lambda edgeGatewayData: edgeGatewayData['name'] == edgeGatewayName,
+                       sourceEdgeGateway))[0]['id']
+            # Get DNS configuration of source edge gateway
+            dnsRelayConfig = self.getEdgeGatewayDnsConfig(sourceEdgeGatewayId.split(':')[-1], False)
+            orgvdcNetworkGatewayIp = network['subnets']['values'][0]['gateway']
+            orgvdcNetworkDns = network['subnets']['values'][0]['dnsServer1']
+            if not(orgvdcNetworkGatewayIp == orgvdcNetworkDns and dnsRelayConfig):
+                logger.debug(f"{network['name']}: DNS relay not enabled or DNS IP is not same as gateway IP")
+                continue
+
+            # get DNS relay configuration of target edge gateway.
+            dnsRelayConfig = self.getEdgeGatewayDnsrelayConfig(edgeGatewayId)
+            if dnsRelayConfig.get('enabled'):
+                listnerIp = dnsRelayConfig['listenerIp']
+            else:
+                # NSX-T backed Org VDC Edge Gateway has DNS forwarding service running on the SR
+                # component of Tier-1 GW on a loopback interface with an arbitrary non-overlapping IP which
+                # by default uses 192.168.255.228 IP address
+                listnerIp = "192.168.255.228"
+
+            # API to configure NAT rules on edge gateway
+            url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                  vcdConstants.ALL_EDGE_GATEWAYS,
+                                  vcdConstants.T1_ROUTER_NAT_CONFIG.format(edgeGatewayId))
+
+            # Create a payload for DNAT rules for TCP on port 53 for DNS forwarding
+            if network['name'].endswith('-v2t'):
+                networkName = network['name'][:-(len('-v2t'))]
+            else:
+                networkName = network['name']
+            tcpDNATPayload = {"name": "DNS Forwarding DNAT for network {} TCP".format(networkName),
+                              "description": "Created during NSX-V to T migration",
+                              "enabled": True, "type": "DNAT", "externalAddresses": orgvdcNetworkGatewayIp,
+                              "internalAddresses": listnerIp, "appliedTo": {"id": network['id']},
+                              "applicationPortProfile": {"id": tcpPortId, "name": tcpPortName},
+                              "firewallMatch": "MATCH_EXTERNAL_ADDRESS"}
+            self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+            tcpDNATPayloadData = json.dumps(tcpDNATPayload)
+
+            # post api call to configure DNAT rule in target edge gateway.
+            response = self.restClientObj.post(url, headers=self.headers, data=tcpDNATPayloadData)
+            if response.status_code == requests.codes.accepted:
+                # successful configuration of ip prefix list
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug("Successfully created DNAT rules for TCP on target edge gateway: {}".format(
+                    edgeGatewayName))
+            else:
+                errorResponse = response.json()
+                raise Exception("Failed create DNAT rules for TCP on target edge gateway {}:{} ".format(
+                    edgeGatewayName, errorResponse['message']))
+
+            # Create a payload for DNAT rules for UDP on port 53 for DNS forwarding
+            udpDNATPayload = {"name": "DNS Forwarding DNAT for network {} UDP".format(networkName),
+                              "description": "Created during NSX-V to T migration",
+                              "enabled": True, "type": "DNAT", "externalAddresses": orgvdcNetworkGatewayIp,
+                              "internalAddresses": listnerIp, "appliedTo": {"id": network['id']},
+                              "applicationPortProfile": {"id": udpPortId, "name": udpPortName},
+                              "firewallMatch": "MATCH_EXTERNAL_ADDRESS"}
+            self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+            udpDNATPayloadData = json.dumps(udpDNATPayload)
+
+            # post api call to configure DNAT rule in target edge gateway.
+            response = self.restClientObj.post(url, headers=self.headers, data=udpDNATPayloadData)
+            if response.status_code == requests.codes.accepted:
+                # successful configuration of ip prefix list
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug("Successfully created DNAT rules for UDP on target edge gateway: {}".format(
+                    edgeGatewayName))
+            else:
+                errorResponse = response.json()
+                raise Exception("Failed create DNAT rules for UDP on target edge gateway {}:{} ".format(
+                    edgeGatewayName, errorResponse['message']))
 
     @isSessionExpired
     def getEdgeGatewayRateLimit(self, edgeGatewayId):
@@ -1651,6 +1854,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Parameters  :   source  -   Defaults to True meaning reconnect the Source Org VDC Networks (BOOL)
                                 -   if False meaning reconnect the Target Org VDC Networks (BOOL)
         """
+        def _isSourceNetworkDistributed(network):
+            for sourceOrgVDCNetwork in sourceOrgVDCNetworks:
+                if sourceOrgVDCNetwork['name'] + '-v2t' == network['name']:
+                    return sourceOrgVDCNetwork['connection']['connectionTypeValue'] == 'DISTRIBUTED'
+
         try:
             if not self.rollback.apiData['targetEdgeGateway']:
                 logger.debug('Reconnecting target Org VDC Networks as edge gateway '
@@ -1660,25 +1868,35 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             logger.info('Reconnecting target Org VDC Networks.')
             # get the listener ip configured on all target edge gateways
             listenerIp = self.rollback.apiData.get('listenerIp', {})
-            # checking whether to reconnect the org vdc  networks of source or target, and getting the org vdc networks as per the source flag
-            if source:
-                OrgVDCNetworkList = self.retrieveNetworkListFromMetadata(sourceOrgVDCId, orgVDCType='source')
-            else:
-                OrgVDCNetworkList = self.retrieveNetworkListFromMetadata(targetOrgVDCId, orgVDCType='target')
+
+            # checking whether to reconnect the org vdc  networks of source or target, and
+            # getting the org vdc networks info from metadata
+            OrgVDCNetworkList = self.retrieveNetworkListFromMetadata(targetOrgVDCId, orgVDCType='target')
+            sourceOrgVDCNetworks = self.retrieveNetworkListFromMetadata(sourceOrgVDCId, orgVDCType='source')
             # iterating over the org vdc networks
             for vdcNetwork in OrgVDCNetworkList:
                 # handling only routed networks
                 if vdcNetwork['networkType'] == "NAT_ROUTED":
-                    vdcNetworkID = vdcNetwork['id']
+                    # check added for the reconnection of the network which is of type non distributed routed network.
+                    # if the network is non distributed then check respective networks connectionType on source side.
+                    # and configure the dns IP according to connection type of OrgVDC network.
                     GatewayID = vdcNetwork['connection']['routerRef']['id']
-                    listenerIpexist = GatewayID in listenerIp.keys()
-                    if listenerIpexist and vdcNetwork.get('connection'):
-                        if vdcNetwork['subnets']['values'][0]['dnsServer1'] == vdcNetwork['subnets']['values'][0]['gateway']:
-                            vdcNetwork['subnets']['values'][0]['dnsServer1'] = listenerIp[GatewayID]
+                    if listenerIp.get(GatewayID) and vdcNetwork.get('connection'):
+                        if _isSourceNetworkDistributed(vdcNetwork):
+                            # When source network is distributed
+                            if vdcNetwork['subnets']['values'][0]['dnsServer1'] == vcdConstants.DLR_DNR_IFACE:
+                                vdcNetwork['subnets']['values'][0]['dnsServer1'] = listenerIp[GatewayID]
+                        else:
+                            # When source network is internal routed
+                            # and target network is not NON_DISTRIBUTED (applicable from VCD 10.3.2)
+                            if (vdcNetwork['subnets']['values'][0]['dnsServer1'] == vdcNetwork['subnets']['values'][0]['gateway']
+                                    and vdcNetwork['connection']['connectionTypeValue'] != 'NON_DISTRIBUTED'):
+                                vdcNetwork['subnets']['values'][0]['dnsServer1'] = listenerIp[GatewayID]
+
                     # url to reconnect the org vdc network
                     url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                            vcdConstants.ALL_ORG_VDC_NETWORKS,
-                                           vdcNetworkID)
+                                           vdcNetwork['id'])
                     # creating payload using data from apiOutput.json
                     payloadData = json.dumps(vdcNetwork)
                     self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
@@ -1726,7 +1944,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @description("Update DHCP on Target Org VDC Networks")
-    @remediate
     def _updateDhcpInOrgVdcNetworks(self, url, payload):
         """
             Description : Put API request to configure DHCP
@@ -1896,70 +2113,91 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         try:
             logger.debug("Configuring DHCP on Target Org VDC Networks")
             data = self.rollback.apiData
+            targetOrgVdcNetworks = self.retrieveNetworkListFromMetadata(targetOrgVDCId, orgVDCType='target')
             for sourceEdgeGatewayDHCP in data['sourceEdgeGatewayDHCP'].values():
                 # checking if dhcp is enabled on source edge gateway
                 if not sourceEdgeGatewayDHCP['enabled']:
                     logger.debug('DHCP service is not enabled or configured in Source Edge Gateway')
                 else:
                     # retrieving the dhcp rules of the source edge gateway
-                    dhcpRules = listify(sourceEdgeGatewayDHCP['ipPools'].get('ipPools'))
-                    payloaddict = {}
+                    sourceDhcpPools = listify(sourceEdgeGatewayDHCP['ipPools'].get('ipPools'))
+
                     # iterating over the source edge gateway dhcp rules
-                    for iprange in dhcpRules:
-                        # if configStatus flag is already set means that the dhcp rule is already configured, if so then skipping the configuring of same rule and moving to the next dhcp rule
+                    for iprange in sourceDhcpPools:
+                        # if configStatus flag is already set means that the dhcp rule is already configured,
+                        # if so then skipping the configuring of same rule and moving to the next dhcp rule
                         if iprange.get('configStatus'):
                             continue
+
                         start = iprange['ipRange'].split('-')[0]
                         end = iprange['ipRange'].split('-')[-1]
                         # iterating over the target org vdc networks
-                        for vdcNetwork in self.retrieveNetworkListFromMetadata(targetOrgVDCId, orgVDCType='target'):
+                        for vdcNetwork in targetOrgVdcNetworks:
                             # handling only the routed networks
-                            if vdcNetwork['networkType'] == "NAT_ROUTED":
-                                # checking the first three octets of source ip range with first three octets of target networks,
-                                # first three octets are same then configuring dhcp on target
-                                dhcp_check_list = start.split('.')
-                                dhcp_check_list.pop()
-                                dhcp_check = '.'.join(dhcp_check_list)
-                                for gateway in vdcNetwork['subnets']['values']:
-                                    vdcNetwork_check_list = gateway['gateway'].split('.')
-                                    vdcNetwork_check_list.pop()
-                                    vdcNetwork_check = '.'.join(vdcNetwork_check_list)
-                                    if dhcp_check == vdcNetwork_check:
-                                        vdcNetworkID = vdcNetwork['id']
-                                        # creating payload data
-                                        payloaddict['enabled'] = "true" if sourceEdgeGatewayDHCP['enabled'] else "false"
-                                        payloaddict['dhcpPools'] = [{
-                                            "enabled": "true" if sourceEdgeGatewayDHCP['enabled'] else "false",
-                                            "ipRange": {
-                                                "startAddress": start,
-                                                "endAddress": end
-                                            },
-                                            "defaultLeaseTime": 0
-                                        }]
-                                        payloaddict['leaseTime'] = 4294967295 if iprange['leaseTime'] == "infinite" \
-                                            else iprange['leaseTime']
-                                        # url to configure dhcp on target org vdc networks
-                                        url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                               vcdConstants.ALL_ORG_VDC_NETWORKS,
-                                                               vcdConstants.DHCP_ENABLED_FOR_ORG_VDC_NETWORK_BY_ID.format(
-                                                                   vdcNetworkID))
-                                        response = self.restClientObj.get(url, self.headers)
-                                        if response.status_code == requests.codes.ok:
-                                            responseDict = response.json()
-                                            dhcpPools = responseDict['dhcpPools'] + payloaddict['dhcpPools'] if \
-                                                responseDict['dhcpPools'] else payloaddict['dhcpPools']
-                                            payloaddict['dhcpPools'] = dhcpPools
-                                            payloaddict['leaseTime'] = payloaddict['leaseTime'] if \
-                                                not responseDict['dhcpPools'] else min(int(responseDict['leaseTime']), int(payloaddict['leaseTime']))
-                                            # payloadData = json.dumps(payloaddict)
-                                            # put api call to configure dhcp on target org vdc networks
-                                            self._updateDhcpInOrgVdcNetworks(url, payloaddict)
-                                            # setting the configStatus,flag meaning the particular DHCP rule is configured successfully in order to skip its reconfiguration
-                                            iprange['configStatus'] = True
-                                        else:
-                                            errorResponse = response.json()
-                                            raise Exception(
-                                                'Failed to fetch DHCP service - {}'.format(errorResponse['message']))
+                            if not vdcNetwork['networkType'] == "NAT_ROUTED":
+                                continue
+
+                            for vdcNet in vdcNetwork['subnets']['values']:
+                                networkSubnet = "{}/{}".format(vdcNet['gateway'], vdcNet['prefixLength'])
+                                if ipaddress.ip_address(start) not in ipaddress.ip_network(networkSubnet, strict=False):
+                                    continue
+
+                                # url to configure dhcp on target org vdc networks
+                                url = "{}{}/{}".format(
+                                    vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                    vcdConstants.ALL_ORG_VDC_NETWORKS,
+                                    vcdConstants.DHCP_ENABLED_FOR_ORG_VDC_NETWORK_BY_ID.format(vdcNetwork['id']))
+                                response = self.restClientObj.get(url, self.headers)
+                                responseDict = response.json()
+                                if response.status_code != requests.codes.ok:
+                                    raise Exception(
+                                        'Failed to fetch DHCP service - {}'.format(responseDict['message']))
+
+                                dhcpMode, dhcpIpAddress, dhcpPoolEndAddress = None, None, None
+                                if (float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2)
+                                        and vdcNetwork['connection']['connectionTypeValue'] == 'NON_DISTRIBUTED'
+                                        and responseDict['mode'] != "NETWORK"):
+                                    self.configureNetworkProfile(targetOrgVDCId, edgeGatewayDeploymentEdgeCluster)
+                                    dhcpMode = "NETWORK"
+                                    dhcpIpAddress = end
+                                    dhcpPoolEndAddress = str(ipaddress.ip_address(end) - 1)
+
+                                newDhcpPools = [{
+                                    "enabled": "true" if sourceEdgeGatewayDHCP['enabled'] else "false",
+                                    "ipRange": {
+                                        "startAddress": start,
+                                        "endAddress": dhcpPoolEndAddress or end
+                                    },
+                                    "defaultLeaseTime": 0
+                                }]
+                                newLeaseTime = 4294967295 if iprange['leaseTime'] == "infinite" else iprange['leaseTime']
+
+                                payload = {
+                                    'enabled': "true" if sourceEdgeGatewayDHCP['enabled'] else "false",
+                                    'dhcpPools':
+                                        responseDict['dhcpPools'] + newDhcpPools
+                                        if responseDict['dhcpPools']
+                                        else newDhcpPools,
+                                    'leaseTime':
+                                        newLeaseTime
+                                        if not responseDict['dhcpPools']
+                                        else min(int(responseDict['leaseTime']), int(newLeaseTime)),
+                                    'mode': dhcpMode or responseDict['mode'],
+                                    'ipAddress': dhcpIpAddress or responseDict['ipAddress'],
+                                }
+
+                                # put api call to configure dhcp on target org vdc networks
+                                self._updateDhcpInOrgVdcNetworks(url, payload)
+                                # setting the configStatus,flag meaning the particular DHCP rule is
+                                # configured successfully in order to skip its reconfiguration
+                                iprange['configStatus'] = True
+                                break
+
+                            # Break from loop and skip next networks when iprange is successfully configured to one
+                            # network as one iprange(source dhcp pool) can be configured on only one network
+                            if iprange.get('configStatus'):
+                                break
+
             if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS) and data.get('OrgVDCIsolatedNetworkDHCP', []) != []:
                 data = self.rollback.apiData
                 targetOrgVDCNetworksList = data['targetOrgVDCNetworks'].keys()
@@ -2229,20 +2467,22 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             self.createACL()
 
             # creating target Org VDC Edge Gateway
-            self.createEdgeGateway(inputDict, vdcDict, nsxObj)
+            self.createEdgeGateway(vdcDict, nsxObj)
 
             # Configure Edge gateway RateLimits
             if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
                 self.configureEdgeGWRateLimit(nsxObj)
 
+            # Allow Non distributed routing for edge gateways
+            if vdcDict.get('NonDistributedNetworks') and float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
+                self.allowNonDistributedRouting()
+
             # only if source org vdc networks exist
             if orgVdcNetworkList:
                 # creating target Org VDC networks
                 self.createOrgVDCNetwork(orgVDCIDList, orgVdcNetworkList, inputDict, vdcDict, nsxObj)
-
                 # disconnecting target Org VDC networks
                 self.disconnectTargetOrgVDCNetwork()
-
             else:
                 # If not source Org VDC networks are not present target Org VDC networks will also be empty
                 logger.debug('Skipping Target Org VDC Network creation as no source Org VDC network exist.')
@@ -2376,6 +2616,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             # reconnecting target org vdc edge gateway from T0
             self.reconnectTargetEdgeGateway()
+
+            # Configure DNAT rules for non-distributed network if NonDistributedNetworks is set from user input.
+            if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
+                self.configureTargetDnatForDns()
         except:
             logger.error(traceback.format_exc())
             self.__exception__ = True
