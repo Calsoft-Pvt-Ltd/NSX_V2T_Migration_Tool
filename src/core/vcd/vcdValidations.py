@@ -3421,6 +3421,10 @@ class VCDMigrationValidation:
             # reading the data from metadata
             data = self.rollback.apiData
 
+            # Check for V2T Assessment mode
+            if v2tAssessmentMode:
+                return [], False
+
             # Get external network details mapped to edgeGateway
             extNetDict = vdcDict.get('ExternalNetwork')
             targetExternalNetwork = self.getExternalNetworkMappedToEdgeGateway(edgeGatewayId, extNetDict)
