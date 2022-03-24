@@ -334,7 +334,8 @@ class VMwareCloudDirectorNSXMigrator():
                                     sourceOrgVdc['LoadBalancerVIPSubnet']):
                                 errorInputDict[dictKey] = "Input IP value is not in proper CIDR format"
                             if not isinstance(sourceOrgVdc.get('ExternalNetwork'), (str, dict)):
-                                errorInputDict[dictKey] = "ExternalNetwork is either missing or in invalid format"
+                                errorInputDict[dictKey] = "ExternalNetwork is either missing or in invalid format, " \
+                                                          "please provide in the string or Dict format."
                             if isinstance(sourceOrgVdc.get('ExternalNetwork'), str):
                                 sourceOrgVdc['ExternalNetwork'] = {
                                     'default': sourceOrgVdc.get('ExternalNetwork')

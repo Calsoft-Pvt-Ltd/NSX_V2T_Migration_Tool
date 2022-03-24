@@ -93,7 +93,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if response.status_code == requests.codes.accepted:
                 taskUrl = response.headers['Location']
                 self._checkTaskStatus(taskUrl=taskUrl)
-                logger.warning('Target External network {} updated successfully with sub allocated ip pools.'.format(
+                logger.debug('Target External network {} updated successfully with sub allocated ip pools.'.format(
                     targetExtNetData['name']))
             else:
                 errorResponse = response.json()
@@ -125,7 +125,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             defaultGateway = defaultGatewayData.get('gateway')
 
             # Prepare payload for edgeGatewayUplinks->dedicated
-            bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
+            bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, vdcDict, validation=False)
             # Use dedicated external network if BGP is configured
             # or AdvertiseRoutedNetworks parameter is set to True
             if ((isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or
@@ -213,7 +213,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 taskUrl = response.headers['Location']
                 # checking the status of creating target edge gateway task
                 self._checkTaskStatus(taskUrl=taskUrl)
-                logger.warning(f"Target Edge Gateway ({sourceEdgeGatewayDict['name']}) created successfully.")
+                logger.debug(f"Target Edge Gateway ({sourceEdgeGatewayDict['name']}) created successfully.")
             else:
                 errorResponse = response.json()
                 raise Exception(
@@ -4055,7 +4055,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if apiResponse.status_code == requests.codes.accepted:
                     taskUrl = apiResponse.headers['Location']
                     self._checkTaskStatus(taskUrl=taskUrl)
-                    logger.warning("Successfully reset the target external network '{}' to its initial state".format(
+                    logger.debug("Successfully reset the target external network '{}' to its initial state".format(
                         targetExtNetData['name']))
                 else:
                     errorDict = apiResponse.json()

@@ -67,11 +67,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # Configuring target IPSEC
             self.configTargetIPSEC(nsxvObj)
             # Configuring target NAT
-            self.configureTargetNAT(noSnatDestSubnet)
+            self.configureTargetNAT(noSnatDestSubnet, orgVDCDict)
             # Configuring firewall
             self.configureFirewall(networktype=False, configureIPSET=True)
             # Configuring BGP
-            self.configBGP()
+            self.configBGP(orgVDCDict)
             # Configuring Route Advertisement
             self.configureRouteAdvertisement(orgVDCDict.get("AdvertiseRoutedNetworks"))
             # Configuring DNS
@@ -774,7 +774,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
     @description("configuration of Target NAT")
     @remediate
-    def configureTargetNAT(self, noSnatDestSubnet=None):
+    def configureTargetNAT(self, noSnatDestSubnet=None, orgVDCDict=None):
         """
         Description :   Configure the NAT service to the Target Gateway
         Parameters  :   noSnatDestSubnet    -   destimation subnet address (OPTIONAL)
@@ -795,7 +795,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     # get details of static routing config
                     staticRoutingConfig = self.getStaticRoutesDetails(sourceEdgeGatewayId)
                     # get details of BGP configuration
-                    bgpConfigDetails = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
+                    bgpConfigDetails = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, orgVDCDict, validation=False)
                     #get routing config details
                     routingConfigDetails = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId,
                                                                             sourceEdgeGateway['name'],
@@ -857,7 +857,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
     @description("configuration of BGP")
     @remediate
-    def configBGP(self):
+    def configBGP(self, orgVDCDict):
         """
         Description :   Configure BGP on the Target Edge Gateway
         """
@@ -870,7 +870,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
                     self.rollback.apiData['targetEdgeGateway']))[0]['id']
 
-                bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
+                bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, orgVDCDict, validation=False)
                 data = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId, sourceEdgeGateway['name'],
                                                         validation=False)
                 # checking whether bgp rule is enabled or present in the source edge  gateway;
@@ -878,7 +878,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 if not isinstance(bgpConfigDict, dict) or bgpConfigDict['enabled'] == 'false':
                     logger.debug('BGP service is disabled or not configured in '
                                  'Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
-                    return
+                    continue
                 logger.debug('BGP is getting configured in Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
                 ecmp = "true" if data['routingGlobalConfig']['ecmp'] == "true" else "false"
                 # url to get the details of the bgp configuration on T1 router i.e target edge gateway
