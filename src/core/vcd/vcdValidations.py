@@ -1796,6 +1796,47 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
+    def validateStaticIpPoolForNonDistributedRouting(self, orgVdcNetworkList, vdcDict):
+        """
+            Description : Validate that OrgVDC network has static IP pool with free IPs
+            Parameters  : orgVdcNetworkList - Org VDC's network list for a specific Org VDC (LIST)
+        """
+        try:
+            logger.debug("Validating OrgVDC networks")
+            errorList = list()
+            for sourceOrgVDCNetwork in orgVdcNetworkList:
+                distNetworkFlag = False
+                # Continue if the OrgVDC network is not routed network.
+                if not (sourceOrgVDCNetwork['networkType'] == 'NAT_ROUTED'
+                        and sourceOrgVDCNetwork['connection']['connectionTypeValue'] == 'INTERNAL'):
+                    continue
+
+                dnsRelayConfig = self.getEdgeGatewayDnsConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
+                                                              split(':')[-1], False)
+                orgvdcNetworkGatewayIp = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
+                orgvdcNetworkDns = sourceOrgVDCNetwork['subnets']['values'][0]['dnsServer1']
+                ipRanges = sourceOrgVDCNetwork['subnets']['values'][0]['ipRanges']['values']
+                if (dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns) or vdcDict.get(
+                        'NonDistributedNetworks'):
+                    distNetworkFlag = True
+
+                if distNetworkFlag and sourceOrgVDCNetwork['networkType'] == 'NAT_ROUTED':
+                    # check for implicite type creation of Non-Distributed OrgVDC network.
+                    if not ipRanges:
+                        errorList.append("Non-Distributed routing for routed OrgVDC network requires to Configure "
+                                         "static ip pool for routed OrfVDC network : {}".format(sourceOrgVDCNetwork['name']))
+
+                    totalIpCount = sourceOrgVDCNetwork['subnets']['values'][0]['totalIpCount']
+                    usedIpCount = sourceOrgVDCNetwork['subnets']['values'][0]['usedIpCount']
+                    if not(usedIpCount < totalIpCount):
+                        errorList.append("Free IPs are required in OrgVDC network {}, but enough free IPs are not "
+                                         "present.".format(sourceOrgVDCNetwork['name']))
+            if errorList:
+                raise ValidationError(',\n'.join(errorList))
+        except Exception:
+            raise
+
+    @isSessionExpired
     def validateDHCPEnabledonIsolatedVdcNetworks(self, orgVdcNetworkList, edgeGatewayList, edgeGatewayDeploymentEdgeCluster, nsxtObj):
         """
         Description : Validate that DHCP is not enabled on isolated Org VDC Network
@@ -4311,6 +4352,10 @@ class VCDMigrationValidation:
             # getting the source Org VDC networks
             logger.info('Getting the Org VDC networks of source Org VDC {}'.format(vdcDict["OrgVDCName"]))
             orgVdcNetworkList = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks')
+            
+            # Validatating static Ip pool for routed OrgVDC network.
+            logger.info('Validating Routed OrgVDCNetwork Static IP pool configuration')
+            self.validateStaticIpPoolForNonDistributedRouting(orgVdcNetworkList, vdcDict)
 
             # validating DHCP service on Org VDC networks
             logger.info('Validating Isolated OrgVDCNetwork DHCP configuration')
