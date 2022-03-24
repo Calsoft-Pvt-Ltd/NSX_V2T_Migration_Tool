@@ -666,7 +666,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 orgVDCResult["IPsec: Unsupported Encryption Algorithm"] = True
                                             else:
                                                 orgVDCResult["IPsec: Unsupported Encryption Algorithm"] = False
-                                            if 'DNAT is not supported on a tier-1' in ''.join(result):
+                                            if 'DNAT configured with translated IP' in ''.join(result):
                                                 orgVDCResult["IPsec: DNAT rules not supported with Policy-based session type"] = True
                                             else:
                                                 orgVDCResult["IPsec: DNAT rules not supported with Policy-based session type"] = False
