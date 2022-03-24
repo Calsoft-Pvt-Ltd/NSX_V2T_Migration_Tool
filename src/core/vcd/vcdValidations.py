@@ -3283,11 +3283,16 @@ class VCDMigrationValidation:
         for site in listify(responseDict['sites']['sites']):
             if site['ipsecSessionType'] == "policybasedsession":
                 natErrorList, natRulesPresent = self.getEdgeGatewayNatConfig(edgeGatewayId)
+                localSubnets = site.get('localSubnets')
                 for natrule in natRulesPresent:
                     if natrule['action'] == 'dnat' and natrule['ruleType'] == 'user':
-                        errorList.append(
-                                'DNAT is not supported on a tier-1 gateway where policy-based IPSec VPN is configured\n')
-                        break
+                        for subnet in localSubnets.get('subnets'):
+                            if ipaddress.ip_address(natrule['translatedAddress']) in ipaddress.ip_network(subnet,
+                                                                                                          strict=False):
+                                errorList.append(
+                                    'DNAT configured with translated IP {} is not supported on a tier-1 gateway where policy-based IPSec VPN is configured with local subnet {}.\n'.format(
+                                        natrule['translatedAddress'], subnet))
+                                break
             else:
                 errorList.append(
                     'Source IPSEC rule is having routebased session type which is not supported\n')
