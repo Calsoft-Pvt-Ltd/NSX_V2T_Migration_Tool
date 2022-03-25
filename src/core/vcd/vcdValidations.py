@@ -4188,6 +4188,8 @@ class VCDMigrationValidation:
         """
         # Flag to check whether the org vdc was disabled or not
         disableOrgVDC = False
+        # edge list to check need for external and dummy network
+        edgeGatewayIdList = self.getOrgVDCEdgeGatewayId(sourceOrgVDCId)
         try:
             logger.info(f'Starting with PreMigration validation tasks for org vdc "{vdcDict["OrgVDCName"]}"')
 
@@ -4205,13 +4207,17 @@ class VCDMigrationValidation:
             if isinstance(targetExternalNetwork, Exception):
                 raise targetExternalNetwork
 
-            # getting the source dummy External Network details
-            logger.info('Getting the source dummy External Network - {} details.'.format(
-                inputDict["VCloudDirector"]["DummyExternalNetwork"]))
-            dummyExternalNetwork = self.getExternalNetwork(inputDict["VCloudDirector"]["DummyExternalNetwork"],
-                                                           isDummyNetwork=True)
-            if isinstance(dummyExternalNetwork, Exception):
-                raise dummyExternalNetwork
+            if edgeGatewayIdList:
+                if inputDict["VCloudDirector"].get("DummyExternalNetwork"):
+                    # getting the source dummy External Network details
+                    logger.info('Getting the source dummy External Network - {} details.'.format(inputDict["VCloudDirector"]["DummyExternalNetwork"]))
+                    dummyExternalNetwork = self.getExternalNetwork(inputDict["VCloudDirector"]["DummyExternalNetwork"], isDummyNetwork=True)
+                else:
+                    raise Exception("dummy network not provided")
+                if isinstance(dummyExternalNetwork, Exception):
+                    raise dummyExternalNetwork
+            else:
+                logger.warning("Skipping dummy external network check as no edge is present")
 
             # getting the source provider VDC details and checking if its NSX-V backed
             logger.info('Getting the source Provider VDC - {} details.'.format(vdcDict["NSXVProviderVDCName"]))

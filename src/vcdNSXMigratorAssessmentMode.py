@@ -104,8 +104,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             getOrgVdcNetworkDesc = 'Getting NSX-V backed Org VDC network details'
             # fetch details of edge gateway
             self.consoleLogger.info(getEdgeGatewayDesc)
-            threadObj.spawnThread(vcdValidationObj.getOrgVDCEdgeGatewayId,
-                                    sourceOrgVDCId, saveResponse=True, saveOutputKey='edgeGatewayIdList')
+            edgeGatewayIdList = vcdValidationObj.getOrgVDCEdgeGatewayId(sourceOrgVDCId)
             # fetch details of source external network
             self.consoleLogger.info(getSourceExternalNetworkDesc)
             threadObj.spawnThread(vcdValidationObj.getSourceExternalNetwork,
@@ -115,12 +114,14 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             threadObj.spawnThread(vcdValidationObj.getExternalNetwork,
                                     orgVDCDict["ExternalNetwork"],
                                     saveOutputKey='targetExternalNetwork')
-            # fetch details of dummy external network
-            self.consoleLogger.info(getDummyExternalNetworkDesc.format(self.inputDict["VCloudDirector"]["DummyExternalNetwork"]))
-            threadObj.spawnThread(vcdValidationObj.getExternalNetwork,
-                                    self.inputDict["VCloudDirector"]["DummyExternalNetwork"],
-                                    saveOutputKey='dummyNetwork', isDummyNetwork=True)
-
+            if edgeGatewayIdList:
+                # fetch details of dummy external network
+                self.consoleLogger.info(getDummyExternalNetworkDesc.format(self.inputDict["VCloudDirector"]["DummyExternalNetwork"]))
+                threadObj.spawnThread(vcdValidationObj.getExternalNetwork,
+                                        self.inputDict["VCloudDirector"]["DummyExternalNetwork"],
+                                        saveOutputKey='dummyNetwork', isDummyNetwork=True)
+            else:
+                self.consoleLogger.warning("Skipping dummy external network check as no edge is present")
             self.consoleLogger.info(getOrgVdcNetworkDesc)
             threadObj.spawnThread(vcdValidationObj.getOrgVDCNetworks, sourceOrgVDCId,
                                     'sourceOrgVDCNetworks', saveOutputKey='getNSXVOrgVdcNetwork')
@@ -128,14 +129,11 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             # Halt the main thread till all the threads finish executing
             threadObj.joinThreads()
             # Fetching values returned by threads
-            if threadObj.returnValues['edgeGatewayIdList'] and isinstance(threadObj.returnValues['edgeGatewayIdList'], Exception):
-                validationFailures.append([getEdgeGatewayDesc, threadObj.returnValues['edgeGatewayIdList'], 'Failed'])
-            edgeGatewayIdList = threadObj.returnValues['edgeGatewayIdList']
             if threadObj.returnValues['sourceExternalNetwork'] and isinstance(threadObj.returnValues['sourceExternalNetwork'], Exception):
                 validationFailures.append([getSourceExternalNetworkDesc, threadObj.returnValues['sourceExternalNetwork'], 'Failed'])
             if threadObj.returnValues['targetExternalNetwork'] and isinstance(threadObj.returnValues['targetExternalNetwork'], Exception):
                 validationFailures.append([getTargetExternalNetworkDesc.format(orgVDCDict["ExternalNetwork"]), threadObj.returnValues['targetExternalNetwork'], 'Failed'])
-            if threadObj.returnValues['dummyNetwork'] and isinstance(threadObj.returnValues['dummyNetwork'], Exception):
+            if threadObj.returnValues.get('dummyNetwork') and isinstance(threadObj.returnValues['dummyNetwork'], Exception):
                 validationFailures.append([getDummyExternalNetworkDesc.format(self.inputDict["VCloudDirector"]["DummyExternalNetwork"]), threadObj.returnValues['dummyNetwork'], 'Failed'])
             if threadObj.returnValues['getNSXVOrgVdcNetwork'] and isinstance(threadObj.returnValues['getNSXVOrgVdcNetwork'], Exception):
                 validationFailures.append([getOrgVdcNetworkDesc, threadObj.returnValues['getNSXVOrgVdcNetwork', 'Failed']])
