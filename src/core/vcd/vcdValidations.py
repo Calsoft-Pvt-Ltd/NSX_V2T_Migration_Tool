@@ -1805,6 +1805,9 @@ class VCDMigrationValidation:
         """
         try:
             logger.debug("Validating OrgVDC networks")
+            if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
+                return
+
             errorList = list()
             for sourceOrgVDCNetwork in orgVdcNetworkList:
                 distNetworkFlag = False
