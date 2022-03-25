@@ -9,6 +9,7 @@ Description : Module performs VMware Cloud Director validations related for NSX-
 import inspect
 from functools import wraps
 from collections import OrderedDict, defaultdict
+from pkg_resources._vendor.packaging import version
 import copy
 import json
 import logging
@@ -25,7 +26,7 @@ import src.core.vcd.vcdConstants as vcdConstants
 
 from src.commonUtils.restClient import RestAPIClient
 from src.commonUtils.certUtils import verifyCertificateAgainstCa
-from src.commonUtils.utils import Utilities, listify, InterOperabilityError
+from src.commonUtils.utils import Utilities, listify
 
 
 logger = logging.getLogger('mainLogger')
@@ -1795,6 +1796,47 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
+    def validateStaticIpPoolForNonDistributedRouting(self, orgVdcNetworkList, vdcDict):
+        """
+            Description : Validate that OrgVDC network has static IP pool with free IPs
+            Parameters  : orgVdcNetworkList - Org VDC's network list for a specific Org VDC (LIST)
+        """
+        try:
+            logger.debug("Validating OrgVDC networks")
+            errorList = list()
+            for sourceOrgVDCNetwork in orgVdcNetworkList:
+                distNetworkFlag = False
+                # Continue if the OrgVDC network is not routed network.
+                if not (sourceOrgVDCNetwork['networkType'] == 'NAT_ROUTED'
+                        and sourceOrgVDCNetwork['connection']['connectionTypeValue'] == 'INTERNAL'):
+                    continue
+
+                dnsRelayConfig = self.getEdgeGatewayDnsConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
+                                                              split(':')[-1], False)
+                orgvdcNetworkGatewayIp = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
+                orgvdcNetworkDns = sourceOrgVDCNetwork['subnets']['values'][0]['dnsServer1']
+                ipRanges = sourceOrgVDCNetwork['subnets']['values'][0]['ipRanges']['values']
+                if (dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns) or vdcDict.get(
+                        'NonDistributedNetworks'):
+                    distNetworkFlag = True
+
+                if distNetworkFlag and sourceOrgVDCNetwork['networkType'] == 'NAT_ROUTED':
+                    # check for implicite type creation of Non-Distributed OrgVDC network.
+                    if not ipRanges:
+                        errorList.append("Non-Distributed routing for routed OrgVDC network requires to Configure "
+                                         "static ip pool for routed OrfVDC network : {}".format(sourceOrgVDCNetwork['name']))
+
+                    totalIpCount = sourceOrgVDCNetwork['subnets']['values'][0]['totalIpCount']
+                    usedIpCount = sourceOrgVDCNetwork['subnets']['values'][0]['usedIpCount']
+                    if not(usedIpCount < totalIpCount):
+                        errorList.append("Free IPs are required in OrgVDC network {}, but enough free IPs are not "
+                                         "present.".format(sourceOrgVDCNetwork['name']))
+            if errorList:
+                raise ValidationError(',\n'.join(errorList))
+        except Exception:
+            raise
+
+    @isSessionExpired
     def validateDHCPEnabledonIsolatedVdcNetworks(self, orgVdcNetworkList, edgeGatewayList, edgeGatewayDeploymentEdgeCluster, nsxtObj):
         """
         Description : Validate that DHCP is not enabled on isolated Org VDC Network
@@ -3035,7 +3077,7 @@ class VCDMigrationValidation:
                         for monitor in listify(responseDict['loadBalancer'].get('monitor')):
                             if pool['monitorId'] == monitor['monitorId']:
                                 if monitor['type'] in ['tcp', 'http', 'https', 'icmp']:
-                                    if any(key in monitor and monitor[key] for key in ['expected', 'send', 'recieve', 'extension']) or \
+                                    if any(key in monitor and monitor[key] for key in ['expected', 'send', 'receive', 'extension']) or \
                                             (monitor.get('url') and monitor.get('url') != '/'):
                                         loadBalancerErrorList.append("Load balancer pool '{}' have unsupported values configured in monitor '{}'\n".format(pool['name'], monitor['name']))
                                 elif monitor['type'] == 'udp':
@@ -3241,11 +3283,16 @@ class VCDMigrationValidation:
         for site in listify(responseDict['sites']['sites']):
             if site['ipsecSessionType'] == "policybasedsession":
                 natErrorList, natRulesPresent = self.getEdgeGatewayNatConfig(edgeGatewayId)
+                localSubnets = site.get('localSubnets')
                 for natrule in natRulesPresent:
                     if natrule['action'] == 'dnat' and natrule['ruleType'] == 'user':
-                        errorList.append(
-                                'DNAT is not supported on a tier-1 gateway where policy-based IPSec VPN is configured\n')
-                        break
+                        for subnet in localSubnets.get('subnets'):
+                            if ipaddress.ip_address(natrule['translatedAddress']) in ipaddress.ip_network(subnet,
+                                                                                                          strict=False):
+                                errorList.append(
+                                    'DNAT configured with translated IP {} is not supported on a tier-1 gateway where policy-based IPSec VPN is configured with local subnet {}.\n'.format(
+                                        natrule['translatedAddress'], subnet))
+                                break
             else:
                 errorList.append(
                     'Source IPSEC rule is having routebased session type which is not supported\n')
@@ -3741,8 +3788,8 @@ class VCDMigrationValidation:
             vCDVersion = values[0].get("productVersion", None)
             if not vCDVersion:
                 raise Exception("Not able to fetch vCD version due to API response difference")
-            elif not(int(vCDVersion.split(".")[0]) >= 10 and int(vCDVersion.split(".")[1]) > 2):
-                raise InterOperabilityError('VCD v{} is not compatible with current migration tool'.format(vCDVersion))
+            elif version.parse(vCDVersion) < version.parse("10.3"):
+                logger.warning("VCD {} is not supported with current migration tool. Some features may not work as expected.".format(vCDVersion))
             else:
                 return re.match("\d*\.\d*\.\d*", values[0].get("productVersion")).group()
         else:
@@ -3895,6 +3942,28 @@ class VCDMigrationValidation:
         return resultList
 
     @isSessionExpired
+    def getSourceNetworkPoolBacking(self):
+        """
+        Description :  Get source org vdc network pool Backing
+        """
+        # source org vdc network pool reference dict
+        networkPool = self.rollback.apiData['sourceOrgVDC'].get('NetworkPoolReference')
+
+        # If no network pool is present return an empty dictionary
+        if not networkPool:
+            return dict()
+
+        # get api call to retrieve the info of source org vdc network pool backing details
+        url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.NETWORK_POOL.format(
+            networkPool['@id']))
+        networkPoolResponse = self.restClientObj.get(url, self.headers)
+        if networkPoolResponse.status_code != requests.codes.ok:
+            raise Exception("Failed to fetch source network pool backing")
+
+        networkPoolDict = networkPoolResponse.json()
+        return networkPoolDict.get('poolType')
+
+    @isSessionExpired
     def getSourceNetworkPoolDetails(self):
         """
         Description :  Get source org vdc network pool details
@@ -3922,20 +3991,24 @@ class VCDMigrationValidation:
         """
         try:
             # Getting source network pool details
+            networkPoolBackingType = self.getSourceNetworkPoolBacking()
             networkPoolDict = self.getSourceNetworkPoolDetails()
 
             # checking for the network pool associated with source org vdc
             if not networkPoolDict:
                 return
 
-            networkPoolType = networkPoolDict['VMWNetworkPool']['@type']
+            # checking if cloneOverlayIds parameter is set to true
+            if cloneOverlayIds and float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
+                raise Exception("'cloneOverlayIds' parameter is set to 'True' but "
+                                "not supported on current VCD version : ", self.version)
 
             # checking if the source network pool is VXLAN backed if cloneOverlayIds parameter is set to true
-            if cloneOverlayIds and networkPoolType != vcdConstants.VXLAN_NETWORK_POOL_TYPE:
+            if cloneOverlayIds and networkPoolBackingType != vcdConstants.VXLAN:
                 raise Exception("'cloneOverlayIds' parameter is set to 'True' but "
                                 "source Org VDC network pool is not VXLAN backed")
             # checking if the source network pool is PortGroup backed
-            if networkPoolDict['VMWNetworkPool']['@type'] == vcdConstants.PORTGROUP_NETWORK_POOL_TYPE:
+            if networkPoolBackingType == vcdConstants.PORT_GROUP:
                 # Fetching the moref and type of all the port groups backing the network pool
                 portGroupMoref = {portGroup['MoRef']: portGroup['VimObjectType']
                                   for portGroup in listify(
@@ -4098,9 +4171,9 @@ class VCDMigrationValidation:
         """
         try:
             # If clone overlay id parameter is False, then we don't need to validate the pool ranges
-            if not cloneOverlayIds:
-                logger.debug("'CloneOverlayIds' parameter is set to 'False' or not provided in user input file, "
-                             "so skipping the VNI pool validation")
+            if not cloneOverlayIds or (float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1)):
+                logger.debug("'CloneOverlayIds' parameter is set to 'False' or not provided in user input file or not "
+                             "supported in current vcd version, so skipping the VNI pool validation")
                 return
 
             # If clone overlay id parameter is True,
@@ -4142,12 +4215,9 @@ class VCDMigrationValidation:
             if orgVdcNetworkList:
                 # Checking if any org vdc has network pool with VXLAN backing
                 vxlanBackingPresent = any([True if
-                                           vcdObj.getSourceNetworkPoolDetails().get(
-                                               'VMWNetworkPool', {}).get(
-                                               '@type') == vcdConstants.VXLAN_NETWORK_POOL_TYPE
+                                           vcdObj.getSourceNetworkPoolBacking() == vcdConstants.VXLAN
                                            else False
                                            for vcdObj in vcdObjList])
-
                 threading.current_thread().name = "BridgingChecks"
                 logger.info("Checking for Bridging Components")
                 logger.info('Validating NSX-T Bridge Uplink Profile does not exist')
@@ -4293,6 +4363,10 @@ class VCDMigrationValidation:
             # getting the source Org VDC networks
             logger.info('Getting the Org VDC networks of source Org VDC {}'.format(vdcDict["OrgVDCName"]))
             orgVdcNetworkList = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks')
+            
+            # Validatating static Ip pool for routed OrgVDC network.
+            logger.info('Validating Routed OrgVDCNetwork Static IP pool configuration')
+            self.validateStaticIpPoolForNonDistributedRouting(orgVdcNetworkList, vdcDict)
 
             # validating DHCP service on Org VDC networks
             logger.info('Validating Isolated OrgVDCNetwork DHCP configuration')
@@ -4705,7 +4779,7 @@ class VCDMigrationValidation:
         """
         try:
             # url to get the media info of specified organization
-            url = "{}{}?sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+            url = "{}{}&sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
                                 vcdConstants.GET_MEDIA_INFO)
             acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,

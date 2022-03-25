@@ -33,13 +33,6 @@ def listify(_list):
     return _list if isinstance(_list, list) else [_list]
 
 
-class InterOperabilityError(Exception):
-    """
-    Raise this error when a version of any participating devices is not compatible with migration tool
-    """
-    pass
-
-
 class Utilities():
     """
     Description :   This class provides commonly used methods for vCloud Director NSXV to NSXT

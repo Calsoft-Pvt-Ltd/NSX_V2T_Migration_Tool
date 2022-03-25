@@ -155,6 +155,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating if all edge gateways interfaces are in use': [vcdValidationObj.validateEdgeGatewayUplinks, sourceOrgVDCId, edgeGatewayIdList, True],
                 'Validating whether DHCP is enabled on source Isolated Org VDC network': [vcdValidationObj.validateDHCPEnabledonIsolatedVdcNetworks, orgVdcNetworkList, edgeGatewayIdList, edgeGatewayDeploymentEdgeCluster, nsxtObj],
                 'Validating Isolated OrgVDCNetwork DHCP configuration': [vcdValidationObj.getOrgVDCNetworkDHCPConfig, orgVdcNetworkList],
+                'Validating Routed OrgVDCNetwork Static IP pool configuration for non distributed routing': [vcdValidationObj.validateStaticIpPoolForNonDistributedRouting, orgVdcNetworkList, orgVDCDict],
                 'Validating whether shared networks are supported or not': [vcdValidationObj.validateOrgVDCNetworkShared, sourceOrgVDCId],
                 'Validating Source OrgVDC Direct networks': [vcdValidationObj.validateOrgVDCNetworkDirect, orgVdcNetworkList, orgVDCDict["NSXTProviderVDCName"], self.NSXTProviderVDCImportedNeworkTransportZone, nsxtObj],
                 'Validating Edge cluster for target edge gateway deployment': [vcdValidationObj.validateEdgeGatewayDeploymentEdgeCluster, edgeGatewayDeploymentEdgeCluster, nsxtObj],
@@ -212,9 +213,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
 
             # Checking if any org vdc has VXLAN backed network pool
             vxlanBackingPresent = any([True if
-                                       vcdObj.getSourceNetworkPoolDetails().get(
-                                           'VMWNetworkPool', {}).get(
-                                           '@type') == vcdConstants.VXLAN_NETWORK_POOL_TYPE
+                                       vcdObj.getSourceNetworkPoolBacking() == vcdConstants.VXLAN
                                        else False
                                        for vcdObj in self.vcdObjList])
 

@@ -1156,7 +1156,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     # creating url for dns config update
                     url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                           vcdConstants.ALL_EDGE_GATEWAYS,
-                                          vcdConstants.CREATE_DNS_CONFIG.format(edgeGatewayID))
+                                          vcdConstants.DNS_CONFIG.format(edgeGatewayID))
                     self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
                     # put api call to configure dns
                     apiResponse = self.restClientObj.put(url, headers=self.headers, data=payloadData)
@@ -1167,7 +1167,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         logger.debug('DNS service configured successfully on target edge gateway - {}'.format(sourceEdgeGateway['name']))
                         url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                               vcdConstants.ALL_EDGE_GATEWAYS,
-                                              vcdConstants.CREATE_DNS_CONFIG.format(edgeGatewayID))
+                                              vcdConstants.DNS_CONFIG.format(edgeGatewayID))
                         self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
                         # get api call to get dns listener ip
                         response = self.restClientObj.get(url, headers=self.headers)
@@ -1188,22 +1188,140 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         except Exception:
             raise
 
+    @isSessionExpired
+    def configureNetworkProfileForDHCP(self, targetOrgVDCId):
+        """
+            Description : Configure network profile on target OrgVDC for DHCP services
+            Parameters  : targetOrgVDCId    -   Id of the target organization VDC in URN format (STRING)
+        """
+        try:
+            logger.debug('Configuring network profile on target orgVDC')
+            data = self.rollback.apiData
+            url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                vcdConstants.NETWORK_PROFILE.format(targetOrgVDCId))
+            # payload to configure edge cluster details from target edge gateway
+            payload = {
+                "servicesEdgeCluster": {
+                    "edgeClusterRef": {
+                        "name": data['targetEdgeGateway'][0]['edgeClusterConfig']['primaryEdgeCluster'][
+                            'edgeClusterRef']['name'],
+                        "id": data['targetEdgeGateway'][0]['edgeClusterConfig']['primaryEdgeCluster'][
+                            'edgeClusterRef']['id']
+                    },
+                    "backingId": data['targetEdgeGateway'][0]['edgeClusterConfig']['primaryEdgeCluster'][
+                        'backingId']
+                }
+            }
+            self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+            response = self.restClientObj.put(url, self.headers, data=json.dumps(payload))
+            if response.status_code == requests.codes.accepted:
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug('Network profile on target OrgVDC is configured')
+            else:
+                errorResponce = response.json()
+                raise Exception(
+                    'Failed to configure network profile on target OrgVDC: {}'.format(errorResponce['message']))
+        except Exception:
+            raise
+
+    @description("Get free IP from static IP pool of routed orgVDC network")
+    def getFreeIpFromOrgVDCNetworkStaticPool(self, orgVDCNetwork):
+        """
+            Description : Get free IP from static IP pool of routed orgVDC network.
+        """
+        logger.debug("Get free IP from static IP pool of routed orgVDC network {}.".format(orgVDCNetwork['name']))
+        orgVDCNetworkId = orgVDCNetwork['id']
+        url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                            vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(orgVDCNetworkId),
+                              vcdConstants.GET_ORG_VDC_NETWORK_ALLOCATED_IP)
+        # retrieve all allocated IPs from OrgVDC network
+        resultList = self.getPaginatedResults('OrgVDC network allocated IP', url, self.headers)
+
+        logger.debug('Total Allocated IP details result count = {}'.format(len(resultList)))
+        logger.debug('OrgVDC network allocated IP details successfully retrieved')
+
+        totalIpAddresses = list()
+        usedIpAddresses = list()
+        # Retrive list of all used IPs
+        for data in resultList:
+            usedIpAddresses.append(data['ipAddress'])
+
+        # retrieve list of all IP addresses from static pool.
+        ipRanges = orgVDCNetwork['subnets']['values'][0]['ipRanges']['values']
+        for ipRange in ipRanges:
+            ipRangeAddresses = [str(ipaddress.IPv4Address(ip)) for ip in
+                                range(int(ipaddress.IPv4Address(ipRange['startAddress'])),
+                                      int(ipaddress.IPv4Address(ipRange['endAddress']) + 1))]
+            totalIpAddresses.extend(ipRangeAddresses)
+
+        # Retrieve free IPs.
+        freeIpList = [ipAddress for ipAddress in totalIpAddresses if ipAddress not in usedIpAddresses]
+        sortedFreeIpList = [ip for ip in sorted(freeIpList, key=lambda ip: [int(ip) for ip in ip.split(".")])]
+        return sortedFreeIpList[-1]
+
+    @description("Update the static IP pool of OrgVDC network.")
+    def updateOrgVDCNetworkStaticIpPool(self, network, ipToBeRemove):
+        """
+            Description : Update the static IP pool of OrgVDC network.
+        """
+        logger.debug("Updating Static IP pool of OrgVDC network {}.".format(network['name']))
+        orgVDCNetworkId = network['id']
+        url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                            vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(orgVDCNetworkId))
+        # retrieve info of orgVDC network.
+        response = self.restClientObj.get(url, self.headers)
+        if response.status_code != requests.codes.ok:
+            raise Exception("Failed to get OrgVDC details.")
+
+        responseDict = response.json()
+        staticIpPools = responseDict['subnets']['values'][0]['ipRanges'].get('values')
+        for index, ipPool in enumerate(staticIpPools):
+            ipRangeAddresses = [str(ipaddress.IPv4Address(ip)) for ip in
+                                range(int(ipaddress.IPv4Address(ipPool['startAddress'])),
+                                      int(ipaddress.IPv4Address(ipPool['endAddress']) + 1))]
+
+            if ipToBeRemove not in ipRangeAddresses:
+                continue
+
+            if ipPool['startAddress'] == ipToBeRemove:
+                del ipRangeAddresses[0]
+                staticIpPools[index]['startAddress'] = ipRangeAddresses[0]
+            elif ipPool['endAddress'] == ipToBeRemove:
+                del ipRangeAddresses[-1]
+                staticIpPools[index]['endAddress'] = ipRangeAddresses[-1]
+            else:
+                ipIndex = ipRangeAddresses.index(ipToBeRemove)
+                staticIpPools[index]['endAddress'] = ipRangeAddresses[ipIndex - 1]
+                del ipRangeAddresses[ipIndex]
+                remainingIpPool = ipRangeAddresses[ipIndex:]
+                if len(remainingIpPool) > 0:
+                        staticIpPools.extend([{'startAddress': remainingIpPool[0], 'endAddress': remainingIpPool[-1]}])
+            break
+
+        responseDict['subnets']['values'][0]['ipRanges']['values'] = staticIpPools
+        payLoadData = json.dumps(responseDict)
+        apiResponse = self.restClientObj.put(url, self.headers, data=payLoadData)
+        if apiResponse.status_code != requests.codes.accepted:
+            raise Exception("Failed to update OrgVDC static pool details : ", apiResponse.json()['message'])
+        task_url = apiResponse.headers['Location']
+        self._checkTaskStatus(taskUrl=task_url)
+        logger.debug("Successfully updated static pool of OrgVDC network {}.".format(network['name']))
+
     @description("configuration of DHCP Static Binding service on target edge gateway")
     @remediate
     def configureDHCPBindingService(self):
         """
-        Description : Configure DHCP Static-Bindings service on target edge gateway.
+            Description : Configure DHCP Static-Bindings service on target edge gateway.
         """
         logger.debug('DHCP Static Bindings Service is getting configured')
+        sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
         targetOrgVDCId = self.rollback.apiData['targetOrgVDC']['@id']
 
-        # get taregt OrgVDC Network details.
+        # get OrgVDC Network details which are used as a relay agents.
+        sourceOrgvdcNetworks = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
         orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
         for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
-            targetEdgeGatewayID = list(
-                filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
-                       self.rollback.apiData['targetEdgeGateway']))[0]['id']
-
             DHCPData = self.rollback.apiData['sourceEdgeGatewayDHCP'][sourceEdgeGateway['id']]
             # configure DHCP Binding on target only if source edge gateway has DHCP Binding configured.
             if not DHCPData.get('staticBindings'):
@@ -1220,8 +1338,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # get the OrgVDC network details which is used in bindings.
             for binding in staticBindings:
                 bindingIp = binding['ipAddress']
-                networkId = None
-                networkName = None
+                networkId, networkName, ipToBeUse = None, None, None
 
                 # get taregt OrgVDC Network details.
                 for network in orgvdcNetworks:
@@ -1231,6 +1348,22 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     if ipaddress.ip_address(bindingIp) in ipNetwork:
                         networkId = network['id']
                         networkName = network['name']
+                        networkType = network['networkType']
+                        networkConnectionTypeValue = network['connection']['connectionTypeValue']
+
+                        if (float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2)
+                                and networkType == 'NAT_ROUTED'
+                                and networkConnectionTypeValue == 'NON_DISTRIBUTED'):
+                            # get the free IP from the static IP pool of orgvdc network
+                            for sourceOrgvdcNetwork in sourceOrgvdcNetworks:
+                                if sourceOrgvdcNetwork['name'] + '-v2t' == network['name']:
+                                    sourceOrgvdcNetworkData = sourceOrgvdcNetwork
+                                    break
+                            else:
+                                raise Exception("Unable to find source OrgVDC network details.")
+                            ipToBeUse = self.getFreeIpFromOrgVDCNetworkStaticPool(sourceOrgvdcNetworkData)
+                            # Updating the static Ip pool of the OrgVDC network.
+                            self.updateOrgVDCNetworkStaticIpPool(network, ipToBeUse)
                         break
 
                 if not networkId:
@@ -1246,10 +1379,21 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     # checking if configured is dhcp, if not then configure.
                     if not responsedict.get('enabled'):
                         # Creating Payload
-                        payloadData = {
-                            "enabled": True,
-                            "mode": "EDGE"
-                        }
+                        # check for the Non-Distributed network.
+                        # Configure non-distributed network is 'NETWORK' mode, bcz non-dis
+                        # tributed routing which does not support DHCP EDGE or RELAY modes
+                        if ipToBeUse:
+                            self.configureNetworkProfileForDHCP(targetOrgVDCId)
+                            payloadData = {
+                                "enabled": True,
+                                "mode": "NETWORK",
+                                "ipAddress": ipToBeUse
+                            }
+                        else:
+                            payloadData = {
+                                "enabled": True,
+                                "mode": "EDGE"
+                            }
                         payloadData = json.dumps(payloadData)
                         # Call for PUT API to configure DHCP on OrgVDC network, which used in DHCP bindings.
                         apiResponse = self.restClientObj.put(DHCPurl, headers=self.headers, data=payloadData)
@@ -1336,9 +1480,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         Description : Configure DHCP Relay service on target edge gateway.
         """
         logger.debug('DHCP Relay Service is getting configured')
+        sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
         targetOrgVDCId = self.rollback.apiData['targetOrgVDC']['@id']
+
         # get OrgVDC Network details which are used as a relay agents.
+        sourceOrgvdcNetworks = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
         orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
+
         for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
             targetEdgeGatewayID = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'], self.rollback.apiData['targetEdgeGateway']))[0]['id']
             DHCPData = self.rollback.apiData['sourceEdgeGatewayDHCP'][sourceEdgeGateway['id']]
@@ -1430,6 +1578,31 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     "enabled": True,
                     "mode": "RELAY"
                 }
+                # check for the Non-Distributed network.
+                # Configure non-distributed network is 'NETWORK' mode, bcz non-dis
+                # tributed routing which does not support DHCP EDGE or RELAY modes
+                if (float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2)
+                        and network['networkType'] == 'NAT_ROUTED'
+                        and network['connection']['connectionTypeValue'] == 'NON_DISTRIBUTED'):
+                    # get the free IP from the static IP pool of orgvdc network
+                    for sourceOrgvdcNetwork in sourceOrgvdcNetworks:
+                        if sourceOrgvdcNetwork['name'] + '-v2t' == network['name']:
+                            sourceOrgvdcNetworkData = sourceOrgvdcNetwork
+                            break
+                    else:
+                        raise Exception("Unable to find source OrgVDC network details.")
+
+                    ipToBeUse = self.getFreeIpFromOrgVDCNetworkStaticPool(sourceOrgvdcNetworkData)
+
+                    # Updating the static Ip pool of the OrgVDC network.
+                    self.updateOrgVDCNetworkStaticIpPool(network, ipToBeUse)
+                    payloadData['ipAddress'] = ipToBeUse
+                    payloadData['mode'] = 'NETWORK'
+
+                    # Configuring service edge cluster
+                    logger.debug('Configuring network profile on target orgVDC')
+                    self.configureNetworkProfileForDHCP(targetOrgVDCId)
+
                 payloadData = json.dumps(payloadData)
                 # Call for PUT API to configure DHCP on OrgVDC network, which used as a DHCP relay agents.
                 apiResponse = self.restClientObj.put(DHCPurl, headers=self.headers, data=payloadData)
