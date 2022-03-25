@@ -153,7 +153,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating Hardware version of Source Provider VDC: {} and Target Provider VDC: {}'.format(orgVDCDict["NSXVProviderVDCName"], orgVDCDict["NSXTProviderVDCName"]): [vcdValidationObj.validateHardwareVersion],
                 'Validating whether source Org VDC placement policies are present in target PVDC': [vcdValidationObj.validateVMPlacementPolicy, sourceOrgVDCId],
                 'Validating storage profiles in source Org VDC and target Provider VDC': [vcdValidationObj.validateStorageProfiles],
-                'Validating if source and target External networks have same subnets': [vcdValidationObj.validateExternalNetworkSubnets, orgVDCDict],
+                'Validating if source and target External networks have same subnets': [vcdValidationObj.validateExternalNetworkSubnets],
                 'Validating Target External Network with NSXT provided in input file': [vcdValidationObj.validateExternalNetworkWithNSXT],
                 'Validating if all edge gateways interfaces are in use': [vcdValidationObj.validateEdgeGatewayUplinks, sourceOrgVDCId, edgeGatewayIdList, True],
                 'Validating whether DHCP is enabled on source Isolated Org VDC network': [vcdValidationObj.validateDHCPEnabledonIsolatedVdcNetworks, orgVdcNetworkList, edgeGatewayIdList, edgeGatewayDeploymentEdgeCluster, nsxtObj],
@@ -181,7 +181,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             # Perform these validations only if services are to be configured
             if mainConstants.SERVICES_KEYWORD in self.executeList:
                 vcdValidationMapping.update({
-                    'Validating Source Edge gateway services': [vcdValidationObj.getEdgeGatewayServices, orgVDCDict, nsxtObj, self.nsxvObj, noSnatDestSubnet, True, serviceEngineGroupName],
+                    'Validating Source Edge gateway services': [vcdValidationObj.getEdgeGatewayServices, nsxtObj, self.nsxvObj, noSnatDestSubnet, True, serviceEngineGroupName],
                     'Validating Distributed Firewall configuration': [vcdValidationObj.getDistributedFirewallConfig, sourceOrgVDCId, True, True, False]
                 })
 

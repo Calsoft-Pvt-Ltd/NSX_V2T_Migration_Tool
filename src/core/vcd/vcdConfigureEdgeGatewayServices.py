@@ -67,11 +67,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # Configuring target IPSEC
             self.configTargetIPSEC(nsxvObj)
             # Configuring target NAT
-            self.configureTargetNAT(noSnatDestSubnet, orgVDCDict)
+            self.configureTargetNAT(noSnatDestSubnet)
             # Configuring firewall
             self.configureFirewall(networktype=False, configureIPSET=True)
             # Configuring BGP
-            self.configBGP(orgVDCDict)
+            self.configBGP()
             # Configuring Route Advertisement
             self.configureRouteAdvertisement()
             # Configuring DNS
@@ -774,7 +774,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
     @description("configuration of Target NAT")
     @remediate
-    def configureTargetNAT(self, noSnatDestSubnet=None, orgVDCDict=None):
+    def configureTargetNAT(self, noSnatDestSubnet=None):
         """
         Description :   Configure the NAT service to the Target Gateway
         Parameters  :   noSnatDestSubnet    -   destimation subnet address (OPTIONAL)
@@ -795,7 +795,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     # get details of static routing config
                     staticRoutingConfig = self.getStaticRoutesDetails(sourceEdgeGatewayId)
                     # get details of BGP configuration
-                    bgpConfigDetails = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, orgVDCDict, validation=False)
+                    bgpConfigDetails = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
                     #get routing config details
                     routingConfigDetails = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId,
                                                                             sourceEdgeGateway['name'],
@@ -857,7 +857,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
     @description("configuration of BGP")
     @remediate
-    def configBGP(self, orgVDCDict):
+    def configBGP(self):
         """
         Description :   Configure BGP on the Target Edge Gateway
         """
@@ -870,7 +870,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
                     self.rollback.apiData['targetEdgeGateway']))[0]['id']
 
-                bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, orgVDCDict, validation=False)
+                bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
                 data = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId, sourceEdgeGateway['name'],
                                                         validation=False)
                 # checking whether bgp rule is enabled or present in the source edge  gateway;
@@ -1032,7 +1032,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
     def configureRouteAdvertisement(self):
         """
         Description :  Configure Route Advertisement on the Target Edge Gateway
-        Parameters  :  advertiseRoutedNetworks - Flag the informs whether to advertise routed networks or not
         """
         logger.debug('Route Advertisement is getting configured')
         for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:

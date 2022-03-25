@@ -8,7 +8,7 @@ Description : Module performs VMware Cloud Director validations related for NSX-
 
 import inspect
 from functools import wraps
-from collections import OrderedDict, defaultdict, Counter
+from collections import OrderedDict, defaultdict
 from pkg_resources._vendor.packaging import version
 import copy
 import json
@@ -1451,7 +1451,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def validateExternalNetworkSubnets(self, orgVdcDict):
+    def validateExternalNetworkSubnets(self):
         """
         Description :  Validate the external networks subnet configuration
         """
@@ -1460,7 +1460,7 @@ class VCDMigrationValidation:
             # reading the data from metadata
             data = self.rollback.apiData
             # Get external network to gateway mapping from orgvdc data
-            extNetDict = orgVdcDict.get('ExternalNetwork')
+            extNetDict = self.orgVdcDict.get('ExternalNetwork')
             errorList = list()
 
             # comparing the source and target external network subnet configuration
@@ -2477,7 +2477,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getEdgeGatewayServices(self, vdcDict=None, nsxtObj=None, nsxvObj=None, noSnatDestSubnetAddr=None, preCheckMode=False, ServiceEngineGroupName=None, v2tAssessmentMode=False):
+    def getEdgeGatewayServices(self, nsxtObj=None, nsxvObj=None, noSnatDestSubnetAddr=None, preCheckMode=False, ServiceEngineGroupName=None, v2tAssessmentMode=False):
         """
         Description :   Gets the Edge gateway services Configuration details
         Parameters  :   nsxtObj - nsxtOperations class object
@@ -2538,7 +2538,7 @@ class VCDMigrationValidation:
                     v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the bgp config details of specified edge gateway
-                self.thread.spawnThread(self.getEdgegatewayBGPconfig, gatewayId, vdcDict, validation=True, nsxtObj=nsxtObj, v2tAssessmentMode=v2tAssessmentMode)
+                self.thread.spawnThread(self.getEdgegatewayBGPconfig, gatewayId, validation=True, nsxtObj=nsxtObj, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the routing config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewayRoutingConfig, gatewayId, gatewayName, precheck=preCheckMode)
@@ -3414,7 +3414,7 @@ class VCDMigrationValidation:
         return errorList
 
     @isSessionExpired
-    def getEdgegatewayBGPconfig(self, edgeGatewayId, vdcDict, validation=True, nsxtObj=None, v2tAssessmentMode=False):
+    def getEdgegatewayBGPconfig(self, edgeGatewayId, validation=True, nsxtObj=None, v2tAssessmentMode=False):
         """
         Description :   Gets the BGP Configuration details on the Edge Gateway
         Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
@@ -3423,15 +3423,13 @@ class VCDMigrationValidation:
         """
         try:
             errorList = list()
-            # reading the data from metadata
-            data = self.rollback.apiData
 
             # Check for V2T Assessment mode
             if v2tAssessmentMode:
                 return [], False
 
             # Get external network details mapped to edgeGateway
-            extNetDict = vdcDict.get('ExternalNetwork')
+            extNetDict = self.orgVdcDict.get('ExternalNetwork')
             targetExternalNetwork = self.getExternalNetworkMappedToEdgeGateway(edgeGatewayId, extNetDict)
             sourceEdgeGatewayName = list(
                 filter(lambda edgeGatewayData: edgeGatewayData['id'] == "urn:vcloud:gateway:{}".format(edgeGatewayId),
@@ -4441,9 +4439,9 @@ class VCDMigrationValidation:
 
             # validating whether same subnet exist in source and target External networks
             logger.info('Validating source and target External networks have same subnets')
-            self.validateExternalNetworkSubnets(vdcDict)
+            self.validateExternalNetworkSubnets()
 
-            #  Validate whether the external network is linked to NSXT provided in the input file or not
+            # Validate whether the external network is linked to NSXT provided in the input file or not
             logger.info('Validating Target External Network with NSXT provided in input file')
             self.validateExternalNetworkWithNSXT()
 
@@ -4524,7 +4522,7 @@ class VCDMigrationValidation:
                 raise dfwConfigReturn
 
             # get the list of services configured on source Edge Gateway
-            self.getEdgeGatewayServices(vdcDict, nsxtObj, nsxvObj, noSnatDestSubnet,
+            self.getEdgeGatewayServices(nsxtObj, nsxvObj, noSnatDestSubnet,
                                         ServiceEngineGroupName=ServiceEngineGroupName)
         except:
             raise
@@ -4621,11 +4619,6 @@ class VCDMigrationValidation:
             orgVdcNameList = list()
             for orgVdc in orgVdcList:
                 if orgVdc['OrgVDCName'] != sourceOrgVDC and externalNetworkName in orgVdc.get('ExternalNetwork').values():
-                    # orgUrl = self.getOrgUrl(inputDict["VCloudDirector"]["Organization"]["OrgName"])
-                    # sourceOrgVDCId = self.getOrgVDCDetails(orgUrl, orgVdc["OrgVDCName"], 'sourceOrgVDC',
-                    #                                        saveResponse=False)
-                    # sourceEdgeGatewayIdList = self.getOrgVDCEdgeGatewayId(sourceOrgVDCId)
-                    # if len(sourceEdgeGatewayIdList) > 0:
                     orgVdcNameList.append(orgVdc['OrgVDCName'])
             return orgVdcNameList
         except:
@@ -4656,7 +4649,7 @@ class VCDMigrationValidation:
 
             for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
                 sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
-                bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, self.orgVdcDict, validation=False)
+                bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
 
                 externalNetworkName = edgeGatwayToExtNetMap[sourceEdgeGateway['name']]
                 targetExternalNetwork = self.rollback.apiData['targetExternalNetwork'][externalNetworkName]
@@ -4665,14 +4658,13 @@ class VCDMigrationValidation:
                         "Failed to get target ExternalNetwork mapped to source edge gateway {} from user Input.".format(
                             sourceEdgeGateway['name']))
 
-                orgVdcNameList = self.checkSameExternalNetworkUsedByOtherVDC(
-                    sourceOrgVDC, inputDict, externalNetworkName)
-
                 bgpEnabled = bgpConfigDict and isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == 'true'
                 advertiseRoutedNetworks = self.orgVdcDict['AdvertiseRoutedNetworks'].get(
                     sourceEdgeGateway['name'], self.orgVdcDict['AdvertiseRoutedNetworks']['default'])
 
                 # 1. User input validation Across Org VDC
+                orgVdcNameList = self.checkSameExternalNetworkUsedByOtherVDC(
+                    sourceOrgVDC, inputDict, externalNetworkName)
                 if orgVdcNameList:
                     if bgpEnabled:
                         errorList.append(
