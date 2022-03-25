@@ -11,13 +11,20 @@ VCloudDirector:
     - OrgVDCName: Acme-1-vdc # Name of the source organization VDC
       NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
       NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
-      ExternalNetwork: tpm-externalnetwork # Name of the external network to which all target NSX-T edge gateways will be connected to
+      ExternalNetwork:  # Name of the external network to which all target NSX-T edge gateways will be connected to
+        gw1: tpm-externalnetwork-1
+        gw2: tpm-externalnetwork-1
+        gw3: tpm-externalnetwork-2
+        default: tpm-externalnetwork
       NSXTNetworkPoolName: 2nd-t-network-pool # Name of the nsxt backed network pool which needs to be added incase of multiple network pools
       NoSnatDestinationSubnet: 10.100.0.0/16 # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
       ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
       LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
-      AdvertiseRoutedNetworks: False #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
+      AdvertiseRoutedNetworks: #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
+        gw1: True
+        gw2: True
+        default: False
       NonDistributedNetworks: False # (optional) Option to create the non-distributed routing for routed OrgVDC network.
     - OrgVDCName: Acme-2-vdc # Name of the source organization VDC
       NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
