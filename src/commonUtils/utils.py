@@ -33,6 +33,10 @@ def listify(_list):
     return _list if isinstance(_list, list) else [_list]
 
 
+def urn_id(_id, type):
+    return _id if _id.startswith('urn') else f"urn:vcloud:{type}:{_id}"
+
+
 class Utilities():
     """
     Description :   This class provides commonly used methods for vCloud Director NSXV to NSXT

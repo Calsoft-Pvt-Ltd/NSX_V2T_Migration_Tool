@@ -8,7 +8,7 @@ Description : Module performs VMware Cloud Director validations related for NSX-
 
 import inspect
 from functools import wraps
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, Counter
 from pkg_resources._vendor.packaging import version
 import copy
 import json
@@ -26,15 +26,19 @@ import src.core.vcd.vcdConstants as vcdConstants
 
 from src.commonUtils.restClient import RestAPIClient
 from src.commonUtils.certUtils import verifyCertificateAgainstCa
-from src.commonUtils.utils import Utilities, listify
-
+from src.commonUtils.utils import Utilities, listify, urn_id
 
 logger = logging.getLogger('mainLogger')
+endStateLogger = logging.getLogger("endstateLogger")
+
 
 def getSession(self):
     if hasattr(self, '__threadname__') and self.__threadname__:
         threading.current_thread().name = self.__threadname__
     threading.current_thread().name = self.vdcName
+
+    return
+
     url = '{}session'.format(vcdConstants.XML_API_URL.format(self.ipAddress))
     response = self.restClientObj.get(url, headers=self.headers)
     if response.status_code != requests.codes.ok:
@@ -396,12 +400,10 @@ class VCDMigrationValidation:
 
                             # Converting python objects back from string
                             try:
-                                logger.debug(f"{metadataKey} {metadataValue}")    # TODO pranshu: remove
+                                endStateLogger.debug(f"[Metadata] {metadataKey}: {metadataValue}")
                                 metadataValue = eval(metadataValue)
                             except (SyntaxError, NameError, ValueError) as e:
-                                # TODO pranshu: uncomment when previous TODO is removed
-                                # logger.debug(f'Failed to evaluate: {e})
-                                # logger.debug(f'{metadataKey}: {metadataValue}: ')
+                                logger.debug(f'Failed to evaluate {metadataKey}: {e}')
                                 logger.debug(traceback.format_exc())
 
                         metaData[metadataKey] = metadataValue
@@ -3388,7 +3390,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def _checkTaskStatus(self, taskUrl, returnOutput=False, timeoutForTask=vcdConstants.VCD_CREATION_TIMEOUT):
+    def _checkTaskStatus(self, taskUrl, returnOutput=False, timeoutForTask=vcdConstants.VCD_CREATION_TIMEOUT, entityName=''):
         """
         Description : Checks status of a task in VDC
         Parameters  : taskUrl   - Url of the task monitored (STRING)
@@ -3396,6 +3398,10 @@ class VCDMigrationValidation:
         """
         if self.headers.get("Content-Type", None):
             del self.headers['Content-Type']
+
+        if entityName:
+            entityName = f" for {entityName}"
+
         timeout = 0.0
         # Get the task details
         output = ''
@@ -3406,25 +3412,27 @@ class VCDMigrationValidation:
                 response = self.restClientObj.get(url=taskUrl, headers=headers)
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
-                    logger.debug("Checking status for task : {}".format(responseDict["operationName"]))
+                    logger.debug("Checking status for task : {}{}".format(responseDict["operationName"], entityName))
                     if returnOutput:
                         output = responseDict['operation']
                         # rfind will search from right to left, here Id always comes in the last
                         output = output[output.rfind("(") + 1:output.rfind(")")]
                     if responseDict["status"] == "success":
-                        logger.debug("Successfully completed task : {}".format(responseDict["operationName"]))
+                        logger.debug("Successfully completed task : {}{}".format(
+                            responseDict["operationName"], entityName))
                         if not returnOutput:
                             return
                         return output
                     if responseDict["status"] == "error":
-                        logger.error("Task {} is in Error state {}".format(responseDict["operationName"], responseDict['details']))
+                        logger.error("Task {}{} is in Error state {}".format(
+                            responseDict["operationName"], entityName, responseDict['details']))
                         raise Exception(responseDict['details'])
-                    msg = "Task {} is in running state".format(responseDict["operationName"])
+                    msg = "Task {}{} is in running state".format(responseDict["operationName"], entityName)
                     logger.debug(msg)
                 time.sleep(vcdConstants.VCD_CREATION_INTERVAL)
                 timeout += vcdConstants.VCD_CREATION_INTERVAL
-            raise Exception('Task {} could not complete in the allocate'
-                            'd time.'.format(responseDict["operationName"]))
+            raise Exception('Task {}{} could not complete in the allocated time.'.format(
+                responseDict["operationName"], entityName))
         except:
             raise
 
@@ -3549,6 +3557,7 @@ class VCDMigrationValidation:
         Description :   Send get request for vApp and check if vApp has its own vapp routed network in response
         Parameters  :   vApp - data related to a vApp (DICT)
         """
+        # TODO pranshu: remove use of migration=False argument.
         # get api call to retrieve the vapp details
         response = self.restClientObj.get(vApp['@href'], self.headers)
         responseDict = self.vcdUtils.parseXml(response.content)
@@ -3567,31 +3576,208 @@ class VCDMigrationValidation:
             if routedVappNetworks:
                 self.vAppNetworkDict[vApp['@name']] = routedVappNetworks
 
-            if self.version >= vcdConstants.API_VERSION_ANDROMEDA:
-                isolatedNetworksWithDhcp = [
-                    vAppNetwork['@networkName']
-                    for vAppNetwork in vAppNetworkList
-                    if vAppNetwork['Configuration']['FenceMode'] == "isolated"
-                    if vAppNetwork['Configuration'].get('Features', {}).get('DhcpService', {}).get('IsEnabled') == 'true'
-                ]
+    def _validateRoutedVappNetworks(self, vApp, vAppValidations, nsxtObj):
+        response = self.restClientObj.get(vApp['@href'], self.headers)
+        responseDict = self.vcdUtils.parseXml(response.content)
+        if not response.status_code == requests.codes.ok:
+            raise Exception(
+                "Failed to get vapp {} details for own network due to {}".format(
+                    vApp['@name'], responseDict['Error']['@message']))
 
-                if isolatedNetworksWithDhcp:
-                    self.DHCPEnabled[vApp['@name']] = isolatedNetworksWithDhcp
+        vAppData = responseDict['VApp']
+        if not vAppData['NetworkConfigSection'].get('NetworkConfig'):
+            return
 
-    def validateNoVappNetworksExist(self, sourceOrgVDCId):
+        networkTypes = set()
+        vAppValidations['routerExternalIp'][vApp['@name']] = dict()
+        vAppValidations['natExternalIp'][vApp['@name']] = dict()
+        for vAppNetwork in listify(vAppData['NetworkConfigSection']['NetworkConfig']):
+            if vAppNetwork['@networkName'] == "none":
+                continue
+
+            networkTypes.add(vAppNetwork['Configuration']['FenceMode'])
+            if vAppNetwork['Configuration']['FenceMode'] != 'natRouted':
+                continue
+
+            # Verify NAT rules
+            natService = vAppNetwork['Configuration'].get('Features', {}).get('NatService', {})
+            if natService.get('NatType', '') == 'portForwarding':
+                for rule in listify(natService.get('NatRule')):
+                    rule = rule.get('VmRule')
+                    if not rule:
+                        continue
+
+                    if rule.get('ExternalPort') != '-1' and rule.get('InternalPort') == '-1':
+                        vAppValidations['natPfCustomToAny'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
+
+                    if rule['Protocol'] == 'TCP_UDP':
+                        vAppValidations['natPfTcpUdp'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
+
+                # TODO pranshu: Check for duplicate Any port
+                duplicateNatPorts = Counter(
+                    rule.get('VmRule', {}).get('ExternalPort')
+                    for rule in listify(natService.get('NatRule'))
+                )
+                if any(value > 1 for value in duplicateNatPorts.values()):
+                    vAppValidations['natPfDuplicatePort'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
+
+            elif natService.get('NatType', '') == 'ipTranslation':
+                if natService['IsEnabled'] == 'false':
+                    vAppValidations['natIptDisabled'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
+
+            # Get parent network
+            response = self.restClientObj.get(
+                url="{}{}".format(
+                    vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                    vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(
+                        urn_id(vAppNetwork['Configuration']['ParentNetwork']['@id'], type='network'))
+                ),
+                headers=self.headers
+            )
+            orgVdcNetwork = response.json()
+            if not response.status_code == requests.codes.ok:
+                raise Exception(
+                    f"Unable to get parent network {vAppNetwork['Configuration']['ParentNetwork']['@name']}"
+                    f" details: {orgVdcNetwork['message']}")
+
+            # Check for direct networks
+            # 1. parent network is not non-shared direct network
+            # 2. for shared direct network, target external network (-v2t suffixed) is overlay backed
+            if orgVdcNetwork['networkType'] == 'DIRECT':
+                # Verify the shared network is not dedicated
+                url = "{}{}{}".format(
+                    vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                    vcdConstants.ALL_ORG_VDC_NETWORKS,
+                    vcdConstants.QUERY_EXTERNAL_NETWORK.format(orgVdcNetwork['parentNetworkId']['id']))
+                response = self.restClientObj.get(url, self.headers)
+                responseDict = response.json()
+                if not response.status_code == requests.codes.ok:
+                    raise Exception(
+                        f"Unable to get external network {orgVdcNetwork['parentNetworkId']['name']} details: "
+                        f"{responseDict['message']}")
+
+                # If external network is dedicated or shared at external network level, it is not supported
+                if not(int(responseDict['resultTotal']) > 1 and orgVdcNetwork['shared']):
+                    vAppValidations['directNetworks'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
+
+                # If shared at Org VDC network level, verify it is overlay backed
+                elif nsxtObj:
+                    externalNetworkName = f"{orgVdcNetwork['parentNetworkId']['name']}-v2t"
+                    response = self.restClientObj.get(
+                        url="{}{}?filter=(name=={})".format(
+                            vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                            vcdConstants.ALL_EXTERNAL_NETWORKS,
+                            externalNetworkName,
+                        ),
+                        headers=self.headers
+                    )
+                    externalNetwork = response.json()
+                    if not response.status_code == requests.codes.ok:
+                        raise Exception(
+                            f"Unable to get external network {externalNetworkName} details: {externalNetwork['message']}")
+
+                    # Result should contain single result as we are getting by name
+                    if externalNetwork['resultTotal'] == 1:
+                        for backing in externalNetwork['values'][0]['networkBackings']['values']:
+                            if backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH':
+                                if not nsxtObj.isOverlayBackedSegment(backing['backingId']):
+                                    vAppValidations['vlanBackedNetworks'].add(f"{vApp['@name']}|{externalNetworkName}")
+                                break
+                    else:
+                        vAppValidations['vlanBackedNetworks'].add(f"{vApp['@name']}|NA")
+
+            # check the external router ips of routed vapp networks and NAT
+            vAppValidations['routerExternalIp'][vApp['@name']].update(
+                {vAppNetwork['@networkName']: vAppNetwork['Configuration'].get('RouterInfo', {}).get('ExternalIp')})
+            if vAppNetwork['Configuration'].get('Features', {}).get('NatService', {}).get('NatRule'):
+                vAppValidations['natExternalIp'][vApp['@name']][vAppNetwork['@networkName']] = []
+                for rule in listify(vAppNetwork['Configuration']['Features']['NatService']['NatRule']):
+                    if rule.get('OneToOneVmRule', {}).get('ExternalIpAddress'):
+                        vAppValidations['natExternalIp'][vApp['@name']][vAppNetwork['@networkName']].append(
+                            rule['OneToOneVmRule'].get('ExternalIpAddress'))
+
+        # Check if routed vapp networks are combined with other type of networks(org VDC/vapp bridged, vapp isolated)
+        if 'natRouted' in networkTypes and len(networkTypes) > 1:
+            vAppValidations['mixedNetworkTypes'].add(vApp['@name'])
+
+    def validateRoutedVappNetworks(self, sourceOrgVDCId, v2tAssessmentMode=False, nsxtObj=None):
         """
         Description :   Validates there exists no vapp routed network in source vapps
         """
         try:
-            vAppNetworkList = list()
-            self.vAppNetworkDict = dict()
-            self.DHCPEnabled = dict()
-
             vAppList = self.getOrgVDCvAppsList(sourceOrgVDCId)
             if not vAppList:
                 return
 
-                # iterating over the source vapps
+            # Routed vapp support is added from VCD build 10.3.2.19442122. As API version is same for 10.3.2 and this
+            # build, we are comparing VCD version directly.
+            if (version.parse(self.getVCDVersion()) >= version.parse(vcdConstants.VCD_10_3_2_1_BUILD)
+                    or v2tAssessmentMode):
+                logger.debug('Validating routed vApp network configuration')
+                vAppValidations = {
+                    'mixedNetworkTypes': set(),
+                    'directNetworks': set(),
+                    'vlanBackedNetworks': set(),
+                    'natPfCustomToAny': set(),
+                    'natPfTcpUdp': set(),
+                    'natPfDuplicatePort': set(),
+                    'routerExternalIp': dict(),
+                    'natExternalIp': dict(),
+                    'natIptDisabled': set(),
+                }
+                for vApp in vAppList:
+                    self.thread.spawnThread(self._validateRoutedVappNetworks, vApp, vAppValidations, nsxtObj)
+                self.thread.joinThreads()
+                if self.thread.stop():
+                    raise Exception("Failed to validate vApp routed networks")
+                errors = []
+                if vAppValidations['mixedNetworkTypes']:
+                    errors.append(
+                        f"Routed vapp network is not supported with other type of networks in vapp/s (vApp): "
+                        f"{', '.join(vAppValidations['mixedNetworkTypes'])}")
+                if vAppValidations['directNetworks']:
+                    errors.append(
+                        f"Routed vApp parent network should be a shared direct network (vApp|vApp_Network):"
+                        f"{', '.join(vAppValidations['directNetworks'])}")
+                if vAppValidations['vlanBackedNetworks']:
+                    errors.append(
+                        f"External network used for routed vapp networks should be overlay backed "
+                        f"(vApp|External_Network): {', '.join(vAppValidations['vlanBackedNetworks'])}")
+                if vAppValidations['natPfCustomToAny']:
+                    errors.append(
+                        f"Invalid NAT rule: if internal port is ANY, external port should also be ANY "
+                        f"(vApp|vApp_Network): {', '.join(vAppValidations['natPfCustomToAny'])}")
+                if vAppValidations['natPfTcpUdp']:
+                    errors.append(
+                        f"Invalid NAT rule: 'TCP&UDP' rule is not supported "
+                        f"(vApp|vApp_Network): {', '.join(vAppValidations['natPfTcpUdp'])}")
+                if vAppValidations['natPfDuplicatePort']:
+                    errors.append(
+                        f"Invalid NAT rule: Multiple rules with same external port is not supported "
+                        f"(vApp|vApp_Network): {', '.join(vAppValidations['natPfDuplicatePort'])}")
+                if vAppValidations['natIptDisabled']:
+                    errors.append(
+                        f"Disabled NAT service is not supported "
+                        f"(vApp|vApp_Network): {', '.join(vAppValidations['natIptDisabled'])}")
+
+                # logic to identify router external IP conflicts with NAT
+                for externalVapp, externalNetList in vAppValidations['routerExternalIp'].items():
+                    for externalNet, externalIp in externalNetList.items():
+                        for natVapp, natNetList in vAppValidations['natExternalIp'].items():
+                            for natNet, natIpList in natNetList.items():
+                                if externalIp in natIpList and externalVapp != natVapp:
+                                    errors.append("Router external IP of '{}' network of '{}' vapp is used for "
+                                                  "NAT external IP of '{}' network of '{}' vapp".format(externalNet, externalVapp, natNet, natVapp))
+
+                if errors:
+                    raise ValidationError('\n'.join(errors))
+
+                logger.debug('Successfully validated routed vApp network configuration')
+                return
+
+            # iterating over the source vapps
+            vAppNetworkList = []
+            self.vAppNetworkDict = {}
             for vApp in vAppList:
                 # spawn thread for check vapp with own network task
                 self.thread.spawnThread(self._checkVappWithOwnNetwork, vApp)
@@ -3791,7 +3977,7 @@ class VCDMigrationValidation:
             elif version.parse(vCDVersion) < version.parse("10.3"):
                 logger.warning("VCD {} is not supported with current migration tool. Some features may not work as expected.".format(vCDVersion))
             else:
-                return re.match("\d*\.\d*\.\d*", values[0].get("productVersion")).group()
+                return vCDVersion
         else:
             raise Exception(
                 "Failed to fetch vCD version information - {}".format(responseDict['message']))
@@ -4357,7 +4543,7 @@ class VCDMigrationValidation:
             # getting the source Org VDC networks
             logger.info('Getting the Org VDC networks of source Org VDC {}'.format(vdcDict["OrgVDCName"]))
             orgVdcNetworkList = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks')
-            
+
             # Validatating static Ip pool for routed OrgVDC network.
             logger.info('Validating Routed OrgVDCNetwork Static IP pool configuration')
             self.validateStaticIpPoolForNonDistributedRouting(orgVdcNetworkList, vdcDict)
@@ -4453,8 +4639,8 @@ class VCDMigrationValidation:
             self.validateVappFencingMode(sourceOrgVDCId)
 
             # validating that No vApps have its own vApp Networks
-            logger.info('Validate vApps have no routed vApp Networks')
-            self.validateNoVappNetworksExist(sourceOrgVDCId)
+            logger.info('Validating routed vApp Networks')
+            self.validateRoutedVappNetworks(sourceOrgVDCId, nsxtObj=nsxtObj)
 
             # validating that No vApps have isolated networks with dhcp configured
             logger.info('Validating isolated vApp networks with DHCP enabled')
@@ -5509,7 +5695,7 @@ class VCDMigrationValidation:
                         orgVDCData - Details of Org VDCs (DICT)
         """
         if not orgVdcNetworkSharedList:
-            return 
+            return
 
         dfwDefaultRules = []
         evaluatedOrgVdcs = []

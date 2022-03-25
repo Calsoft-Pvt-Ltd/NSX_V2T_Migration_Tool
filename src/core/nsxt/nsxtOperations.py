@@ -1648,6 +1648,32 @@ class NSXTOperations():
         except:
             raise
 
+    def isOverlayBackedSegment(self, segmentName):
+        response = self.restClientObj.get(
+            url="{}{}".format(
+                nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(segmentName)),
+            headers=nsxtConstants.NSXT_API_HEADER,
+            auth=self.restClientObj.auth)
+        segment = response.json()
+        if not response.status_code == requests.codes.ok:
+            raise Exception(f"Failed to get details of logical segment {segmentName}: {segment['error_message']}")
+
+        response = self.restClientObj.get(
+            url="{}{}".format(
+                nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                segment['transport_zone_path']),
+            headers=nsxtConstants.NSXT_API_HEADER,
+            auth=self.restClientObj.auth)
+        tz = response.json()
+        if not response.status_code == requests.codes.ok:
+            raise Exception(f"Failed to get details of transport zone: {tz['transport_zone_path']}: {tz['error_message']}")
+
+        if tz['tz_type'] == 'OVERLAY_STANDARD':
+            return True
+
+        return False
+
     def createNsxtManagerQos(self, qosProfileName):
         """
         Description :   Validate Edge Gateway uplinks

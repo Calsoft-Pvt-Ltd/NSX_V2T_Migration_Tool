@@ -895,7 +895,7 @@ class VMwareCloudDirectorNSXMigrator():
                     edgeGatewayDeploymentEdgeCluster = orgVdcDict.get('EdgeGatewayDeploymentEdgeCluster', None)
                     sourceOrgVDCID = vcdObj.rollback.apiData['sourceOrgVDC']['@id']
                     targetOrgVDCID = vcdObj.rollback.apiData['targetOrgVDC']['@id']
-                    futures.append(executor.submit(vcdObj.updateNetworkProfileIsolatedvAppDHCP, sourceOrgVDCID,
+                    futures.append(executor.submit(vcdObj.updateNetworkProfileOnTarget, sourceOrgVDCID,
                                                    targetOrgVDCID, edgeGatewayDeploymentEdgeCluster,
                                                    self.nsxtObjList[0]))
                 waitForThreadToComplete(futures)
@@ -932,10 +932,9 @@ class VMwareCloudDirectorNSXMigrator():
             waitForThreadToComplete(futures)
 
         # Migration end state log.
-        endStateLogger = logging.getLogger("endstateLogger")
         for vcdObj in self.vcdObjList:
             # Dump Migration end state log to file.
-            vcdObj.dumpEndStateLog(endStateLogger)
+            vcdObj.dumpEndStateLog()
 
         self.consoleLogger.info(
             f'Successfully completed migration of NSX-V backed to NSX-T backed for Org VDC/s '
