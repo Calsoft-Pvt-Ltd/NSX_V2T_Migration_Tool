@@ -816,6 +816,12 @@ class VCDMigrationValidation:
         Description :   Gets the details of dummy external networks and saves metadata
         Parameters  :   networkName - Name of the external network (STRING)
         """
+        if not networkName:
+            if self.rollback.apiData['sourceEdgeGateway']:
+                raise Exception("Dummy Network not provided")
+            else:
+                self.rollback.apiData['dummyExternalNetwork'] = networkName
+                return networkName
         externalNetwork = self.getExternalNetworkByName(networkName)
         self.rollback.apiData['dummyExternalNetwork'] = externalNetwork
         return externalNetwork
@@ -849,6 +855,8 @@ class VCDMigrationValidation:
         # Target External network name can be fetched as follows:
         # extNetInput = user_input['ExternalNetwork']
         # target_ext_net_name = extNetInput.get(source_egw_name, extNetInput.get('default'))
+        if self.rollback.apiData['sourceEdgeGateway'] and not extNetInput:
+            raise Exception("Tier0Gateways not provided")
         targetExternalNetwork = {
             extNet: self.getExternalNetworkByName(extNet)
             for extNet in set(extNetInput.values())
@@ -1422,6 +1430,8 @@ class VCDMigrationValidation:
         Description : Validate whether the external network is linked to NSXT provided in the input file
         """
         try:
+            if not self.rollback.apiData['sourceEdgeGateway']:
+                return
             # Checking if target external network is present
             if 'targetExternalNetwork' not in self.rollback.apiData.keys():
                 raise Exception("Target External Network not present")
@@ -1456,6 +1466,8 @@ class VCDMigrationValidation:
         Description :  Validate the external networks subnet configuration
         """
         try:
+            if not self.rollback.apiData['sourceEdgeGateway']:
+                return
             logger.debug("Validate the external networks subnet configuration.")
             # reading the data from metadata
             data = self.rollback.apiData
@@ -2488,13 +2500,12 @@ class VCDMigrationValidation:
         """
         try:
             logger.info('Getting the services configured on source Edge Gateway')
-
             # Handle condition if NSX-IP if different than the one registered in vCD
-            if not v2tAssessmentMode and not self.nsxVersion:
+            if not v2tAssessmentMode and not self.nsxVersion and self.rollback.apiData['sourceEdgeGateway']:
                 raise Exception('Incorrect NSX-T IP Address in input file. '
                         'Please check if the NSX-T IP Address matches the one in NSXT-Managers in vCD')
 
-            if not v2tAssessmentMode and 'targetExternalNetwork' not in self.rollback.apiData.keys():
+            if not v2tAssessmentMode and 'targetExternalNetwork' not in self.rollback.apiData.keys() and self.rollback.apiData['sourceEdgeGateway']:
                 raise Exception('Target External Network not present')
 
             errorData = {'DHCP': [],
@@ -4364,8 +4375,6 @@ class VCDMigrationValidation:
         """
         # Flag to check whether the org vdc was disabled or not
         disableOrgVDC = False
-        # edge list to check need for external and dummy network
-        edgeGatewayIdList = self.getOrgVDCEdgeGatewayId(sourceOrgVDCId)
         try:
             logger.info(f'Starting with PreMigration validation tasks for org vdc "{vdcDict["OrgVDCName"]}"')
 
@@ -4376,23 +4385,21 @@ class VCDMigrationValidation:
             logger.info("Validating whether target Org VDC already exists")
             self.validateNoTargetOrgVDCExists(vdcDict["OrgVDCName"])
 
+            # Getting Org VDC Edge Gateway Id
+            sourceEdgeGatewayIdList = self.getOrgVDCEdgeGatewayId(sourceOrgVDCId, saveResponse=True)
+            self.rollback.apiData['sourceEdgeGatewayId'] = sourceEdgeGatewayIdList
+
             # Validating external network mapping with Gateway mentioned in userInput file.
             logger.info("Validating external network mapping with Gateway mentioned in userInput file.")
-            self.validateEdgeGatewayToExternalNetworkMapping(sourceOrgVDCId, vdcDict['ExternalNetwork'])
+            self.validateEdgeGatewayToExternalNetworkMapping(sourceOrgVDCId, vdcDict.get('ExternalNetwork', {}))
 
             # getting the target External Network details
             logger.info('Getting the target External Network details')
-            self.getTargetExternalNetworks(vdcDict["ExternalNetwork"], validateVRF=True)
+            self.getTargetExternalNetworks(vdcDict.get("ExternalNetwork", {}), validateVRF=True)
 
-            if edgeGatewayIdList:
-                if inputDict["VCloudDirector"].get("DummyExternalNetwork"):
-                    # getting the source dummy External Network details
-                    logger.info('Getting the source dummy External Network - {} details.'.format(inputDict["VCloudDirector"]["DummyExternalNetwork"]))
-                    self.getDummyExternalNetwork(inputDict["VCloudDirector"]["DummyExternalNetwork"])
-                else:
-                    raise Exception("dummy network not provided")
-            else:
-                logger.warning("Skipping dummy external network check as no edge is present")
+            # getting the source dummy External Network details
+            logger.info('Getting the source dummy External Network - {} details.'.format(inputDict["VCloudDirector"].get("DummyExternalNetwork")))
+            self.getDummyExternalNetwork(inputDict["VCloudDirector"].get("DummyExternalNetwork"))
 
             # getting the source provider VDC details and checking if its NSX-V backed
             logger.info('Getting the source Provider VDC - {} details.'.format(vdcDict["NSXVProviderVDCName"]))
@@ -4435,10 +4442,6 @@ class VCDMigrationValidation:
             # validating whether source and target P-VDC have same vm storage profiles
             logger.info('Validating storage profiles in source Org VDC and target Provider VDC')
             self.validateStorageProfiles()
-
-            # Getting Org VDC Edge Gateway Id
-            sourceEdgeGatewayIdList = self.getOrgVDCEdgeGatewayId(sourceOrgVDCId, saveResponse=True)
-            self.rollback.apiData['sourceEdgeGatewayId'] = sourceEdgeGatewayIdList
 
             logger.info("Validating Edge cluster for target edge gateway deployment")
             self.validateEdgeGatewayDeploymentEdgeCluster(vdcDict.get('EdgeGatewayDeploymentEdgeCluster', None), nsxtObj)
@@ -4642,6 +4645,8 @@ class VCDMigrationValidation:
         Description :   Validate if the External network is dedicatedly used by any other edge gateway
         """
         try:
+            if not self.rollback.apiData['sourceEdgeGateway']:
+                return
             # reading the data from metadata
             data = self.rollback.apiData
             sourceOrgVDC = data['sourceOrgVDC']['@name']
