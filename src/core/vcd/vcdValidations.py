@@ -1474,7 +1474,7 @@ class VCDMigrationValidation:
             # reading the data from metadata
             data = self.rollback.apiData
             # Get external network to gateway mapping from orgvdc data
-            extNetDict = self.orgVdcDict.get('ExternalNetwork')
+            extNetDict = self.orgVdcDict.get('Tier0Gateways')
             errorList = list()
 
             # comparing the source and target external network subnet configuration
@@ -3450,7 +3450,7 @@ class VCDMigrationValidation:
                 return [], False
 
             # Get external network details mapped to edgeGateway
-            extNetDict = self.orgVdcDict.get('ExternalNetwork')
+            extNetDict = self.orgVdcDict.get('Tier0Gateways')
             targetExternalNetwork = self.getExternalNetworkMappedToEdgeGateway(edgeGatewayId, extNetDict)
             sourceEdgeGatewayName = list(
                 filter(lambda edgeGatewayData: edgeGatewayData['id'] == "urn:vcloud:gateway:{}".format(edgeGatewayId),
@@ -4580,11 +4580,11 @@ class VCDMigrationValidation:
 
             # Validating external network mapping with Gateway mentioned in userInput file.
             logger.info("Validating external network mapping with Gateway mentioned in userInput file.")
-            self.validateEdgeGatewayToExternalNetworkMapping(sourceOrgVDCId, vdcDict.get('ExternalNetwork', {}))
+            self.validateEdgeGatewayToExternalNetworkMapping(sourceOrgVDCId, vdcDict.get('Tier0Gateways', {}))
 
             # getting the target External Network details
             logger.info('Getting the target External Network details')
-            self.getTargetExternalNetworks(vdcDict.get("ExternalNetwork", {}), validateVRF=True)
+            self.getTargetExternalNetworks(vdcDict.get("Tier0Gateways", {}), validateVRF=True)
 
             # getting the source dummy External Network details
             logger.info('Getting the source dummy External Network - {} details.'.format(inputDict["VCloudDirector"].get("DummyExternalNetwork")))
@@ -4822,7 +4822,7 @@ class VCDMigrationValidation:
             orgVdcList = inputDict['VCloudDirector']['SourceOrgVDC']
             orgVdcNameList = list()
             for orgVdc in orgVdcList:
-                if orgVdc['OrgVDCName'] != sourceOrgVDC and externalNetworkName in orgVdc.get('ExternalNetwork').values():
+                if orgVdc['OrgVDCName'] != sourceOrgVDC and externalNetworkName in orgVdc.get('Tier0Gateways').values():
                     orgVdcNameList.append(orgVdc['OrgVDCName'])
             return orgVdcNameList
         except:
@@ -4845,7 +4845,7 @@ class VCDMigrationValidation:
                 raise Exception('Target External Network not present')
 
             # Get external network details mapped to edgeGateway
-            extNetDict = self.orgVdcDict.get('ExternalNetwork')
+            extNetDict = self.orgVdcDict.get('Tier0Gateways')
 
             # Map edgeGateway to external network.
             edgeGatwayToExtNetMap = {
