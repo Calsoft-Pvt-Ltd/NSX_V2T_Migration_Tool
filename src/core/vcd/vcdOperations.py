@@ -27,6 +27,7 @@ from src.core.vcd.vcdValidations import (
     isSessionExpired, description, remediate, remediate_threaded, getSession)
 from src.core.vcd.vcdConfigureEdgeGatewayServices import ConfigureEdgeGatewayServices
 logger = logging.getLogger('mainLogger')
+endStateLogger = logging.getLogger("endstateLogger")
 
 
 class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
@@ -441,6 +442,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # if overlay id exists for corresponding org vdc network
                 if cloneOverlayIds and overlayId:
                     payloadData.update({'overlayId': overlayId})
+
+                # Enable guest vlan
+                if sourceOrgVDCNetwork.get('guestVlanTaggingAllowed'):
+                    payloadData['guestVlanTaggingAllowed'] = sourceOrgVDCNetwork['guestVlanTaggingAllowed']
 
                 # Create the non distributed routed network.
                 if (float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2)
@@ -965,7 +970,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     responseDict['networkType'] = 'ISOLATED'
                     del responseDict['status']
                     del responseDict['lastTaskFailureMessage']
-                    # del(responseDict['guestVlanTaggingAllowed'])
                     del responseDict['retainNicResources']
                     del responseDict['crossVdcNetworkId']
                     del responseDict['crossVdcNetworkLocationId']
@@ -1305,15 +1309,19 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     if networkConnection['IpAddressAllocationMode'] == 'POOL' and \
                             float(self.version) <= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
                         networkConnection['IpAddressAllocationMode'] = 'MANUAL'
-                    payloadDict = {'networkName': networkName,
-                                   # TODO pranshu: Add external IP for routed vApp networks
-                                   'ipAddress': ipAddress,
-                                   'connected': networkConnection['IsConnected'],
-                                   'macAddress': networkConnection['MACAddress'],
-                                   'allocationModel': networkConnection['IpAddressAllocationMode'],
-                                   'adapterType': networkConnection['NetworkAdapterType'],
-                                   'networkConnectionIndex': networkConnection['NetworkConnectionIndex']
-                                   }
+                    payloadDict = {
+                        'networkName': networkName,
+                        'needsCustomization': networkConnection.get('@needsCustomization', 'false'),
+                        'ipAddress': ipAddress,
+                        'IpType': networkConnection.get('IpType', ''),
+                        'ExternalIpAddress': networkConnection.get('ExternalIpAddress', ''),
+                        'connected': networkConnection['IsConnected'],
+                        'macAddress': networkConnection['MACAddress'],
+                        'allocationModel': networkConnection['IpAddressAllocationMode'],
+                        'SecondaryIpAddressAllocationMode': networkConnection.get('SecondaryIpAddressAllocationMode', 'NONE'),
+                        'adapterType': networkConnection['NetworkAdapterType'],
+                        'networkConnectionIndex': networkConnection['NetworkConnectionIndex']
+                        }
                     payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                               componentName=vcdConstants.COMPONENT_NAME,
                                                               templateName=vcdConstants.VAPP_VM_NETWORK_CONNECTION_SECTION_TEMPLATE)
@@ -2026,9 +2034,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except:
             raise
 
-    @description("Configure network profile on OrgVDC if dhcp is enabled on isolated vApp network.")
+    @description("Configure network profile on OrgVDC")
     @remediate
-    def updateNetworkProfileIsolatedvAppDHCP(self, sourceOrgVDCId, targetOrgVDCID, edgeGatewayDeploymentEdgeCluster, nsxtObj):
+    def updateNetworkProfileOnTarget(self, sourceOrgVDCId, targetOrgVDCID, edgeGatewayDeploymentEdgeCluster, nsxtObj):
         """
             Description : Configure network profile on OrgVDC if dhcp is enabled on isolated vApp network.
             Parameters  : sourceOrgVdcID,   -   Id of the source organization VDC in URN format (STRING)
@@ -2036,25 +2044,29 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                           nsxtObj           -   NSX-T Object
                           edgeGatewayDeploymentEdgeCluster - edge gateway deployment edge cluster.
         """
-        try:
-            self.isovAppNetworkDHCPEnabled = dict()
-            vAppList = self.getOrgVDCvAppsList(sourceOrgVDCId.split(":")[-1])
-            if not vAppList:
-                return
+        logger.debug(
+            'Configuring network profile if isolated vApp networks with DHCP or routed vApp networks are present')
+        vAppList = self.getOrgVDCvAppsList(sourceOrgVDCId.split(":")[-1])
+        if not vAppList:
+            return
 
-            # iterating over the source vapps
-            for vApp in vAppList:
-                # spawn thread for check vapp with own network task
-                DHCPEnabledNetworkList = self._checkVappWithIsolatedNetwork(vApp, True)
-                if len(DHCPEnabledNetworkList) > 0:
-                    self.isovAppNetworkDHCPEnabled[vApp['@name']] = DHCPEnabledNetworkList
+        for vApp in vAppList:
+            response = self.restClientObj.get(vApp['@href'], self.headers)
+            responseDict = self.vcdUtils.parseXml(response.content)
+            if not response.status_code == requests.codes.ok:
+                raise Exception('Error occurred while retrieving vapp details while configuring network profile '
+                                'for {} due to {}'.format(vApp['@name'], responseDict['Error']['@message']))
 
-            if self.isovAppNetworkDHCPEnabled:
-                for vApp in vAppList:
+            vAppData = responseDict['VApp']
+            if not vAppData['NetworkConfigSection'].get('NetworkConfig'):
+                continue
+
+            for vAppNetwork in listify(vAppData['NetworkConfigSection']['NetworkConfig']):
+                if (vAppNetwork['Configuration']['FenceMode'] == "natRouted"
+                        or vAppNetwork['Configuration'].get('Features', {}).get('DhcpService', {}).get(
+                            'IsEnabled') == 'true'):
                     self.configureNetworkProfile(targetOrgVDCID, edgeGatewayDeploymentEdgeCluster, nsxtObj)
-                    break
-        except:
-            raise
+                    return
 
     @isSessionExpired
     def configureNetworkProfile(self, targetOrgVDCId, edgeGatewayDeploymentEdgeCluster=None, nsxtObj=None):
@@ -2997,7 +3009,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except:
             raise
 
-    def dumpEndStateLog(self, endStateLogger):
+    def dumpEndStateLog(self):
         """
                 Description :   It dumps the Migration State Log at the end of file.
                                 It creates two table which shows source and target details.
@@ -3731,13 +3743,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         'isInherited': ipScope['IsInherited'],
                         'gateway': ipScope['Gateway'],
                         'netmask': ipScope['Netmask'],
-                        'subnet': ipScope.get('SubnetPrefixLength'),
+                        'subnet': ipScope.get('SubnetPrefixLength', 1),
+                        'IsEnabled': ipScope.get('IsEnabled'),
                         'dns1': ipScope.get('Dns1'),
                         'dns2': ipScope.get('Dns2'),
                         'dnsSuffix': ipScope.get('DnsSuffix'),
                         'ipRanges': listify(ipScope.get('IpRanges', {}).get('IpRange')),
                     }
-                    for ipScope in ipScopes
+                    for ipScope in listify(vAppNetwork['Configuration']['IpScopes']['IpScope'])
                     if ipScope['IsInherited'] == 'false'
                 ]
 
@@ -3765,6 +3778,24 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if sourceDhcpConfig.get('IsEnabled') == 'true':
                     featuresConfig['dhcpConfig'] = sourceDhcpConfig
 
+            # Firewall service config
+            if vAppNetwork['Configuration']['Features'].get('FirewallService'):
+                firewallConfig = vAppNetwork['Configuration']['Features']['FirewallService']
+                firewallConfig['FirewallRule'] = listify(firewallConfig.get('FirewallRule'))
+                featuresConfig['FirewallService'] = firewallConfig
+
+            # NAT service config
+            if vAppNetwork['Configuration']['Features'].get('NatService'):
+                natConfig = vAppNetwork['Configuration']['Features']['NatService']
+                natConfig['NatRule'] = listify(natConfig.get('NatRule'))
+                featuresConfig['NatService'] = natConfig
+
+            # Static Routing service config
+            if vAppNetwork['Configuration']['Features'].get('StaticRoutingService'):
+                staticRoutingConfig = vAppNetwork['Configuration']['Features']['StaticRoutingService']
+                staticRoutingConfig['StaticRoute'] = listify(staticRoutingConfig.get('StaticRoute'))
+                featuresConfig['StaticRoutingService'] = staticRoutingConfig
+
             return featuresConfig
 
         targetOrgVDCNetworks = {network['name']: network['id'] for network in targetOrgVDCNetworkList}
@@ -3778,10 +3809,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     'ipScopes': prepareIpScopesConfig(vAppNetwork),
                     'parentNetwork': getParentNetwork(vAppNetwork),
                     'fenceMode': vAppNetwork['Configuration']['FenceMode'],
-                    'retainNetInfoAcrossDeployments':
-                        vAppNetwork['Configuration'].get('RetainNetInfoAcrossDeployments'),
+                    'RetainNetInfoAcrossDeployments':
+                        vAppNetwork['Configuration'].get('RetainNetInfoAcrossDeployments', 'false'),
                     'features': prepareFeaturesConfig(vAppNetwork),
                     'routerExternalIp': vAppNetwork['Configuration'].get('RouterInfo', {}).get('ExternalIp'),
+                    'GuestVlanAllowed': vAppNetwork['Configuration'].get('GuestVlanAllowed', 'false'),
+                    'DualStackNetwork': vAppNetwork['Configuration'].get('DualStackNetwork', 'false'),
                     'isDeployed': vAppNetwork['IsDeployed'],
                 }
                 for vAppNetwork in listify(vAppData['NetworkConfigSection']['NetworkConfig'])
@@ -3825,7 +3858,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             logger.info('Moving vApp - {} to target Org VDC - {}'.format(vApp['@name'], sourceOrgVDCName + '-v2t'))
 
         response = self.restClientObj.get(vApp['@href'], self.headers)
-        responseDict = self.vcdUtils.parseXml(response.content)
+        sourceVapp = response.content
+        endStateLogger.debug(f"[vApp][{vApp['@name']}] Source vapp xml: {sourceVapp}")
+        responseDict = self.vcdUtils.parseXml(sourceVapp)
         if response.status_code != requests.codes.ok:
             raise Exception(f"Failed to get vApp details: {responseDict['Error']['@message']}")
 
@@ -3844,6 +3879,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             vcdConstants.XML_API_URL.format(self.ipAddress),
             vcdConstants.MOVE_VAPP_IN_ORG_VDC.format(targetOrgVDCId))
         self.headers["Content-Type"] = vcdConstants.XML_MOVE_VAPP
+        endStateLogger.debug(f"[vApp][{vApp['@name']}] Payload for moveVapp API: {payloadData}")
 
         response = self.restClientObj.post(url, self.headers, data=json.loads(payloadData))
         if response.status_code == requests.codes.accepted:
@@ -3851,7 +3887,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             taskUrl = responseDict["Task"]["@href"]
             if taskUrl:
                 # checking for the status of the composing vapp task
-                self._checkTaskStatus(taskUrl, timeoutForTask=timeout)
+                self._checkTaskStatus(taskUrl, timeoutForTask=timeout, entityName=vApp['@name'])
         else:
             responseDict = self.vcdUtils.parseXml(response.content)
             raise Exception(

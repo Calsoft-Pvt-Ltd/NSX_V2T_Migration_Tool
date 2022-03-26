@@ -35,7 +35,8 @@ handlers:
 
   end-state-log:
     class: logging.FileHandler
-    level: INFO
+    level: DEBUG
+    formatter: simple
     filename: VCD-NSX-Migrator-Statelog-{}.log
     encoding: utf-8
 
@@ -62,7 +63,7 @@ loggers:
     propagate: no
 
   endstateLogger:
-    level: INFO
+    level: DEBUG
     handlers:
       - end-state-log
       - console

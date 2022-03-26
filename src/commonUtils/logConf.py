@@ -107,9 +107,6 @@ class Logger():
                 # delete preCheck and inventory from handlers and loggers as it is not required in cleanup mode
                 del config["handlers"]["pre-assessment"]
                 del config['loggers']['precheckLogger']
-                # deletes end state logger as it is not required in cleanup mode.
-                del config["handlers"]["end-state-log"]
-                del config['loggers']['endstateLogger']
 
             if executionMode == 'v2tAssessment':
                 del config["handlers"]["pre-assessment"]
