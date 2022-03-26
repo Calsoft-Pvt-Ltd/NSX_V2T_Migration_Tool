@@ -5397,8 +5397,6 @@ class VCDMigrationValidation:
                         externalNetworkIds = [values['name'] for values in responseValues]
                         if parentNetworkId['name'] not in externalNetworkIds:
                             return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, nsxtProviderVDCName)
-                        else:
-                            return None, 'Failed to get external network scoped to target PVDC - {} with error code - {}\n'.format(nsxtProviderVDCName, response.status_code)
                 else:
                     try:
                         sourceExternalNetwork = self.fetchAllExternalNetworks()
