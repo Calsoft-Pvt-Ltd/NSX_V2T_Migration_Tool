@@ -1906,7 +1906,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def validateOrgVDCNetworkDirect(self, orgVdcNetworkList, nsxtProviderVDCName, transportZone, nsxtObj):
+    def validateOrgVDCNetworkDirect(self, orgVdcNetworkList, vdcDict, transportZone, nsxtObj):
         """
         Description :   Validates if Source Org VDC Networks are not direct networks
         Parameters  :   orgVdcNetworkList   -   list of org vdc network list (LIST)
@@ -1918,7 +1918,7 @@ class VCDMigrationValidation:
             for orgVdcNetwork in orgVdcNetworkList:
                 if orgVdcNetwork['networkType'] == 'DIRECT':
                     parentNetworkId = orgVdcNetwork['parentNetworkId']
-                    networkName, exception = self.validateExternalNetworkdvpg(parentNetworkId, nsxtProviderVDCName, orgVdcNetwork['name'], orgVdcNetwork)
+                    networkName, exception = self.validateExternalNetworkdvpg(parentNetworkId, vdcDict, orgVdcNetwork['name'], orgVdcNetwork)
                     if networkName:
                         orgVdcNetworkDirectList.append(networkName)
                     if exception:
@@ -4357,7 +4357,7 @@ class VCDMigrationValidation:
             # getting the source Org VDC networks
             logger.info('Getting the Org VDC networks of source Org VDC {}'.format(vdcDict["OrgVDCName"]))
             orgVdcNetworkList = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks')
-            
+
             # Validatating static Ip pool for routed OrgVDC network.
             logger.info('Validating Routed OrgVDCNetwork Static IP pool configuration')
             self.validateStaticIpPoolForNonDistributedRouting(orgVdcNetworkList, vdcDict)
@@ -4377,7 +4377,7 @@ class VCDMigrationValidation:
             # validating whether any source org vdc network is not direct network
             logger.info('Validating Source OrgVDC Direct networks')
             providerVDCImportedNeworkTransportZone = inputDict["VCloudDirector"].get("ImportedNetworkTransportZone", None)
-            self.validateOrgVDCNetworkDirect(orgVdcNetworkList, vdcDict["NSXTProviderVDCName"],
+            self.validateOrgVDCNetworkDirect(orgVdcNetworkList, vdcDict,
                                              providerVDCImportedNeworkTransportZone, nsxtObj)
 
             # validating NSX-V and NSX-T VNI pool ranges
@@ -5202,7 +5202,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def validateExternalNetworkdvpg(self, parentNetworkId, nsxtProviderVDCName, orgvdcNetwork, networkData):
+    def validateExternalNetworkdvpg(self, parentNetworkId, vdcDict, orgvdcNetwork, networkData):
         """
         Description: This method validates the external network used by direct networks
 
@@ -5216,7 +5216,7 @@ class VCDMigrationValidation:
                 responseDict = response.json()
                 if int(responseDict['resultTotal']) > 1:
                     # Added validation for shared direct network
-                    if networkData['shared']:
+                    if networkData['shared'] or not vdcDict.get("LegacyDirectNetwork", False):
                         if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
                             return None, "Shared Networks are not supported with this vCD version"
                         # Fetching all external networks from vCD
@@ -5256,7 +5256,7 @@ class VCDMigrationValidation:
                         else:
                             return None, f"NSXT segment backed external network {parentNetworkId['name']+'-v2t'} is not present, and it is required for this direct shared network - {orgvdcNetwork}\n"
                     else:
-                        targetProviderVDCId, isNSXTbacked = self.getProviderVDCId(nsxtProviderVDCName)
+                        targetProviderVDCId, isNSXTbacked = self.getProviderVDCId(vdcDict["NSXTProviderVDCName"])
                         responseValues = self.getPaginatedResults(
                             entity='External Networks',
                             baseUrl='{}{}'.format(
@@ -5267,9 +5267,9 @@ class VCDMigrationValidation:
                         )
                         externalNetworkIds = [values['name'] for values in responseValues]
                         if parentNetworkId['name'] not in externalNetworkIds:
-                            return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, nsxtProviderVDCName)
+                            return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, vdcDict["NSXTProviderVDCName"])
                         else:
-                            return None, 'Failed to get external network scoped to target PVDC - {} with error code - {}\n'.format(nsxtProviderVDCName, response.status_code)
+                            return None, 'Failed to get external network scoped to target PVDC - {} with error code - {}\n'.format(vdcDict["NSXTProviderVDCName"], response.status_code)
                 else:
                     try:
                         sourceExternalNetwork = self.fetchAllExternalNetworks()
