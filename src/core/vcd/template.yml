@@ -250,9 +250,6 @@ vCloudDirector:
               {% if ipScope.subnet %}
               <root:SubnetPrefixLength>{{ ipScope.subnet }}</root:SubnetPrefixLength>
               {% endif %}
-              {% if ipScope.IsEnabled %}
-              <root:IsEnabled>{{ ipScope.IsEnabled }}</root:IsEnabled>
-              {% endif %}
               {% if ipScope.dns1 %}
               <root:Dns1>{{ ipScope.dns1 }}</root:Dns1>
               {% endif %}
@@ -261,6 +258,9 @@ vCloudDirector:
               {% endif %}
               {% if ipScope.dnsSuffix %}
               <root:DnsSuffix>{{ ipScope.dnsSuffix }}</root:DnsSuffix>
+              {% endif %}
+              {% if ipScope.IsEnabled %}
+              <root:IsEnabled>{{ ipScope.IsEnabled }}</root:IsEnabled>
               {% endif %}
               <root:IpRanges>
                 {% for ipRange in ipScope.ipRanges %}
