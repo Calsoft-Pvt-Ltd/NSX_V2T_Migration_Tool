@@ -4891,11 +4891,8 @@ class VCDMigrationValidation:
                                 sourceEdgeGateway['name'], orgVdcNameList, externalNetworkName))
 
                 # 2. Validation for edgeGateways on particular Org VDC.
-                sourceEdgeGatewayNameList = [
-                    edgeGateway
-                    for edgeGateway, extNet in edgeGatwayToExtNetMap
-                    if externalNetworkName == extNet
-                ]
+                sourceEdgeGatewayNameList = [edgeGateway for edgeGateway, extNet in edgeGatwayToExtNetMap.items() if
+                                             externalNetworkName == extNet]
                 if len(sourceEdgeGatewayNameList):
                     if bgpEnabled:
                         errorList.append(
