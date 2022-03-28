@@ -337,12 +337,12 @@ class VMwareCloudDirectorNSXMigrator():
                                     sourceOrgVdc.get('LegacyDirectNetwork'), bool):
                                 errorInputDict[dictKey] = "Value must be boolean i.e either True or False."
 
-                            if not isinstance(sourceOrgVdc.get('ExternalNetwork'), (str, dict)):
+                            if not isinstance(sourceOrgVdc.get('Tier0Gateways', {}), (str, dict)):
                                 errorInputDict[dictKey] = "ExternalNetwork is either missing or in invalid format, " \
                                                           "please provide in the string or Dict format."
-                            if isinstance(sourceOrgVdc.get('ExternalNetwork'), str):
-                                sourceOrgVdc['ExternalNetwork'] = {
-                                    'default': sourceOrgVdc.get('ExternalNetwork')
+                            if isinstance(sourceOrgVdc.get('Tier0Gateways'), str):
+                                sourceOrgVdc['Tier0Gateways'] = {
+                                    'default': sourceOrgVdc.get('Tier0Gateways')
                                 }
 
                             if sourceOrgVdc.get('AdvertiseRoutedNetworks'):

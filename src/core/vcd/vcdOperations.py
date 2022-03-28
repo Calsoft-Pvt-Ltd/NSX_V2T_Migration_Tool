@@ -234,7 +234,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 return
 
             logger.info('Creating target Org VDC Edge Gateway')
-            extNetInput = vdcDict['ExternalNetwork']
+            extNetInput = vdcDict['Tier0Gateways']
             self._updateTargetExternalNetworkPool(extNetInput)
             self._createEdgeGateway(vdcDict, extNetInput, nsxObj)
             responseDict = self.getOrgVDCEdgeGateway(self.rollback.apiData['targetOrgVDC']['@id'])
