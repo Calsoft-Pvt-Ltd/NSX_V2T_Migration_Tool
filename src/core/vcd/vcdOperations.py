@@ -370,7 +370,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if sourceOrgVDCNetwork['name'] + '-v2t' in targetOrgVDCNetworksList:
                     continue
                 if sourceOrgVDCNetwork['networkType'] == "DIRECT":
-                    segmentid, payloadData = self.createDirectNetworkPayload(orgVDCIDList, inputDict, vdcDict, nsxObj, orgvdcNetowork=sourceOrgVDCNetwork, parentNetworkId=sourceOrgVDCNetwork['parentNetworkId'])
+                    segmentid, payloadData = self.createDirectNetworkPayload(orgVDCIDList, inputDict, vdcDict, nsxObj, orgvdcNetwork=sourceOrgVDCNetwork, parentNetworkId=sourceOrgVDCNetwork['parentNetworkId'])
                     if segmentid:
                         segmetList.append(segmentid)
                 else:
@@ -2339,7 +2339,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description("Migration of IP/s to segment backed external network")
     @remediate
-    def copyIPToSegmentBackedExtNet(self, rollback=False, orgVDCIDList=None):
+    def copyIPToSegmentBackedExtNet(self, orgVDCDict=None, rollback=False, orgVDCIDList=None):
         """
         Description: Migrate the IP assigned to vm connected to shared direct network to segment backed external network
         """
@@ -2355,7 +2355,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 orgVDCNetworkList = self.retrieveNetworkListFromMetadata(sourceOrgVDCId, orgVDCType='source')
                 # Iterating over source org vdc networks to find IP's used by VM's connected to direct shared network
                 for sourceOrgVDCNetwork in orgVDCNetworkList:
-                    if sourceOrgVDCNetwork['networkType'] == "DIRECT" and sourceOrgVDCNetwork['shared']:
+                    if sourceOrgVDCNetwork['networkType'] == "DIRECT" and \
+                            (sourceOrgVDCNetwork['shared'] or not orgVDCDict.get('LegacyDirectNetwork', False)):
                         # url to retrieve the networks with external network id
                         url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                               vcdConstants.ALL_ORG_VDC_NETWORKS,
@@ -5305,7 +5306,106 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             self.saveMetadataInOrgVdc()
 
     @isSessionExpired
-    def createDirectNetworkPayload(self, orgVDCIDList, inputDict, vdcDict, nsxObj, orgvdcNetowork, parentNetworkId):
+    def importedNetworkPayload(self, parentNetworkId, orgvdcNetwork, inputDict, nsxObj):
+        """
+        Description: THis method is used to create payload for dedicated direct network(shared/non-shared)
+        return: payload data - payload data for creating a dedicated direct network(shared/non-shared)
+        """
+        # Getting source external network details
+        sourceExternalNetwork = self.fetchAllExternalNetworks()
+        externalList = [externalNetwork['networkBackings'] for externalNetwork in sourceExternalNetwork if
+                        externalNetwork['id'] == parentNetworkId['id']]
+        if isinstance(sourceExternalNetwork, Exception):
+            raise sourceExternalNetwork
+        for value in externalList:
+            externalDict = value
+        backingid = [values['backingId'] for values in externalDict['values']]
+        url = '{}{}'.format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                            vcdConstants.GET_PORTGROUP_VLAN_ID.format(backingid[0]))
+        acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
+        headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
+        # get api call to retrieve the networks with external network id
+        response = self.restClientObj.get(url, headers)
+        if response.status_code == requests.codes.ok:
+            responseDict = response.json()
+            if responseDict['record']:
+                for record in responseDict['record']:
+                    vlanId = record['vlanId']
+                segmetId, segmentName = nsxObj.createLogicalSegments(orgvdcNetwork, inputDict["VCloudDirector"][
+                    "ImportedNetworkTransportZone"], vlanId)
+            ipRanges = [
+                {
+                    'startAddress': ipRange['startAddress'],
+                    'endAddress': ipRange['endAddress'],
+                }
+                for ipRange in orgvdcNetwork['subnets']['values'][0]['ipRanges']['values']
+            ]
+            payload = {
+                'name': orgvdcNetwork['name'] + '-v2t',
+                'description': orgvdcNetwork['description'] if orgvdcNetwork.get('description') else '',
+                'networkType': 'OPAQUE',
+                "subnets": {
+                    "values": [{
+                        "gateway": orgvdcNetwork['subnets']['values'][0]['gateway'],
+                        "prefixLength": orgvdcNetwork['subnets']['values'][0]['prefixLength'],
+                        "dnsSuffix": orgvdcNetwork['subnets']['values'][0]['dnsSuffix'],
+                        "dnsServer1": orgvdcNetwork['subnets']['values'][0]['dnsServer1'],
+                        "dnsServer2": orgvdcNetwork['subnets']['values'][0]['dnsServer2'],
+                        "ipRanges": {
+                            "values": ipRanges
+                        },
+                    }]
+                },
+                'backingNetworkId': segmetId
+            }
+        else:
+            raise Exception('Failed to get external network {} vlan ID'.format(parentNetworkId['name']))
+        return segmentName, payload
+
+    @isSessionExpired
+    def extendedParentNetworkPayload(self, orgvdcNetwork):
+        """
+        Description: THis method is used to create payload for service direct network in legacy mode
+        return: payload data - payload data for creating a service direct network in legacy mode
+        """
+        payLoad = {
+                                'name': orgvdcNetwork['name'] + '-v2t',
+                                'description': orgvdcNetwork['description'] if orgvdcNetwork.get('description') else '',
+                                'networkType': orgvdcNetwork['networkType'],
+                                'parentNetworkId': orgvdcNetwork['parentNetworkId']
+                            }
+        return payLoad
+
+    @isSessionExpired
+    def v2tBackedNetworkPayload(self, parentNetworkId, orgvdcNetwork, Shared):
+        """
+        Description: THis method is used to create payload for service direct network(shared/non-shared) in non-legacy mode
+        return: payload data - payload data for creating a service direct network
+        """
+        # Payload for shared direct network / service network use case
+        externalNetworks = self.fetchAllExternalNetworks()
+        for extNet in externalNetworks:
+            # Finding segment backed ext net for shared direct network
+            if parentNetworkId['name'] + '-v2t' == extNet['name']:
+                if [backing for backing in extNet['networkBackings']['values'] if
+                     backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH']:
+                    payload = {
+                        'name': orgvdcNetwork['name'] + '-v2t',
+                        'description': orgvdcNetwork['description'] if orgvdcNetwork.get(
+                            'description') else '',
+                        'networkType': orgvdcNetwork['networkType'],
+                        'parentNetworkId': {'name': extNet['name'],
+                                            'id': extNet['id']},
+                        'shared': Shared
+                    }
+                    break
+        else:
+            raise (
+                f"NSXT segment backed external network {parentNetworkId['name'] + '-v2t'} is not present, and it is required for this direct shared network - {orgvdcNetwork['name']}")
+        return payload
+
+    @isSessionExpired
+    def createDirectNetworkPayload(self, orgVDCIDList, inputDict, vdcDict, nsxObj, orgvdcNetwork, parentNetworkId):
         """
         Description: THis method is used to create payload for direct network and imported network
         return: payload data - payload data for creating a network
@@ -5321,80 +5421,20 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
                 if int(responseDict['resultTotal']) > 1:
-                    if not orgvdcNetowork['shared']:
-                        payloadDict = {
-                            'name': orgvdcNetowork['name'] + '-v2t',
-                            'description': orgvdcNetowork['description'] if orgvdcNetowork.get('description') else '',
-                            'networkType': orgvdcNetowork['networkType'],
-                            'parentNetworkId': orgvdcNetowork['parentNetworkId']
-                        }
-                    else:
-                        # Payload for shared direct network / service network use case
-                        externalNetworks = self.fetchAllExternalNetworks()
-                        for extNet in externalNetworks:
-                            # Finding segment backed ext net for shared direct network
-                            if parentNetworkId['name'] + '-v2t' == extNet['name']:
-                                if [backing for backing in extNet['networkBackings']['values'] if
-                                     backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH']:
-                                    payloadDict = {
-                                        'name': orgvdcNetowork['name'] + '-v2t',
-                                        'description': orgvdcNetowork['description'] if orgvdcNetowork.get(
-                                            'description') else '',
-                                        'networkType': orgvdcNetowork['networkType'],
-                                        'parentNetworkId': {'name': extNet['name'],
-                                                            'id': extNet['id']},
-                                        'shared': True
-                                    }
-                                    break
+                    if not orgvdcNetwork['shared']:
+                        if vdcDict.get('LegacyDirectNetwork', False):
+                            # Service direct network legacy implementation
+                            payloadDict = self.extendedParentNetworkPayload(orgvdcNetwork)
                         else:
-                            raise(f"NSXT segment backed external network {parentNetworkId['name'] + '-v2t'} is not present, and it is required for this direct shared network - {orgvdcNetowork['name']}")
-                else:
-                    # Getting source external network details
-                    sourceExternalNetwork = self.fetchAllExternalNetworks()
-                    externalList = [externalNetwork['networkBackings'] for externalNetwork in sourceExternalNetwork if externalNetwork['id'] == parentNetworkId['id']]
-                    if isinstance(sourceExternalNetwork, Exception):
-                        raise sourceExternalNetwork
-                    for value in externalList:
-                        externalDict = value
-                    backingid = [values['backingId'] for values in externalDict['values']]
-                    url = '{}{}'.format(vcdConstants.XML_API_URL.format(self.ipAddress), vcdConstants.GET_PORTGROUP_VLAN_ID.format(backingid[0]))
-                    acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
-                    headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
-                    # get api call to retrieve the networks with external network id
-                    response = self.restClientObj.get(url, headers)
-                    if response.status_code == requests.codes.ok:
-                        responseDict = response.json()
-                        if responseDict['record']:
-                            for record in responseDict['record']:
-                                vlanId =record['vlanId']
-                            segmetId, segmentName = nsxObj.createLogicalSegments(orgvdcNetowork, inputDict["VCloudDirector"]["ImportedNetworkTransportZone"], vlanId)
-                        ipRanges = [
-                            {
-                                'startAddress': ipRange['startAddress'],
-                                'endAddress': ipRange['endAddress'],
-                            }
-                            for ipRange in orgvdcNetowork['subnets']['values'][0]['ipRanges']['values']
-                        ]
-                        payloadDict = {
-                            'name': orgvdcNetowork['name'] + '-v2t',
-                            'description': orgvdcNetowork['description'] if orgvdcNetowork.get('description') else '',
-                            'networkType': 'OPAQUE',
-                            "subnets": {
-                               "values": [{
-                                    "gateway": orgvdcNetowork['subnets']['values'][0]['gateway'],
-                                    "prefixLength":  orgvdcNetowork['subnets']['values'][0]['prefixLength'],
-                                    "dnsSuffix": orgvdcNetowork['subnets']['values'][0]['dnsSuffix'],
-                                    "dnsServer1": orgvdcNetowork['subnets']['values'][0]['dnsServer1'],
-                                    "dnsServer2": orgvdcNetowork['subnets']['values'][0]['dnsServer2'],
-                                    "ipRanges": {
-                                        "values": ipRanges
-                                    },
-                                }]
-                            },
-                            'backingNetworkId': segmetId
-                        }
+                            # Service direct network proposed implementation
+                            payloadDict = self.v2tBackedNetworkPayload(parentNetworkId, orgvdcNetwork, Shared=False)
+
                     else:
-                        raise Exception('Failed to get external network {} vlan ID'.format(parentNetworkId['name']))
+                        # Shared service direct network implementation
+                        payloadDict = self.v2tBackedNetworkPayload(parentNetworkId, orgvdcNetwork, Shared=True)
+                else:
+                    # Dedicated direct network implementation
+                    segmentName, payloadDict = self.importedNetworkPayload(parentNetworkId, orgvdcNetwork, inputDict, nsxObj)
             else:
                 raise Exception('Failed to get external network {}'.format(parentNetworkId['name']))
             payloadData = json.dumps(payloadDict)

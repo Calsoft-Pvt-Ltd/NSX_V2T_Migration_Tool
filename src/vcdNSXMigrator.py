@@ -329,6 +329,9 @@ class VMwareCloudDirectorNSXMigrator():
                                     mainConstants.VALID_IP_CIDR_FORMAT_REGEX,
                                     sourceOrgVdc['LoadBalancerVIPSubnet']):
                                 errorInputDict[dictKey] = "Input IP value is not in proper CIDR format"
+                            if sourceOrgVdc.get('LegacyDirectNetwork') and not isinstance(
+                                    sourceOrgVdc.get('LegacyDirectNetwork'), bool):
+                                errorInputDict[dictKey] = "Value must be boolean i.e either True or False."
 
         if not isinstance(self.inputDict['VCloudDirector'].get('SourceOrgVDC'), list):
             errorInputDict["VCloudDirector['SourceOrgVDC']"] = 'Value should be list'
@@ -883,8 +886,8 @@ class VMwareCloudDirectorNSXMigrator():
             futures = list()
             with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
                 orgVDCIDList = [data["id"] for data in self.orgVDCData.values()]
-                for vcdObj in self.vcdObjList:
-                    futures.append(executor.submit(vcdObj.copyIPToSegmentBackedExtNet, orgVDCIDList=orgVDCIDList))
+                for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                    futures.append(executor.submit(vcdObj.copyIPToSegmentBackedExtNet, orgVDCDict, orgVDCIDList=orgVDCIDList))
                 waitForThreadToComplete(futures)
 
             # update network profile
