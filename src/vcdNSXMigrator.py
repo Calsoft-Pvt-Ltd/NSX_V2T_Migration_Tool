@@ -282,15 +282,19 @@ class VMwareCloudDirectorNSXMigrator():
         Description - Validation of user input values and convert nested user spec dict to simple dict
         """
         errorInputDict = dict()
+
+        # Level 1: VCloudDirector, NSXT, NSXV, Vcenter
         for componentName, componentValues in self.inputDict.items():
+            # Level 2: Common, Organization, SourceOrgVDC
             for componentKey, componentValue in componentValues.items():
                 if isinstance(componentValue, dict):
+                    # Level 3: ipAddress, username, verify, OrgName
                     for item, value in componentValue.items():
                         dictKey = "{}['{}']['{}']".format(componentName, componentKey, item)
-                        if not componentValue[item] and not isinstance(componentValue[item], bool):
+                        if not value and not isinstance(value, bool):
                             errorInputDict[dictKey] = "Value must be provided."
                         # validate verify key value is boolean or not
-                        if item == 'verify' and not isinstance(componentValue[item], bool):
+                        if item == 'verify' and not isinstance(value, bool):
                             errorInputDict[dictKey] = "Value must be boolean i.e either True or False."
                         # validate ip address or fqdn
                         if item == 'ipAddress':
@@ -332,6 +336,28 @@ class VMwareCloudDirectorNSXMigrator():
                             if sourceOrgVdc.get('LegacyDirectNetwork') and not isinstance(
                                     sourceOrgVdc.get('LegacyDirectNetwork'), bool):
                                 errorInputDict[dictKey] = "Value must be boolean i.e either True or False."
+
+                            if not isinstance(sourceOrgVdc.get('ExternalNetwork'), (str, dict)):
+                                errorInputDict[dictKey] = "ExternalNetwork is either missing or in invalid format, " \
+                                                          "please provide in the string or Dict format."
+                            if isinstance(sourceOrgVdc.get('ExternalNetwork'), str):
+                                sourceOrgVdc['ExternalNetwork'] = {
+                                    'default': sourceOrgVdc.get('ExternalNetwork')
+                                }
+
+                            if sourceOrgVdc.get('AdvertiseRoutedNetworks'):
+                                if isinstance(sourceOrgVdc['AdvertiseRoutedNetworks'], bool):
+                                    sourceOrgVdc['AdvertiseRoutedNetworks'] = {
+                                        'default': sourceOrgVdc['AdvertiseRoutedNetworks']
+                                    }
+                                elif isinstance(sourceOrgVdc['AdvertiseRoutedNetworks'], dict):
+                                    sourceOrgVdc['AdvertiseRoutedNetworks'].setdefault('default', False)
+                                else:
+                                    errorInputDict[dictKey] = (
+                                        "AdvertiseRoutedNetworks is in invalid format, please provide in the Bool or"
+                                        " Dict format.")
+                            else:
+                                sourceOrgVdc['AdvertiseRoutedNetworks'] = {'default': False}
 
         if not isinstance(self.inputDict['VCloudDirector'].get('SourceOrgVDC'), list):
             errorInputDict["VCloudDirector['SourceOrgVDC']"] = 'Value should be list'
@@ -713,9 +739,13 @@ class VMwareCloudDirectorNSXMigrator():
             rollback.vcdDict = self.inputDict
             rollback.timeoutForVappMigration = self.timeoutForVappMigration
             # initializing vmware cloud director Operations class
-            self.vcdObjList.append(VCloudDirectorOperations(self.inputDict["VCloudDirector"]["Common"]["ipAddress"], self.inputDict["VCloudDirector"]["Common"]["username"],
-                                                           self.inputDict['VCloudDirector']['Common']['password'], self.inputDict['VCloudDirector']['Common']['verify'],
-                                                           rollback, threadObj, lockObj=lockObj, vdcName=orgVDCDict["OrgVDCName"]))
+            self.vcdObjList.append(VCloudDirectorOperations(
+                self.inputDict["VCloudDirector"]["Common"]["ipAddress"],
+                self.inputDict["VCloudDirector"]["Common"]["username"],
+                self.inputDict['VCloudDirector']['Common']['password'],
+                self.inputDict['VCloudDirector']['Common']['verify'],
+                rollback, threadObj, lockObj=lockObj, vdcName=orgVDCDict["OrgVDCName"], orgVDCDict=orgVDCDict,
+            ))
 
             # preparing the nsxt dict for bridging
             self.nsxtObjList.append(NSXTOperations(self.inputDict["NSXT"]["Common"]["ipAddress"], self.inputDict["NSXT"]["Common"]["username"],

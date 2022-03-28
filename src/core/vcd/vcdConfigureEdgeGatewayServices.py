@@ -73,7 +73,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # Configuring BGP
             self.configBGP()
             # Configuring Route Advertisement
-            self.configureRouteAdvertisement(orgVDCDict.get("AdvertiseRoutedNetworks"))
+            self.configureRouteAdvertisement()
             # Configuring DNS
             self.configureDNS()
             # configuring loadbalancer
@@ -878,7 +878,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 if not isinstance(bgpConfigDict, dict) or bgpConfigDict['enabled'] == 'false':
                     logger.debug('BGP service is disabled or not configured in '
                                  'Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
-                    return
+                    continue
                 logger.debug('BGP is getting configured in Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
                 ecmp = "true" if data['routingGlobalConfig']['ecmp'] == "true" else "false"
                 # url to get the details of the bgp configuration on T1 router i.e target edge gateway
@@ -1029,10 +1029,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
     @description("configuration of Route Advertisement")
     @remediate
-    def configureRouteAdvertisement(self, advertiseRoutedNetworks=False):
+    def configureRouteAdvertisement(self):
         """
         Description :  Configure Route Advertisement on the Target Edge Gateway
-        Parameters  :  advertiseRoutedNetworks - Flag the informs whether to advertise routed networks or not
         """
         logger.debug('Route Advertisement is getting configured')
         for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
@@ -1084,7 +1083,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         subnetsToAdvertise += [subnet['network'] for subnet in ipPrefix['prefixes']
                                                if subnet['action'] == 'PERMIT']
                         break
-            elif advertiseRoutedNetworks:
+            elif self.orgVdcDict['AdvertiseRoutedNetworks'].get(
+                    sourceEdgeGateway['name'], self.orgVdcDict['AdvertiseRoutedNetworks']['default']):
                 # If advertiseRoutedNetworks param is True,
                 # advertise all routed networks subnets connected to this edge gateway
                 subnetsToAdvertise += allRoutedNetworkSubnets
