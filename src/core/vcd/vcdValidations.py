@@ -1835,8 +1835,9 @@ class VCDMigrationValidation:
                 if distNetworkFlag and sourceOrgVDCNetwork['networkType'] == 'NAT_ROUTED':
                     # check for implicite type creation of Non-Distributed OrgVDC network.
                     if not ipRanges:
-                        errorList.append("Non-Distributed routing for routed OrgVDC network requires to Configure "
-                                         "static ip pool for routed OrfVDC network : {}".format(sourceOrgVDCNetwork['name']))
+                        errorList.append(
+                            "Static IP pool is required for configuration of Non-Distributed Routing on the Org VDC Network : {}".format(
+                                sourceOrgVDCNetwork['name']))
 
                     totalIpCount = sourceOrgVDCNetwork['subnets']['values'][0]['totalIpCount']
                     usedIpCount = sourceOrgVDCNetwork['subnets']['values'][0]['usedIpCount']
@@ -1844,7 +1845,7 @@ class VCDMigrationValidation:
                         errorList.append("Free IPs are required in OrgVDC network {}, but enough free IPs are not "
                                          "present.".format(sourceOrgVDCNetwork['name']))
             if errorList:
-                raise ValidationError(',\n'.join(errorList))
+                raise ValidationError('; '.join(errorList))
         except Exception:
             raise
 
@@ -4555,7 +4556,7 @@ class VCDMigrationValidation:
             orgVdcNetworkList = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks')
 
             # Validatating static Ip pool for routed OrgVDC network.
-            logger.info('Validating Routed OrgVDCNetwork Static IP pool configuration')
+            logger.info('Validating Org VDC Network Static IP pool configuration for non distributed routing')
             self.validateStaticIpPoolForNonDistributedRouting(orgVdcNetworkList, vdcDict)
 
             # validating DHCP service on Org VDC networks

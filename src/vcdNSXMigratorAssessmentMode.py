@@ -157,7 +157,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating if all edge gateways interfaces are in use': [vcdValidationObj.validateEdgeGatewayUplinks, sourceOrgVDCId, edgeGatewayIdList, True],
                 'Validating whether DHCP is enabled on source Isolated Org VDC network': [vcdValidationObj.validateDHCPEnabledonIsolatedVdcNetworks, orgVdcNetworkList, edgeGatewayIdList, edgeGatewayDeploymentEdgeCluster, nsxtObj],
                 'Validating Isolated OrgVDCNetwork DHCP configuration': [vcdValidationObj.getOrgVDCNetworkDHCPConfig, orgVdcNetworkList],
-                'Validating Routed OrgVDCNetwork Static IP pool configuration for non distributed routing': [vcdValidationObj.validateStaticIpPoolForNonDistributedRouting, orgVdcNetworkList, orgVDCDict],
+                'Validating Org VDC Network Static IP pool configuration for non distributed routing': [vcdValidationObj.validateStaticIpPoolForNonDistributedRouting, orgVdcNetworkList, orgVDCDict],
                 'Validating whether shared networks are supported or not': [vcdValidationObj.validateOrgVDCNetworkShared, sourceOrgVDCId],
                 'Validating Source OrgVDC Direct networks': [vcdValidationObj.validateOrgVDCNetworkDirect, orgVdcNetworkList, orgVDCDict, self.NSXTProviderVDCImportedNeworkTransportZone, nsxtObj],
                 'Validating Edge cluster for target edge gateway deployment': [vcdValidationObj.validateEdgeGatewayDeploymentEdgeCluster, edgeGatewayDeploymentEdgeCluster, nsxtObj],
