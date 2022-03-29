@@ -1840,7 +1840,7 @@ class VCDMigrationValidation:
 
                     totalIpCount = sourceOrgVDCNetwork['subnets']['values'][0]['totalIpCount']
                     usedIpCount = sourceOrgVDCNetwork['subnets']['values'][0]['usedIpCount']
-                    if not(usedIpCount < totalIpCount):
+                    if ipRanges and not(usedIpCount < totalIpCount):
                         errorList.append("Free IPs are required in OrgVDC network {}, but enough free IPs are not "
                                          "present.".format(sourceOrgVDCNetwork['name']))
             if errorList:
