@@ -4893,7 +4893,7 @@ class VCDMigrationValidation:
                 # 2. Validation for edgeGateways on particular Org VDC.
                 sourceEdgeGatewayNameList = [edgeGateway for edgeGateway, extNet in edgeGatwayToExtNetMap.items() if
                                              externalNetworkName == extNet]
-                if len(sourceEdgeGatewayNameList):
+                if len(sourceEdgeGatewayNameList) > 1:
                     if bgpEnabled:
                         errorList.append(
                             "Edge Gateway - {} : BGP is not supported in case of multiple edge gateways using "
