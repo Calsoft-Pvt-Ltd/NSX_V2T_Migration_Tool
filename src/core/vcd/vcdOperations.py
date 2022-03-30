@@ -3595,7 +3595,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                     responseDict['name'], responseData['message']))
                 else:
                     raise Exception("Failed to get edge gateway '{}' details due to error - {}".format(
-                        responseDict['name'], responseDict['message']))
+                        sourceEdgeGatewayId, responseDict['message']))
             if not rollback:
                 logger.info('Successfully connected dummy uplink to source Edge gateway.')
         except Exception:
