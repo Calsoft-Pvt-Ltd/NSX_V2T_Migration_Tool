@@ -789,7 +789,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 data = self.getEdgeGatewayNatConfig(sourceEdgeGatewayId, validation=False)
                 # checking whether NAT rule is enabled or present in the source org vdc
                 if not data or not data['enabled']:
-                    logger.debug('NAT is not configured or enabled on Target Edge Gateway - {}'.format(sourceEdgeGateway['name']))
+                    logger.debug('NAT is not configured or enabled on Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
                     return
                 if data['natRules']:
                     # get details of static routing config
@@ -2051,6 +2051,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             else:
                 translatedAddressCIDR = sourceNATRule['originalAddress']
             payloadDict.update({
+                "snatDestinationAddresses":
+                    '' if sourceNATRule.get('snatMatchDestinationAddress', 'any') == 'any'
+                    else sourceNATRule['snatMatchDestinationAddress'],
                 "originalAddress": sourceNATRule['translatedAddress'],
                 "translatedAddress": translatedAddressCIDR
             })
@@ -2091,13 +2094,12 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             bgpNoSnatPayloadDict['snatDestinationAddresses'] = eachExtNetwork
                             allSnatPayloadList.append(bgpNoSnatPayloadDict)
             # iftranslated IP address does not belongs to default gateway update snatDestinationAddresses
-            if ipInSuAllocatedStatus == False and destinationIpDict != {}:
+            if not payloadDict['snatDestinationAddresses'] and ipInSuAllocatedStatus == False and destinationIpDict != {}:
                 networkAddr = ipaddress.ip_network('{}/{}'.format(destinationIpDict['gateway'],
                                                                   destinationIpDict['netmask']),
                                                    strict=False)
                 payloadDict.update({'snatDestinationAddresses': networkAddr.compressed})
-            else:
-                payloadDict.update({'snatDestinationAddresses': ''})
+
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
             # creating payload data
             allSnatPayloadList.append(payloadDict)
