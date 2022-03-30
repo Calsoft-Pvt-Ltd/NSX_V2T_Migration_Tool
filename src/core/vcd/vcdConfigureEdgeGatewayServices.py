@@ -1286,17 +1286,23 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             if ipPool['startAddress'] == ipToBeRemove:
                 del ipRangeAddresses[0]
-                staticIpPools[index]['startAddress'] = ipRangeAddresses[0]
+                if ipRangeAddresses:
+                    staticIpPools[index]['startAddress'] = ipRangeAddresses[0]
+                else:
+                    del staticIpPools[index]
             elif ipPool['endAddress'] == ipToBeRemove:
                 del ipRangeAddresses[-1]
-                staticIpPools[index]['endAddress'] = ipRangeAddresses[-1]
+                if ipRangeAddresses:
+                    staticIpPools[index]['endAddress'] = ipRangeAddresses[-1]
+                else:
+                    del staticIpPools[index]
             else:
                 ipIndex = ipRangeAddresses.index(ipToBeRemove)
                 staticIpPools[index]['endAddress'] = ipRangeAddresses[ipIndex - 1]
                 del ipRangeAddresses[ipIndex]
                 remainingIpPool = ipRangeAddresses[ipIndex:]
                 if len(remainingIpPool) > 0:
-                        staticIpPools.extend([{'startAddress': remainingIpPool[0], 'endAddress': remainingIpPool[-1]}])
+                    staticIpPools.extend([{'startAddress': remainingIpPool[0], 'endAddress': remainingIpPool[-1]}])
             break
 
         responseDict['subnets']['values'][0]['ipRanges']['values'] = staticIpPools
