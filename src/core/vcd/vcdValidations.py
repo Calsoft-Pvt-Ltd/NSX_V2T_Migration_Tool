@@ -2889,7 +2889,7 @@ class VCDMigrationValidation:
         """
         logger.debug("Validating DHCP relay service.")
         if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
-            return
+            return []
 
         sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
         errorList = list()
@@ -2912,7 +2912,7 @@ class VCDMigrationValidation:
         relayresponsedict = self.vcdUtils.parseXml(relayresponse.content)
         # Check if source DHCP relay service is enabled.
         if not relayresponsedict.get('relay'):
-            return
+            return []
 
         # Check for explicit case scenario.
         if (relayresponsedict.get('relay') and float(self.version) >= float(
