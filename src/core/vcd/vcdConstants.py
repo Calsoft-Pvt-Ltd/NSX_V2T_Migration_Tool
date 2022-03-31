@@ -232,9 +232,6 @@ VCD_CREATION_INTERVAL = 10.0
 # create org vdc network template name used in template.json
 CREATE_ORG_VDC_NETWORK_TEMPLATE = 'createOrgVDCNetwork'
 
-# create org vdc edge gateway template name used in template.json
-CREATE_ORG_VDC_EDGE_GATEWAY_TEMPLATE = 'createEdgeGateway'
-
 # create ipsec template name used in template.json
 CREATE_IPSEC_TEMPLATE = 'createIPSecServices'
 
