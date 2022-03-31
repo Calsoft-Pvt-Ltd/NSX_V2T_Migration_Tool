@@ -36,9 +36,6 @@ def getSession(self):
     if hasattr(self, '__threadname__') and self.__threadname__:
         threading.current_thread().name = self.__threadname__
     threading.current_thread().name = self.vdcName
-
-    return
-
     url = '{}session'.format(vcdConstants.XML_API_URL.format(self.ipAddress))
     response = self.restClientObj.get(url, headers=self.headers)
     if response.status_code != requests.codes.ok:
@@ -3794,6 +3791,21 @@ class VCDMigrationValidation:
             if vAppNetwork['Configuration']['FenceMode'] != 'natRouted':
                 continue
 
+            # Get parent network
+            response = self.restClientObj.get(
+                url="{}{}".format(
+                    vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                    vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(
+                        urn_id(vAppNetwork['Configuration']['ParentNetwork']['@id'], type='network'))
+                ),
+                headers=self.headers
+            )
+            parentNetwork = response.json()
+            if not response.status_code == requests.codes.ok:
+                raise Exception(
+                    f"Unable to get parent network {vAppNetwork['Configuration']['ParentNetwork']['@name']}"
+                    f" details: {parentNetwork['message']}")
+
             # Verify NAT rules
             natService = vAppNetwork['Configuration'].get('Features', {}).get('NatService', {})
             if natService.get('NatType', '') == 'portForwarding':
@@ -3820,44 +3832,45 @@ class VCDMigrationValidation:
                 if natService['IsEnabled'] == 'false':
                     vAppValidations['natIptDisabled'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
 
-            # Get parent network
-            response = self.restClientObj.get(
-                url="{}{}".format(
-                    vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                    vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(
-                        urn_id(vAppNetwork['Configuration']['ParentNetwork']['@id'], type='network'))
-                ),
-                headers=self.headers
-            )
-            orgVdcNetwork = response.json()
-            if not response.status_code == requests.codes.ok:
-                raise Exception(
-                    f"Unable to get parent network {vAppNetwork['Configuration']['ParentNetwork']['@name']}"
-                    f" details: {orgVdcNetwork['message']}")
+                else:
+                    ipRangeAddresses = set(
+                        str(ipaddress.IPv4Address(ip))
+                        for ipPool in parentNetwork['subnets']['values'][0]['ipRanges'].get('values')
+                        for ip in range(
+                            int(ipaddress.IPv4Address(ipPool['startAddress'])),
+                            int(ipaddress.IPv4Address(ipPool['endAddress']) + 1))
+                    )
+                    outOfPoolIps = [
+                        natRule['OneToOneVmRule']['ExternalIpAddress']
+                        for natRule in listify(natService['NatRule'])
+                        if natRule['OneToOneVmRule'].get('ExternalIpAddress')
+                        if natRule['OneToOneVmRule']['ExternalIpAddress'] not in ipRangeAddresses
+                    ]
+                    vAppValidations['natIptOutOfPoolIps'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}|{','.join(outOfPoolIps)}")
 
             # Check for direct networks
             # 1. parent network is not non-shared direct network
             # 2. for shared direct network, target external network (-v2t suffixed) is overlay backed
-            if orgVdcNetwork['networkType'] == 'DIRECT':
+            if parentNetwork['networkType'] == 'DIRECT':
                 # Verify the shared network is not dedicated
                 url = "{}{}{}".format(
                     vcdConstants.OPEN_API_URL.format(self.ipAddress),
                     vcdConstants.ALL_ORG_VDC_NETWORKS,
-                    vcdConstants.QUERY_EXTERNAL_NETWORK.format(orgVdcNetwork['parentNetworkId']['id']))
+                    vcdConstants.QUERY_EXTERNAL_NETWORK.format(parentNetwork['parentNetworkId']['id']))
                 response = self.restClientObj.get(url, self.headers)
                 responseDict = response.json()
                 if not response.status_code == requests.codes.ok:
                     raise Exception(
-                        f"Unable to get external network {orgVdcNetwork['parentNetworkId']['name']} details: "
+                        f"Unable to get external network {parentNetwork['parentNetworkId']['name']} details: "
                         f"{responseDict['message']}")
 
                 # If external network is dedicated or shared at external network level, it is not supported
-                if not(int(responseDict['resultTotal']) > 1 and orgVdcNetwork['shared']):
+                if not(int(responseDict['resultTotal']) > 1 and parentNetwork['shared']):
                     vAppValidations['directNetworks'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
 
                 # If shared at Org VDC network level, verify it is overlay backed
                 elif nsxtObj:
-                    externalNetworkName = f"{orgVdcNetwork['parentNetworkId']['name']}-v2t"
+                    externalNetworkName = f"{parentNetwork['parentNetworkId']['name']}-v2t"
                     response = self.restClientObj.get(
                         url="{}{}?filter=(name=={})".format(
                             vcdConstants.OPEN_API_URL.format(self.ipAddress),
@@ -3919,6 +3932,7 @@ class VCDMigrationValidation:
                     'routerExternalIp': dict(),
                     'natExternalIp': dict(),
                     'natIptDisabled': set(),
+                    'natIptOutOfPoolIps': set()
                 }
                 for vApp in vAppList:
                     self.thread.spawnThread(self._validateRoutedVappNetworks, vApp, vAppValidations, nsxtObj)
@@ -3954,6 +3968,10 @@ class VCDMigrationValidation:
                     errors.append(
                         f"Disabled NAT service is not supported "
                         f"(vApp|vApp_Network): {', '.join(vAppValidations['natIptDisabled'])}")
+                if vAppValidations['natIptOutOfPoolIps']:
+                    errors.append(
+                        f"External IP used in NAT IP translation rules is not present in Static IP Pool of parent "
+                        f"network (vApp|vApp_Network|IP_Addresses): {', '.join(vAppValidations['natIptOutOfPoolIps'])}")
 
                 # logic to identify router external IP conflicts with NAT
                 for externalVapp, externalNetList in vAppValidations['routerExternalIp'].items():
