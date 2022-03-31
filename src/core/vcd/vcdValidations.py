@@ -2911,6 +2911,10 @@ class VCDMigrationValidation:
                 # checking if relay is configured in dhcp, if so raising exception
                 if relayresponsedict.get('relay'):
                     if v2tAssessmentMode or float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
+                        if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2) and self.orgVdcDict.get('NonDistributedNetworks'):
+                            # get Non-Dist routing flag from user input and if enabled then raise exception.
+                            errorList.append(
+                                'DHCP Relay service configured on source edge gateway is not supported on target if the "NonDistributedNetworks" is set to "True" in user input.\n')
                         if 'fqdn' in relayresponsedict['relay']['relayServer']:
                             errorList.append(
                                 'Domain names are configured as a DHCP servers in DHCP Relay configuration in source '
@@ -4892,12 +4896,9 @@ class VCDMigrationValidation:
                                 sourceEdgeGateway['name'], orgVdcNameList, externalNetworkName))
 
                 # 2. Validation for edgeGateways on particular Org VDC.
-                sourceEdgeGatewayNameList = [
-                    edgeGateway
-                    for edgeGateway, extNet in edgeGatwayToExtNetMap
-                    if externalNetworkName == extNet
-                ]
-                if len(sourceEdgeGatewayNameList):
+                sourceEdgeGatewayNameList = [edgeGateway for edgeGateway, extNet in edgeGatwayToExtNetMap.items() if
+                                             externalNetworkName == extNet]
+                if len(sourceEdgeGatewayNameList) > 1:
                     if bgpEnabled:
                         errorList.append(
                             "Edge Gateway - {} : BGP is not supported in case of multiple edge gateways using "
