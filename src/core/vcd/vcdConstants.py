@@ -661,6 +661,9 @@ VDC_GROUPS = 'vdcGroups'
 # get Vdc group by Id
 GET_VDC_GROUP_BY_ID = 'vdcGroups/{}/'
 
+# Vdc group sync keyword
+VDC_GROUP_SYNC = 'sync'
+
 # get or enable DFW policies
 ENABLE_DFW_POLICY = 'dfwPolicies'
 

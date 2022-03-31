@@ -3660,6 +3660,25 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise Exception("Failed to update source external network '{}': {}".format(
                     networkName, errorDict['message']))
 
+    @isSessionExpired
+    def syncOrgVDCGroup(self, OrgVDCGroupID):
+        """
+        Description : Sync DC groups created during migration
+        Parameters :  OrgVDCGroupID - DC Groups IDs (DICT)
+        """
+        for ID in OrgVDCGroupID.values():
+            url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                  vcdConstants.GET_VDC_GROUP_BY_ID.format(ID), vcdConstants.VDC_GROUP_SYNC)
+            response = self.restClientObj.post(url, self.headers)
+        if response.status_code == requests.codes.accepted:
+            try:
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl=taskUrl)
+            except Exception as e:
+                logger.warning("Failed to sync DC Groups created with exception - {}".format(e))
+        else:
+            logger.warning("Failed to sync DC Groups created with error code - {}".format(response.status_code))
+
     @staticmethod
     def createExternalNetworkSubPoolRangePayload(externalNetworkPoolRangeList):
         """
