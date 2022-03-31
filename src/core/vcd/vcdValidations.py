@@ -8,7 +8,7 @@ Description : Module performs VMware Cloud Director validations related for NSX-
 
 import inspect
 from functools import wraps
-from collections import OrderedDict, defaultdict, Counter
+from collections import OrderedDict, defaultdict
 from pkg_resources._vendor.packaging import version
 import copy
 import json
@@ -182,17 +182,21 @@ class VCDMigrationValidation:
     """
     VCD_SESSION_CREATED = False
 
-    def __init__(self, ipAddress, username, password, verify, rollback, threadObj=None, lockObj=None ,vdcName=None):
+    def __init__(
+            self, ipAddress, username, password, verify, rollback, threadObj=None, lockObj=None , vdcName=None,
+            orgVDCDict=None):
         """
         Description :   Initializer method of VMware Cloud Director Operations
         Parameters  :   ipAddress      -   ipAddress of the VMware vCloud Director (STRING)
                         username       -   Username of the VMware vCloud Director (STRING)
                         password       -   Password of the VMware vCloud Director (STRING)
                         verify         -   whether to validate certficate (BOOLEAN)
-                        rollback       -   Object of rollback class which also acts as shared memory between classes (OBJECT)
+                        rollback       -   Object of rollback class which also acts as shared memory between classes
+                        (OBJECT)
                         maxThreadCount -   Number of maximum threads to be spawned (INTEGER)
                         vdcName        -   Name of the vdc which this object is associated to (STRING)
-                        lockObj     -   Shared object of threading.Rlock() to implement locking for threads (OBJECT)
+                        lockObj        -   Shared object of threading.Rlock() to implement locking for threads (OBJECT)
+                        orgVDCDict     -   orgvdc specific section of input yaml (DICT)
         """
         self.ipAddress = ipAddress
         self.username = '{}@system'.format(username)
@@ -210,6 +214,7 @@ class VCDMigrationValidation:
         self.l3DfwRules = None
         self.dfwSecurityTags = dict()
         self._isSharedNetworkPresent = None
+        self.orgVdcDict = orgVDCDict
         vcdConstants.VCD_API_HEADER = vcdConstants.VCD_API_HEADER.format(self.version)
         vcdConstants.GENERAL_JSON_ACCEPT_HEADER = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
         vcdConstants.OPEN_API_CONTENT_TYPE = vcdConstants.OPEN_API_CONTENT_TYPE.format(self.version)
@@ -808,35 +813,82 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getExternalNetwork(self, networkName, isDummyNetwork=False, validateVRF=False):
+    def getDummyExternalNetwork(self, networkName):
         """
-        Description :   Gets the details of external networks
+        Description :   Gets the details of dummy external networks and saves metadata
         Parameters  :   networkName - Name of the external network (STRING)
-                        isDummyNetwork - is the network dummy (BOOL)
+        """
+        if not networkName:
+            if self.rollback.apiData['sourceEdgeGateway']:
+                raise Exception("Dummy Network not provided")
+            else:
+                self.rollback.apiData['dummyExternalNetwork'] = networkName
+                return networkName
+        externalNetwork = self.getExternalNetworkByName(networkName)
+        self.rollback.apiData['dummyExternalNetwork'] = externalNetwork
+        return externalNetwork
+
+    @isSessionExpired
+    def getExternalNetworkByName(self, networkName):
+        """
+        Description :   Gets the details of external networks by name
+        Parameters  :   networkName - Name of the external network (STRING)
+        """
+        logger.debug(f"Getting External Network {networkName} details ")
+        externalNetwork = self.getPaginatedResults(
+            entity=f'External Network ({networkName})',
+            baseUrl=f'{vcdConstants.OPEN_API_URL.format(self.ipAddress)}{vcdConstants.ALL_EXTERNAL_NETWORKS}',
+            urlFilter=f'filter=name=={networkName}')
+        if len(externalNetwork) != 1:
+            raise Exception(f'External Network "{networkName}" is not present or not unique')
+
+        logger.debug("Retrieved External Network {} details Successfully".format(networkName))
+        return externalNetwork[0]
+
+    @isSessionExpired
+    def getTargetExternalNetworks(self, extNetInput, validateVRF=False):
+        """
+        Description :   Gets the details of all target external networks and saves metadata
+        Parameters  :   extNetInput - ExternalNetwork value from User Input (DICT)
                         validateVRF - Flag that decides to validate vrf backed external network (BOOL)
         """
+        # Schema of Target External Network Metadata = {'ext_net_name': dict('ext_net_details')}
+        # Schema of user_input ExternalNetwork = {'source_egw_name': 'ext_net_name'}
+        # Target External network name can be fetched as follows:
+        # extNetInput = user_input['ExternalNetwork']
+        # target_ext_net_name = extNetInput.get(source_egw_name, extNetInput.get('default'))
+        if self.rollback.apiData['sourceEdgeGateway'] and not extNetInput:
+            raise Exception("Tier0Gateways not provided")
+        targetExternalNetwork = {
+            extNet: self.getExternalNetworkByName(extNet)
+            for extNet in set(extNetInput.values())
+        }
+        if validateVRF:
+            vrfs = [
+                extNetName
+                for extNetName, extNetDetails in targetExternalNetwork.items()
+                if extNetDetails['networkBackings']['values'][0]['backingTypeValue'] == 'NSXT_VRF_TIER0'
+            ]
+            logger.warning(f"Target External Network/s {', '.join(vrfs)} are VRF backed.")
+
+        self.rollback.apiData['targetExternalNetwork'] = targetExternalNetwork
+        return targetExternalNetwork
+
+    @isSessionExpired
+    def validateEdgeGatewayToExternalNetworkMapping(self,sourceOrgVDCId, extnetInfo):
+        """
+            Description :   Validate EdgeGateway to external network mapping mentioned in userInput file.
+            Parameters  :   extnetInfo (STRING/DICT)
+        """
         try:
-            key = None
-            logger.debug("Getting External Network {} details ".format(networkName))
-            # iterating over all the external networks
-            for response in self.fetchAllExternalNetworks():
-                # checking if networkName is present in the list
-                if response['name'] == networkName:
-                    if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
-                        key = 'targetExternalNetwork' if response['networkBackings']['values'][0]['backingTypeValue'] in ['NSXT_TIER0', 'NSXT_VRF_TIER0'] else 'sourceExternalNetwork'
-                        if response['networkBackings']['values'][0]['backingTypeValue'] == 'NSXT_VRF_TIER0' and validateVRF:
-                            logger.warning('Target External Network {} is VRF backed.'.format(networkName))
-                    elif float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
-                        key = 'targetExternalNetwork' if response['networkBackings']['values'][0]['backingType'] in ['NSXT_TIER0', 'NSXT_VRF_TIER0'] else 'sourceExternalNetwork'
-                    data = self.rollback.apiData
-                    if isDummyNetwork:
-                        key = 'dummyExternalNetwork'
-                    data[key] = response
-                    logger.debug("Retrieved External Network {} details Successfully".format(networkName))
-                    return response
-            if key is None:
-                return Exception('External Network: {} not present'.format(networkName))
-        except Exception:
+            logger.debug("Validate EdgeGateway to external network mapping mentioned in userInput file.")
+            sourceEdgeGatewayData = self.getOrgVDCEdgeGateway(sourceOrgVDCId)
+            sourceEdgeGateways = set([edgeGateway['name'] for edgeGateway in sourceEdgeGatewayData['values']])
+            userInputEdgeGateways = set(extnetInfo.keys())
+            if not sourceEdgeGateways.issubset(userInputEdgeGateways) and 'default' not in userInputEdgeGateways:
+                raise Exception("UserInput has incorrect gateway to external network mapping, either all gateway "
+                                "should be mapped to external network or default external network should be mentioned")
+        except:
             raise
 
     @isSessionExpired
@@ -1037,17 +1089,6 @@ class VCDMigrationValidation:
                 raise Exception('Incorrect NSX-T IP Address in input file. Please check if the NSX-T IP Address matches the one in NSXT-Managers in vCD')
         except Exception:
             raise
-
-    @isSessionExpired
-    def validateExternalNetworkIsVRFLiteBacked(self):
-        try:
-            data = self.rollback.apiData
-            if data['targetExternalNetwork']['networkBackings']['values'][0]['backingTypeValue'] == "NSXT_VRF_TIER0":
-                logger.info("Target external network: {} is VRF-Lite backed".format(data['targetExternalNetwork']['name']))
-                return True
-        except Exception:
-            raise
-
 
     @isSessionExpired
     def validateVappFencingMode(self, sourceOrgVDCId):
@@ -1371,11 +1412,35 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
+    def getExternalNetworkMappedToEdgeGateway(self, edgeGatewayId, extNetDict):
+        """
+            Description : Get external network details mapped to edge gateway provided in the input file
+        """
+        try:
+            # get source edge gateway name from edgegateway ID.
+            sourceEdgeGateways = copy.deepcopy(self.rollback.apiData['sourceEdgeGateway'])
+            if "gateway:" not in edgeGatewayId:
+                edgeGatewayId = "urn:vcloud:gateway:{}".format(edgeGatewayId)
+            sourceEdgeGatewayName = list(
+                filter(lambda edgeGatewayData: edgeGatewayData['id'] == edgeGatewayId, sourceEdgeGateways))[0]['name']
+            extNetName = extNetDict.get(sourceEdgeGatewayName, extNetDict.get('default'))
+            if not extNetName:
+                return None
+
+            # Fetch target external network data from apiData
+            targetExternalNetwork = self.rollback.apiData['targetExternalNetwork']
+            return targetExternalNetwork[extNetName]
+        except:
+            raise
+
+    @isSessionExpired
     def validateExternalNetworkWithNSXT(self):
         """
         Description : Validate whether the external network is linked to NSXT provided in the input file
         """
         try:
+            if not self.rollback.apiData['sourceEdgeGateway']:
+                return
             # Checking if target external network is present
             if 'targetExternalNetwork' not in self.rollback.apiData.keys():
                 raise Exception("Target External Network not present")
@@ -1386,17 +1451,21 @@ class VCDMigrationValidation:
                                 "Please check if the NSX-T IP Address matches the one in NSXT-Managers in vCD")
 
             # Fetch external network data from apiData
-            targetExtNetData = self.rollback.apiData['targetExternalNetwork']
+            targetExternalNetwork = self.rollback.apiData['targetExternalNetwork']
+            errorList = list()
 
             # Checking if the target external network belongs to same NSXT provided in the input file
-            # Iterating over all the network backings to check for NSX ID
-            for networkBacking in targetExtNetData.get('networkBackings', {}).get('values', []):
-                nsxtId = (networkBacking.get('networkProvider') or {}).get('id')
-                if nsxtId == self.nsxManagerId:
-                    break
-            else:
-                raise Exception(f"Target external network - '{targetExtNetData['name']}' "
-                                f"is not linked to NSX-T provided in the input file")
+            for extNetName, extNetDetails in targetExternalNetwork.items():
+                # Iterating over all the network backings to check for NSX ID.
+                for networkBacking in extNetDetails.get('networkBackings', {}).get('values', []):
+                    nsxtId = (networkBacking.get('networkProvider') or {}).get('id')
+                    if nsxtId == self.nsxManagerId:
+                        break
+                else:
+                    errorList.append("Target external network - {}, is not linked to NSX-T provided in the input "
+                                     "file.".format(extNetName))
+            if errorList:
+                raise Exception('; '.join(errorList))
         except:
             raise
 
@@ -1406,26 +1475,55 @@ class VCDMigrationValidation:
         Description :  Validate the external networks subnet configuration
         """
         try:
-            edgeGatewayUplinksData = []
-
-            for edgeGateway in copy.deepcopy(self.rollback.apiData['sourceEdgeGateway']):
-                edgeGatewayUplinksData += edgeGateway['edgeGatewayUplinks']
+            if not self.rollback.apiData['sourceEdgeGateway']:
+                return
+            logger.debug("Validate the external networks subnet configuration.")
             # reading the data from metadata
             data = self.rollback.apiData
+            # Get external network to gateway mapping from orgvdc data
+            extNetDict = self.orgVdcDict.get('Tier0Gateways')
+            errorList = list()
+
             # comparing the source and target external network subnet configuration
-            if 'sourceExternalNetwork' in data.keys() and 'targetExternalNetwork' in data.keys():
-                sourceExternalGatewayAndPrefixList = {(subnet['gateway'], subnet['prefixLength'])for edgeGatewayUplink in edgeGatewayUplinksData for subnet in edgeGatewayUplink['subnets']['values']}
-                targetExternalGatewayList = [targetExternalGateway['gateway'] for targetExternalGateway in data['targetExternalNetwork']['subnets']['values']]
-                targetExternalPrefixLengthList = [targetExternalGateway['prefixLength'] for targetExternalGateway in data['targetExternalNetwork']['subnets']['values']]
-                sourceNetworkAddressList = [ipaddress.ip_network('{}/{}'.format(externalGateway, externalPrefixLength), strict=False)
-                                            for externalGateway, externalPrefixLength in sourceExternalGatewayAndPrefixList]
-                targetNetworkAddressList = [ipaddress.ip_network('{}/{}'.format(externalGateway, externalPrefixLength), strict=False)
-                                            for externalGateway, externalPrefixLength in zip(targetExternalGatewayList, targetExternalPrefixLengthList)]
-                if not all(sourceNetworkAddress in targetNetworkAddressList for sourceNetworkAddress in sourceNetworkAddressList):
-                    raise Exception('All the Source External Networks Subnets are not present in Target External Network.')
-                logger.debug('Validated successfully, all the Source External Networks Subnets are present in Target External Network.')
-            else:
+            if 'sourceExternalNetwork' not in data.keys() or 'targetExternalNetwork' not in data.keys():
                 raise Exception('Target External Network not present')
+
+            # Iterate over source edgeGateway and check subnets belongs to edgeGateway as well as external network.
+            for edgeGateway in copy.deepcopy(self.rollback.apiData['sourceEdgeGateway']):
+                # Get the uplinks for edge gateway
+                edgeGatewayUplinksData = edgeGateway['edgeGatewayUplinks']
+                # Get Target External network belongs to edge gateway.
+                extNetName = extNetDict.get(edgeGateway['name'], extNetDict.get('default'))
+                if not extNetName:
+                    continue
+                # get external network details from metadata.
+                targetExternalNetwork = self.rollback.apiData['targetExternalNetwork'][extNetName]
+                sourceExternalGatewayAndPrefixList = {(subnet['gateway'], subnet['prefixLength']) for edgeGatewayUplink
+                                                      in edgeGatewayUplinksData for subnet in
+                                                      edgeGatewayUplink['subnets']['values']}
+                targetExternalGatewayList = [targetExternalGateway['gateway'] for targetExternalGateway in
+                                             targetExternalNetwork['subnets']['values']]
+                targetExternalPrefixLengthList = [targetExternalGateway['prefixLength'] for targetExternalGateway in
+                                                  targetExternalNetwork['subnets']['values']]
+                sourceNetworkAddressList = [
+                    ipaddress.ip_network('{}/{}'.format(externalGateway, externalPrefixLength), strict=False)
+                    for externalGateway, externalPrefixLength in sourceExternalGatewayAndPrefixList]
+                targetNetworkAddressList = [
+                    ipaddress.ip_network('{}/{}'.format(externalGateway, externalPrefixLength), strict=False)
+                    for externalGateway, externalPrefixLength in
+                    zip(targetExternalGatewayList, targetExternalPrefixLengthList)]
+                if not all(sourceNetworkAddress in targetNetworkAddressList for sourceNetworkAddress in
+                           sourceNetworkAddressList):
+                    errorList.append(
+                        'All the Source External Networks Subnets are not present in Target External Network - {} for edgeGateway {}.'.format(
+                            extNetName, edgeGateway['name']))
+
+            if errorList:
+                raise Exception('; '.join(errorList))
+            else:
+                logger.debug(
+                    'Validated successfully, all the Source External Networks Subnets are present in Target External Network.')
+
         except Exception:
             raise
 
@@ -1946,7 +2044,7 @@ class VCDMigrationValidation:
             elif float(self.version) <= float(vcdConstants.API_VERSION_ZEUS):
                 logger.debug("Validated Successfully, No direct networks exist in Source Org VDC")
             if errorlist:
-                raise Exception(''.join(errorlist))
+                raise Exception('; '.join(errorlist))
         except Exception:
             raise
 
@@ -2415,13 +2513,12 @@ class VCDMigrationValidation:
         """
         try:
             logger.info('Getting the services configured on source Edge Gateway')
-
             # Handle condition if NSX-IP if different than the one registered in vCD
-            if not v2tAssessmentMode and not self.nsxVersion:
+            if not v2tAssessmentMode and not self.nsxVersion and self.rollback.apiData['sourceEdgeGateway']:
                 raise Exception('Incorrect NSX-T IP Address in input file. '
                         'Please check if the NSX-T IP Address matches the one in NSXT-Managers in vCD')
 
-            if not v2tAssessmentMode and 'targetExternalNetwork' not in self.rollback.apiData.keys():
+            if not v2tAssessmentMode and 'targetExternalNetwork' not in self.rollback.apiData.keys() and self.rollback.apiData['sourceEdgeGateway']:
                 raise Exception('Target External Network not present')
 
             errorData = {'DHCP': [],
@@ -2564,7 +2661,7 @@ class VCDMigrationValidation:
             if v2tAssessmentMode:
                 return errorData
             if allErrorList:
-                raise Exception(''.join(allErrorList))
+                raise Exception('; '.join(allErrorList))
 
         except Exception:
             raise
@@ -3355,8 +3452,22 @@ class VCDMigrationValidation:
         """
         try:
             errorList = list()
-            # reading the data from metadata
-            data = self.rollback.apiData
+
+            # Check for V2T Assessment mode
+            if v2tAssessmentMode:
+                return [], False
+
+            # Get external network details mapped to edgeGateway
+            extNetDict = self.orgVdcDict.get('Tier0Gateways')
+            targetExternalNetwork = self.getExternalNetworkMappedToEdgeGateway(edgeGatewayId, extNetDict)
+            sourceEdgeGatewayName = list(
+                filter(lambda edgeGatewayData: edgeGatewayData['id'] == "urn:vcloud:gateway:{}".format(edgeGatewayId),
+                       self.rollback.apiData['sourceEdgeGateway']))[0]['name']
+            if not targetExternalNetwork:
+                raise Exception(
+                    "Failed to get target ExternalNetwork details mapped to SourceEdgeGateway - {}.".format(
+                        sourceEdgeGatewayName))
+
             logger.debug("Getting BGP Services Configuration Details of Source Edge Gateway")
             # url to retrieve the bgp config into
             url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
@@ -3373,12 +3484,12 @@ class VCDMigrationValidation:
                     if responseDict['bgp']['enabled'] != 'false':
                         if not v2tAssessmentMode and float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
                             # get the target external network backed Tier-0 gateway
-                            targetExternalBackingTypeValue = data['targetExternalNetwork']['networkBackings']['values'][0]['backingTypeValue']
+                            targetExternalBackingTypeValue = targetExternalNetwork['networkBackings']['values'][0]['backingTypeValue']
                             # validate only if backing type is VRF
                             if targetExternalBackingTypeValue == 'NSXT_VRF_TIER0':
                                 if self.nsxVersion.startswith('2.'):
                                     errorList.append('VRF is not supported in NSX-T version: {}'.format(self.nsxVersion))
-                                tier0RouterName = data['targetExternalNetwork']['networkBackings']['values'][0]['parentTier0Ref']['id']
+                                tier0RouterName = targetExternalNetwork['networkBackings']['values'][0]['parentTier0Ref']['id']
                                 tier0Details = nsxtObj.getTier0GatewayDetails(tier0RouterName)
                                 tier0localASnum = tier0Details['local_as_num']
                                 if tier0Details['graceful_restart_config']['mode'] == 'DISABLE':
@@ -3386,11 +3497,17 @@ class VCDMigrationValidation:
                                 else:
                                     tier0GracefulRestartMode = 'true'
                                 if responseDict['bgp']['localASNumber'] != tier0localASnum:
-                                    errorList.append('Source Edge gateway & Target Tier-0 Gateway - {} localAS number should be always same.\n'.format(tier0RouterName))
+                                    errorList.append(
+                                        'Source Edge gateway & Target Tier-0 Gateway - {} localAS number should be always same.\n'.format(
+                                            tier0RouterName))
                                 if responseDict['bgp']['gracefulRestart'] != tier0GracefulRestartMode:
-                                    errorList.append('Source Edge gateway & Target Tier-0 Gateway - {} graceful restart mode should always be same and disabled.\n'.format(tier0RouterName))
+                                    errorList.append(
+                                        'Source Edge gateway & Target Tier-0 Gateway - {} graceful restart mode should always be same and disabled.\n'.format(
+                                            tier0RouterName))
                                 if tier0GracefulRestartMode == 'true':
-                                    errorList.append('Target Tier-0 Gateway - {} graceful restart mode should always be disabled.\n'.format(tier0RouterName))
+                                    errorList.append(
+                                        'Target Tier-0 Gateway - {} graceful restart mode should always be disabled.\n'.format(
+                                            tier0RouterName))
                             logger.debug("BGP configuration of Source Edge Gateway retrieved successfully")
                             # returning bdp config details dict
                             return errorList, True
@@ -4465,20 +4582,21 @@ class VCDMigrationValidation:
             logger.info("Validating whether target Org VDC already exists")
             self.validateNoTargetOrgVDCExists(vdcDict["OrgVDCName"])
 
+            # Getting Org VDC Edge Gateway Id
+            sourceEdgeGatewayIdList = self.getOrgVDCEdgeGatewayId(sourceOrgVDCId, saveResponse=True)
+            self.rollback.apiData['sourceEdgeGatewayId'] = sourceEdgeGatewayIdList
+
+            # Validating external network mapping with Gateway mentioned in userInput file.
+            logger.info("Validating external network mapping with Gateway mentioned in userInput file.")
+            self.validateEdgeGatewayToExternalNetworkMapping(sourceOrgVDCId, vdcDict.get('Tier0Gateways', {}))
+
             # getting the target External Network details
-            logger.info(
-                'Getting the target External Network - {} details.'.format(vdcDict["ExternalNetwork"]))
-            targetExternalNetwork = self.getExternalNetwork(vdcDict["ExternalNetwork"], validateVRF=True)
-            if isinstance(targetExternalNetwork, Exception):
-                raise targetExternalNetwork
+            logger.info('Getting the target External Network details')
+            self.getTargetExternalNetworks(vdcDict.get("Tier0Gateways", {}), validateVRF=True)
 
             # getting the source dummy External Network details
-            logger.info('Getting the source dummy External Network - {} details.'.format(
-                inputDict["VCloudDirector"]["DummyExternalNetwork"]))
-            dummyExternalNetwork = self.getExternalNetwork(inputDict["VCloudDirector"]["DummyExternalNetwork"],
-                                                           isDummyNetwork=True)
-            if isinstance(dummyExternalNetwork, Exception):
-                raise dummyExternalNetwork
+            logger.info('Getting the source dummy External Network - {} details.'.format(inputDict["VCloudDirector"].get("DummyExternalNetwork")))
+            self.getDummyExternalNetwork(inputDict["VCloudDirector"].get("DummyExternalNetwork"))
 
             # getting the source provider VDC details and checking if its NSX-V backed
             logger.info('Getting the source Provider VDC - {} details.'.format(vdcDict["NSXVProviderVDCName"]))
@@ -4522,10 +4640,6 @@ class VCDMigrationValidation:
             logger.info('Validating storage profiles in source Org VDC and target Provider VDC')
             self.validateStorageProfiles()
 
-            # Getting Org VDC Edge Gateway Id
-            sourceEdgeGatewayIdList = self.getOrgVDCEdgeGatewayId(sourceOrgVDCId, saveResponse=True)
-            self.rollback.apiData['sourceEdgeGatewayId'] = sourceEdgeGatewayIdList
-
             logger.info("Validating Edge cluster for target edge gateway deployment")
             self.validateEdgeGatewayDeploymentEdgeCluster(vdcDict.get('EdgeGatewayDeploymentEdgeCluster', None), nsxtObj)
 
@@ -4548,8 +4662,7 @@ class VCDMigrationValidation:
 
             # validating whether edge gateway have dedicated external network
             logger.info('Validating whether other Edge gateways are using dedicated external network')
-            self.validateDedicatedExternalNetwork(inputDict, sourceEdgeGatewayIdList,
-                                                  vdcDict.get("AdvertiseRoutedNetworks"))
+            self.validateDedicatedExternalNetwork(inputDict)
 
             # getting the source Org VDC networks
             logger.info('Getting the Org VDC networks of source Org VDC {}'.format(vdcDict["OrgVDCName"]))
@@ -4621,8 +4734,8 @@ class VCDMigrationValidation:
                 raise dfwConfigReturn
 
             # get the list of services configured on source Edge Gateway
-            self.getEdgeGatewayServices(
-                nsxtObj, nsxvObj, noSnatDestSubnet, ServiceEngineGroupName=ServiceEngineGroupName)
+            self.getEdgeGatewayServices(nsxtObj, nsxvObj, noSnatDestSubnet,
+                                        ServiceEngineGroupName=ServiceEngineGroupName)
         except:
             raise
         else:
@@ -4709,72 +4822,115 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def checkSameExternalNetworkUsedByOtherVDC(self,sourceOrgVDC, inputDict, externalNetworkName):
+    def checkSameExternalNetworkUsedByOtherVDC(self, sourceOrgVDC, inputDict, externalNetworkName):
         """
         Description :   Validate if the External network is dedicatedly used by any other Org VDC edge gateway mentioned in the user specs file.
         """
         try:
             orgVdcList = inputDict['VCloudDirector']['SourceOrgVDC']
-            orgVdcNameList= list()
+            orgVdcNameList = list()
             for orgVdc in orgVdcList:
-                if orgVdc['OrgVDCName'] != sourceOrgVDC and orgVdc['ExternalNetwork'] == externalNetworkName:
-                    orgUrl = self.getOrgUrl(inputDict["VCloudDirector"]["Organization"]["OrgName"])
-                    sourceOrgVDCId = self.getOrgVDCDetails(orgUrl, orgVdc["OrgVDCName"], 'sourceOrgVDC',
-                                                           saveResponse=False)
-                    sourceEdgeGatewayIdList = self.getOrgVDCEdgeGatewayId(sourceOrgVDCId)
-                    if len(sourceEdgeGatewayIdList) > 0:
-                        orgVdcNameList.append(orgVdc['OrgVDCName'])
+                if orgVdc['OrgVDCName'] != sourceOrgVDC and externalNetworkName in orgVdc.get('Tier0Gateways').values():
+                    orgVdcNameList.append(orgVdc['OrgVDCName'])
             return orgVdcNameList
         except:
             raise
 
     @isSessionExpired
-    def validateDedicatedExternalNetwork(self, inputDict, sourceEdgeGatewayIdList, advertiseRoutedNetworks=False):
+    def validateDedicatedExternalNetwork(self, inputDict):
         """
         Description :   Validate if the External network is dedicatedly used by any other edge gateway
         """
         try:
+            if not self.rollback.apiData['sourceEdgeGateway']:
+                return
             # reading the data from metadata
             data = self.rollback.apiData
             sourceOrgVDC = data['sourceOrgVDC']['@name']
+            errorList = list()
 
             if 'targetExternalNetwork' not in data.keys():
                 raise Exception('Target External Network not present')
 
-            for sourceEdgeGatewayId in sourceEdgeGatewayIdList:
-                sourceEdgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
-                bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
-                externalNetworkName = data['targetExternalNetwork']['name']
-                orgVdcNameList = self.checkSameExternalNetworkUsedByOtherVDC(sourceOrgVDC, inputDict,
-                                                                             externalNetworkName)
-                if bgpConfigDict and isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == 'true':
-                    if orgVdcNameList:
-                        raise Exception(f"BGP is not supported if multiple Org VDCs {orgVdcNameList} are using "
-                                        f"the same target external network {externalNetworkName}.")
-                    if len(sourceEdgeGatewayIdList) > 1:
-                        raise Exception('BGP is not supported in case of multiple edge gateways')
-                    if data['targetExternalNetwork']['usedIpCount'] > 0:
-                        raise Exception('Dedicated target external network is required as BGP is configured on '
-                                        'source edge gateway')
+            # Get external network details mapped to edgeGateway
+            extNetDict = self.orgVdcDict.get('Tier0Gateways')
 
-                if advertiseRoutedNetworks:
-                    if orgVdcNameList:
-                        raise Exception(f"'AdvertiseRoutedNetworks' is set to 'True' but multiple Org VDCs "
-                                        f"{orgVdcNameList} are using the same "
-                                        f"target external network {externalNetworkName}.")
-                    if len(sourceEdgeGatewayIdList) > 1:
-                        raise Exception(f"'AdvertiseRoutedNetworks' is set to 'True' but route advertisement is not"
-                                        f"supported in case of multiple edge gateways")
-                    if data['targetExternalNetwork']['usedIpCount'] > 0:
-                        raise Exception(f"'AdvertiseRoutedNetworks' is set to 'True', so Dedicated target external "
-                                        f"network is required. But another edge gateway is already connected "
-                                        f"to {externalNetworkName}")
+            # Map edgeGateway to external network.
+            edgeGatwayToExtNetMap = {
+                gateway['name']: extNetDict.get(gateway['name'], extNetDict.get('default'))
+                for gateway in self.rollback.apiData['sourceEdgeGateway']
+            }
+
+            for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
+                sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
+                bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
+
+                externalNetworkName = edgeGatwayToExtNetMap[sourceEdgeGateway['name']]
+                targetExternalNetwork = self.rollback.apiData['targetExternalNetwork'][externalNetworkName]
+                if not targetExternalNetwork:
+                    raise Exception(
+                        "Failed to get target ExternalNetwork mapped to source edge gateway {} from user Input.".format(
+                            sourceEdgeGateway['name']))
+
+                bgpEnabled = bgpConfigDict and isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == 'true'
+                advertiseRoutedNetworks = self.orgVdcDict['AdvertiseRoutedNetworks'].get(
+                    sourceEdgeGateway['name'], self.orgVdcDict['AdvertiseRoutedNetworks']['default'])
+
+                # 1. User input validation Across Org VDC
+                orgVdcNameList = self.checkSameExternalNetworkUsedByOtherVDC(
+                    sourceOrgVDC, inputDict, externalNetworkName)
+                if orgVdcNameList:
+                    if bgpEnabled:
+                        errorList.append(
+                            "Edge Gateway - {} : BGP is not supported if multiple edge gateways across multiple "
+                            "Org VDCs {}, are mapped to the same Tier-0 Gateway - {}, in user input file.".format(
+                                sourceEdgeGateway['name'], orgVdcNameList, externalNetworkName))
+                    if advertiseRoutedNetworks:
+                        errorList.append(
+                            "Edge Gateway - {} : 'AdvertiseRoutedNetworks' is set to 'True' but multiple Org "
+                            "VDCs {} are using the same target Tier-0 Gateway {}.".format(
+                                sourceEdgeGateway['name'], orgVdcNameList, externalNetworkName))
+
+                # 2. Validation for edgeGateways on particular Org VDC.
+                sourceEdgeGatewayNameList = [
+                    edgeGateway
+                    for edgeGateway, extNet in edgeGatwayToExtNetMap
+                    if externalNetworkName == extNet
+                ]
+                if len(sourceEdgeGatewayNameList):
+                    if bgpEnabled:
+                        errorList.append(
+                            "Edge Gateway - {} : BGP is not supported in case of multiple edge gateways using "
+                            "same Tier-0 Gateway : {}.".format(
+                                sourceEdgeGateway['name'], ', '.join(sourceEdgeGatewayNameList)))
+                    if advertiseRoutedNetworks:
+                        errorList.append(
+                            "Edge Gateway - {} : 'AdvertiseRoutedNetworks' is set to 'True' but route advertisement is "
+                            "not supported in case of multiple edge gateways using same Tier-0 Gateway: {}".format(
+                                sourceEdgeGateway['name'], ', '.join(sourceEdgeGatewayNameList)))
+
+                # 3. Validation if external network is already in use
+                if targetExternalNetwork.get('usedIpCount') and targetExternalNetwork.get('usedIpCount') > 0:
+                    if bgpEnabled:
+                        errorList.append(
+                            "Edge Gateway - {} : Dedicated Tier-0 Gateway is required as BGP is "
+                            "configured on source edge gateway.".format(
+                                sourceEdgeGateway['name']))
+                    if advertiseRoutedNetworks:
+                        errorList.append(
+                            "Edge Gateway - {} : 'AdvertiseRoutedNetworks' is set to 'True', so Dedicated Tier-0"
+                            " Gateway is required. But another edge gateway is already connected to {}".format(
+                                sourceEdgeGateway['name'], externalNetworkName))
 
             # Only validate dedicated ext-net if source edge gateways are present
-            if sourceEdgeGatewayIdList:
-                external_network_id = data['targetExternalNetwork']['id']
+            if errorList:
+                raise Exception('; '.join(errorList))
+
+            for extNetName, extNetDetails in data['targetExternalNetwork'].items():
+                external_network_id = extNetDetails['id']
                 url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
-                                      vcdConstants.VALIDATE_DEDICATED_EXTERNAL_NETWORK_FILTER.format(external_network_id))
+                                      vcdConstants.VALIDATE_DEDICATED_EXTERNAL_NETWORK_FILTER.format(
+                                          external_network_id))
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
@@ -4785,7 +4941,9 @@ class VCDMigrationValidation:
                     for value in values:
                         # checking whether the dedicated flag is enabled
                         if value['edgeGatewayUplinks'][0]['dedicated']:
-                            raise Exception('Edge Gateway {} are using dedicated external network {} and hence new edge gateway cannot be created'.format(value['name'], data['targetExternalNetwork']['name']))
+                            errorList.append(
+                                "Edge Gateway {} are using dedicated external network {} and hence new edge gateway cannot be created.".format(
+                                    value['name'], extNetName))
                     logger.debug('Validated Successfully, No other edge gateways are using dedicated external network')
                 else:
                     raise Exception("Failed to retrieve edge gateway uplinks")
@@ -5362,41 +5520,12 @@ class VCDMigrationValidation:
 
     @isSessionExpired
     def fetchAllExternalNetworks(self):
-        try:
-            # url to get all the external networks
-            url = "{}{}?sortAsc=name".format(
-                vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EXTERNAL_NETWORKS)
-            # get api call to get all the external networks
-            response = self.restClientObj.get(url, self.headers)
-            responseDict = response.json()
-            if response.status_code == requests.codes.ok:
-                logger.debug("External network details retrieved successfully.")
-                resultTotal = responseDict['resultTotal']
-                extNetData = []
-            else:
-                raise Exception('Failed to retrieve External network details due to: {}'.format(responseDict['message']))
-            pageNo = 1
-            pageSizeCount = 0
-            while resultTotal > 0 and pageSizeCount < resultTotal:
-                url = "{}{}?page={}&pageSize={}&sortAsc=name".format(
-                    vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EXTERNAL_NETWORKS, pageNo, 15)
-                getSession(self)
-                response = self.restClientObj.get(url, self.headers)
-                if response.status_code == requests.codes.ok:
-                    responseDict = response.json()
-                    extNetData.extend(responseDict['values'])
-                    pageSizeCount += len(responseDict['values'])
-                    logger.debug('External network result pageSize = {}'.format(pageSizeCount))
-                    pageNo += 1
-                    resultTotal = responseDict['resultTotal']
-                else:
-                    responseDict = response.json()
-                    raise Exception('Failed to get External network details due to: {}'.format(responseDict['message']))
-            logger.debug('Total External network result count = {}'.format(len(extNetData)))
-            logger.debug('All External network successfully retrieved')
-            return extNetData
-        except:
-            raise
+        return self.getPaginatedResults(
+            entity='External Networks',
+            baseUrl='{}{}'.format(
+                vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                vcdConstants.ALL_EXTERNAL_NETWORKS),
+            urlFilter='sortAsc=name')
 
     @isSessionExpired
     def validateExternalNetworkdvpg(self, parentNetworkId, vdcDict, orgvdcNetwork, networkData):
@@ -5464,9 +5593,7 @@ class VCDMigrationValidation:
                         )
                         externalNetworkIds = [values['name'] for values in responseValues]
                         if parentNetworkId['name'] not in externalNetworkIds:
-                            return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, vdcDict["NSXTProviderVDCName"])
-                        else:
-                            return None, 'Failed to get external network scoped to target PVDC - {} with error code - {}\n'.format(vdcDict["NSXTProviderVDCName"], response.status_code)
+                            return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, nsxtProviderVDCName)
                 else:
                     try:
                         sourceExternalNetwork = self.fetchAllExternalNetworks()

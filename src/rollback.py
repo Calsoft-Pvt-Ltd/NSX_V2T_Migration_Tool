@@ -81,7 +81,7 @@ class Rollback:
         sourceOrgVDCId, orgVDCNetworkList, targetOrgVDCId, sourceEdgeGatewayId, targetNetworkList = str(), list(), str(), str(), list()
         try:
             timeout = self.timeoutForVappMigration
-            targetExternalNetwork = orgVDCDict["ExternalNetwork"]
+            targetExternalNetwork = orgVDCDict.get("Tier0Gateways", {})
 
             # Performing rollback task
             threading.current_thread().name = orgVDCDict["OrgVDCName"]
