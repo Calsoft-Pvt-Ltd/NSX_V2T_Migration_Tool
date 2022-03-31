@@ -2550,6 +2550,9 @@ class VCDMigrationValidation:
                 # getting the dhcp config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewayDhcpConfig, gatewayId, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
+                # getting the dhcp relay config details of specified edge gateway
+                self.thread.spawnThread(self.getDhcpRelayForNonDR, gatewayId)
+                time.sleep(2)
                 # getting the firewall config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewayFirewallConfig, gatewayId)
                 time.sleep(2)
@@ -2595,6 +2598,7 @@ class VCDMigrationValidation:
 
                 # Fetching saved values from thread class of all the threads
                 dhcpErrorList, dhcpConfigOut = self.thread.returnValues['getEdgeGatewayDhcpConfig']
+                dhcpRelayErrorList = self.thread.returnValues['getDhcpRelayForNonDR']
                 firewallErrorList = self.thread.returnValues['getEdgeGatewayFirewallConfig']
                 natErrorList, ifNatRulesPresent = self.thread.returnValues['getEdgeGatewayNatConfig']
                 ipsecErrorList = self.thread.returnValues['getEdgeGatewayIpsecConfig']
@@ -2609,7 +2613,7 @@ class VCDMigrationValidation:
                 greTunnelErrorList = self.thread.returnValues['getEdgeGatewayGreTunnel']
                 if bgpStatus is True and edgeGatewayCount > 1:
                     bgpErrorList.append('BGP is enabled on: {} and more than 1 edge gateway present'.format(gatewayName))
-                currentErrorList = currentErrorList + dhcpErrorList + firewallErrorList + natErrorList + ipsecErrorList \
+                currentErrorList = currentErrorList + dhcpErrorList + dhcpRelayErrorList + firewallErrorList + natErrorList + ipsecErrorList \
                                + bgpErrorList + routingErrorList + loadBalancingErrorList + L2VpnErrorList \
                                + SslVpnErrorList + dnsErrorList + syslogErrorList + sshErrorList + greTunnelErrorList
                 defaultGatewayDetails = self.getEdgeGatewayAdminApiDetails(gatewayId, returnDefaultGateway=True)
@@ -2644,8 +2648,7 @@ class VCDMigrationValidation:
                         logger.warning('BGP learnt routes route via non-default GW external interface present but NoSnatDestinationSubnet is not configured. For each SNAT rule on the default GW interface SNAT rule will be created')
                     self.rollback.apiData['sourceEdgeGatewayDHCP'][edgeGateway['id']] = dhcpConfigOut
                     logger.debug("Source Edge Gateway - {} services configuration retrieved successfully".format(gatewayName))
-
-                errorData['DHCP'] = errorData.get('DHCP', []) + dhcpErrorList
+                errorData['DHCP'] = errorData.get('DHCP', []) + dhcpErrorList + dhcpRelayErrorList
                 errorData['Firewall'] = errorData.get('Firewall', []) + firewallErrorList
                 errorData['NAT'] = errorData.get('NAT', []) + natErrorList
                 errorData['IPsec'] = errorData.get('IPsec', []) + ipsecErrorList
@@ -2883,6 +2886,70 @@ class VCDMigrationValidation:
         return forwardersList
 
     @isSessionExpired
+    def getDhcpRelayForNonDR(self, edgeGatewayId):
+        """
+        Description :   Validating if the DHCP relay service configured in case of non Dist routing .
+        """
+        logger.debug("Validating DHCP relay service.")
+        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
+            return
+
+        sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
+        errorList = list()
+
+        # get OrgVDC Network details which are used as a relay agents.
+        sourceOrgvdcNetworks = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
+
+        # relay url to get dhcp config details of specified edge gateway
+        relayurl = "{}{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                     vcdConstants.NETWORK_EDGES,
+                                     vcdConstants.EDGE_GATEWAY_DHCP_CONFIG_BY_ID.format(edgeGatewayId),
+                                     vcdConstants.EDGE_GATEWAY_DHCP_RELAY_CONFIG_BY_ID)
+
+        # call to get api to get dhcp relay config details of specified edge gateway
+        relayresponse = self.restClientObj.get(relayurl, self.headers)
+        if relayresponse.status_code != requests.codes.ok:
+            errorList.append(
+                'Failed to retrieve DHCP Relay configuration of Source Edge Gateway with error code {} \n'.format(
+                    relayresponse.status_code))
+        relayresponsedict = self.vcdUtils.parseXml(relayresponse.content)
+        # Check if source DHCP relay service is enabled.
+        if not relayresponsedict.get('relay'):
+            return
+
+        # Check for explicit case scenario.
+        if (relayresponsedict.get('relay') and float(self.version) >= float(
+                vcdConstants.API_VERSION_ANDROMEDA_10_3_2) and self.orgVdcDict.get('NonDistributedNetworks')):
+            # get Non-Dist routing flag from user input and if enabled then raise exception.
+            errorList.append(
+                'DHCP Relay service configured on source edge gateway is not supported on target if the "NonDistributedNetworks" is set to "True" in user input.\n')
+            return errorList
+
+        # Check for implicit case scenario.
+        relayAgents = [relayAgent['giAddress'] for relayAgent in
+                       listify(relayresponsedict['relay']['relayAgents']['relayAgent'])]
+
+        # check the relay agents which can be configured as non DR.
+        for sourceOrgVDCNetwork in sourceOrgvdcNetworks:
+            networkGateway = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
+            if networkGateway not in relayAgents:
+                continue
+
+            # check for implicite type creation of Non-Distributed OrgVDC network.
+            dnsRelayConfig = self.getEdgeGatewayDnsConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
+                                                          split(':')[-1], False)
+            orgvdcNetworkGatewayIp = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
+            orgvdcNetworkDns = sourceOrgVDCNetwork['subnets']['values'][0]['dnsServer1']
+            edgeGatewayName = sourceOrgVDCNetwork['connection']['routerRef']['name']
+            if (dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns and not self.orgVdcDict.get(
+                    'NonDistributedNetworks')):
+                errorList.append(
+                    "DHCP Relay service configured on source edge gateway {} is not supported on target because, OrgVDC network {} will be configured as non-distributed after migration. DHCP Relay is not supported on non-distibuted routed networks.\n".format(
+                        edgeGatewayName, sourceOrgVDCNetwork['name']))
+
+        return errorList
+
+    @isSessionExpired
     def getEdgeGatewayDhcpConfig(self, edgeGatewayId, v2tAssessmentMode=False):
         """
         Description :   Gets the DHCP Configuration details of the specified Edge Gateway
@@ -2911,10 +2978,6 @@ class VCDMigrationValidation:
                 # checking if relay is configured in dhcp, if so raising exception
                 if relayresponsedict.get('relay'):
                     if v2tAssessmentMode or float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
-                        if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2) and self.orgVdcDict.get('NonDistributedNetworks'):
-                            # get Non-Dist routing flag from user input and if enabled then raise exception.
-                            errorList.append(
-                                'DHCP Relay service configured on source edge gateway is not supported on target if the "NonDistributedNetworks" is set to "True" in user input.\n')
                         if 'fqdn' in relayresponsedict['relay']['relayServer']:
                             errorList.append(
                                 'Domain names are configured as a DHCP servers in DHCP Relay configuration in source '
@@ -4672,7 +4735,7 @@ class VCDMigrationValidation:
             logger.info('Getting the Org VDC networks of source Org VDC {}'.format(vdcDict["OrgVDCName"]))
             orgVdcNetworkList = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks')
 
-            # Validatating static Ip pool for routed OrgVDC network.
+            # Validating static Ip pool for OrgVDC network.
             logger.info('Validating Org VDC Network Static IP pool configuration for non distributed routing')
             self.validateStaticIpPoolForNonDistributedRouting(orgVdcNetworkList, vdcDict)
 
