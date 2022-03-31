@@ -341,7 +341,7 @@ vCloudDirector:
                 <root:EnableLogging>{{ rule.EnableLogging }}</root:EnableLogging>
                 {% endif %}
               </root:FirewallRule>
-              {% endfor %} {# for rule in NatService.FirewallRule \#}
+              {% endfor %} {# for rule in FirewallService.FirewallRule \#}
             </root:FirewallService>
             {% endif %} {# if 'FirewallService' in network.features \#}
             {% if 'NatService' in network.features %}
