@@ -201,6 +201,8 @@ class VMwareCloudDirectorNSXMigratorCleanup():
                 # update the source external network ip pools
                 self.vcdObj.updateSourceExternalNetwork(sourceExternalNetwork['name'], edgeGatewaySubnetDict)
 
+            self.consoleLogger.info("Syncing DC Groups created")
+            self.vcdObj.syncOrgVDCGroup(self.vcdObj.rollback.apiData.get('OrgVDCGroupID', {}))
             self.consoleLogger.info('Successfully cleaned up Source Org VDC.')
 
             self.consoleLogger.warning('Please remove the password file - "{}" if not required, for security reasons'.format(self.passFilePath))
