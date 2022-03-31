@@ -3848,8 +3848,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         def prepareIpScopesConfig(vAppNetwork):
             """Prepare target network ipscopes config"""
             if vAppNetwork['Configuration'].get('IpScopes'):
-                ipScopes = listify(vAppNetwork['Configuration']['IpScopes']['IpScope'])
-
                 return [
                     {
                         'isInherited': ipScope['IsInherited'],
