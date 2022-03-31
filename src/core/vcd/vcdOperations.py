@@ -22,7 +22,7 @@ from collections import defaultdict
 from itertools import zip_longest
 from functools import reduce
 import src.core.vcd.vcdConstants as vcdConstants
-from src.commonUtils.utils import listify
+from src.commonUtils.utils import listify, urn_id
 from src.core.vcd.vcdValidations import (
     isSessionExpired, description, remediate, remediate_threaded, getSession)
 from src.core.vcd.vcdConfigureEdgeGatewayServices import ConfigureEdgeGatewayServices
@@ -3760,6 +3760,72 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
+    def updateRoutedOrgVdcNetworkStaticIpPool(self, vAppData):
+        """
+            Description : Update the static IP pool of OrgVDC network. Called during routed vapp migration
+        """
+        for vAppNetwork in listify(vAppData['NetworkConfigSection']['NetworkConfig']):
+            if vAppNetwork['Configuration']['FenceMode'] != 'natRouted':
+                continue
+
+            natService = vAppNetwork['Configuration'].get('Features', {}).get('NatService')
+            if not(natService and natService['NatType'] == 'ipTranslation' and natService.get('NatRule')):
+                continue
+
+            networkName = vAppNetwork['Configuration']['ParentNetwork']['@name']
+            networkId = vAppNetwork['Configuration']['ParentNetwork']['@id']
+
+            logger.warning("Get Static IP pool of OrgVDC network {}.".format(networkName))
+            url = "{}{}".format(
+                vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(urn_id(networkId, 'network')))
+            response = self.restClientObj.get(url, self.headers)
+            if response.status_code != requests.codes.ok:
+                raise Exception("Failed to get OrgVDC details.")
+
+            networkData = response.json()
+            staticIpPools = networkData['subnets']['values'][0]['ipRanges'].get('values')
+            ipRangeAddresses = set(
+                str(ipaddress.IPv4Address(ip))
+                for ipPool in staticIpPools
+                for ip in range(
+                    int(ipaddress.IPv4Address(ipPool['startAddress'])),
+                    int(ipaddress.IPv4Address(ipPool['endAddress']) + 1))
+            )
+
+            ipToBeUpdated = [
+                natRule['OneToOneVmRule']['ExternalIpAddress']
+                for natRule in listify(natService['NatRule'])
+                if natRule['OneToOneVmRule'].get('ExternalIpAddress')
+                if natRule['OneToOneVmRule']['ExternalIpAddress'] not in ipRangeAddresses
+            ]
+
+            if not ipToBeUpdated:
+                continue
+
+            logger.warning("Update Static IP pool of OrgVDC network {}".format(networkName))
+            url = "{}{}".format(
+                vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(networkData['id']))
+
+            ipRanges = [
+                {'startAddress': ip, 'endAddress': ip}
+                for ip in ipToBeUpdated
+            ]
+            if staticIpPools:
+                staticIpPools.extend(ipRanges)
+            else:
+                staticIpPools = ipRanges
+
+            networkData['subnets']['values'][0]['ipRanges']['values'] = staticIpPools
+
+            apiResponse = self.restClientObj.put(url, self.headers, data=json.dumps(networkData))
+            if apiResponse.status_code != requests.codes.accepted:
+                raise Exception("Failed to update OrgVDC static pool details : ", apiResponse.json()['message'])
+            task_url = apiResponse.headers['Location']
+            self._checkTaskStatus(taskUrl=task_url)
+            logger.warning("Successfully updated static pool of OrgVDC network {}.".format(networkName))
+
     @isSessionExpired
     def createMoveVappNetworkPayload(self, vAppData, targetOrgVDCNetworkList, filePath, rollback=False):
         """
@@ -3846,7 +3912,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
         targetOrgVDCNetworks = {network['name']: network['id'] for network in targetOrgVDCNetworkList}
 
-        # checking for the 'NetworkConfig' in 'NetworkConfigSection' of vapp
+        logger.debug(f"Preparing network payload for moveVapp of {vAppData['@name']}")
         if vAppData['NetworkConfigSection'].get('NetworkConfig'):
             networkConfig = [
                 {
@@ -3911,7 +3977,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise Exception(f"Failed to get vApp details: {responseDict['Error']['@message']}")
 
         vAppData = responseDict['VApp']
-
+        # self.updateRoutedOrgVdcNetworkStaticIpPool(vAppData)
         payloadDict = {
             'vAppHref': vApp['@href'],
             'networkConfig': self.createMoveVappNetworkPayload(vAppData, targetOrgVDCNetworkList, filePath, rollback),
