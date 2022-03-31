@@ -8,7 +8,7 @@ Description : Module performs VMware Cloud Director validations related for NSX-
 
 import inspect
 from functools import wraps
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, Counter
 from pkg_resources._vendor.packaging import version
 import copy
 import json
@@ -708,8 +708,8 @@ class VCDMigrationValidation:
             orgId = orgResponseDict['AdminOrg']['@id']
             logger.debug('Organization {} ID {} retrieved successfully'.format(orgName, orgId))
             return orgId
-        raise Exception('Failed to retrieve organization ID for {} due to {}'.format(orgName),
-                        orgResponseDict['Error']['@message'])
+        raise Exception('Failed to retrieve organization ID for {} due to {}'.format(
+            orgName,orgResponseDict['Error']['@message']))
 
     def getOrgVDCUrl(self, orgUrl, orgVDCName, saveResponse=True):
         """
@@ -3796,7 +3796,7 @@ class VCDMigrationValidation:
                 url="{}{}".format(
                     vcdConstants.OPEN_API_URL.format(self.ipAddress),
                     vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(
-                        urn_id(vAppNetwork['Configuration']['ParentNetwork']['@id'], type='network'))
+                        urn_id(vAppNetwork['Configuration']['ParentNetwork']['@id'], _type='network'))
                 ),
                 headers=self.headers
             )
@@ -3846,7 +3846,8 @@ class VCDMigrationValidation:
                         if natRule['OneToOneVmRule'].get('ExternalIpAddress')
                         if natRule['OneToOneVmRule']['ExternalIpAddress'] not in ipRangeAddresses
                     ]
-                    vAppValidations['natIptOutOfPoolIps'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}|{','.join(outOfPoolIps)}")
+                    if outOfPoolIps:
+                        vAppValidations['natIptOutOfPoolIps'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}|{','.join(outOfPoolIps)}")
 
             # Check for direct networks
             # 1. parent network is not non-shared direct network
@@ -5675,7 +5676,7 @@ class VCDMigrationValidation:
                         )
                         externalNetworkIds = [values['name'] for values in responseValues]
                         if parentNetworkId['name'] not in externalNetworkIds:
-                            return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, nsxtProviderVDCName)
+                            return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, vdcDict["NSXTProviderVDCName"])
                 else:
                     try:
                         sourceExternalNetwork = self.fetchAllExternalNetworks()
