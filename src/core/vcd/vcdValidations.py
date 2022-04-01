@@ -323,7 +323,7 @@ class VCDMigrationValidation:
             pageNo += 1
             resultTotal = responseDict['resultTotal'] if not queryApi else responseDict['total']
 
-        logger.debug(f"Total {entity} details result count = {resultItems}")
+        logger.debug(f"Total {entity} details result count = {len(resultItems)}")
         logger.debug(f"'{entity} details successfully retrieved")
         return resultItems
 
@@ -3768,6 +3768,30 @@ class VCDMigrationValidation:
             if routedVappNetworks:
                 self.vAppNetworkDict[vApp['@name']] = routedVappNetworks
 
+    def _checkOverlayBackedNetwork(self, nsxtObj, parentNetwork):
+        externalNetworkName = f"{parentNetwork['parentNetworkId']['name']}-v2t"
+        response = self.restClientObj.get(
+            url="{}{}?filter=(name=={})".format(
+                vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                vcdConstants.ALL_EXTERNAL_NETWORKS,
+                externalNetworkName,
+            ),
+            headers=self.headers,
+        )
+        externalNetwork = response.json()
+        if not response.status_code == requests.codes.ok:
+            raise Exception(
+                f"Unable to get external network {externalNetworkName} details: {externalNetwork['message']}")
+
+        # Result should contain single result as we are getting by name
+        if externalNetwork['resultTotal'] != 1:
+            return 'NA'
+
+        for backing in externalNetwork['values'][0]['networkBackings']['values']:
+            if backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH':
+                if not nsxtObj.isOverlayBackedSegment(backing['backingId']):
+                    return externalNetworkName
+
     def _validateRoutedVappNetworks(self, vApp, vAppValidations, nsxtObj):
         response = self.restClientObj.get(vApp['@href'], self.headers)
         responseDict = self.vcdUtils.parseXml(response.content)
@@ -3850,8 +3874,7 @@ class VCDMigrationValidation:
                         vAppValidations['natIptOutOfPoolIps'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}|{','.join(outOfPoolIps)}")
 
             # Check for direct networks
-            # 1. parent network is not non-shared direct network
-            # 2. for shared direct network, target external network (-v2t suffixed) is overlay backed
+            # target external network (-v2t suffixed) should be overlay backed
             if parentNetwork['networkType'] == 'DIRECT':
                 # Verify the shared network is not dedicated
                 url = "{}{}{}".format(
@@ -3865,35 +3888,24 @@ class VCDMigrationValidation:
                         f"Unable to get external network {parentNetwork['parentNetworkId']['name']} details: "
                         f"{responseDict['message']}")
 
-                # If external network is dedicated or shared at external network level, it is not supported
-                if not(int(responseDict['resultTotal']) > 1 and parentNetwork['shared']):
-                    vAppValidations['directNetworks'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
-
-                # If shared at Org VDC network level, verify it is overlay backed
-                elif nsxtObj:
-                    externalNetworkName = f"{parentNetwork['parentNetworkId']['name']}-v2t"
-                    response = self.restClientObj.get(
-                        url="{}{}?filter=(name=={})".format(
-                            vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                            vcdConstants.ALL_EXTERNAL_NETWORKS,
-                            externalNetworkName,
-                        ),
-                        headers=self.headers
-                    )
-                    externalNetwork = response.json()
-                    if not response.status_code == requests.codes.ok:
-                        raise Exception(
-                            f"Unable to get external network {externalNetworkName} details: {externalNetwork['message']}")
-
-                    # Result should contain single result as we are getting by name
-                    if externalNetwork['resultTotal'] == 1:
-                        for backing in externalNetwork['values'][0]['networkBackings']['values']:
-                            if backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH':
-                                if not nsxtObj.isOverlayBackedSegment(backing['backingId']):
-                                    vAppValidations['vlanBackedNetworks'].add(f"{vApp['@name']}|{externalNetworkName}")
-                                break
+                if int(responseDict['resultTotal']) > 1:
+                    if not parentNetwork['shared']:
+                        if self.orgVdcDict.get('LegacyDirectNetwork', False):
+                            # Service direct network legacy implementation
+                            vAppValidations['legacyDirectNetwork'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
+                        else:
+                            # Service direct network default implementation
+                            externalNetworkName = self._checkOverlayBackedNetwork(nsxtObj, parentNetwork)
+                            if externalNetworkName:
+                                vAppValidations['vlanBackedNetworks'].add(f"{vApp['@name']}|{externalNetworkName}")
                     else:
-                        vAppValidations['vlanBackedNetworks'].add(f"{vApp['@name']}|NA")
+                        # Shared service direct network implementation
+                        externalNetworkName = self._checkOverlayBackedNetwork(nsxtObj, parentNetwork)
+                        if externalNetworkName:
+                            vAppValidations['vlanBackedNetworks'].add(f"{vApp['@name']}|{externalNetworkName}")
+                else:
+                    # Dedicated direct network implementation
+                    vAppValidations['dedicatedDirectNetworks'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
 
             # check the external router ips of routed vapp networks and NAT
             vAppValidations['routerExternalIp'][vApp['@name']].update(
@@ -3925,7 +3937,8 @@ class VCDMigrationValidation:
                 logger.debug('Validating routed vApp network configuration')
                 vAppValidations = {
                     'mixedNetworkTypes': set(),
-                    'directNetworks': set(),
+                    'dedicatedDirectNetworks': set(),
+                    'legacyDirectNetwork': set(),
                     'vlanBackedNetworks': set(),
                     'natPfCustomToAny': set(),
                     'natPfTcpUdp': set(),
@@ -3945,10 +3958,14 @@ class VCDMigrationValidation:
                     errors.append(
                         f"Routed vapp network is not supported with other type of networks in vapp/s (vApp): "
                         f"{', '.join(vAppValidations['mixedNetworkTypes'])}")
-                if vAppValidations['directNetworks']:
+                if vAppValidations['dedicatedDirectNetworks']:
                     errors.append(
-                        f"Routed vApp parent network should be a shared direct network (vApp|vApp_Network):"
-                        f"{', '.join(vAppValidations['directNetworks'])}")
+                        f"Routed vApp parent network should not be a dedicated direct network (vApp|vApp_Network):"
+                        f"{', '.join(vAppValidations['dedicatedDirectNetworks'])}")
+                if vAppValidations['legacyDirectNetwork']:
+                    errors.append(
+                        f"'LegacyDirectNetwork' flag should be False for routed vApp migration (vApp|vApp_Network):"
+                        f"{', '.join(vAppValidations['legacyDirectNetwork'])}")
                 if vAppValidations['vlanBackedNetworks']:
                     errors.append(
                         f"External network used for routed vapp networks should be overlay backed "
