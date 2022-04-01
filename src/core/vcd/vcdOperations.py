@@ -5385,8 +5385,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader}
         # get api call to retrieve the networks with external network id
         response = self.restClientObj.get(url, headers)
+        responseDict = response.json()
         if response.status_code == requests.codes.ok:
-            responseDict = response.json()
             if responseDict['record']:
                 for record in responseDict['record']:
                     vlanId = record['vlanId']
@@ -5418,7 +5418,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 'backingNetworkId': segmetId
             }
         else:
-            raise Exception('Failed to get external network {} vlan ID'.format(parentNetworkId['name']))
+            raise Exception('Failed to get external network {} vlan ID'.format(
+                parentNetworkId['name'], responseDict['message']))
         return segmentName, payload
 
     @isSessionExpired
@@ -5477,15 +5478,15 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                   vcdConstants.QUERY_EXTERNAL_NETWORK.format(parentNetworkId['id']))
             # get api call to retrieve the networks with external network id
             response = self.restClientObj.get(url, self.headers)
+            responseDict = response.json()
             if response.status_code == requests.codes.ok:
-                responseDict = response.json()
                 if int(responseDict['resultTotal']) > 1:
                     if not orgvdcNetwork['shared']:
                         if vdcDict.get('LegacyDirectNetwork', False):
                             # Service direct network legacy implementation
                             payloadDict = self.extendedParentNetworkPayload(orgvdcNetwork)
                         else:
-                            # Service direct network proposed implementation
+                            # Service direct network default implementation
                             payloadDict = self.v2tBackedNetworkPayload(parentNetworkId, orgvdcNetwork, Shared=False)
 
                     else:
@@ -5495,7 +5496,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     # Dedicated direct network implementation
                     segmentName, payloadDict = self.importedNetworkPayload(parentNetworkId, orgvdcNetwork, inputDict, nsxObj)
             else:
-                raise Exception('Failed to get external network {}'.format(parentNetworkId['name']))
+                raise Exception('Failed to get external network {}: {}'.format(
+                    parentNetworkId['name'], responseDict['message']))
             payloadData = json.dumps(payloadDict)
             return segmentName, payloadData
         except Exception:
