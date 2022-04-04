@@ -74,7 +74,7 @@ EDGE_GW_SERVICES_VALIDATIONS = {
     'LoadBalancer: Application Rules': 2,
     'LoadBalancer: Custom monitor': 1,
     'LoadBalancer: Default pool not configured': 1,
-    'LoadBalancer: IPv6 Virtual Server Address': 1,
+    'LoadBalancer: IPv6 Virtual Server Address': 2,
     'LoadBalancer: Unsupported persistence': 1,
     'LoadBalancer: Unsupported algorithm': 1,
     'LoadBalancer: Application profile is not added': 1,
