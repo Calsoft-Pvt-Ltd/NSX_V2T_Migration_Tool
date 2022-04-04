@@ -2548,7 +2548,7 @@ class VCDMigrationValidation:
                 self.thread.spawnThread(self.getEdgeGatewayDhcpConfig, gatewayId, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the dhcp relay config details of specified edge gateway
-                self.thread.spawnThread(self.getDhcpRelayForNonDR, gatewayId)
+                self.thread.spawnThread(self.getDhcpRelayForNonDR, gatewayId, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the firewall config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewayFirewallConfig, gatewayId)
@@ -2883,12 +2883,12 @@ class VCDMigrationValidation:
         return forwardersList
 
     @isSessionExpired
-    def getDhcpRelayForNonDR(self, edgeGatewayId):
+    def getDhcpRelayForNonDR(self, edgeGatewayId, v2tAssessmentMode=False):
         """
         Description :   Validating if the DHCP relay service configured in case of non Dist routing .
         """
         logger.debug("Validating DHCP relay service.")
-        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
+        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2) or v2tAssessmentMode:
             return []
 
         sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
@@ -2929,7 +2929,8 @@ class VCDMigrationValidation:
         # check the relay agents which can be configured as non DR.
         for sourceOrgVDCNetwork in sourceOrgvdcNetworks:
             networkGateway = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
-            if networkGateway not in relayAgents:
+            if (networkGateway not in relayAgents
+                    or edgeGatewayId not in sourceOrgVDCNetwork['connection']['routerRef']['id']):
                 continue
 
             # check for implicite type creation of Non-Distributed OrgVDC network.
