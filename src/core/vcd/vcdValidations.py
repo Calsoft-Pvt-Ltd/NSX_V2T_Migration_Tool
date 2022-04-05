@@ -3860,7 +3860,7 @@ class VCDMigrationValidation:
                 else:
                     ipRangeAddresses = set(
                         str(ipaddress.IPv4Address(ip))
-                        for ipPool in parentNetwork['subnets']['values'][0]['ipRanges'].get('values')
+                        for ipPool in parentNetwork['subnets']['values'][0]['ipRanges'].get('values', []) or []
                         for ip in range(
                             int(ipaddress.IPv4Address(ipPool['startAddress'])),
                             int(ipaddress.IPv4Address(ipPool['endAddress']) + 1))
@@ -3876,7 +3876,7 @@ class VCDMigrationValidation:
 
             # Check for direct networks
             # target external network (-v2t suffixed) should be overlay backed
-            if parentNetwork['networkType'] == 'DIRECT':
+            if nsxtObj and parentNetwork['networkType'] == 'DIRECT':
                 # Verify the shared network is not dedicated
                 url = "{}{}{}".format(
                     vcdConstants.OPEN_API_URL.format(self.ipAddress),
