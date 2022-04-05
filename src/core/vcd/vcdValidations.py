@@ -3858,21 +3858,22 @@ class VCDMigrationValidation:
                     vAppValidations['natIptDisabled'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
 
                 else:
-                    ipRangeAddresses = set(
-                        str(ipaddress.IPv4Address(ip))
-                        for ipPool in parentNetwork['subnets']['values'][0]['ipRanges'].get('values', []) or []
-                        for ip in range(
-                            int(ipaddress.IPv4Address(ipPool['startAddress'])),
-                            int(ipaddress.IPv4Address(ipPool['endAddress']) + 1))
-                    )
-                    outOfPoolIps = [
-                        natRule['OneToOneVmRule']['ExternalIpAddress']
-                        for natRule in listify(natService['NatRule'])
-                        if natRule['OneToOneVmRule'].get('ExternalIpAddress')
-                        if natRule['OneToOneVmRule']['ExternalIpAddress'] not in ipRangeAddresses
-                    ]
-                    if outOfPoolIps:
-                        vAppValidations['natIptOutOfPoolIps'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}|{','.join(outOfPoolIps)}")
+                    if parentNetwork['networkType'] == 'NAT_ROUTED':
+                        ipRangeAddresses = set(
+                            str(ipaddress.IPv4Address(ip))
+                            for ipPool in parentNetwork['subnets']['values'][0]['ipRanges'].get('values', []) or []
+                            for ip in range(
+                                int(ipaddress.IPv4Address(ipPool['startAddress'])),
+                                int(ipaddress.IPv4Address(ipPool['endAddress']) + 1))
+                        )
+                        outOfPoolIps = [
+                            natRule['OneToOneVmRule']['ExternalIpAddress']
+                            for natRule in listify(natService['NatRule'])
+                            if natRule['OneToOneVmRule'].get('ExternalIpAddress')
+                            if natRule['OneToOneVmRule']['ExternalIpAddress'] not in ipRangeAddresses
+                        ]
+                        if outOfPoolIps:
+                            vAppValidations['natIptOutOfPoolIps'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}|{','.join(outOfPoolIps)}")
 
             # Check for direct networks
             # target external network (-v2t suffixed) should be overlay backed
