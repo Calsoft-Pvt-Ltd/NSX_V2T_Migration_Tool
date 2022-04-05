@@ -3784,6 +3784,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 raise Exception("Failed to get OrgVDC details.")
 
             networkData = response.json()
+            # TODO pranshu: handle case where static pool is empty
             staticIpPools = networkData['subnets']['values'][0]['ipRanges'].get('values')
             ipRangeAddresses = set(
                 str(ipaddress.IPv4Address(ip))
