@@ -2661,7 +2661,7 @@ class VCDMigrationValidation:
             if v2tAssessmentMode:
                 return errorData
             if allErrorList:
-                raise Exception('; '.join(allErrorList))
+                raise Exception(' '.join(allErrorList))
 
         except Exception:
             raise
@@ -3113,7 +3113,7 @@ class VCDMigrationValidation:
                     errorList.append('Firewall is disabled in source\n')
                     return errorList
             raise Exception(
-                "Failed to retrieve the Firewall Configurations of Source Edge Gateway with error code {}: {}".format(
+                "Failed to retrieve the Firewall Configurations of Source Edge Gateway with error code {}: {}\n".format(
                     response.status_code, responseDict['Error']['@message']))
         except Exception:
             raise
@@ -3462,8 +3462,11 @@ class VCDMigrationValidation:
                 for natrule in natRulesPresent:
                     if natrule['action'] == 'dnat' and natrule['ruleType'] == 'user':
                         for subnet in localSubnets.get('subnets'):
-                            if ipaddress.ip_address(natrule['translatedAddress']) in ipaddress.ip_network(subnet,
-                                                                                                          strict=False):
+                            if "-" in natrule['translatedAddress']:
+                                translatedAddress = natrule['translatedAddress'].split("-")[0]
+                            else:
+                                translatedAddress = natrule['translatedAddress'].split('/')[0]
+                            if ipaddress.ip_address(translatedAddress) in ipaddress.ip_network(subnet, strict=False):
                                 errorList.append(
                                     'DNAT configured with translated IP {} is not supported on a tier-1 gateway where policy-based IPSec VPN is configured with local subnet {}.\n'.format(
                                         natrule['translatedAddress'], subnet))
@@ -3553,7 +3556,7 @@ class VCDMigrationValidation:
                             # validate only if backing type is VRF
                             if targetExternalBackingTypeValue == 'NSXT_VRF_TIER0':
                                 if self.nsxVersion.startswith('2.'):
-                                    errorList.append('VRF is not supported in NSX-T version: {}'.format(self.nsxVersion))
+                                    errorList.append('VRF is not supported in NSX-T version: {}\n'.format(self.nsxVersion))
                                 tier0RouterName = targetExternalNetwork['networkBackings']['values'][0]['parentTier0Ref']['id']
                                 tier0Details = nsxtObj.getTier0GatewayDetails(tier0RouterName)
                                 tier0localASnum = tier0Details['local_as_num']
@@ -5112,7 +5115,7 @@ class VCDMigrationValidation:
                         return responseDict
                     return []
             else:
-                return ["Failed to retrieve DNS configuration of Source Edge Gateway with error code {}".format(response.status_code)]
+                return ["Failed to retrieve DNS configuration of Source Edge Gateway with error code {}\n".format(response.status_code)]
         except Exception:
             raise
 
