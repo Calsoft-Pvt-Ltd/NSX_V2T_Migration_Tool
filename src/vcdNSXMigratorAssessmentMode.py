@@ -98,7 +98,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         """
         try:
             getSourceExternalNetworkDesc = 'Getting NSX-V backed Provider VDC External network details'
-            getTargetExternalNetworkDesc = 'Getting NSX-T backed Provider VDC External network {} details'
+            getTargetExternalNetworkDesc = 'Getting NSX-T backed Provider VDC External network details'
             getDummyExternalNetworkDesc = 'Getting NSX-V backed Provider VDC External network {} details'
             getEdgeGatewayDesc = 'Getting details of source edge gateway list'
             getOrgVdcNetworkDesc = 'Getting NSX-V backed Org VDC network details'
@@ -110,7 +110,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             threadObj.spawnThread(vcdValidationObj.getSourceExternalNetwork,
                                 sourceOrgVDCId, saveOutputKey='sourceExternalNetwork')
             # fetch details of target External network
-            self.consoleLogger.info(getTargetExternalNetworkDesc.format(orgVDCDict.get("Tier0Gateways", {})))
+            self.consoleLogger.info(getTargetExternalNetworkDesc)
             threadObj.spawnThread(vcdValidationObj.getTargetExternalNetworks,
                                     orgVDCDict.get("Tier0Gateways", {}),
                                     saveOutputKey='targetExternalNetwork')
@@ -129,7 +129,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             if threadObj.returnValues['sourceExternalNetwork'] and isinstance(threadObj.returnValues['sourceExternalNetwork'], Exception):
                 validationFailures.append([getSourceExternalNetworkDesc, threadObj.returnValues['sourceExternalNetwork'], 'Failed'])
             if threadObj.returnValues['targetExternalNetwork'] and isinstance(threadObj.returnValues['targetExternalNetwork'], Exception):
-                validationFailures.append([getTargetExternalNetworkDesc.format(orgVDCDict["Tier0Gateways"]), threadObj.returnValues['targetExternalNetwork'], 'Failed'])
+                validationFailures.append([getTargetExternalNetworkDesc, threadObj.returnValues['targetExternalNetwork'], 'Failed'])
             if threadObj.returnValues['dummyNetwork'] and isinstance(threadObj.returnValues['dummyNetwork'], Exception):
                 validationFailures.append([getDummyExternalNetworkDesc.format(self.inputDict["VCloudDirector"]["DummyExternalNetwork"]), threadObj.returnValues['dummyNetwork'], 'Failed'])
             if threadObj.returnValues['getNSXVOrgVdcNetwork'] and isinstance(threadObj.returnValues['getNSXVOrgVdcNetwork'], Exception):
