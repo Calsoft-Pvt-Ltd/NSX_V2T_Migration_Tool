@@ -158,11 +158,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
         # Creating object of vcd validation class
         self.vcdValidationObj = self.vcdValidationObj = VCDMigrationValidation(
-            self.inputDict['VCloudDirector']['ipAddress'],
-            self.inputDict['VCloudDirector']['username'],
-            vCloudDirectorPassword,
-            self.inputDict['VCloudDirector']['verify'],
-            self.rollback, threadObj, vdcName="MainThread")
+            self.inputDict, vCloudDirectorPassword, self.rollback, threadObj, assessmentMode=True)
 
         # Login to vCD
         self.vcdValidationObj.vcdLogin()
