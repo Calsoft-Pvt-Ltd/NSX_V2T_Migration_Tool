@@ -180,8 +180,7 @@ class VCDMigrationValidation:
     VCD_SESSION_CREATED = False
 
     def __init__(
-            self, ipAddress, username, password, verify, rollback, threadObj=None, lockObj=None , vdcName=None,
-            orgVDCDict=None):
+            self, inputDict, password, rollback, threadObj, lockObj=None, orgVdcDict=None, assessmentMode=False):
         """
         Description :   Initializer method of VMware Cloud Director Operations
         Parameters  :   ipAddress      -   ipAddress of the VMware vCloud Director (STRING)
@@ -195,11 +194,24 @@ class VCDMigrationValidation:
                         lockObj        -   Shared object of threading.Rlock() to implement locking for threads (OBJECT)
                         orgVDCDict     -   orgvdc specific section of input yaml (DICT)
         """
-        self.ipAddress = ipAddress
-        self.username = '{}@system'.format(username)
-        self.password = password
-        self.verify = verify
-        self.vdcName = vdcName
+        if assessmentMode:
+            self.inputDict = inputDict
+            self.ipAddress = inputDict['VCloudDirector']['ipAddress']
+            self.username = f"{inputDict['VCloudDirector']['username']}@system"
+            self.password = password
+            self.verify = inputDict['VCloudDirector']['verify']
+            self.orgVdcDict = orgVdcDict
+            self.vdcName = 'MainThread'
+        else:
+            self.inputDict = inputDict
+            self.ipAddress = inputDict["VCloudDirector"]["Common"]["ipAddress"],
+            self.username = f"{inputDict['VCloudDirector']['Common']['username']}@system"
+            self.password = inputDict['VCloudDirector']['Common']['password']
+            self.verify = inputDict['VCloudDirector']['Common']['verify']
+            self.orgVdcDict = orgVdcDict
+            self.vdcName = orgVdcDict["OrgVDCName"]
+
+        self.assessmentMode = assessmentMode
         self.vCDSessionId = None
         self.vcdUtils = Utilities()
         self.thread = threadObj
@@ -211,7 +223,6 @@ class VCDMigrationValidation:
         self.l3DfwRules = None
         self.dfwSecurityTags = dict()
         self._isSharedNetworkPresent = None
-        self.orgVdcDict = orgVDCDict
         vcdConstants.VCD_API_HEADER = vcdConstants.VCD_API_HEADER.format(self.version)
         vcdConstants.GENERAL_JSON_ACCEPT_HEADER = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
         vcdConstants.OPEN_API_CONTENT_TYPE = vcdConstants.OPEN_API_CONTENT_TYPE.format(self.version)
