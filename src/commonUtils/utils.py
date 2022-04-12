@@ -33,8 +33,8 @@ def listify(_list):
     return _list if isinstance(_list, list) else [_list]
 
 
-def urn_id(_id, type):
-    return _id if _id.startswith('urn') else f"urn:vcloud:{type}:{_id}"
+def urn_id(_id, _type):
+    return _id if _id.startswith('urn') else f"urn:vcloud:{_type}:{_id}"
 
 
 class Utilities():

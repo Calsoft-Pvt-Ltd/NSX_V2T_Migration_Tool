@@ -44,9 +44,6 @@ ORG_VDC_QUERY = "query?type=adminOrgVdc&format=records"
 # fetch all vdcs
 FETCH_ALL_VDCS = "vdcs"
 
-# org vdc metadata uri
-META_DATA_IN_ORG_VDC_BY_ID = "vdc/{}/metadata"
-
 # create org vdc metadata entry template name used in template.yml
 CREATE_ORG_VDC_METADATA_TEMPLATE = 'createOrgVDCMetadata'
 

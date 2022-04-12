@@ -8,7 +8,7 @@ Description : Module performs VMware Cloud Director validations related for NSX-
 
 import inspect
 from functools import wraps
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, Counter
 from pkg_resources._vendor.packaging import version
 import copy
 import json
@@ -36,9 +36,6 @@ def getSession(self):
     if hasattr(self, '__threadname__') and self.__threadname__:
         threading.current_thread().name = self.__threadname__
     threading.current_thread().name = self.vdcName
-
-    return
-
     url = '{}session'.format(vcdConstants.XML_API_URL.format(self.ipAddress))
     response = self.restClientObj.get(url, headers=self.headers)
     if response.status_code != requests.codes.ok:
@@ -326,7 +323,7 @@ class VCDMigrationValidation:
             pageNo += 1
             resultTotal = responseDict['resultTotal'] if not queryApi else responseDict['total']
 
-        logger.debug(f"Total {entity} details result count = {resultItems}")
+        logger.debug(f"Total {entity} details result count = {len(resultItems)}")
         logger.debug(f"'{entity} details successfully retrieved")
         return resultItems
 
@@ -711,8 +708,8 @@ class VCDMigrationValidation:
             orgId = orgResponseDict['AdminOrg']['@id']
             logger.debug('Organization {} ID {} retrieved successfully'.format(orgName, orgId))
             return orgId
-        raise Exception('Failed to retrieve organization ID for {} due to {}'.format(orgName),
-                        orgResponseDict['Error']['@message'])
+        raise Exception('Failed to retrieve organization ID for {} due to {}'.format(
+            orgName,orgResponseDict['Error']['@message']))
 
     def getOrgVDCUrl(self, orgUrl, orgVDCName, saveResponse=True):
         """
@@ -2551,7 +2548,7 @@ class VCDMigrationValidation:
                 self.thread.spawnThread(self.getEdgeGatewayDhcpConfig, gatewayId, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the dhcp relay config details of specified edge gateway
-                self.thread.spawnThread(self.getDhcpRelayForNonDR, gatewayId)
+                self.thread.spawnThread(self.getDhcpRelayForNonDR, gatewayId, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the firewall config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewayFirewallConfig, gatewayId)
@@ -2664,7 +2661,7 @@ class VCDMigrationValidation:
             if v2tAssessmentMode:
                 return errorData
             if allErrorList:
-                raise Exception('; '.join(allErrorList))
+                raise Exception(' '.join(allErrorList))
 
         except Exception:
             raise
@@ -2886,13 +2883,13 @@ class VCDMigrationValidation:
         return forwardersList
 
     @isSessionExpired
-    def getDhcpRelayForNonDR(self, edgeGatewayId):
+    def getDhcpRelayForNonDR(self, edgeGatewayId, v2tAssessmentMode=False):
         """
         Description :   Validating if the DHCP relay service configured in case of non Dist routing .
         """
         logger.debug("Validating DHCP relay service.")
-        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
-            return
+        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2) or v2tAssessmentMode:
+            return []
 
         sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
         errorList = list()
@@ -2915,7 +2912,7 @@ class VCDMigrationValidation:
         relayresponsedict = self.vcdUtils.parseXml(relayresponse.content)
         # Check if source DHCP relay service is enabled.
         if not relayresponsedict.get('relay'):
-            return
+            return []
 
         # Check for explicit case scenario.
         if (relayresponsedict.get('relay') and float(self.version) >= float(
@@ -2932,7 +2929,8 @@ class VCDMigrationValidation:
         # check the relay agents which can be configured as non DR.
         for sourceOrgVDCNetwork in sourceOrgvdcNetworks:
             networkGateway = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
-            if networkGateway not in relayAgents:
+            if (networkGateway not in relayAgents
+                    or edgeGatewayId not in sourceOrgVDCNetwork['connection']['routerRef']['id']):
                 continue
 
             # check for implicite type creation of Non-Distributed OrgVDC network.
@@ -3115,7 +3113,7 @@ class VCDMigrationValidation:
                     errorList.append('Firewall is disabled in source\n')
                     return errorList
             raise Exception(
-                "Failed to retrieve the Firewall Configurations of Source Edge Gateway with error code {}: {}".format(
+                "Failed to retrieve the Firewall Configurations of Source Edge Gateway with error code {}: {}\n".format(
                     response.status_code, responseDict['Error']['@message']))
         except Exception:
             raise
@@ -3464,8 +3462,11 @@ class VCDMigrationValidation:
                 for natrule in natRulesPresent:
                     if natrule['action'] == 'dnat' and natrule['ruleType'] == 'user':
                         for subnet in localSubnets.get('subnets'):
-                            if ipaddress.ip_address(natrule['translatedAddress']) in ipaddress.ip_network(subnet,
-                                                                                                          strict=False):
+                            if "-" in natrule['translatedAddress']:
+                                translatedAddress = natrule['translatedAddress'].split("-")[0]
+                            else:
+                                translatedAddress = natrule['translatedAddress'].split('/')[0]
+                            if ipaddress.ip_address(translatedAddress) in ipaddress.ip_network(subnet, strict=False):
                                 errorList.append(
                                     'DNAT configured with translated IP {} is not supported on a tier-1 gateway where policy-based IPSec VPN is configured with local subnet {}.\n'.format(
                                         natrule['translatedAddress'], subnet))
@@ -3555,7 +3556,7 @@ class VCDMigrationValidation:
                             # validate only if backing type is VRF
                             if targetExternalBackingTypeValue == 'NSXT_VRF_TIER0':
                                 if self.nsxVersion.startswith('2.'):
-                                    errorList.append('VRF is not supported in NSX-T version: {}'.format(self.nsxVersion))
+                                    errorList.append('VRF is not supported in NSX-T version: {}\n'.format(self.nsxVersion))
                                 tier0RouterName = targetExternalNetwork['networkBackings']['values'][0]['parentTier0Ref']['id']
                                 tier0Details = nsxtObj.getTier0GatewayDetails(tier0RouterName)
                                 tier0localASnum = tier0Details['local_as_num']
@@ -3771,6 +3772,30 @@ class VCDMigrationValidation:
             if routedVappNetworks:
                 self.vAppNetworkDict[vApp['@name']] = routedVappNetworks
 
+    def _checkOverlayBackedNetwork(self, nsxtObj, parentNetwork):
+        externalNetworkName = f"{parentNetwork['parentNetworkId']['name']}-v2t"
+        response = self.restClientObj.get(
+            url="{}{}?filter=(name=={})".format(
+                vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                vcdConstants.ALL_EXTERNAL_NETWORKS,
+                externalNetworkName,
+            ),
+            headers=self.headers,
+        )
+        externalNetwork = response.json()
+        if not response.status_code == requests.codes.ok:
+            raise Exception(
+                f"Unable to get external network {externalNetworkName} details: {externalNetwork['message']}")
+
+        # Result should contain single result as we are getting by name
+        if externalNetwork['resultTotal'] != 1:
+            return 'NA'
+
+        for backing in externalNetwork['values'][0]['networkBackings']['values']:
+            if backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH':
+                if not nsxtObj.isOverlayBackedSegment(backing['backingId']):
+                    return externalNetworkName
+
     def _validateRoutedVappNetworks(self, vApp, vAppValidations, nsxtObj):
         response = self.restClientObj.get(vApp['@href'], self.headers)
         responseDict = self.vcdUtils.parseXml(response.content)
@@ -3793,6 +3818,21 @@ class VCDMigrationValidation:
             networkTypes.add(vAppNetwork['Configuration']['FenceMode'])
             if vAppNetwork['Configuration']['FenceMode'] != 'natRouted':
                 continue
+
+            # Get parent network
+            response = self.restClientObj.get(
+                url="{}{}".format(
+                    vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                    vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(
+                        urn_id(vAppNetwork['Configuration']['ParentNetwork']['@id'], _type='network'))
+                ),
+                headers=self.headers
+            )
+            parentNetwork = response.json()
+            if not response.status_code == requests.codes.ok:
+                raise Exception(
+                    f"Unable to get parent network {vAppNetwork['Configuration']['ParentNetwork']['@name']}"
+                    f" details: {parentNetwork['message']}")
 
             # Verify NAT rules
             natService = vAppNetwork['Configuration'].get('Features', {}).get('NatService', {})
@@ -3820,66 +3860,57 @@ class VCDMigrationValidation:
                 if natService['IsEnabled'] == 'false':
                     vAppValidations['natIptDisabled'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
 
-            # Get parent network
-            response = self.restClientObj.get(
-                url="{}{}".format(
-                    vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                    vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(
-                        urn_id(vAppNetwork['Configuration']['ParentNetwork']['@id'], type='network'))
-                ),
-                headers=self.headers
-            )
-            orgVdcNetwork = response.json()
-            if not response.status_code == requests.codes.ok:
-                raise Exception(
-                    f"Unable to get parent network {vAppNetwork['Configuration']['ParentNetwork']['@name']}"
-                    f" details: {orgVdcNetwork['message']}")
+                else:
+                    if parentNetwork['networkType'] == 'NAT_ROUTED':
+                        ipRangeAddresses = set(
+                            str(ipaddress.IPv4Address(ip))
+                            for ipPool in parentNetwork['subnets']['values'][0]['ipRanges'].get('values', []) or []
+                            for ip in range(
+                                int(ipaddress.IPv4Address(ipPool['startAddress'])),
+                                int(ipaddress.IPv4Address(ipPool['endAddress']) + 1))
+                        )
+                        outOfPoolIps = [
+                            natRule['OneToOneVmRule']['ExternalIpAddress']
+                            for natRule in listify(natService['NatRule'])
+                            if natRule['OneToOneVmRule'].get('ExternalIpAddress')
+                            if natRule['OneToOneVmRule']['ExternalIpAddress'] not in ipRangeAddresses
+                        ]
+                        if outOfPoolIps:
+                            vAppValidations['natIptOutOfPoolIps'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}|{','.join(outOfPoolIps)}")
 
             # Check for direct networks
-            # 1. parent network is not non-shared direct network
-            # 2. for shared direct network, target external network (-v2t suffixed) is overlay backed
-            if orgVdcNetwork['networkType'] == 'DIRECT':
+            # target external network (-v2t suffixed) should be overlay backed
+            if nsxtObj and parentNetwork['networkType'] == 'DIRECT':
                 # Verify the shared network is not dedicated
                 url = "{}{}{}".format(
                     vcdConstants.OPEN_API_URL.format(self.ipAddress),
                     vcdConstants.ALL_ORG_VDC_NETWORKS,
-                    vcdConstants.QUERY_EXTERNAL_NETWORK.format(orgVdcNetwork['parentNetworkId']['id']))
+                    vcdConstants.QUERY_EXTERNAL_NETWORK.format(parentNetwork['parentNetworkId']['id']))
                 response = self.restClientObj.get(url, self.headers)
                 responseDict = response.json()
                 if not response.status_code == requests.codes.ok:
                     raise Exception(
-                        f"Unable to get external network {orgVdcNetwork['parentNetworkId']['name']} details: "
+                        f"Unable to get external network {parentNetwork['parentNetworkId']['name']} details: "
                         f"{responseDict['message']}")
 
-                # If external network is dedicated or shared at external network level, it is not supported
-                if not(int(responseDict['resultTotal']) > 1 and orgVdcNetwork['shared']):
-                    vAppValidations['directNetworks'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
-
-                # If shared at Org VDC network level, verify it is overlay backed
-                elif nsxtObj:
-                    externalNetworkName = f"{orgVdcNetwork['parentNetworkId']['name']}-v2t"
-                    response = self.restClientObj.get(
-                        url="{}{}?filter=(name=={})".format(
-                            vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                            vcdConstants.ALL_EXTERNAL_NETWORKS,
-                            externalNetworkName,
-                        ),
-                        headers=self.headers
-                    )
-                    externalNetwork = response.json()
-                    if not response.status_code == requests.codes.ok:
-                        raise Exception(
-                            f"Unable to get external network {externalNetworkName} details: {externalNetwork['message']}")
-
-                    # Result should contain single result as we are getting by name
-                    if externalNetwork['resultTotal'] == 1:
-                        for backing in externalNetwork['values'][0]['networkBackings']['values']:
-                            if backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH':
-                                if not nsxtObj.isOverlayBackedSegment(backing['backingId']):
-                                    vAppValidations['vlanBackedNetworks'].add(f"{vApp['@name']}|{externalNetworkName}")
-                                break
+                if int(responseDict['resultTotal']) > 1:
+                    if not parentNetwork['shared']:
+                        if self.orgVdcDict.get('LegacyDirectNetwork', False):
+                            # Service direct network legacy implementation
+                            vAppValidations['legacyDirectNetwork'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
+                        else:
+                            # Service direct network default implementation
+                            externalNetworkName = self._checkOverlayBackedNetwork(nsxtObj, parentNetwork)
+                            if externalNetworkName:
+                                vAppValidations['vlanBackedNetworks'].add(f"{vApp['@name']}|{externalNetworkName}")
                     else:
-                        vAppValidations['vlanBackedNetworks'].add(f"{vApp['@name']}|NA")
+                        # Shared service direct network implementation
+                        externalNetworkName = self._checkOverlayBackedNetwork(nsxtObj, parentNetwork)
+                        if externalNetworkName:
+                            vAppValidations['vlanBackedNetworks'].add(f"{vApp['@name']}|{externalNetworkName}")
+                else:
+                    # Dedicated direct network implementation
+                    vAppValidations['dedicatedDirectNetworks'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
 
             # check the external router ips of routed vapp networks and NAT
             vAppValidations['routerExternalIp'][vApp['@name']].update(
@@ -3911,7 +3942,8 @@ class VCDMigrationValidation:
                 logger.debug('Validating routed vApp network configuration')
                 vAppValidations = {
                     'mixedNetworkTypes': set(),
-                    'directNetworks': set(),
+                    'dedicatedDirectNetworks': set(),
+                    'legacyDirectNetwork': set(),
                     'vlanBackedNetworks': set(),
                     'natPfCustomToAny': set(),
                     'natPfTcpUdp': set(),
@@ -3919,6 +3951,7 @@ class VCDMigrationValidation:
                     'routerExternalIp': dict(),
                     'natExternalIp': dict(),
                     'natIptDisabled': set(),
+                    'natIptOutOfPoolIps': set()
                 }
                 for vApp in vAppList:
                     self.thread.spawnThread(self._validateRoutedVappNetworks, vApp, vAppValidations, nsxtObj)
@@ -3930,10 +3963,14 @@ class VCDMigrationValidation:
                     errors.append(
                         f"Routed vapp network is not supported with other type of networks in vapp/s (vApp): "
                         f"{', '.join(vAppValidations['mixedNetworkTypes'])}")
-                if vAppValidations['directNetworks']:
+                if vAppValidations['dedicatedDirectNetworks']:
                     errors.append(
-                        f"Routed vApp parent network should be a shared direct network (vApp|vApp_Network):"
-                        f"{', '.join(vAppValidations['directNetworks'])}")
+                        f"Routed vApp parent network should not be a dedicated direct network (vApp|vApp_Network):"
+                        f"{', '.join(vAppValidations['dedicatedDirectNetworks'])}")
+                if vAppValidations['legacyDirectNetwork']:
+                    errors.append(
+                        f"'LegacyDirectNetwork' flag should be False for routed vApp migration (vApp|vApp_Network):"
+                        f"{', '.join(vAppValidations['legacyDirectNetwork'])}")
                 if vAppValidations['vlanBackedNetworks']:
                     errors.append(
                         f"External network used for routed vapp networks should be overlay backed "
@@ -3954,6 +3991,10 @@ class VCDMigrationValidation:
                     errors.append(
                         f"Disabled NAT service is not supported "
                         f"(vApp|vApp_Network): {', '.join(vAppValidations['natIptDisabled'])}")
+                if vAppValidations['natIptOutOfPoolIps']:
+                    errors.append(
+                        f"External IP used in NAT IP translation rules is not present in Static IP Pool of parent "
+                        f"network (vApp|vApp_Network|IP_Addresses): {', '.join(vAppValidations['natIptOutOfPoolIps'])}")
 
                 # logic to identify router external IP conflicts with NAT
                 for externalVapp, externalNetList in vAppValidations['routerExternalIp'].items():
@@ -5074,7 +5115,7 @@ class VCDMigrationValidation:
                         return responseDict
                     return []
             else:
-                return ["Failed to retrieve DNS configuration of Source Edge Gateway with error code {}".format(response.status_code)]
+                return ["Failed to retrieve DNS configuration of Source Edge Gateway with error code {}\n".format(response.status_code)]
         except Exception:
             raise
 
@@ -5657,7 +5698,7 @@ class VCDMigrationValidation:
                         )
                         externalNetworkIds = [values['name'] for values in responseValues]
                         if parentNetworkId['name'] not in externalNetworkIds:
-                            return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, nsxtProviderVDCName)
+                            return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, vdcDict["NSXTProviderVDCName"])
                 else:
                     try:
                         sourceExternalNetwork = self.fetchAllExternalNetworks()
