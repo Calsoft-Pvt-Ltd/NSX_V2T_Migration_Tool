@@ -2914,18 +2914,25 @@ class VCDMigrationValidation:
         if not relayresponsedict.get('relay'):
             return []
 
-        # Check for explicit case scenario.
-        if (relayresponsedict.get('relay') and float(self.version) >= float(
-                vcdConstants.API_VERSION_ANDROMEDA_10_3_2) and self.orgVdcDict.get('NonDistributedNetworks')):
-            # get Non-Dist routing flag from user input and if enabled then raise exception.
-            errorList.append(
-                'DHCP Relay service configured on source edge gateway is not supported on target if the "NonDistributedNetworks" is set to "True" in user input.\n')
-            return errorList
-
-        # Check for implicit case scenario.
         relayAgents = [relayAgent['giAddress'] for relayAgent in
                        listify(relayresponsedict['relay']['relayAgents']['relayAgent'])]
 
+        # Check for explicit case scenario.
+        networkNames = list()
+        if self.orgVdcDict.get('NonDistributedNetworks'):
+            # get Non-Dist routing flag from user input and if enabled then raise exception.
+            for sourceOrgVDCNetwork in sourceOrgvdcNetworks:
+                networkGateway = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
+                if (networkGateway not in relayAgents
+                        or edgeGatewayId not in sourceOrgVDCNetwork['connection']['routerRef']['id']):
+                    continue
+                networkNames.append(sourceOrgVDCNetwork['name'])
+            if networkNames:
+                errorList.append(
+                    'DHCP Relay service configured on source edge gateway is not supported on target if the "NonDistributedNetworks" is set to "True" in user input.\n')
+                return errorList
+
+        # Check for implicit case scenario.
         # check the relay agents which can be configured as non DR.
         for sourceOrgVDCNetwork in sourceOrgvdcNetworks:
             networkGateway = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
