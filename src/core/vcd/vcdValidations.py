@@ -2929,6 +2929,8 @@ class VCDMigrationValidation:
         if self.orgVdcDict.get('NonDistributedNetworks'):
             # get Non-Dist routing flag from user input and if enabled then raise exception.
             for sourceOrgVDCNetwork in sourceOrgvdcNetworks:
+                if sourceOrgVDCNetwork['networkType'] != 'NAT_ROUTED':
+                    continue
                 networkGateway = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
                 if (networkGateway not in relayAgents
                         or edgeGatewayId not in sourceOrgVDCNetwork['connection']['routerRef']['id']):
@@ -2942,6 +2944,8 @@ class VCDMigrationValidation:
         # Check for implicit case scenario.
         # check the relay agents which can be configured as non DR.
         for sourceOrgVDCNetwork in sourceOrgvdcNetworks:
+            if sourceOrgVDCNetwork['networkType'] != 'NAT_ROUTED':
+                continue
             networkGateway = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
             if (networkGateway not in relayAgents
                     or edgeGatewayId not in sourceOrgVDCNetwork['connection']['routerRef']['id']):
