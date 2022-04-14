@@ -4212,6 +4212,7 @@ class VCDMigrationValidation:
                 raise Exception("Not able to fetch vCD version due to API response difference")
             elif version.parse(vCDVersion) < version.parse("10.3"):
                 logger.warning("VCD {} is not supported with current migration tool. Some features may not work as expected.".format(vCDVersion))
+                return vCDVersion
             else:
                 return vCDVersion
         else:
