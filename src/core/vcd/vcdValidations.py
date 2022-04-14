@@ -1911,6 +1911,8 @@ class VCDMigrationValidation:
                 return
 
             errorList = list()
+            networksWithoutStaticIpPool = list()
+            networksWithoutFreeIpInStaticIpPool = list()
             for sourceOrgVDCNetwork in orgVdcNetworkList:
                 distNetworkFlag = False
                 # Continue if the OrgVDC network is not routed network.
@@ -1928,19 +1930,24 @@ class VCDMigrationValidation:
                     distNetworkFlag = True
 
                 if distNetworkFlag and sourceOrgVDCNetwork['networkType'] == 'NAT_ROUTED':
-                    # check for implicite type creation of Non-Distributed OrgVDC network.
                     if not ipRanges:
-                        errorList.append(
-                            "Static IP pool is required for configuration of Non-Distributed Routing on the Org VDC Network : {}".format(
-                                sourceOrgVDCNetwork['name']))
+                        networksWithoutStaticIpPool.append(sourceOrgVDCNetwork['name'])
 
                     totalIpCount = sourceOrgVDCNetwork['subnets']['values'][0]['totalIpCount']
                     usedIpCount = sourceOrgVDCNetwork['subnets']['values'][0]['usedIpCount']
                     if ipRanges and not(usedIpCount < totalIpCount):
-                        errorList.append("Free IPs are required in OrgVDC network {}, but enough free IPs are not "
-                                         "present.".format(sourceOrgVDCNetwork['name']))
+                        networksWithoutFreeIpInStaticIpPool.append(sourceOrgVDCNetwork['name'])
+            if networksWithoutStaticIpPool:
+                errorList.append(
+                    "Static IP pool is required for configuration of Non-Distributed Routing on the Org VDC Networks : {}".format(
+                        ', '.join(networksWithoutStaticIpPool)))
+            if networksWithoutFreeIpInStaticIpPool:
+                errorList.append(
+                    "Free IPs are required in OrgVDC networks {}, but enough free IPs are not present.".format(
+                        ', '.join(networksWithoutFreeIpInStaticIpPool)))
+
             if errorList:
-                raise ValidationError('; '.join(errorList))
+                raise Exception('; '.join(errorList))
         except Exception:
             raise
 
