@@ -180,7 +180,7 @@ class VCDMigrationValidation:
     VCD_SESSION_CREATED = False
 
     def __init__(
-            self, inputDict, password, rollback, threadObj, lockObj=None, orgVdcDict=None, assessmentMode=False):
+            self, inputDict, password, rollback, threadObj, lockObj=None, orgVdcInput=None, assessmentMode=False):
         """
         Description :   Initializer method of VMware Cloud Director Operations
         Parameters  :   ipAddress      -   ipAddress of the VMware vCloud Director (STRING)
@@ -200,7 +200,7 @@ class VCDMigrationValidation:
             self.username = f"{inputDict['VCloudDirector']['username']}@system"
             self.password = password
             self.verify = inputDict['VCloudDirector']['verify']
-            self.orgVdcDict = orgVdcDict
+            self.orgVdcInput = orgVdcInput
             self.vdcName = 'MainThread'
         else:
             self.inputDict = inputDict
@@ -208,8 +208,8 @@ class VCDMigrationValidation:
             self.username = f"{inputDict['VCloudDirector']['Common']['username']}@system"
             self.password = inputDict['VCloudDirector']['Common']['password']
             self.verify = inputDict['VCloudDirector']['Common']['verify']
-            self.orgVdcDict = orgVdcDict
-            self.vdcName = orgVdcDict["OrgVDCName"]
+            self.orgVdcInput = orgVdcInput
+            self.vdcName = orgVdcInput["OrgVDCName"]
 
         self.assessmentMode = assessmentMode
         self.vCDSessionId = None
@@ -4930,6 +4930,41 @@ class VCDMigrationValidation:
         else:
             return True
 
+    def updateEdgeGatewayInputDict(self, sourceOrgVDCId):
+        edgeGateways = self.getOrgVDCEdgeGateway(sourceOrgVDCId)['values']
+        for egw in edgeGateways:
+            if egw['name'] in self.orgVdcInput.get('EdgeGateways', {}):
+                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
+                    'Tier0Gateway', self.orgVdcInput.get('Tier0Gateway'))
+                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
+                    'LegacyDirectNetwork', self.orgVdcInput.get('LegacyDirectNetwork', False))
+                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
+                    'NSXTNetworkPoolName', self.orgVdcInput.get('NSXTNetworkPoolName'))
+                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
+                    'NoSnatDestinationSubnet', self.orgVdcInput.get('NoSnatDestinationSubnet'))
+                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
+                    'ServiceEngineGroupName', self.orgVdcInput.get('ServiceEngineGroupName'))
+                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
+                    'LoadBalancerVIPSubnet', self.orgVdcInput.get('LoadBalancerVIPSubnet'))
+                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
+                    'EdgeGatewayDeploymentEdgeCluster', self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'))
+                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
+                    'AdvertiseRoutedNetworks', self.orgVdcInput.get('AdvertiseRoutedNetworks', False))
+                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
+                    'NonDistributedNetworks', self.orgVdcInput.get('NonDistributedNetworks', False))
+            else:
+                self.orgVdcInput['EdgeGateways'][egw['name']] = {
+                    'Tier0Gateway': self.orgVdcInput.get('Tier0Gateway'),
+                    'LegacyDirectNetwork': self.orgVdcInput.get('LegacyDirectNetwork', False),
+                    'NSXTNetworkPoolName': self.orgVdcInput.get('NSXTNetworkPoolName'),
+                    'NoSnatDestinationSubnet': self.orgVdcInput.get('NoSnatDestinationSubnet'),
+                    'ServiceEngineGroupName': self.orgVdcInput.get('ServiceEngineGroupName'),
+                    'LoadBalancerVIPSubnet': self.orgVdcInput.get('LoadBalancerVIPSubnet'),
+                    'EdgeGatewayDeploymentEdgeCluster': self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'),
+                    'AdvertiseRoutedNetworks': self.orgVdcInput.get('AdvertiseRoutedNetworks', False),
+                    'NonDistributedNetworks': self.orgVdcInput.get('NonDistributedNetworks', False),
+                }
+
     def preMigrationValidation(self, inputDict, vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj, validateVapp=False, validateServices=False):
         """
         Description : Pre migration validation tasks
@@ -4946,6 +4981,7 @@ class VCDMigrationValidation:
             threading.current_thread().name = self.vdcName
 
             self.getNsxDetails(inputDict["NSXT"]["Common"]["ipAddress"])
+            self.updateEdgeGatewayInputDict(sourceOrgVDCId)
 
             if any([
                     # Performing org vdc related validations
