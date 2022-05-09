@@ -21,94 +21,6 @@ vCloudDirector:
     <AdminCatalog xmlns="http://www.vmware.com/vcloud/v1.5" name="{{catalogName}}">
     <Description>{{catalogDescription}}</Description>
     </AdminCatalog>
-  moveVapp:
-    <root:MoveVAppParams xmlns:root="http://www.vmware.com/vcloud/v1.5" xmlns:ns7="http://schemas.dmtf.org/ovf/envelope/1" xmlns:ns8="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData" xmlns:ns9="http://www.vmware.com/schema/ovf">
-      <root:Source href="{{vAppHref}}"/>
-      {{networkConfig}}
-      {{vmDetails}}
-    </root:MoveVAppParams>
-  moveVappVm:
-    <root:SourcedItem>
-      <root:Source href="{{vmHref}}"></root:Source>
-      <root:VmGeneralParams>
-        <root:Description>{{vmDescription}}</root:Description>
-      </root:VmGeneralParams>
-      <root:InstantiationParams>
-        <root:NetworkConnectionSection>
-          <ns7:Info>Network Connection Section</ns7:Info>
-          <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
-          {{vmNetworkConnectionDetails}}
-        </root:NetworkConnectionSection>
-        {% if vAppVMDiskStorageProfileDetails %}
-        {{vAppVMDiskStorageProfileDetails}}
-        {% endif %}
-      </root:InstantiationParams>
-      <root:StorageProfile href="{{storageProfileHref}}"/>
-    </root:SourcedItem>
-  moveVappVmpWithPlacementPolicy:
-    <root:SourcedItem>
-      <root:Source href="{{vmHref}}"></root:Source>
-      <root:VmGeneralParams>
-        <root:Description>{{vmDescription}}</root:Description>
-      </root:VmGeneralParams>
-      <root:InstantiationParams>
-        <root:NetworkConnectionSection>
-          <ns7:Info>Specifies the available VM network connections</ns7:Info>
-          <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
-          {{vmNetworkConnectionDetails}}
-        </root:NetworkConnectionSection>
-        {% if vAppVMDiskStorageProfileDetails %}
-        {{vAppVMDiskStorageProfileDetails}}
-        {% endif %}
-      </root:InstantiationParams>
-      <root:StorageProfile href="{{storageProfileHref}}"/>
-      <root:ComputePolicy>
-        <root:VmPlacementPolicy href="{{vmPlacementPolicyHref}}"/>
-      </root:ComputePolicy>
-    </root:SourcedItem>
-  moveVappVmWithSizingPolicy:
-    <root:SourcedItem>
-      <root:Source href="{{vmHref}}"></root:Source>
-      <root:VmGeneralParams>
-        <root:Description>{{vmDescription}}</root:Description>
-      </root:VmGeneralParams>
-      <root:InstantiationParams>
-        <root:NetworkConnectionSection>
-          <ns7:Info>Specifies the available VM network connections</ns7:Info>
-          <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
-          {{vmNetworkConnectionDetails}}
-        </root:NetworkConnectionSection>
-        {% if vAppVMDiskStorageProfileDetails %}
-        {{vAppVMDiskStorageProfileDetails}}
-        {% endif %}
-      </root:InstantiationParams>
-      <root:StorageProfile href="{{storageProfileHref}}"/>
-      <root:ComputePolicy>
-        <root:VmSizingPolicy href="{{sizingPolicyHref}}"/>
-      </root:ComputePolicy>
-    </root:SourcedItem>
-  moveVappVmWithComputePolicy:
-    <root:SourcedItem>
-      <root:Source href="{{vmHref}}"></root:Source>
-      <root:VmGeneralParams>
-        <root:Description>{{vmDescription}}</root:Description>
-      </root:VmGeneralParams>
-      <root:InstantiationParams>
-        <root:NetworkConnectionSection>
-          <ns7:Info>Specifies the available VM network connections</ns7:Info>
-          <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
-          {{vmNetworkConnectionDetails}}
-        </root:NetworkConnectionSection>
-        {% if vAppVMDiskStorageProfileDetails %}
-        {{vAppVMDiskStorageProfileDetails}}
-        {% endif %}
-      </root:InstantiationParams>
-      <root:StorageProfile href="{{storageProfileHref}}"/>
-      <root:ComputePolicy>
-        <root:VmPlacementPolicy href="{{vmPlacementPolicyHref}}"/>
-        <root:VmSizingPolicy href="{{sizingPolicyHref}}"/>
-      </root:ComputePolicy>
-    </root:SourcedItem>
   enableDisableAffinityRules:
     <root:VmAffinityRule xmlns:root="http://www.vmware.com/vcloud/v1.5">
       <root:Name>{{affinityRuleName}}</root:Name>
@@ -189,220 +101,251 @@ vCloudDirector:
     </MetadataEntry>
     {% endfor %} {# for MetadataEntry in metadata \#}
     </Metadata>
-  vAppVMNetworkConnectionDetails:
-    <root:NetworkConnection network="{{networkName}}" needsCustomization="{{needsCustomization}}">
-      <root:NetworkConnectionIndex>{{networkConnectionIndex}}</root:NetworkConnectionIndex>
-      <root:IpAddress>{{ipAddress}}</root:IpAddress>
-      {% if IpType %}
-      <root:IpType>{{IpType}}</root:IpType>
-      {% endif %}
-      {% if ExternalIpAddress %}
-      <root:ExternalIpAddress>{{ExternalIpAddress}}</root:ExternalIpAddress>
-      {% endif %}
-      <root:IsConnected>{{connected}}</root:IsConnected>
-      <root:MACAddress>{{macAddress}}</root:MACAddress>
-      <root:IpAddressAllocationMode>{{allocationModel}}</root:IpAddressAllocationMode>
-      <root:SecondaryIpAddressAllocationMode>{{SecondaryIpAddressAllocationMode}}</root:SecondaryIpAddressAllocationMode>
-      <root:NetworkAdapterType>{{adapterType}}</root:NetworkAdapterType>
-    </root:NetworkConnection>
-  vAppVMDiskStoragePolicy:
-    <root:VmSpecSection Modified="{{modifyVmSpecSection}}">
-      <ns7:Info>The configuration parameters for disk storage policy</ns7:Info>
-      <root:DiskSection>
-        {% for disksetting in DiskSection %}
-        <root:DiskSettings>
-          <root:DiskId>{{disksetting.DiskId}}</root:DiskId>
-          <root:SizeMb>{{disksetting.SizeMb}}</root:SizeMb>
-          <root:UnitNumber>{{disksetting.UnitNumber}}</root:UnitNumber>
-          <root:BusNumber>{{disksetting.BusNumber}}</root:BusNumber>
-          <root:AdapterType>{{disksetting.AdapterType}}</root:AdapterType>
-          <root:ThinProvisioned>{{disksetting.ThinProvisioned}}</root:ThinProvisioned>
-          {% if disksetting.Disk %}
-          <root:Disk href="{{disksetting.Disk}}"/>
-          {% endif %}
-          <root:StorageProfile href="{{disksetting.StorageProfile.href}}" id="{{disksetting.StorageProfile.id}}" type="{{disksetting.StorageProfile.type}}" name="{{disksetting.StorageProfile.name}}"/>
-          <root:overrideVmDefault>{{disksetting.overrideVmDefault}}</root:overrideVmDefault>
-          <root:iops>{{disksetting.iops}}</root:iops>
-          <root:VirtualQuantityUnit>{{disksetting.VirtualQuantityUnit}}</root:VirtualQuantityUnit>
-          <root:resizable>{{disksetting.resizable}}</root:resizable>
-          <root:encrypted>{{disksetting.encrypted}}</root:encrypted>
-          <root:shareable>{{disksetting.shareable}}</root:shareable>
-          <root:sharingType>{{disksetting.sharingType}}</root:sharingType>
-        </root:DiskSettings>
-       {% endfor %} {# for disksetting in DiskSection \#}
-      </root:DiskSection>
-      <root:HardwareVersion href="{{hardwareVersion.href}}" type="{{hardwareVersion.type}}">{{hardwareVersion.text}}</root:HardwareVersion>
-    </root:VmSpecSection>
-  moveVappNetworkConfig:
-    <root:NetworkConfigSection>
-      <ns7:Info>The configuration parameters for logical networks</ns7:Info>
-      {% for network in networkConfig %}
-      <root:NetworkConfig networkName="{{ network.name }}">
-        <root:Description>{{ network.description }}</root:Description>
-        <root:Configuration>
-          {% if 'ipScopes' in network and network.ipScopes %}
-          <root:IpScopes>
-            {% for ipScope in network.ipScopes %}
-            <root:IpScope>
-              <root:IsInherited>{{ ipScope.isInherited }}</root:IsInherited>
-              <root:Gateway>{{ ipScope.gateway }}</root:Gateway>
-              <root:Netmask>{{ ipScope.netmask }}</root:Netmask>
-              {% if ipScope.subnet %}
-              <root:SubnetPrefixLength>{{ ipScope.subnet }}</root:SubnetPrefixLength>
-              {% endif %}
-              {% if ipScope.dns1 %}
-              <root:Dns1>{{ ipScope.dns1 }}</root:Dns1>
-              {% endif %}
-              {% if ipScope.dns2 %}
-              <root:Dns2>{{ ipScope.dns2 }}</root:Dns2>
-              {% endif %}
-              {% if ipScope.dnsSuffix %}
-              <root:DnsSuffix>{{ ipScope.dnsSuffix }}</root:DnsSuffix>
-              {% endif %}
-              {% if ipScope.IsEnabled %}
-              <root:IsEnabled>{{ ipScope.IsEnabled }}</root:IsEnabled>
-              {% endif %}
-              <root:IpRanges>
-                {% for ipRange in ipScope.ipRanges %}
+  moveVapp:
+    <root:MoveVAppParams xmlns:root="http://www.vmware.com/vcloud/v1.5" xmlns:ns7="http://schemas.dmtf.org/ovf/envelope/1" xmlns:ns8="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData" xmlns:ns9="http://www.vmware.com/schema/ovf">
+      <root:Source href="{{vAppHref}}"/>
+      <root:NetworkConfigSection>
+        <ns7:Info>The configuration parameters for logical networks</ns7:Info>
+        {% for network in networkConfig %}
+        <root:NetworkConfig networkName="{{ network.name }}">
+          <root:Description>{{ network.description }}</root:Description>
+          <root:Configuration>
+            {% if 'ipScopes' in network and network.ipScopes %}
+            <root:IpScopes>
+              {% for ipScope in network.ipScopes %}
+              <root:IpScope>
+                <root:IsInherited>{{ ipScope.isInherited }}</root:IsInherited>
+                <root:Gateway>{{ ipScope.gateway }}</root:Gateway>
+                <root:Netmask>{{ ipScope.netmask }}</root:Netmask>
+                {% if ipScope.subnet %}
+                <root:SubnetPrefixLength>{{ ipScope.subnet }}</root:SubnetPrefixLength>
+                {% endif %}
+                {% if ipScope.dns1 %}
+                <root:Dns1>{{ ipScope.dns1 }}</root:Dns1>
+                {% endif %}
+                {% if ipScope.dns2 %}
+                <root:Dns2>{{ ipScope.dns2 }}</root:Dns2>
+                {% endif %}
+                {% if ipScope.dnsSuffix %}
+                <root:DnsSuffix>{{ ipScope.dnsSuffix }}</root:DnsSuffix>
+                {% endif %}
+                {% if ipScope.IsEnabled %}
+                <root:IsEnabled>{{ ipScope.IsEnabled }}</root:IsEnabled>
+                {% endif %}
+                <root:IpRanges>
+                  {% for ipRange in ipScope.ipRanges %}
+                  <root:IpRange>
+                    <root:StartAddress>{{ ipRange.StartAddress }}</root:StartAddress>
+                    <root:EndAddress>{{ ipRange.EndAddress }}</root:EndAddress>
+                  </root:IpRange>
+                  {% endfor %} {# for ipRange in ipRanges \#}
+                </root:IpRanges>
+              </root:IpScope>
+              {% endfor %} {# ipScope in network.ipScopes \#}
+            </root:IpScopes>
+            {% endif %} {# if 'ipScopes' in network and network.ipScopes \#}
+            {% if 'parentNetwork' in network and network.parentNetwork %}
+            <root:ParentNetwork href="{{ network.parentNetwork }}"/>
+            {% endif %}
+            <root:FenceMode>{{ network.fenceMode }}</root:FenceMode>
+            <root:RetainNetInfoAcrossDeployments>{{ network.RetainNetInfoAcrossDeployments }}</root:RetainNetInfoAcrossDeployments>
+            {% if 'features' in network and network.features %}
+            <root:Features>
+              {% if 'dhcpConfig' in network.features %}
+                {% set dhcpConfig = network.features.dhcpConfig %}
+              <root:DhcpService>
+                <root:IsEnabled>{{ dhcpConfig.IsEnabled }}</root:IsEnabled>
+                <root:DefaultLeaseTime>{{ dhcpConfig.DefaultLeaseTime if 'DefaultLeaseTime' in dhcpConfig else 0 }}</root:DefaultLeaseTime>
+                <root:MaxLeaseTime>{{ dhcpConfig.MaxLeaseTime }}</root:MaxLeaseTime>
                 <root:IpRange>
-                  <root:StartAddress>{{ ipRange.StartAddress }}</root:StartAddress>
-                  <root:EndAddress>{{ ipRange.EndAddress }}</root:EndAddress>
+                  <root:StartAddress>{{ dhcpConfig.IpRange.StartAddress }}</root:StartAddress>
+                  <root:EndAddress>{{ dhcpConfig.IpRange.EndAddress }}</root:EndAddress>
                 </root:IpRange>
-                {% endfor %} {# for ipRange in ipRanges \#}
-              </root:IpRanges>
-            </root:IpScope>
-            {% endfor %} {# ipScope in network.ipScopes \#}
-          </root:IpScopes>
-          {% endif %} {# if 'ipScopes' in network and network.ipScopes \#}
-          {% if 'parentNetwork' in network and network.parentNetwork %}
-          <root:ParentNetwork href="{{ network.parentNetwork }}"/>
+              </root:DhcpService>
+              {% endif %} {# if 'dhcpConfig' in network.features \#}
+              {% if 'FirewallService' in network.features %}
+                {% set FirewallService = network.features.FirewallService %}
+              <root:FirewallService>
+                <root:IsEnabled>{{ FirewallService.IsEnabled }}</root:IsEnabled>
+                <root:DefaultAction>{{ FirewallService.DefaultAction }}</root:DefaultAction>
+                <root:LogDefaultAction>{{ FirewallService.LogDefaultAction }}</root:LogDefaultAction>
+                {% for rule in FirewallService.FirewallRule %}
+                <root:FirewallRule>
+                  {% if 'Id' in rule %}
+                  <root:Id>{{ rule.Id }}</root:Id>
+                  {% endif %}
+                  <root:IsEnabled>{{ rule.IsEnabled }}</root:IsEnabled>
+                  <root:Description>{{ rule.Description }}</root:Description>
+                  <root:Policy>{{ rule.Policy }}</root:Policy>
+                  <root:Protocols>
+                    {% for protocol, status in rule.Protocols.items() %}
+                    <root:{{ protocol }}>{{ status }}</root:{{ protocol }}>
+                    {% endfor %}
+                  </root:Protocols>
+                  {% if 'IcmpSubType' in rule %}
+                  <root:IcmpSubType>{{ rule.IcmpSubType }}</root:IcmpSubType>
+                  {% endif %}
+                  <root:DestinationPortRange>{{ rule.DestinationPortRange }}</root:DestinationPortRange>
+                  {% if 'DestinationIp' in rule %}
+                  <root:DestinationIp>{{ rule.DestinationIp }}</root:DestinationIp>
+                  {% endif %}
+                  {% if 'DestinationVm' in rule %}
+                  <root:DestinationVm>
+                    <root:VAppScopedVmId>{{ rule.DestinationVm.VAppScopedVmId }}</root:VAppScopedVmId>
+                    <root:VmNicId>{{ rule.DestinationVm.VmNicId }}</root:VmNicId>
+                    <root:IpType>{{ rule.DestinationVm.IpType }}</root:IpType>
+                  </root:DestinationVm>
+                  {% endif %}
+                  <root:SourcePortRange>{{ rule.SourcePortRange }}</root:SourcePortRange>
+                  {% if 'SourceIp' in rule %}
+                  <root:SourceIp>{{ rule.SourceIp }}</root:SourceIp>
+                  {% endif %}
+                  {% if 'SourceVm' in rule %}
+                  <root:SourceVm>
+                    <root:VAppScopedVmId>{{ rule.SourceVm.VAppScopedVmId }}</root:VAppScopedVmId>
+                    <root:VmNicId>{{ rule.SourceVm.VmNicId }}</root:VmNicId>
+                    <root:IpType>{{ rule.SourceVm.IpType }}</root:IpType>
+                  </root:SourceVm>
+                  {% endif %}
+                  {% if 'EnableLogging' in rule %}
+                  <root:EnableLogging>{{ rule.EnableLogging }}</root:EnableLogging>
+                  {% endif %}
+                </root:FirewallRule>
+                {% endfor %} {# for rule in FirewallService.FirewallRule \#}
+              </root:FirewallService>
+              {% endif %} {# if 'FirewallService' in network.features \#}
+              {% if 'NatService' in network.features %}
+                {% set NatService = network.features.NatService %}
+              <root:NatService>
+                <root:IsEnabled>{{ NatService.IsEnabled }}</root:IsEnabled>
+                <root:NatType>{{ NatService.NatType }}</root:NatType>
+                <root:Policy>{{ NatService.Policy }}</root:Policy>
+                {% if NatService.IsEnabled == 'true' %}
+                {% if NatService.NatType == 'ipTranslation' %}
+                  {% for rule in NatService.NatRule %}
+                <root:NatRule>
+                  <root:Id>{{ rule.Id }}</root:Id>
+                  <root:OneToOneVmRule>
+                    {% for key, value in rule.OneToOneVmRule.items() %}
+                    <root:{{ key }}>{{ value }}</root:{{ key }}>
+                    {% endfor %}
+                  </root:OneToOneVmRule>
+                </root:NatRule>
+                  {% endfor %} {# for rule in NatService.NatRule \#}
+                {% elif NatService.NatType == 'portForwarding' %} {# if NatService.NatType is 'ipTranslation' \#}
+                  {% for rule in NatService.NatRule %}
+                <root:NatRule>
+                  <root:Id>{{ rule.Id }}</root:Id>
+                  <root:VmRule>
+                    {% for key, value in rule.VmRule.items() %}
+                    <root:{{ key }}>{{ value }}</root:{{ key }}>
+                    {% endfor %}
+                  </root:VmRule>
+                </root:NatRule>
+                  {% endfor %} {# for rule in NatService.NatRule \#}
+                {% endif %} {# elif NatService.NatType is 'portForwarding' \#}
+                {% endif %} {# if NatService.IsEnabled == 'true' \#}
+              </root:NatService>
+              {% endif %} {# if 'NatService' in network.features \#}
+              {% if 'StaticRoutingService' in network.features %}
+                {% set StaticRoutingService = network.features.StaticRoutingService %}
+              <root:StaticRoutingService>
+                <root:IsEnabled>{{ StaticRoutingService.IsEnabled }}</root:IsEnabled>
+                {% for rule in StaticRoutingService.StaticRoute %}
+                <root:StaticRoute>
+                  <root:Name>{{ rule.Name }}</root:Name>
+                  <root:Network>{{ rule.Network }}</root:Network>
+                  <root:NextHopIp>{{ rule.NextHopIp }}</root:NextHopIp>
+                  <root:Interface>{{ rule.Interface }}</root:Interface>
+                </root:StaticRoute>
+                {% endfor %} {# for rule in StaticRoutingService.StaticRoute \#}
+              </root:StaticRoutingService>
+              {% endif %} {# if 'StaticRoutingService' in network.features \#}
+            </root:Features>
+            {% endif %} {# if 'features' in network and network.features \#}
+            <root:SyslogServerSettings/>
+            {% if 'routerExternalIp' in network and network.routerExternalIp %}
+            <root:RouterInfo>
+              <root:ExternalIp>{{ network.routerExternalIp }}</root:ExternalIp>
+            </root:RouterInfo>
+            {% endif %}
+            <root:GuestVlanAllowed>{{ network.GuestVlanAllowed }}</root:GuestVlanAllowed>
+            <root:DualStackNetwork>{{ network.DualStackNetwork }}</root:DualStackNetwork>
+          </root:Configuration>
+          <root:IsDeployed>{{ network.isDeployed }}</root:IsDeployed>
+        </root:NetworkConfig>
+        {% endfor %} {# for network in networkConfig \#}
+      </root:NetworkConfigSection>
+      {% for vm in vmConfig %}
+      <root:SourcedItem>
+        <root:Source href="{{ vm.Source }}"/>
+        <root:VmGeneralParams>
+          <root:Description>{{ vm.VmGeneralParams.Description }}</root:Description>
+        </root:VmGeneralParams>
+        <root:InstantiationParams>
+          <root:NetworkConnectionSection>
+          <ns7:Info>Specifies the available VM network connections</ns7:Info>
+          <root:PrimaryNetworkConnectionIndex>{{ vm.NetworkConnectionSection.PrimaryNetworkConnectionIndex }}</root:PrimaryNetworkConnectionIndex>
+          {% for network. in vm.NetworkConnectionSection.NetworkConnection %}
+          <root:NetworkConnection network="{{ network.networkName }}" needsCustomization="{{ network.needsCustomization }}">
+            <root:NetworkConnectionIndex>{{ network.networkConnectionIndex }}</root:NetworkConnectionIndex>
+            <root:IpAddress>{{ network.ipAddress }}</root:IpAddress>
+            {% if network.IpType %}
+            <root:IpType>{{ network.IpType }}</root:IpType>
+            {% endif %}
+            {% if network.ExternalIpAddress %}
+            <root:ExternalIpAddress>{{ network.ExternalIpAddress }}</root:ExternalIpAddress>
+            {% endif %}
+            <root:IsConnected>{{ network.connected }}</root:IsConnected>
+            <root:MACAddress>{{ network.macAddress }}</root:MACAddress>
+            <root:IpAddressAllocationMode>{{ network.allocationModel }}</root:IpAddressAllocationMode>
+            <root:SecondaryIpAddressAllocationMode>{{ network.SecondaryIpAddressAllocationMode }}</root:SecondaryIpAddressAllocationMode>
+            <root:NetworkAdapterType>{{ network.adapterType }}</root:NetworkAdapterType>
+          </root:NetworkConnection>
+          {% endfor %} {# for network. in vm.NetworkConnectionSection.NetworkConnection \#}
+          </root:NetworkConnectionSection>
+          {% if vm.InstantiationParams.VmSpecSection %}
+          {% set vmSpec = vm.InstantiationParams.VmSpecSection %}
+          <root:VmSpecSection Modified="{{ vmSpec.Modified }}">
+          <ns7:Info>The configuration parameters for disk storage policy</ns7:Info>
+          <root:DiskSection>
+          {% for disk in vmSpec.DiskSettings %}
+          <root:DiskSettings>
+          <root:DiskId>{{disk.DiskId}}</root:DiskId>
+          <root:SizeMb>{{disk.SizeMb}}</root:SizeMb>
+          <root:UnitNumber>{{disk.UnitNumber}}</root:UnitNumber>
+          <root:BusNumber>{{disk.BusNumber}}</root:BusNumber>
+          <root:AdapterType>{{disk.AdapterType}}</root:AdapterType>
+          <root:ThinProvisioned>{{disk.ThinProvisioned}}</root:ThinProvisioned>
+          {% if 'Disk' in disk %}
+          <root:Disk href="{{disk.Disk}}"/>
           {% endif %}
-          <root:FenceMode>{{ network.fenceMode }}</root:FenceMode>
-          <root:RetainNetInfoAcrossDeployments>{{ network.RetainNetInfoAcrossDeployments }}</root:RetainNetInfoAcrossDeployments>
-          {% if 'features' in network and network.features %}
-          <root:Features>
-            {% if 'dhcpConfig' in network.features %}
-              {% set dhcpConfig = network.features.dhcpConfig %}
-            <root:DhcpService>
-              <root:IsEnabled>{{ dhcpConfig.IsEnabled }}</root:IsEnabled>
-              <root:DefaultLeaseTime>{{ dhcpConfig.DefaultLeaseTime if 'DefaultLeaseTime' in dhcpConfig else 0 }}</root:DefaultLeaseTime>
-              <root:MaxLeaseTime>{{ dhcpConfig.MaxLeaseTime }}</root:MaxLeaseTime>
-              <root:IpRange>
-                <root:StartAddress>{{ dhcpConfig.IpRange.StartAddress }}</root:StartAddress>
-                <root:EndAddress>{{ dhcpConfig.IpRange.EndAddress }}</root:EndAddress>
-              </root:IpRange>
-            </root:DhcpService>
-            {% endif %} {# if 'dhcpConfig' in network.features \#}
-            {% if 'FirewallService' in network.features %}
-              {% set FirewallService = network.features.FirewallService %}
-            <root:FirewallService>
-              <root:IsEnabled>{{ FirewallService.IsEnabled }}</root:IsEnabled>
-              <root:DefaultAction>{{ FirewallService.DefaultAction }}</root:DefaultAction>
-              <root:LogDefaultAction>{{ FirewallService.LogDefaultAction }}</root:LogDefaultAction>
-              {% for rule in FirewallService.FirewallRule %}
-              <root:FirewallRule>
-                {% if 'Id' in rule %}
-                <root:Id>{{ rule.Id }}</root:Id>
-                {% endif %}
-                <root:IsEnabled>{{ rule.IsEnabled }}</root:IsEnabled>
-                <root:Description>{{ rule.Description }}</root:Description>
-                <root:Policy>{{ rule.Policy }}</root:Policy>
-                <root:Protocols>
-                  {% for protocol, status in rule.Protocols.items() %}
-                  <root:{{ protocol }}>{{ status }}</root:{{ protocol }}>
-                  {% endfor %}
-                </root:Protocols>
-                {% if 'IcmpSubType' in rule %}
-                <root:IcmpSubType>{{ rule.IcmpSubType }}</root:IcmpSubType>
-                {% endif %}
-                <root:DestinationPortRange>{{ rule.DestinationPortRange }}</root:DestinationPortRange>
-                {% if 'DestinationIp' in rule %}
-                <root:DestinationIp>{{ rule.DestinationIp }}</root:DestinationIp>
-                {% endif %}
-                {% if 'DestinationVm' in rule %}
-                <root:DestinationVm>
-                  <root:VAppScopedVmId>{{ rule.DestinationVm.VAppScopedVmId }}</root:VAppScopedVmId>
-                  <root:VmNicId>{{ rule.DestinationVm.VmNicId }}</root:VmNicId>
-                  <root:IpType>{{ rule.DestinationVm.IpType }}</root:IpType>
-                </root:DestinationVm>
-                {% endif %}
-                <root:SourcePortRange>{{ rule.SourcePortRange }}</root:SourcePortRange>
-                {% if 'SourceIp' in rule %}
-                <root:SourceIp>{{ rule.SourceIp }}</root:SourceIp>
-                {% endif %}
-                {% if 'SourceVm' in rule %}
-                <root:SourceVm>
-                  <root:VAppScopedVmId>{{ rule.SourceVm.VAppScopedVmId }}</root:VAppScopedVmId>
-                  <root:VmNicId>{{ rule.SourceVm.VmNicId }}</root:VmNicId>
-                  <root:IpType>{{ rule.SourceVm.IpType }}</root:IpType>
-                </root:SourceVm>
-                {% endif %}
-                {% if 'EnableLogging' in rule %}
-                <root:EnableLogging>{{ rule.EnableLogging }}</root:EnableLogging>
-                {% endif %}
-              </root:FirewallRule>
-              {% endfor %} {# for rule in FirewallService.FirewallRule \#}
-            </root:FirewallService>
-            {% endif %} {# if 'FirewallService' in network.features \#}
-            {% if 'NatService' in network.features %}
-              {% set NatService = network.features.NatService %}
-            <root:NatService>
-              <root:IsEnabled>{{ NatService.IsEnabled }}</root:IsEnabled>
-              <root:NatType>{{ NatService.NatType }}</root:NatType>
-              <root:Policy>{{ NatService.Policy }}</root:Policy>
-              {% if NatService.IsEnabled == 'true' %}
-              {% if NatService.NatType == 'ipTranslation' %}
-                {% for rule in NatService.NatRule %}
-              <root:NatRule>
-                <root:Id>{{ rule.Id }}</root:Id>
-                <root:OneToOneVmRule>
-                  {% for key, value in rule.OneToOneVmRule.items() %}
-                  <root:{{ key }}>{{ value }}</root:{{ key }}>
-                  {% endfor %}
-                </root:OneToOneVmRule>
-              </root:NatRule>
-                {% endfor %} {# for rule in NatService.NatRule \#}
-              {% elif NatService.NatType == 'portForwarding' %} {# if NatService.NatType is 'ipTranslation' \#}
-                {% for rule in NatService.NatRule %}
-              <root:NatRule>
-                <root:Id>{{ rule.Id }}</root:Id>
-                <root:VmRule>
-                  {% for key, value in rule.VmRule.items() %}
-                  <root:{{ key }}>{{ value }}</root:{{ key }}>
-                  {% endfor %}
-                </root:VmRule>
-              </root:NatRule>
-                {% endfor %} {# for rule in NatService.NatRule \#}
-              {% endif %} {# elif NatService.NatType is 'portForwarding' \#}
-              {% endif %} {# if NatService.IsEnabled == 'true' \#}
-            </root:NatService>
-            {% endif %} {# if 'NatService' in network.features \#}
-            {% if 'StaticRoutingService' in network.features %}
-              {% set StaticRoutingService = network.features.StaticRoutingService %}
-            <root:StaticRoutingService>
-              <root:IsEnabled>{{ StaticRoutingService.IsEnabled }}</root:IsEnabled>
-              {% for rule in StaticRoutingService.StaticRoute %}
-              <root:StaticRoute>
-                <root:Name>{{ rule.Name }}</root:Name>
-                <root:Network>{{ rule.Network }}</root:Network>
-                <root:NextHopIp>{{ rule.NextHopIp }}</root:NextHopIp>
-                <root:Interface>{{ rule.Interface }}</root:Interface>
-              </root:StaticRoute>
-              {% endfor %} {# for rule in StaticRoutingService.StaticRoute \#}
-            </root:StaticRoutingService>
-            {% endif %} {# if 'StaticRoutingService' in network.features \#}
-          </root:Features>
-          {% endif %} {# if 'features' in network and network.features \#}
-          <root:SyslogServerSettings/>
-          {% if 'routerExternalIp' in network and network.routerExternalIp %}
-          <root:RouterInfo>
-            <root:ExternalIp>{{ network.routerExternalIp }}</root:ExternalIp>
-          </root:RouterInfo>
+          <root:StorageProfile href="{{disk.StorageProfile.href}}"/>
+          <root:overrideVmDefault>{{disk.overrideVmDefault}}</root:overrideVmDefault>
+          <root:iops>{{disk.iops}}</root:iops>
+          <root:VirtualQuantityUnit>{{disk.VirtualQuantityUnit}}</root:VirtualQuantityUnit>
+          <root:resizable>{{disk.resizable}}</root:resizable>
+          <root:encrypted>{{disk.encrypted}}</root:encrypted>
+          <root:shareable>{{disk.shareable}}</root:shareable>
+          <root:sharingType>{{disk.sharingType}}</root:sharingType>
+          </root:DiskSettings>
+          {% endfor %} {# for disk in vmSpec.DiskSettings \#}
+          </root:DiskSection>
+          <root:HardwareVersion href="{{ vmSpec.HardwareVersion.@href }}" type="{{ vmSpec.HardwareVersion.@type }}">{{ vmSpec.HardwareVersion.#text }}</root:HardwareVersion>
+          </root:VmSpecSection>
           {% endif %}
-          <root:GuestVlanAllowed>{{ network.GuestVlanAllowed }}</root:GuestVlanAllowed>
-          <root:DualStackNetwork>{{ network.DualStackNetwork }}</root:DualStackNetwork>
-        </root:Configuration>
-        <root:IsDeployed>{{ network.isDeployed }}</root:IsDeployed>
-      </root:NetworkConfig>
-      {% endfor %} {# for network in networkConfig \#}
-    </root:NetworkConfigSection>
+        </root:InstantiationParams>
+        <root:StorageProfile href="{{ vm.StorageProfile.href }}"/>
+        {% if vm.ComputePolicy.PlacementPolicyHref or vm.ComputePolicy.SizingPolicyHref %}
+        <root:ComputePolicy>
+          {% if vm.ComputePolicy.PlacementPolicyHref %}
+          <root:VmPlacementPolicy href="{{vm.ComputePolicy.PlacementPolicyHref}}"/>
+          {% endif %}
+          {% if vm.ComputePolicy.SizingPolicyHref %}
+          <root:VmSizingPolicy href="{{vm.ComputePolicy.SizingPolicyHref}}"/>
+          {% endif %}
+        </root:ComputePolicy>
+        {% endif %} {# if vm.ComputePolicy.PlacementPolicyHref or vm.ComputePolicy.SizingPolicyHref \#}
+      </root:SourcedItem>
+      {% endfor %} {# for vm in vmConfig \#}
+    </root:MoveVAppParams>

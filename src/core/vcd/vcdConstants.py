@@ -548,16 +548,7 @@ MOVE_VAPP_TEMPLATE = 'moveVapp'
 MOVE_VAPP_NETWORK_CONFIG_TEMPLATE = 'moveVappNetworkConfig'
 
 # move vapp with vm template
-MOVE_VAPP_VM_TEMPLATE = 'moveVappVm'
-
-# move vapp with compute policy template i.e both placement and sizing
-MOVE_VAPP_VM_COMPUTE_POLICY_TEMPLATE = 'moveVappVmWithComputePolicy'
-
-# move vapp with vm placement policy
-MOVE_VAPP_VM_PLACEMENT_POLICY_TEMPLATE = 'moveVappVmpWithPlacementPolicy'
-
-# move vapp with vm sizing policy
-MOVE_VAPP_VM_SIZING_POLICY_TEMPLATE = 'moveVappVmWithSizingPolicy'
+MOVE_VAPP_VM_CONFIG_TEMPLATE = 'moveVappVmConfig'
 
 # move vApp in specified org vdc uri
 MOVE_VAPP_IN_ORG_VDC = "vdc/{}/action/moveVApp"
@@ -621,12 +612,6 @@ FIREWALL_GROUP = "firewallGroups/{}"
 
 # page size for firewall summary page
 FIREWALL_GROUPS_SUMMARY_PAGE_SIZE = 25
-
-# vapp vm network connection template
-VAPP_VM_NETWORK_CONNECTION_SECTION_TEMPLATE = 'vAppVMNetworkConnectionDetails'
-
-# vapp vm disk storage policy template
-VAPP_VM_DISK_STORAGE_POLICY_TEMPLATE = 'vAppVMDiskStoragePolicy'
 
 #url for nsx jobs
 NSX_JOBS = '/jobs/{}'

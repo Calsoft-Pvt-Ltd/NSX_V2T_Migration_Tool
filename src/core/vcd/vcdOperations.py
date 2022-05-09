@@ -1197,306 +1197,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
-    def createMoveVappVmPayload(self, vApp, targetOrgVDCId, rollback=False):
-        """
-        Description : Create vApp vm payload for move vApp api
-        Parameters : vApp - dict containing source vApp details
-                     targetOrgVDCId - target Org VDC Id (STRING)
-                     rollback - whether to rollback vapp from T2V (BOOLEAN)
-        """
-        try:
-            xmlPayloadData = ''
-            data = self.rollback.apiData
-            if rollback:
-                targetStorageProfileList = [
-                    data["sourceOrgVDC"]['VdcStorageProfiles']['VdcStorageProfile']] if isinstance(
-                    data["sourceOrgVDC"]['VdcStorageProfiles']['VdcStorageProfile'], dict) else \
-                data["sourceOrgVDC"]['VdcStorageProfiles']['VdcStorageProfile']
-            else:
-                targetStorageProfileList = [
-                    data["targetOrgVDC"]['VdcStorageProfiles']['VdcStorageProfile']] if isinstance(
-                    data["targetOrgVDC"]['VdcStorageProfiles']['VdcStorageProfile'], dict) else \
-                data["targetOrgVDC"]['VdcStorageProfiles']['VdcStorageProfile']
-            vmInVappList = []
-            # get api call to retrieve the info of source vapp
-            response = self.restClientObj.get(vApp['@href'], self.headers)
-            responseDict = self.vcdUtils.parseXml(response.content)
-            if not responseDict['VApp'].get('Children'):
-                return
-            targetSizingPolicyOrgVDCUrn = 'urn:vcloud:vdc:{}'.format(targetOrgVDCId)
-            vmList = listify(responseDict['VApp']['Children']['Vm'])
-            # iterating over the vms in vapp
-            for vm in vmList:
-                # retrieving the compute policy of vm
-                computePolicyName = vm['ComputePolicy']['VmPlacementPolicy']['@name'] if vm['ComputePolicy'].get(
-                    'VmPlacementPolicy') else None
-                # retrieving the compute policy id of vm
-                computePolicyId = vm['ComputePolicy']['VmPlacementPolicy']['@id'] if vm['ComputePolicy'].get(
-                    'VmPlacementPolicy') else None
-
-                # Retrieving the Disk storage policy details
-                diskSection = []
-                for diskSetting in listify(vm['VmSpecSection']['DiskSection']['DiskSettings']):
-                    if diskSetting['overrideVmDefault'] == 'true':
-                        diskSection = listify(vm['VmSpecSection']['DiskSection']['DiskSettings'])
-                        break
-
-                # Retrieving hardware version
-                if diskSection:
-                    hardwareVersion = vm['VmSpecSection']['HardwareVersion']
-                else:
-                    hardwareVersion = None
-
-                # retrieving the sizing policy of vm
-                if vm['ComputePolicy'].get('VmSizingPolicy'):
-                    if vm['ComputePolicy']['VmSizingPolicy']['@name'] != 'System Default':
-                        sizingPolicyHref = vm['ComputePolicy']['VmSizingPolicy']['@href']
-                    else:
-                        # get the target System Default policy id
-                        defaultSizingPolicy = self.getVmSizingPoliciesOfOrgVDC(targetSizingPolicyOrgVDCUrn,
-                                                                               isTarget=True)
-                        if defaultSizingPolicy:
-                            defaultSizingPolicyId = defaultSizingPolicy[0]['id']
-                            sizingPolicyHref = "{}{}/{}".format(
-                                vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                vcdConstants.VDC_COMPUTE_POLICIES, defaultSizingPolicyId)
-                        else:
-                            sizingPolicyHref = None
-                else:
-                    sizingPolicyHref = None
-                storageProfileList = [storageProfile for storageProfile in targetStorageProfileList if
-                                      storageProfile['@name'] == vm['StorageProfile']['@name']]
-                if storageProfileList:
-                    storageProfileHref = storageProfileList[0]['@href']
-                else:
-                    storageProfileHref = ''
-
-                # gathering the vm's data required to create payload data and appending the dict to the 'vmInVappList'.
-                vmInVappList.append(
-                    {'name': vm['@name'], 'description': vm['Description'] if vm.get('Description') else '',
-                     'href': vm['@href'], 'networkConnectionSection': vm['NetworkConnectionSection'],
-                     'storageProfileHref': storageProfileHref, 'state': responseDict['VApp']['@status'],
-                     'computePolicyName': computePolicyName, 'computePolicyId': computePolicyId,
-                     'sizingPolicyHref': sizingPolicyHref,
-                     'primaryNetworkConnectionIndex': vm['NetworkConnectionSection']['PrimaryNetworkConnectionIndex'],
-                     'diskSection': diskSection if diskSection else None,
-                     'hardwareVersion': hardwareVersion})
-            filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
-            # iterating over the above saved vms list of source vapp
-            for vm in vmInVappList:
-                logger.debug('Getting VM - {} details'.format(vm['name']))
-                # check whether the vapp state is powered on i.e 4 then poweron else poweroff
-                if vm['state'] != "4":
-                    state = "false"
-                else:
-                    state = "true"
-                networkConnectionList = listify(vm['networkConnectionSection']['NetworkConnection'])
-                networkConnectionPayloadData = ''
-                # creating payload for mutiple/single network connections in a vm
-                for networkConnection in networkConnectionList:
-                    if networkConnection['@network'] == 'none':
-                        networkName = 'none'
-                    else:
-                        if rollback:
-                            # remove the appended -v2t from network name
-                            networkName = networkConnection['@network'].replace('-v2t', '')
-                        else:
-                            networkName = networkConnection['@network'] + '-v2t'
-
-                    # checking for the 'IpAddress' attribute if present
-                    if networkConnection.get('IpAddress'):
-                        ipAddress = networkConnection['IpAddress']
-                    else:
-                        ipAddress = ""
-
-                    # Check ip allocation mode for vm's
-                    if networkConnection['IpAddressAllocationMode'] == 'POOL' and \
-                            float(self.version) <= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
-                        networkConnection['IpAddressAllocationMode'] = 'MANUAL'
-                    payloadDict = {
-                        'networkName': networkName,
-                        'needsCustomization': networkConnection.get('@needsCustomization', 'false'),
-                        'ipAddress': ipAddress,
-                        'IpType': networkConnection.get('IpType', ''),
-                        'ExternalIpAddress': networkConnection.get('ExternalIpAddress', ''),
-                        'connected': networkConnection['IsConnected'],
-                        'macAddress': networkConnection['MACAddress'],
-                        'allocationModel': networkConnection['IpAddressAllocationMode'],
-                        'SecondaryIpAddressAllocationMode': networkConnection.get('SecondaryIpAddressAllocationMode', 'NONE'),
-                        'adapterType': networkConnection['NetworkAdapterType'],
-                        'networkConnectionIndex': networkConnection['NetworkConnectionIndex']
-                        }
-                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                              componentName=vcdConstants.COMPONENT_NAME,
-                                                              templateName=vcdConstants.VAPP_VM_NETWORK_CONNECTION_SECTION_TEMPLATE)
-                    networkConnectionPayloadData += payloadData.strip("\"")
-                # getting diskSection data
-                vAppVMDiskStorageProfileData = ''
-                if vm['diskSection']:
-                    payloadDict = {}
-                    diskSection = []
-                    for diskSetting in vm['diskSection']:
-                        diskSettingDict = {
-                            "DiskId": diskSetting['DiskId'],
-                            "SizeMb": diskSetting['SizeMb'],
-                            "UnitNumber": diskSetting['UnitNumber'],
-                            "BusNumber": diskSetting['BusNumber'],
-                            "AdapterType": diskSetting['AdapterType'],
-                            "ThinProvisioned": diskSetting['ThinProvisioned'],
-                            "Disk": diskSetting.get('Disk', {}).get('@href'),    # present in named disk
-                            "overrideVmDefault":diskSetting['overrideVmDefault'],
-                            "iops": diskSetting['iops'],
-                            "VirtualQuantityUnit": diskSetting['VirtualQuantityUnit'],
-                            "resizable": diskSetting['resizable'],
-                            "encrypted": diskSetting['encrypted'],
-                            "shareable": diskSetting['shareable'],
-                            "sharingType": diskSetting['sharingType'],
-                        }
-                        for storagePolicy in targetStorageProfileList:
-                            if storagePolicy['@name'] == diskSetting['StorageProfile']['@name']:
-                                diskSettingDict["StorageProfile"] = {"href": storagePolicy['@href'],
-                                                                     "id": storagePolicy['@id'],
-                                                                     "type": storagePolicy['@type'],
-                                                                     "name": storagePolicy['@name']}
-                                break
-                        else:
-                            raise Exception("Could not find disk storage policy {} in target Org VDC.".
-                                            format(storagePolicy['@name']))
-                        diskSection.append(diskSettingDict)
-
-                    hardwareVersionDict = {"href": vm['hardwareVersion']['@href'],
-                                           "type": vm['hardwareVersion']['@type'],
-                                           "text": vm['hardwareVersion']['#text']}
-                    payloadDict["modifyVmSpecSection"] = "true"
-                    payloadDict["hardwareVersion"] = hardwareVersionDict
-                    payloadDict['DiskSection'] = diskSection
-
-                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                              componentName=vcdConstants.COMPONENT_NAME,
-                                                              templateName=vcdConstants.VAPP_VM_DISK_STORAGE_POLICY_TEMPLATE)
-                    vAppVMDiskStorageProfileData = payloadData.strip("\"")
-
-                else:
-                    vAppVMDiskStorageProfileData = None
-
-                # handling the case:- if both compute policy & sizing policy are absent
-                if not vm["computePolicyName"] and not vm['sizingPolicyHref']:
-                    payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
-                                   'storageProfileHref': vm['storageProfileHref'],
-                                   'vmNetworkConnectionDetails': networkConnectionPayloadData,
-                                   'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
-                                   'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
-                    payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                              componentName=vcdConstants.COMPONENT_NAME,
-                                                              templateName=vcdConstants.MOVE_VAPP_VM_TEMPLATE)
-                # handling the case:- if either policy is present
-                else:
-                    # handling the case:- if compute policy is present and sizing policy is absent
-                    if vm["computePolicyName"] and not vm['sizingPolicyHref']:
-                        # retrieving the org vdc compute policy
-                        allOrgVDCComputePolicesList = self.getOrgVDCComputePolicies()
-                        # getting the list instance of compute policies of org vdc
-                        orgVDCComputePolicesList = [allOrgVDCComputePolicesList] if isinstance(
-                            allOrgVDCComputePolicesList, dict) else allOrgVDCComputePolicesList
-                        if rollback:
-                            targetProviderVDCid = data['sourceProviderVDC']['@id']
-                        else:
-                            targetProviderVDCid = data['targetProviderVDC']['@id']
-                        # iterating over the org vdc compute policies
-                        for eachComputPolicy in orgVDCComputePolicesList:
-                            # checking if the org vdc compute policy name is same as the source vm's applied compute policy & org vdc compute policy id is same as that of target provider vdc's id
-                            if eachComputPolicy["name"] == vm["computePolicyName"] and not eachComputPolicy["isSizingOnly"]:
-                                if not eachComputPolicy["pvdcId"]:
-                                    if vm['computePolicyId'] == eachComputPolicy['id']:
-                                        # creating the href of compute policy that should be passed in the payload data for recomposing the vapp
-                                        href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                                vcdConstants.VDC_COMPUTE_POLICIES,
-                                                                eachComputPolicy["id"])
-                                        break
-                                elif eachComputPolicy["pvdcId"] == targetProviderVDCid:
-                                    # creating the href of compute policy that should be passed in the payload data for recomposing the vapp
-                                    href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                            vcdConstants.VDC_COMPUTE_POLICIES,
-                                                            eachComputPolicy["id"])
-                        # if vm's compute policy does not match with org vdc compute policy or org vdc compute policy's id does not match with target provider vdc's id then href will be set none
-                        # resulting into raising the exception that source vm's applied placement policy is absent in target org vdc
-                        if not href:
-                            raise Exception(
-                                'Could not find placement policy {} in target Org VDC.'.format(vm["computePolicyName"]))
-                        # creating the payload dictionary
-                        payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
-                                       'storageProfileHref': vm['storageProfileHref'],
-                                       'vmPlacementPolicyHref': href,
-                                       'vmNetworkConnectionDetails': networkConnectionPayloadData,
-                                       'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
-                                       'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
-                        # creating the payload data
-                        payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                                  componentName=vcdConstants.COMPONENT_NAME,
-                                                                  templateName=vcdConstants.MOVE_VAPP_VM_PLACEMENT_POLICY_TEMPLATE)
-                    # handling the case:- if sizing policy is present and compute policy is absent
-                    elif vm['sizingPolicyHref'] and not vm["computePolicyName"]:
-                        # creating the payload dictionary
-                        payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
-                                       'storageProfileHref': vm['storageProfileHref'],
-                                       'sizingPolicyHref': vm['sizingPolicyHref'],
-                                       'vmNetworkConnectionDetails': networkConnectionPayloadData,
-                                       'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
-                                       'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
-                        # creating the pauload data
-                        payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                                  componentName=vcdConstants.COMPONENT_NAME,
-                                                                  templateName=vcdConstants.MOVE_VAPP_VM_SIZING_POLICY_TEMPLATE)
-                    # handling the case:- if both policies are present
-                    elif vm['sizingPolicyHref'] and vm["computePolicyName"]:
-                        # retrieving the org vdc compute policy
-                        allOrgVDCComputePolicesList = self.getOrgVDCComputePolicies()
-                        # getting the list instance of compute policies of org vdc
-                        orgVDCComputePolicesList = [allOrgVDCComputePolicesList] if isinstance(
-                            allOrgVDCComputePolicesList, dict) else allOrgVDCComputePolicesList
-                        if rollback:
-                            targetProviderVDCid = data['sourceProviderVDC']['@id']
-                        else:
-                            targetProviderVDCid = data['targetProviderVDC']['@id']
-                        # iterating over the org vdc compute policies
-                        for eachComputPolicy in orgVDCComputePolicesList:
-                            # checking if the org vdc compute policy name is same as the source vm's applied compute policy & org vdc compute policy id is same as that of target provider vdc's id
-                            if eachComputPolicy["name"] == vm["computePolicyName"] and not eachComputPolicy["isSizingOnly"]:
-                                if not eachComputPolicy["pvdcId"]:
-                                    if vm['computePolicyId'] == eachComputPolicy['id']:
-                                        # creating the href of compute policy that should be passed in the payload data for recomposing the vapp
-                                        href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                                vcdConstants.VDC_COMPUTE_POLICIES,
-                                                                eachComputPolicy["id"])
-                                        break
-                                elif eachComputPolicy["pvdcId"] == targetProviderVDCid:
-                                    # creating the href of compute policy that should be passed in the payload data for recomposing the vapp
-                                    href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                            vcdConstants.VDC_COMPUTE_POLICIES,
-                                                            eachComputPolicy["id"])
-                        # if vm's compute policy does not match with org vdc compute policy or org vdc compute policy's id does not match with target provider vdc's id then href will be set none
-                        # resulting into raising the exception that source vm's applied placement policy is absent in target org vdc
-                        if not href:
-                            raise Exception(
-                                'Could not find placement policy {} in target Org VDC.'.format(vm["computePolicyName"]))
-                        # creating the payload dictionary
-                        payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
-                                       'storageProfileHref': vm['storageProfileHref'],
-                                       'vmPlacementPolicyHref': href, 'sizingPolicyHref': vm['sizingPolicyHref'],
-                                       'vmNetworkConnectionDetails': networkConnectionPayloadData,
-                                       'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
-                                       'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
-                        # creating the pauload data
-                        payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
-                                                                  componentName=vcdConstants.COMPONENT_NAME,
-                                                                  templateName=vcdConstants.MOVE_VAPP_VM_COMPUTE_POLICY_TEMPLATE)
-                xmlPayloadData += payloadData.strip("\"")
-
-            return xmlPayloadData
-        except Exception:
-            raise
-
-    @isSessionExpired
     def getOrgVDCStorageProfileDetails(self, orgVDCStorageProfileId):
         """
         Description :   Gets the details of the specified Org VDC Storage Profile ID
@@ -3186,14 +2886,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Description :   Collects target storage profiles and saves name to href map.
         Parameters  :   targetVdc - target Org VDC details (DICT)
         """
-        targetStorageProfileList = (
-            targetVdc['VdcStorageProfiles']['VdcStorageProfile']
-            if isinstance(targetVdc['VdcStorageProfiles']['VdcStorageProfile'], list)
-            else [targetVdc['VdcStorageProfiles']['VdcStorageProfile']])
-
         self.targetStorageProfileMap = {
             storageProfile['@name']: storageProfile['@href']
-            for storageProfile in targetStorageProfileList
+            for storageProfile in listify(targetVdc['VdcStorageProfiles']['VdcStorageProfile'])
         }
 
     @isSessionExpired
@@ -3941,13 +3636,152 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 }
             ]
 
-        return self.vcdUtils.createPayload(
-            filePath,
-            payloadDict={'networkConfig': networkConfig},
-            fileType='yaml',
-            componentName=vcdConstants.COMPONENT_NAME,
-            templateName=vcdConstants.MOVE_VAPP_NETWORK_CONFIG_TEMPLATE
-        ).strip("\"")
+        return networkConfig
+
+    def _getVmSizingPolicy(self, vm, targetOrgVDCId):
+        # retrieving the sizing policy of vm
+        if vm['ComputePolicy'].get('VmSizingPolicy'):
+            if vm['ComputePolicy']['VmSizingPolicy']['@name'] != 'System Default':
+                return vm['ComputePolicy']['VmSizingPolicy']['@href']
+
+            # get the target System Default policy id
+            defaultSizingPolicy = self.getVmSizingPoliciesOfOrgVDC(
+                'urn:vcloud:vdc:{}'.format(targetOrgVDCId), isTarget=True)
+            if defaultSizingPolicy:
+                defaultSizingPolicyId = defaultSizingPolicy[0]['id']
+                return "{}{}/{}".format(
+                    vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                    vcdConstants.VDC_COMPUTE_POLICIES, defaultSizingPolicyId)
+
+    def _getPlacementPolicy(self, vm, rollback):
+        if rollback:
+            targetProviderVDCid = self.rollback.apiData['sourceProviderVDC']['@id']
+        else:
+            targetProviderVDCid = self.rollback.apiData['targetProviderVDC']['@id']
+
+        # retrieving the compute policy of vm
+        computePolicyName = vm['ComputePolicy']['VmPlacementPolicy']['@name'] if vm['ComputePolicy'].get(
+            'VmPlacementPolicy') else None
+        # retrieving the compute policy id of vm
+        computePolicyId = vm['ComputePolicy']['VmPlacementPolicy']['@id'] if vm['ComputePolicy'].get(
+            'VmPlacementPolicy') else None
+
+        for eachComputPolicy in listify(self.getOrgVDCComputePolicies()):
+            # checking if the org vdc compute policy name is same as the source vm's applied compute policy & org
+            # vdc compute policy id is same as that of target provider vdc's id
+            if eachComputPolicy["name"] == computePolicyName and not eachComputPolicy["isSizingOnly"]:
+                if not eachComputPolicy["pvdcId"]:
+                    if computePolicyId == eachComputPolicy['id']:
+                        # creating the href of compute policy that should be passed in the payload data for
+                        # recomposing the vapp
+                        return "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                vcdConstants.VDC_COMPUTE_POLICIES,
+                                                eachComputPolicy["id"])
+
+                elif eachComputPolicy["pvdcId"] == targetProviderVDCid:
+                    # creating the href of compute policy that should be passed in the payload data for
+                    # recomposing the vapp
+                    return "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                            vcdConstants.VDC_COMPUTE_POLICIES,
+                                            eachComputPolicy["id"])
+
+        # if vm's compute policy does not match with org vdc compute policy or org vdc compute policy's id does
+        # not match with target provider vdc's id then href will be set none
+        # resulting into raising the exception that source vm's applied placement policy is absent in target org vdc
+        raise Exception(
+            'Could not find placement policy {} in target Org VDC.'.format(vm["computePolicyName"]))
+
+    def _vmNetworkConnection(self, vm, rollback):
+        networkConnections = []
+        for networkConnection in listify(vm['networkConnectionSection']['NetworkConnection']):
+            if networkConnection['@network'] == 'none':
+                networkName = 'none'
+            else:
+                if rollback:
+                    # remove the appended -v2t from network name
+                    networkName = networkConnection['@network'].replace('-v2t', '')
+
+                else:
+                    networkName = networkConnection['@network'] + '-v2t'
+
+            # checking for the 'IpAddress' attribute if present
+            if networkConnection.get('IpAddress'):
+                ipAddress = networkConnection['IpAddress']
+            else:
+                ipAddress = ""
+
+            # Check ip allocation mode for vm's
+            if networkConnection['IpAddressAllocationMode'] == 'POOL' and \
+                    float(self.version) <= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
+                networkConnection['IpAddressAllocationMode'] = 'MANUAL'
+
+            networkConnections.append({
+                'networkName': networkName,
+                'needsCustomization': networkConnection.get('@needsCustomization', 'false'),
+                'ipAddress': ipAddress,
+                'IpType': networkConnection.get('IpType', ''),
+                'ExternalIpAddress': networkConnection.get('ExternalIpAddress', ''),
+                'connected': networkConnection['IsConnected'],
+                'macAddress': networkConnection['MACAddress'],
+                'allocationModel': networkConnection['IpAddressAllocationMode'],
+                'SecondaryIpAddressAllocationMode': networkConnection.get('SecondaryIpAddressAllocationMode', 'NONE'),
+                'adapterType': networkConnection['NetworkAdapterType'],
+                'networkConnectionIndex': networkConnection['NetworkConnectionIndex']
+            })
+
+        return networkConnections
+
+    def _getVmSpecSection(self, vm):
+        diskSettings = listify(vm['VmSpecSection']['DiskSection']['DiskSettings'])
+        if any(diskSetting['overrideVmDefault'] == 'true' for diskSetting in diskSettings):
+            for disk in diskSettings:
+                disk['StorageProfile'] = {
+                    "href": self.targetStorageProfileMap[disk['StorageProfile']['@name']]
+                }
+
+            return {
+                'Modified': 'true',
+                'HardwareVersion': vm['VmSpecSection']['HardwareVersion'],
+                'DiskSettings': diskSettings,
+            }
+
+    @isSessionExpired
+    def createMoveVappVmPayload(self, vAppData, targetOrgVDCId, filePath, rollback):
+        """
+        Description : Create vApp vm payload for move vApp api
+        Parameters : vApp - dict containing source vApp details
+                     targetOrgVDCId - target Org VDC Id (STRING)
+                     rollback - whether to rollback vapp from T2V (BOOLEAN)
+        """
+        self.fetchTargetStorageProfiles(
+            self.rollback.apiData['sourceOrgVDC' if rollback else'targetOrgVDC'])
+
+        vmConfig = [
+            {
+                'Source': vm['@href'],
+                'VmGeneralParams': {
+                    'Description': vm.get('Description', ''),
+                },
+                'InstantiationParams': {
+                    'NetworkConnectionSection': {
+                        'PrimaryNetworkConnectionIndex':
+                            vm['NetworkConnectionSection']['PrimaryNetworkConnectionIndex'],
+                        'NetworkConnection': self._vmNetworkConnection(vm, rollback),
+                    },
+                    'VmSpecSection': self._getVmSpecSection(vm),
+                },
+                'StorageProfile': {
+                    'href': self.targetStorageProfileMap[vm['StorageProfile']['@name']]
+                },
+                'ComputePolicy': {
+                    'PlacementPolicyHref': self._getPlacementPolicy(vm, rollback),
+                    'SizingPolicyHref': self._getVmSizingPolicy(vm, targetOrgVDCId),
+                },
+            }
+            for vm in listify(vAppData['Children']['Vm'])
+        ]
+
+        return vmConfig
 
     @isSessionExpired
     def moveVappApiCall(self, vApp, targetOrgVDCNetworkList, targetOrgVDCId, filePath, timeout, sourceOrgVDCName=None, rollback=False):
@@ -3980,7 +3814,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         payloadDict = {
             'vAppHref': vApp['@href'],
             'networkConfig': self.createMoveVappNetworkPayload(vAppData, targetOrgVDCNetworkList, filePath, rollback),
-            'vmDetails': self.createMoveVappVmPayload(vApp, targetOrgVDCId, rollback=rollback),
+            'vmConfig': self.createMoveVappVmPayload(vAppData, targetOrgVDCId, filePath, rollback),
         }
         payloadData = self.vcdUtils.createPayload(
             filePath, payloadDict, fileType='yaml', componentName=vcdConstants.COMPONENT_NAME,
