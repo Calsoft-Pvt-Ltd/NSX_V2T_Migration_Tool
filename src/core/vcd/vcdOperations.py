@@ -1008,6 +1008,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # reconnecting the networks in case of disconnection failure
             if networkDisconnectedList:
                 self.disconnectSourceOrgVDCNetwork(networkDisconnectedList, sourceEdgeGatewayId, rollback=True)
+                self.dhcpRollBack(networkDisconnectedList)
             raise exception
 
     @description("disconnection of source Edge gateway from external network")
