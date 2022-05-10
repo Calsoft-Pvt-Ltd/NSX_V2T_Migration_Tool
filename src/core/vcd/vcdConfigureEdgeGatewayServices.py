@@ -2230,14 +2230,15 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 "Failed to get VNic details for edge gateway {} of network name {}.".format(edgeGatewayId, orgvdcNetworkName))
 
     @isSessionExpired
-    def dhcpRollBack(self):
+    def dhcpRollBack(self, networkDisconnectedList=None):
         """
         Description: Creating DHCP service in Source Org VDC for roll back
         """
         try:
             # Check if services configuration or network switchover was performed or not
             if not self.rollback.metadata.get("configureTargetVDC", {}).get("disconnectSourceOrgVDCNetwork"):
-                return
+                if not networkDisconnectedList:
+                    return
 
             data = self.rollback.apiData['sourceEdgeGatewayDHCP']
             sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
@@ -2274,7 +2275,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
                     response = self.restClientObj.put(url, self.headers, data=payloadData)
                     if response.status_code == requests.codes.accepted:
-                        # only need job ID from Location so spliting it
+                        # only need job ID from Location so splitting it
                         jobId = response.headers['Location'].split('/')[-1]
                         taskUrl = '{}{}{}'.format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress), vcdConstants.NETWORK_EDGES, vcdConstants.NSX_JOBS.format(jobId))
                         # initial time
