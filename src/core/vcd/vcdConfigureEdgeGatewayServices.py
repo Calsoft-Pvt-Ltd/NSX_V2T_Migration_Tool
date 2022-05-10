@@ -1267,6 +1267,21 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         """
         logger.debug("Updating Static IP pool of OrgVDC network {}.".format(network['name']))
         orgVDCNetworkId = network['id']
+
+        # Retrieving DHCP service mode info
+        DHCPurl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                vcdConstants.ORG_VDC_NETWORK_DHCP.format(orgVDCNetworkId))
+        # Get the details of DHCP configuration
+        response = self.restClientObj.get(DHCPurl, self.headers)
+        if response.status_code != requests.codes.ok:
+            raise Exception("Failed to get DHCP configuration on network {}", network['name'])
+
+        responsedict = response.json()
+        if responsedict.get('mode') == "NETWORK" and responsedict.get('ipAddress'):
+            logger.debug("DHCP service already configured in network mode for OrgVDC network : {}.".format(network['name']))
+            return
+
+        # retieve network information to modify static ip pool.
         url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                             vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(orgVDCNetworkId))
         # retrieve info of orgVDC network.
