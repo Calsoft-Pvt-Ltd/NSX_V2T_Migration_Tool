@@ -6192,54 +6192,18 @@ class VCDMigrationValidation:
             raise Exception("Failed to get vCenter NSXV settings - {}".format(responseDict['message']))
         return responseDict
 
-    def validateCrossVdcNetworking(self, orgVdcId):
+    def validateCrossVdcNetworking(self, sourceOrgVDCId):
         """
         Description : Method that validates whether cross vdc networking is configured or not
         Parameters  : orgVdcId - ID of org vdc for which the validation is to be performed
         """
-        # Fetch all vCenters registered in vCD
-        baseUrl = f"https://{self.ipAddress}/api/query"
-
-        headers = copy.deepcopy(self.headers)
-        headers['Accept'] = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
-
-        vCentersRegisteredInVcd = self.getPaginatedResults('vCenters registered in VCD', baseUrl,
-                                                           urlFilter='type=virtualCenter&format=records&'
-                                                                     'sortAsc=name&links=true',
-                                                           headers=headers, queryApi=True)
-
-        for vCenter in vCentersRegisteredInVcd:
-            for link in vCenter['link']:
-                if link['type'] and "vshieldmanager" in link['type'].lower():
-                    vCenter['vshieldmanagerId'] = link['href'].split('/')[-1]
-
-        # Fetch org vdc details
-        orgVdcData = list(filter(lambda vdc: vdc["id"].split(":")[-1] == orgVdcId.split(":")[-1],
-                                 self.getAllOrgVdc()))
-
-        if not orgVdcData:
-            raise Exception(f"Org VDC with id {orgVdcId} is not present in vCD")
-
-        # Fetching vCenter name used by org vdc
-        vCenterUsedByOrgVdc = orgVdcData[0]['vcName']
-
-        # Filter vCenter used by org vdc to fetch vCenter data
-        vCenter = list(filter(lambda vc: vCenterUsedByOrgVdc.strip() == vc['name'].strip(),
-                               vCentersRegisteredInVcd))[0]
-
-        # Get NSXV settings for specific vCenter
-        nsxvSettings = self.getVcenterNSXVSettings(vCenter['vshieldmanagerId']) \
-            if vCenter.get('vshieldmanagerId') else {}
-
-        # If Cross VDC networking is configured raise an exception
-        if nsxvSettings.get('controlVmResourcePoolVcPath') \
-                or nsxvSettings.get('controlVmDatastoreName') \
-                or nsxvSettings.get('controlVmManagementInterfaceName'):
-            raise ValidationError(
-                f"Cross VDC Networking is enabled for vCenter - "
-                f"'{vCenterUsedByOrgVdc}'"
-                f"but not supported by migration tool")
-        logger.debug(f"Validated successfully Cross VDC Networking is not enabled for vCenter {vCenterUsedByOrgVdc}")
+        logger.info("Validating cross VDC networking.")
+        orgVdcNetworkList = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', sharedNetwork=True, saveResponse=False)
+        for orgVdcNetwork in orgVdcNetworkList:
+            if orgVdcNetwork['crossVdcNetworkId'] and orgVdcNetwork['networkType'] == "CROSS_VDC":
+                raise ValidationError(
+                    "Cross VDC Networking enabled and OrgVdc uses Cross VDC network {}, which is not supported on migration tool.".format(
+                        orgVdcNetwork['name']))
 
     @isSessionExpired
     def getEdgeGatewayGreTunnel(self, edgeGatewayId):
