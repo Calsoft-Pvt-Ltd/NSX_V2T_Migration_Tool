@@ -2126,8 +2126,9 @@ class VCDMigrationValidation:
                 if response.status_code == requests.codes.ok:
                     gatewayInterfaces = responseDict['configuration']['gatewayInterfaces']['gatewayInterface']
                     if len(gatewayInterfaces) > 9 and not networkList:
-                        errorList.append('No more uplinks present on source Edge Gateway to connect dummy External Uplink')
+                        errorList.append(f"No more uplinks present on source Edge Gateway {responseDict['name']} to connect dummy External Uplink ")
                     # checking whether source edge gateway has rate limit configured
+
                     rateLimitEnabledInterfaces = [interface for interface in gatewayInterfaces if interface['applyRateLimit']]
                     for rateLimitEnabledInterface in rateLimitEnabledInterfaces:
                         logger.info(f"Validating whether source Org VDC Edge Gateway {responseDict['name']} has rate limit configured")
