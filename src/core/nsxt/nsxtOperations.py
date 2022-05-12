@@ -1322,9 +1322,9 @@ class NSXTOperations():
                         ', '.join(edgeClusterNotFound)))
             orgVdcNetworkList = [network for network in orgVdcNetworkList if network['networkType'] != 'DIRECT']
             if len(orgVdcNetworkList) <= len(edgeTransportNodeList):
-                logger.debug("Validated successfully the number of source Org VDC networks are equal/less than the number of Edge Transport Nodes in the cluster {}".format(edgeClusterName))
+                logger.debug("Validated successfully the number of source Org VDC networks are equal/less than the number of Edge Transport Nodes in the cluster {}".format(edgeClusterNameList))
             else:
-                raise Exception("Number of Source Org VDC Networks should always be equal/less than the number of Edge Transport Nodes in the cluster {}".format(edgeClusterName))
+                raise Exception("Number of Source Org VDC Networks should always be equal/less than the number of Edge Transport Nodes in the cluster {}".format(edgeClusterNameList))
         except Exception:
             raise
 
