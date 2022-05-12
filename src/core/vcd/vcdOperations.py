@@ -162,7 +162,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             # Prepare payload for edgeClusterConfig->primaryEdgeCluster->backingId
             # Checking if edge cluster is specified in user input yaml
-            externalDict = self.getExternalNetworkByName(self.self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']]['Tier0Gateways'])
+            externalDict = self.getExternalNetworkByName(
+                self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']]['Tier0Gateways'])
 
             if vdcDict.get('EdgeGatewayDeploymentEdgeCluster'):
                 # Fetch edge cluster id

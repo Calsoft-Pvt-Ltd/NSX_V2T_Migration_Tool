@@ -4923,38 +4923,26 @@ class VCDMigrationValidation:
             return True
 
     def updateEdgeGatewayInputDict(self, sourceOrgVDCId):
-        edgeGateways = self.getOrgVDCEdgeGateway(sourceOrgVDCId)['values']
-        for egw in edgeGateways:
+        edgeGwInputs = {
+            'Tier0Gateways': self.orgVdcInput.get('Tier0Gateways'),
+            'LegacyDirectNetwork': self.orgVdcInput.get('LegacyDirectNetwork', False),
+            'NSXTNetworkPoolName': self.orgVdcInput.get('NSXTNetworkPoolName'),
+            'NoSnatDestinationSubnet': self.orgVdcInput.get('NoSnatDestinationSubnet'),
+            'ServiceEngineGroupName': self.orgVdcInput.get('ServiceEngineGroupName'),
+            'LoadBalancerVIPSubnet': self.orgVdcInput.get('LoadBalancerVIPSubnet'),
+            'EdgeGatewayDeploymentEdgeCluster': self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'),
+            'AdvertiseRoutedNetworks': self.orgVdcInput.get('AdvertiseRoutedNetworks', False),
+            'NonDistributedNetworks': self.orgVdcInput.get('NonDistributedNetworks', False),
+        }
+        for egw in self.getOrgVDCEdgeGateway(sourceOrgVDCId)['values']:
             if egw['name'] in self.orgVdcInput.get('EdgeGateways', {}):
-                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
-                    'Tier0Gateways', self.orgVdcInput.get('Tier0Gateways'))
-                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
-                    'LegacyDirectNetwork', self.orgVdcInput.get('LegacyDirectNetwork', False))
-                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
-                    'NSXTNetworkPoolName', self.orgVdcInput.get('NSXTNetworkPoolName'))
-                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
-                    'NoSnatDestinationSubnet', self.orgVdcInput.get('NoSnatDestinationSubnet'))
-                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
-                    'ServiceEngineGroupName', self.orgVdcInput.get('ServiceEngineGroupName'))
-                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
-                    'LoadBalancerVIPSubnet', self.orgVdcInput.get('LoadBalancerVIPSubnet'))
-                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
-                    'EdgeGatewayDeploymentEdgeCluster', self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'))
-                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
-                    'AdvertiseRoutedNetworks', self.orgVdcInput.get('AdvertiseRoutedNetworks', False))
-                self.orgVdcInput['EdgeGateways'][egw['name']].setdefault(
-                    'NonDistributedNetworks', self.orgVdcInput.get('NonDistributedNetworks', False))
+                self.orgVdcInput['EdgeGateways'][egw['name']] = {
+                    **edgeGwInputs,
+                    **self.orgVdcInput['EdgeGateways'].get(egw['name'], {})
+                }
             else:
                 self.orgVdcInput['EdgeGateways'][egw['name']] = {
-                    'Tier0Gateways': self.orgVdcInput.get('Tier0Gateways'),
-                    'LegacyDirectNetwork': self.orgVdcInput.get('LegacyDirectNetwork', False),
-                    'NSXTNetworkPoolName': self.orgVdcInput.get('NSXTNetworkPoolName'),
-                    'NoSnatDestinationSubnet': self.orgVdcInput.get('NoSnatDestinationSubnet'),
-                    'ServiceEngineGroupName': self.orgVdcInput.get('ServiceEngineGroupName'),
-                    'LoadBalancerVIPSubnet': self.orgVdcInput.get('LoadBalancerVIPSubnet'),
-                    'EdgeGatewayDeploymentEdgeCluster': self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'),
-                    'AdvertiseRoutedNetworks': self.orgVdcInput.get('AdvertiseRoutedNetworks', False),
-                    'NonDistributedNetworks': self.orgVdcInput.get('NonDistributedNetworks', False),
+                    **edgeGwInputs
                 }
 
     def preMigrationValidation(self, inputDict, vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj, validateVapp=False, validateServices=False):
@@ -4998,10 +4986,12 @@ class VCDMigrationValidation:
             if vdc['OrgVDCName'] == sourceOrgVDC:
                 continue
 
+            # Check at org VDC level
             if vdc.get('Tier0Gateways') == externalNetworkName:
                 orgVdcNameList.append(vdc['OrgVDCName'])
                 continue
 
+            # Check at edge GW level
             for egw in vdc.get('EdgeGateways', {}):
                 if egw.get('Tier0Gateways') == externalNetworkName:
                     orgVdcNameList.append(vdc['OrgVDCName'])
