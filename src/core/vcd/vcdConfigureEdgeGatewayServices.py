@@ -1517,6 +1517,12 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 logger.debug(
                     "DHCP relay service not configured on source edge gateway : {}.".format(sourceEdgeGateway))
                 continue
+            
+            # Configure DHCP relay service if DHCP server is configured , if not then continue.
+            if not DHCPData['relay'].get('relayServer'):
+                logger.debug(
+                    "DHCP relay server not configured on source edge gateway : {}.".format(sourceEdgeGateway))
+                continue
 
             logger.debug(
                 'Configuring DHCP relay service on target edge gateway - {}'.format(sourceEdgeGateway['name']))
