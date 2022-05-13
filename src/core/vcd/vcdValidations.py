@@ -1915,14 +1915,25 @@ class VCDMigrationValidation:
             networksWithoutFreeIpInStaticIpPool = list()
             for sourceOrgVDCNetwork in orgVdcNetworkList:
                 distNetworkFlag = False
+                validateStaticIpPool = True
                 # Continue if the OrgVDC network is not routed network.
                 if not (sourceOrgVDCNetwork['networkType'] == 'NAT_ROUTED'
                         and sourceOrgVDCNetwork['connection']['connectionTypeValue'] == 'INTERNAL'):
                     continue
 
+                orgvdcNetworkGatewayIp = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
+                dhcpErrorList, dhcpConfigOut = self.getEdgeGatewayDhcpConfig(
+                    sourceOrgVDCNetwork['connection']['routerRef']['id'].split(':')[-1])
+                sourceDhcpPools = listify(dhcpConfigOut['ipPools'].get('ipPools'))
+                # if the DHCP pools configured using same OrgVDC network then dont validate static pool.
+                for dhcpPool in sourceDhcpPools:
+                    if dhcpPool['defaultGateway'] == orgvdcNetworkGatewayIp:
+                        validateStaticIpPool = False
+                        break
+                if not validateStaticIpPool:
+                    continue
                 dnsRelayConfig = self.getEdgeGatewayDnsConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
                                                               split(':')[-1], False)
-                orgvdcNetworkGatewayIp = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
                 orgvdcNetworkDns = sourceOrgVDCNetwork['subnets']['values'][0]['dnsServer1']
                 ipRanges = sourceOrgVDCNetwork['subnets']['values'][0]['ipRanges']['values']
                 if (dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns) or vdcDict.get(
