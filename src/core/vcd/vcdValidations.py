@@ -1878,7 +1878,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def validateStaticIpPoolForNonDistributedRouting(self, orgVdcNetworkList, vdcDict):
+    def validateStaticIpPoolForNonDistributedRouting(self, orgVdcNetworkList):
         """
             Description : Validate that OrgVDC network has static IP pool with free IPs
             Parameters  : orgVdcNetworkList - Org VDC's network list for a specific Org VDC (LIST)
@@ -1891,8 +1891,8 @@ class VCDMigrationValidation:
             errorList = list()
             networksWithoutStaticIpPool = list()
             networksWithoutFreeIpInStaticIpPool = list()
+            _, implicitNetworks = self._checkNonDistributedImplicitCondition(orgVdcNetworkList)
             for sourceOrgVDCNetwork in orgVdcNetworkList:
-                distNetworkFlag = False
                 validateStaticIpPool = True
                 # Continue if the OrgVDC network is not routed network.
                 if not (sourceOrgVDCNetwork['networkType'] == 'NAT_ROUTED'
@@ -1910,15 +1910,11 @@ class VCDMigrationValidation:
                         break
                 if not validateStaticIpPool:
                     continue
-                dnsRelayConfig = self.getEdgeGatewayDnsConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
-                                                              split(':')[-1], False)
-                orgvdcNetworkDns = sourceOrgVDCNetwork['subnets']['values'][0]['dnsServer1']
-                ipRanges = sourceOrgVDCNetwork['subnets']['values'][0]['ipRanges']['values']
-                if (dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns) or vdcDict.get(
-                        'NonDistributedNetworks'):
-                    distNetworkFlag = True
 
-                if distNetworkFlag and sourceOrgVDCNetwork['networkType'] == 'NAT_ROUTED':
+                edgeGatewayName = sourceOrgVDCNetwork['connection']['routerRef']['name']
+                if (self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks']
+                        or sourceOrgVDCNetwork['id'] in implicitNetworks):
+                    ipRanges = sourceOrgVDCNetwork['subnets']['values'][0]['ipRanges']['values']
                     if not ipRanges:
                         networksWithoutStaticIpPool.append(sourceOrgVDCNetwork['name'])
 
@@ -2545,7 +2541,7 @@ class VCDMigrationValidation:
                 self.thread.spawnThread(self.getEdgeGatewayDhcpConfig, gatewayId, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the dhcp relay config details of specified edge gateway
-                self.thread.spawnThread(self.getDhcpRelayForNonDR, gatewayId, v2tAssessmentMode=v2tAssessmentMode)
+                self.thread.spawnThread(self.getDhcpRelayForNonDR, gatewayId, gatewayName, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the firewall config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewayFirewallConfig, gatewayId)
@@ -2880,7 +2876,7 @@ class VCDMigrationValidation:
         return forwardersList
 
     @isSessionExpired
-    def getDhcpRelayForNonDR(self, edgeGatewayId, v2tAssessmentMode=False):
+    def getDhcpRelayForNonDR(self, edgeGatewayId, edgeGatewayName, v2tAssessmentMode=False):
         """
         Description :   Validating if the DHCP relay service configured in case of non Dist routing .
         """
@@ -2916,7 +2912,7 @@ class VCDMigrationValidation:
 
         # Check for explicit case scenario.
         networkNames = list()
-        if self.orgVdcDict.get('NonDistributedNetworks'):
+        if self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks']:
             # get Non-Dist routing flag from user input and if enabled then raise exception.
             for sourceOrgVDCNetwork in sourceOrgvdcNetworks:
                 if sourceOrgVDCNetwork['networkType'] != 'NAT_ROUTED':
@@ -2933,6 +2929,7 @@ class VCDMigrationValidation:
 
         # Check for implicit case scenario.
         # check the relay agents which can be configured as non DR.
+        _, implicitNetworks = self._checkNonDistributedImplicitCondition(sourceOrgvdcNetworks)
         for sourceOrgVDCNetwork in sourceOrgvdcNetworks:
             if sourceOrgVDCNetwork['networkType'] != 'NAT_ROUTED':
                 continue
@@ -2941,14 +2938,8 @@ class VCDMigrationValidation:
                     or edgeGatewayId not in sourceOrgVDCNetwork['connection']['routerRef']['id']):
                 continue
 
-            # check for implicite type creation of Non-Distributed OrgVDC network.
-            dnsRelayConfig = self.getEdgeGatewayDnsConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
-                                                          split(':')[-1], False)
-            orgvdcNetworkGatewayIp = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
-            orgvdcNetworkDns = sourceOrgVDCNetwork['subnets']['values'][0]['dnsServer1']
-            edgeGatewayName = sourceOrgVDCNetwork['connection']['routerRef']['name']
-            if (dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns and not self.orgVdcDict.get(
-                    'NonDistributedNetworks')):
+            if (self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks']
+                    or sourceOrgVDCNetwork['id'] in implicitNetworks):
                 errorList.append(
                     "DHCP Relay service configured on source edge gateway {} is not supported on target because, OrgVDC network {} will be configured as non-distributed after migration. DHCP Relay is not supported on non-distibuted routed networks.\n".format(
                         edgeGatewayName, sourceOrgVDCNetwork['name']))
@@ -4743,7 +4734,7 @@ class VCDMigrationValidation:
 
             # Validating static Ip pool for OrgVDC network.
             logger.info('Validating Org VDC Network Static IP pool configuration for non distributed routing')
-            self.validateStaticIpPoolForNonDistributedRouting(orgVdcNetworkList, vdcDict)
+            self.validateStaticIpPoolForNonDistributedRouting(orgVdcNetworkList)
 
             # validating DHCP service on Org VDC networks
             logger.info('Validating Isolated OrgVDCNetwork DHCP configuration')
@@ -6237,3 +6228,22 @@ class VCDMigrationValidation:
             if network['networkType'] == 'DIRECT':
                 return True
         return False
+
+    def _checkNonDistributedImplicitCondition(self, sourceOrgVDCNetworks):
+        implicitGateways = set()
+        implicitNetworks = set()
+        for sourceOrgVDCNetwork in sourceOrgVDCNetworks:
+            # Create the non distributed routed network.
+            if (sourceOrgVDCNetwork['networkType'] == 'NAT_ROUTED'
+                    and sourceOrgVDCNetwork['connection']['connectionType'] == "INTERNAL"):
+
+                # check for implicit type creation of Non-Distributed OrgVDC network.
+                dnsRelayConfig = self.getEdgeGatewayDnsConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
+                                                              split(':')[-1], False)
+                orgvdcNetworkGatewayIp = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
+                orgvdcNetworkDns = sourceOrgVDCNetwork['subnets']['values'][0]['dnsServer1']
+                if dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns:
+                    implicitGateways.add(sourceOrgVDCNetwork['connection']['routerRef']['name'])
+                    implicitNetworks.add(sourceOrgVDCNetwork['id'])
+
+        return implicitGateways, implicitNetworks
