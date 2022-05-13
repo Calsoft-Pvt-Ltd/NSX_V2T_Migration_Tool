@@ -59,7 +59,7 @@ class Rollback:
             'vcdObj.disablePromiscModeForgedTransmit()',
             'nsxtObj.deleteLogicalSegments()',
             'vcdObj.deleteOrgVDCGroup()',
-            'vcdObj.deleteOrgVDCNetworks(targetOrgVDCId, source=False, rollback=True)',
+            'vcdObj.deleteOrgVDCNetworks(targetOrgVDCId, rollback=True)',
             'vcdObj.deleteNsxTBackedOrgVDCEdgeGateways(targetOrgVDCId)',
             'vcdObj.enableSourceAffinityRules()',
             'vcdObj.deleteOrgVDC(targetOrgVDCId, rollback=True)',

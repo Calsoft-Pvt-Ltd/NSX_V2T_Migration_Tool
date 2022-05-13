@@ -330,6 +330,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Description : Create Org VDC Networks in the specified Organization VDC
         """
         try:
+            if not isinstance(self.rollback.metadata.get("prepareTargetVDC", {}).get("createOrgVDCNetwork"), bool):
+                self.rollback.metadata["prepareTargetVDC"]["createOrgVDCNetwork"] = False
+                self.saveMetadataInOrgVdc()
+
             segmetList = list()
 
             # Check if overlay id's are to be cloned or not
@@ -790,7 +794,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         'Failed to delete Organization VDC Network DHCP bindings {}.{}'.format(networkId, response.json()['message']))
 
     @isSessionExpired
-    def deleteOrgVDCNetworks(self, orgVDCId, source=True, rollback=False):
+    def deleteOrgVDCNetworks(self, orgVDCId, rollback=False):
         """
         Description :   Deletes all Organization VDC Networks from the specified OrgVDC
         Parameters  :   orgVDCId  -   Id of the Organization VDC (STRING)
@@ -799,7 +803,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         try:
             # Check if org vdc networks were created or not
-            if not self.rollback.metadata.get("prepareTargetVDC", {}).get("createOrgVDCNetwork"):
+            if not isinstance(self.rollback.metadata.get("prepareTargetVDC", {}).get("createOrgVDCNetwork"), bool):
                 return
 
             if rollback:
@@ -810,7 +814,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if rollback:
                 dfwStatus = True if self.rollback.apiData.get('OrgVDCGroupID') else False
 
-            orgVDCNetworksList = self.getOrgVDCNetworks(orgVDCId, 'sourceOrgVDCNetworks', dfwStatus=dfwStatus, saveResponse=False)
+            orgVDCNetworksList = self.getOrgVDCNetworks(orgVDCId, None, dfwStatus=dfwStatus, saveResponse=False)
             # iterating over the org vdc network list
             for orgVDCNetwork in orgVDCNetworksList:
                 # Check if DHCP Binding enabled on Network, if enabled then delete binding first.
@@ -822,18 +826,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 response = self.restClientObj.delete(url, self.headers)
                 if response.status_code == requests.codes.accepted:
                     taskUrl = response.headers['Location']
-                    if source:
-                        # state check for NSX-V backed Org VDC
-                        if orgVDCNetwork['networkType'] == 'ISOLATED':
-                            # checking the status of deleting isolated network task
-                            self._checkTaskStatus(taskUrl=taskUrl)
-                        else:
-                            # checking the status of deleting routed network task
-                            self._checkTaskStatus(taskUrl=taskUrl)
-                        logger.debug('Organization VDC Network deleted successfully.')
-                    else:
-                        # state check for NSX-t backed Org VDC
-                        self._checkTaskStatus(taskUrl=taskUrl)
+                    self._checkTaskStatus(taskUrl=taskUrl)
+                    logger.debug('Organization VDC Network deleted successfully.')
                 else:
                     logger.debug('Failed to delete Organization VDC Network {}.{}'.format(orgVDCNetwork['name'],
                                                                                           response.json()['message']))
