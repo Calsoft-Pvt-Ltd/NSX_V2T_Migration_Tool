@@ -249,39 +249,17 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             except RuntimeError:
                 pass
 
-    def _checkNonDistributedImplicitCondition(self, sourceOrgVDCNetworks):
-        implicitGateways = set()
-        implicitNetworks = set()
-        for sourceOrgVDCNetwork in sourceOrgVDCNetworks:
-            # Create the non distributed routed network.
-            if (float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2)
-                    and sourceOrgVDCNetworks['networkType'] == 'NAT_ROUTED'
-                    and sourceOrgVDCNetwork['connection']['connectionType'] == "INTERNAL"):
-
-                # check for implicit type creation of Non-Distributed OrgVDC network.
-                dnsRelayConfig = self.getEdgeGatewayDnsConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
-                                                              split(':')[-1], False)
-                orgvdcNetworkGatewayIp = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
-                orgvdcNetworkDns = sourceOrgVDCNetwork['subnets']['values'][0]['dnsServer1']
-                if dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns:
-                    edgeGatewayId = list(filter(
-                        lambda egw: egw['name'] == sourceOrgVDCNetwork['connection']['routerRef']['name'],
-                        self.rollback.apiData['targetEdgeGateway']))[0]['id']
-                    implicitGateways.add(edgeGatewayId)
-                    implicitNetworks.add(sourceOrgVDCNetwork['id'])
-
-        return implicitGateways, implicitNetworks
-
     @description("Allowing of non distributed routing for edge gateway.")
     @remediate
-    def allowNonDistributedRoutingOnEgdeGW(self, implicitGateways):
+    def allowNonDistributedRoutingOnEdgeGW(self, implicitGateways):
         """
         Description : Allow Non-Distributed routing on edge gateway of Organization VDC
         """
         logger.debug('Allow Non-Distributed Routing is getting configured')
         # get the target edge gateway data and enable non distributed routing.
         for index, edgeGateway in enumerate(self.rollback.apiData['targetEdgeGateway']):
-            if not self.orgVdcDict.get('NonDistributedNetworks') and edgeGateway['id'] not in implicitGateways:
+            if not (self.orgVdcInput['EdgeGateways'][edgeGateway['name']]['NonDistributedNetworks']
+                    or edgeGateway['name'] in implicitGateways):
                 continue
 
             gatewayId = edgeGateway['id']
@@ -475,7 +453,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     payloadData['guestVlanTaggingAllowed'] = sourceOrgVDCNetwork['guestVlanTaggingAllowed']
 
                 # Create the non distributed routed network.
-                if self.orgVdcDict.get('NonDistributedNetworks') or sourceOrgVDCNetwork['id'] in implicitNetworks:
+                edgeGatewayName = sourceOrgVDCNetwork['connection']['routerRef']['name']
+                if (self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks']
+                        or sourceOrgVDCNetwork['id'] in implicitNetworks):
                     payloadData['connection']['connectionType'] = None
                     payloadData['connection']['connectionTypeValue'] = "NON_DISTRIBUTED"
 
@@ -1097,7 +1077,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         raise Exception('Failed to update source Edge Gateway {}'.format(responseData['message']))
                 else:
                     raise Exception("Failed to get edge gateway '{}' details due to error - {}".format(
-                        responseDict['name'], responseDict['message']))
+                        edgeGatewaydata['name'], responseDict['message']))
         except:
             raise
 
@@ -2528,9 +2508,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 self.configureEdgeGWRateLimit(nsxObj)
 
                 # Allow Non distributed routing for edge gateways
-                if not self.orgVdcDict.get('NonDistributedNetworks'):
-                    implicitGateways, implicitNetworks = self._checkNonDistributedImplicitCondition(orgVdcNetworkList)
-                self.allowNonDistributedRoutingOnEgdeGW(implicitGateways)
+                implicitGateways, implicitNetworks = self._checkNonDistributedImplicitCondition(orgVdcNetworkList)
+                self.allowNonDistributedRoutingOnEdgeGW(implicitGateways)
 
             # only if source org vdc networks exist
             if orgVdcNetworkList:
@@ -2675,7 +2654,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # updating route redistribution rules on tier-0 routers
             self.updateRouteRedistributionRules(vdcDict, nsxtObj)
 
-            # Configure DNAT rules for non-distributed network if NonDistributedNetworks is set from user input.
+            # Configure DNAT rules for non-distributed network if implicit condition is met
             if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
                 self.configureTargetDnatForDns()
         except:
