@@ -11,11 +11,7 @@ VCloudDirector:
     - OrgVDCName: Acme-1-vdc # Name of the source organization VDC
       NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
       NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
-      Tier0Gateways:  # Name of the Tier-0 gateway to which target NSX-T edge gateways will be connected to
-        EdgeGateway1: tpm-externalnetwork-1
-        EdgeGateway2: tpm-externalnetwork-1
-        EdgeGateway3: tpm-externalnetwork-2
-        default: tpm-externalnetwork
+      Tier0Gateways: tpm-externalnetwork # Name of the Tier-0 gateway to which target NSX-T edge gateways will be connected to
       LegacyDirectNetwork: False # (Optional) Option to enable legacy migration mechanism of service direct networks
       EmptyIPPoolOverride: False # (Optional) Option to enable migration that will not remove IP address from IP Pool if it is the last one
       NSXTNetworkPoolName: 2nd-t-network-pool # Name of the nsxt backed network pool which needs to be added incase of multiple network pools
@@ -25,11 +21,18 @@ VCloudDirector:
       ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
       LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
-      AdvertiseRoutedNetworks: #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
-        EdgeGateway1: True
-        EdgeGateway2: True
-        default: False
+      AdvertiseRoutedNetworks: True #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
       NonDistributedNetworks: False # (optional) Option to enable the non-distributed routing for routed OrgVDC network.
+      EdgeGateways:
+        EdgeGateway1:
+          Tier0Gateways: tpm-externalnetwork
+          NSXTNetworkPoolName: 2nd-t-network-pool
+          NoSnatDestinationSubnet: 10.100.0.0/16
+          ServiceEngineGroupName: Tenant1
+          LoadBalancerVIPSubnet: 192.168.255.128/28
+          EdgeGatewayDeploymentEdgeCluster: Edge-cluster1
+          AdvertiseRoutedNetworks: True
+          NonDistributedNetworks: False
     - OrgVDCName: Acme-2-vdc # Name of the source organization VDC
       NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
       NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
