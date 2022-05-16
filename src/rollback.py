@@ -63,7 +63,7 @@ class Rollback:
             'vcdObj.deleteNsxTBackedOrgVDCEdgeGateways(targetOrgVDCId)',
             'vcdObj.enableSourceAffinityRules()',
             'vcdObj.deleteOrgVDC(targetOrgVDCId, rollback=True)',
-            'vcdObj.resetTargetExternalNetwork(targetExternalNetwork)',
+            'vcdObj.resetTargetExternalNetwork()',
             'vcdObj.disconnectSourceOrgVDCNetwork(orgVDCNetworkList, sourceEdgeGatewayId, rollback=True)',
             'vcdObj.dhcpRollBack()',
             'vcdObj.ipsecRollBack()',
@@ -81,7 +81,6 @@ class Rollback:
         sourceOrgVDCId, orgVDCNetworkList, targetOrgVDCId, sourceEdgeGatewayId, targetNetworkList = str(), list(), str(), str(), list()
         try:
             timeout = self.timeoutForVappMigration
-            targetExternalNetwork = orgVDCDict.get("Tier0Gateways", {})
 
             # Performing rollback task
             threading.current_thread().name = orgVDCDict["OrgVDCName"]

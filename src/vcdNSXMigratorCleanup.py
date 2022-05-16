@@ -143,7 +143,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             self.vcdObj.validateOrgVDCNSXbacking(sourceOrgVDCId, sourceProviderVDCId, isNSXTbacked)
 
             # getting the source edge gateway details
-            edgeGatewayDetails = self.vcdObj.getOrgVDCEdgeGateway(sourceOrgVDCId)['values']
+            edgeGatewayDetails = self.vcdObj.getOrgVDCEdgeGateway(sourceOrgVDCId)
 
             # getting the target organization vdc details from the above organization
             self.consoleLogger.info('Getting the target Organization VDC {} network details.'.format(sourceOrgVDCName + '-v2t'))

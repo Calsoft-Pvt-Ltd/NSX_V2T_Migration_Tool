@@ -251,7 +251,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
             # fetch details of edge gateway
             self.consoleLogger.info('Getting details of source edge gateway list')
-            self.edgeGatewayIdList = self.vcdValidationObj.getOrgVDCEdgeGatewayId(vdcId, saveResponse=True)
+            sourceEdgeGatewayData = self.vcdValidationObj.getOrgVDCEdgeGateway(vdcId)
+            self.edgeGatewayIdList = self.vcdValidationObj.getOrgVDCEdgeGatewayId(sourceEdgeGatewayData, saveResponse=True)
             if isinstance(self.edgeGatewayIdList, Exception):
                 raise self.edgeGatewayIdList
 
