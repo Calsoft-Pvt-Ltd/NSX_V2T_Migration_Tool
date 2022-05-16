@@ -337,14 +337,6 @@ class VMwareCloudDirectorNSXMigrator():
                                     sourceOrgVdc.get('LegacyDirectNetwork'), bool):
                                 errorInputDict[dictKey] = "Value must be boolean i.e either True or False."
 
-                            if not isinstance(sourceOrgVdc.get('Tier0Gateways', {}), (str, dict)):
-                                errorInputDict[dictKey] = "ExternalNetwork is either missing or in invalid format, " \
-                                                          "please provide in the string or Dict format."
-                            if isinstance(sourceOrgVdc.get('Tier0Gateways'), str):
-                                sourceOrgVdc['Tier0Gateways'] = {
-                                    'default': sourceOrgVdc.get('Tier0Gateways')
-                                }
-
                             if sourceOrgVdc.get('AdvertiseRoutedNetworks'):
                                 if isinstance(sourceOrgVdc['AdvertiseRoutedNetworks'], bool):
                                     sourceOrgVdc['AdvertiseRoutedNetworks'] = {
@@ -389,7 +381,6 @@ class VMwareCloudDirectorNSXMigrator():
         self.consoleLogger.info('Login into the VMware Cloud Director - {}'.format(self.vcdObjList[0].ipAddress))
         try:
             for vcdObject in self.vcdObjList:
-                vcdObject.password = self.vCloudDirectorPassword
                 vcdObject.password = self.vCloudDirectorPassword
                 vcdObject.vcdLogin()
             self.loginErrorDict[self._loginToVcd.__name__] = True
@@ -728,7 +719,7 @@ class VMwareCloudDirectorNSXMigrator():
             self.threadCount / self.numberOfParallelMigrations)
 
         # Iterating over the org vdcs provided in the user input and creating desired number of objects
-        for index, orgVDCDict in enumerate(self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+        for index, orgVdcInput in enumerate(self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
             # Initializing thread class with specified number of threads common for all objects
             threadObj = Thread(maxNumberOfThreads=maxNumberOfThreads)
 
@@ -740,7 +731,7 @@ class VMwareCloudDirectorNSXMigrator():
             rollback.timeoutForVappMigration = self.timeoutForVappMigration
             # initializing vmware cloud director Operations class
             self.vcdObjList.append(VCloudDirectorOperations(
-                self.inputDict["VCloudDirector"]["Common"], rollback, threadObj, lockObj=lockObj, orgVDCDict=orgVDCDict,
+                self.inputDict, None, rollback, threadObj, lockObj=lockObj, orgVdcInput=orgVdcInput,
             ))
 
             # preparing the nsxt dict for bridging
@@ -776,6 +767,15 @@ class VMwareCloudDirectorNSXMigrator():
         with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
             for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
                 futures.append(executor.submit(self.fetchMetadataFromOrgVDC, vcdObj, orgVDCDict))
+            waitForThreadToComplete(futures)
+
+        futures = list()
+        with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+            for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                futures.append(executor.submit(
+                    vcdObj.updateEdgeGatewayInputDict,
+                    self.orgVDCData[orgVDCDict["OrgVDCName"]]["id"]
+                ))
             waitForThreadToComplete(futures)
 
     def runCleanup(self):
@@ -983,7 +983,7 @@ class VMwareCloudDirectorNSXMigrator():
             # Execute v2tAssessment
             if self.v2tAssessment:
                 self.runV2tAssessment()
-                os._exit(0)
+                return
 
             self.getPassword()
             self.inputValidation()
@@ -1005,7 +1005,7 @@ class VMwareCloudDirectorNSXMigrator():
             # Running cleanup script if cleanup parameter is provided
             if self.cleanup:
                 self.runCleanup()
-                os._exit(0)
+                return
 
             self.runPreMigrationValidation()
             self.runPrepareTarget()

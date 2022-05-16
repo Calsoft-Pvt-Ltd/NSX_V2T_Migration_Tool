@@ -104,15 +104,16 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             getOrgVdcNetworkDesc = 'Getting NSX-V backed Org VDC network details'
             # fetch details of edge gateway
             self.consoleLogger.info(getEdgeGatewayDesc)
-            edgeGatewayIdList = vcdValidationObj.getOrgVDCEdgeGatewayId(sourceOrgVDCId, saveResponse=True)
+            sourceEdgeGatewayData = vcdValidationObj.getOrgVDCEdgeGateway(sourceOrgVDCId)
+            edgeGatewayIdList = vcdValidationObj.getOrgVDCEdgeGatewayId(sourceEdgeGatewayData, saveResponse=True)
             # fetch details of source external network
             self.consoleLogger.info(getSourceExternalNetworkDesc)
             threadObj.spawnThread(vcdValidationObj.getSourceExternalNetwork,
-                                sourceOrgVDCId, saveOutputKey='sourceExternalNetwork')
+                                sourceEdgeGatewayData, saveOutputKey='sourceExternalNetwork')
             # fetch details of target External network
             self.consoleLogger.info(getTargetExternalNetworkDesc)
             threadObj.spawnThread(vcdValidationObj.getTargetExternalNetworks,
-                                    orgVDCDict.get("Tier0Gateways", {}),
+                                    sourceEdgeGatewayData,
                                     saveOutputKey='targetExternalNetwork')
             # fetch details of dummy external network
             self.consoleLogger.info(getDummyExternalNetworkDesc.format(self.inputDict["VCloudDirector"].get("DummyExternalNetwork")))
@@ -140,7 +141,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             vcdValidationMapping = {
                 'Validating NSX-T manager Ip Address and version': [vcdValidationObj.getNsxDetails, self.inputDict["NSXT"]["Common"]["ipAddress"]],
                 'Validating if target OrgVDC do not exists': [vcdValidationObj.validateNoTargetOrgVDCExists, orgVDCDict["OrgVDCName"]],
-                'Validating external network mapping with Gateway mentioned in userInput file': [vcdValidationObj.validateEdgeGatewayToExternalNetworkMapping, sourceOrgVDCId, orgVDCDict.get("Tier0Gateways", {})],
+                'Validating external network mapping with Gateway mentioned in userInput file': [vcdValidationObj.validateEdgeGatewayToExternalNetworkMapping, sourceEdgeGatewayData],
                 'Validating whether other Edge gateways are using dedicated external network': [vcdValidationObj.validateDedicatedExternalNetwork, self.inputDict],
                 'Validating Source Network Pool backing': [vcdValidationObj.validateSourceNetworkPools, self.inputDict["VCloudDirector"].get("CloneOverlayIds")],
                 'Validating whether source Org VDC is NSX-V backed': [vcdValidationObj.validateOrgVDCNSXbacking, sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked],
