@@ -41,7 +41,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         vcdConstants.GENERAL_JSON_ACCEPT_HEADER = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
         vcdConstants.OPEN_API_CONTENT_TYPE = vcdConstants.OPEN_API_CONTENT_TYPE.format(self.version)
 
-    def _getEdgeGatewaySubnets(self, extNetInput):
+    def _getEdgeGatewaySubnets(self):
         # getting details of ip ranges used in source edge gateways
         # Schema of return value edgeGatewaySubnetDict:
         # edgeGatewaySubnetDict = {
@@ -53,7 +53,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         # }
         edgeGatewaySubnetDict = {}
         for edgeGateway in copy.deepcopy(self.rollback.apiData['sourceEdgeGateway']):
-            extNet = extNetInput.get(edgeGateway['name'], extNetInput.get('default'))
+            extNet = self.orgVdcInput['EdgeGateways'][edgeGateway['name']]['Tier0Gateways']
             edgeGatewaySubnetDict.setdefault(extNet, defaultdict(list))
             for edgeGatewayUplink in edgeGateway['edgeGatewayUplinks']:
                 for subnet in edgeGatewayUplink['subnets']['values']:
@@ -72,12 +72,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
         return edgeGatewaySubnetDict
 
-    def _updateTargetExternalNetworkPool(self, extNetInput):
+    def _updateTargetExternalNetworkPool(self):
         # Acquiring lock as only one operation can be performed on an external network at a time
         self.lock.acquire(blocking=True)
         logger.debug("Updating Target External networks with sub allocated ip pools")
 
-        edgeGatewaySubnetDict = self._getEdgeGatewaySubnets(extNetInput)
+        edgeGatewaySubnetDict = self._getEdgeGatewaySubnets()
 
         for targetExtNetName, sourceEgwSubnets in edgeGatewaySubnetDict.items():
             logger.debug("Updating Target External network {} with sub allocated ip pools".format(targetExtNetName))
@@ -104,13 +104,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         # Releasing lock
         self.lock.release()
 
-    def _createEdgeGateway(self, vdcDict, extNetInput, nsxObj):
+    def _createEdgeGateway(self, vdcDict, nsxObj):
         data = self.rollback.apiData
         # Getting the edge gateway details of the target org vdc.
         # In case of remediation these gateway creation will not be attempted.
         targetEdgeGatewayNames = [
             edgeGateway['name']
-            for edgeGateway in self.getOrgVDCEdgeGateway(data['targetOrgVDC']['@id'])['values']
+            for edgeGateway in self.getOrgVDCEdgeGateway(data['targetOrgVDC']['@id'])
         ]
 
         for sourceEdgeGatewayDict in copy.deepcopy(data['sourceEdgeGateway']):
@@ -163,7 +163,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # Prepare payload for edgeClusterConfig->primaryEdgeCluster->backingId
             # Checking if edge cluster is specified in user input yaml
             externalDict = self.getExternalNetworkByName(
-                extNetInput.get(sourceEdgeGatewayDict['name'], extNetInput.get('default')))
+                self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']]['Tier0Gateways'])
 
             if vdcDict.get('EdgeGatewayDeploymentEdgeCluster'):
                 # Fetch edge cluster id
@@ -234,11 +234,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 return
 
             logger.info('Creating target Org VDC Edge Gateway')
-            extNetInput = vdcDict['Tier0Gateways']
-            self._updateTargetExternalNetworkPool(extNetInput)
-            self._createEdgeGateway(vdcDict, extNetInput, nsxObj)
-            responseDict = self.getOrgVDCEdgeGateway(self.rollback.apiData['targetOrgVDC']['@id'])
-            self.rollback.apiData['targetEdgeGateway'] = responseDict['values']
+            self._updateTargetExternalNetworkPool()
+            self._createEdgeGateway(vdcDict, nsxObj)
+            self.rollback.apiData['targetEdgeGateway'] = self.getOrgVDCEdgeGateway(
+                self.rollback.apiData['targetOrgVDC']['@id'])
 
         except Exception:
             raise
@@ -848,8 +847,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         try:
             # retrieving the details of the org vdc edge gateway
             responseDict = self.getOrgVDCEdgeGateway(orgVDCId)
-            if responseDict['values']:
-                for orgVDCEdgeGateway in responseDict['values']:
+            if responseDict:
+                for orgVDCEdgeGateway in responseDict:
                     orgVDCEdgeGatewayId = orgVDCEdgeGateway['id'].split(':')[-1]
                     # url to fetch edge gateway details
                     getUrl = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
@@ -899,8 +898,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             logger.info("RollBack: Deleting Target Edge Gateway")
             # retrieving the details of the org vdc edge gateway
             responseDict = self.getOrgVDCEdgeGateway(orgVDCId)
-            if responseDict['values']:
-                for orgVDCEdgeGateway in responseDict['values']:
+            if responseDict:
+                for orgVDCEdgeGateway in responseDict:
                     # url to fetch edge gateway details
                     url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                         vcdConstants.UPDATE_EDGE_GATEWAYS_BY_ID.format(orgVDCEdgeGateway['id']))
@@ -4181,10 +4180,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
-    def resetTargetExternalNetwork(self, extNetInput):
+    def resetTargetExternalNetwork(self):
         """
-        Description :   Resets the target external network(i.e updating the target external network to its initial state)
-        Parameters  :   uplinkName  -   name of the source external network
+        Description :   Resets the target external network(i.e updating the target external network to its initial
+        state)
         """
         try:
             # Check if org vdc edge gateways were created or not
@@ -4197,7 +4196,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             logger.info('Rollback: Reset the target external network')
 
-            edgeGatewaySubnetDict = self._getEdgeGatewaySubnets(extNetInput)
+            edgeGatewaySubnetDict = self._getEdgeGatewaySubnets()
             for targetExtNetName, sourceEgwSubnets in edgeGatewaySubnetDict.items():
                 logger.debug("Updating Target External network {} with sub allocated ip pools".format(targetExtNetName))
                 targetExtNetData = self.getExternalNetworkByName(targetExtNetName)
