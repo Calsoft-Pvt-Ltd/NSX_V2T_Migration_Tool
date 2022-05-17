@@ -331,7 +331,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         try:
             if not isinstance(self.rollback.metadata.get("prepareTargetVDC", {}).get("createOrgVDCNetwork"), bool):
-                self.rollback.metadata["prepareTargetVDC"]["createOrgVDCNetwork"] = False
+                self.rollback.executionResult.setdefault('prepareTargetVDC', {})
+                self.rollback.executionResult["prepareTargetVDC"]["createOrgVDCNetwork"] = False
                 self.saveMetadataInOrgVdc()
 
             segmetList = list()
