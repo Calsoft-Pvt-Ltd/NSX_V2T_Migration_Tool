@@ -266,7 +266,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                      vdcId, self.edgeGatewayIdList, False],
                 'Shared Independent Disks': [self.vcdValidationObj.validateIndependentDisks, vdcId, OrgId, True],
                 'VM with Independent disks having different storage policies and fast provisioning enabled': [self.vcdValidationObj.validateNamedDiskWithFastProvisioned, vdcId],
-                'Validating Source Edge gateway services': [self.vcdValidationObj.getEdgeGatewayServices, None, None, None, True, None, True],
+                'Validating Source Edge gateway services': [self.vcdValidationObj.getEdgeGatewayServices, None, None, None, True, True],
                 'Unsupported DFW configuration': [self.vcdValidationObj.getDistributedFirewallConfig, vdcId, True, True, True],
                 'Cross VDC Networking': [self.vcdValidationObj.validateCrossVdcNetworking, vdcId]
             }

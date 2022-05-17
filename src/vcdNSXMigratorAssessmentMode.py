@@ -84,7 +84,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         finally:
             return sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked
 
-    def initializePreCheck(self, vcdValidationObj, orgVDCDict, validationFailures, sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked, threadObj, nsxtObj, serviceEngineGroupName=None, noSnatDestSubnet=None, edgeGatewayDeploymentEdgeCluster=None):
+    def initializePreCheck(self, vcdValidationObj, orgVDCDict, validationFailures, sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked, threadObj, nsxtObj, noSnatDestSubnet=None, edgeGatewayDeploymentEdgeCluster=None):
         """
         Description : This method fetches the necessary details to run validations
         Parameters :  vcdValidationObj - Object the holds reference to class with all the validation methods (OBJECT)
@@ -94,7 +94,6 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                       sourceProviderVDCId - ID of the source provider vdc (STRING)
                       isSourceNSXTbacked - Flag that defines whether the org vdc is NSX-T backed or not (BOOLEAN)
                       threadObj - Object of threading class (OBJECT)
-                      serviceEngineGroupName - service engine group name to be used to migration of Load Balancer (STRING)
         """
         try:
             getSourceExternalNetworkDesc = 'Getting NSX-V backed Provider VDC External network details'
@@ -177,7 +176,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             # Perform these validations only if services are to be configured
             if mainConstants.SERVICES_KEYWORD in self.executeList:
                 vcdValidationMapping.update({
-                    'Validating Source Edge gateway services': [vcdValidationObj.getEdgeGatewayServices, nsxtObj, self.nsxvObj, noSnatDestSubnet, True, serviceEngineGroupName],
+                    'Validating Source Edge gateway services': [vcdValidationObj.getEdgeGatewayServices, nsxtObj, self.nsxvObj, noSnatDestSubnet, True],
                     'Validating Distributed Firewall configuration': [vcdValidationObj.getDistributedFirewallConfig, sourceOrgVDCId, True, True, False]
                 })
 
@@ -310,14 +309,12 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             if orgExceptionList:
                 return
 
-            vcdValidationMapping = self.initializePreCheck(vcdValidationObj, orgVDCDict, validationFailures,
-                                                           sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked,
-                                                           threadObj, nsxtObj, serviceEngineGroupName=orgVDCDict.get(
-                                                               "ServiceEngineGroupName", None),
-                                                           noSnatDestSubnet=orgVDCDict.get(
-                                                               "NoSnatDestinationSubnet"),
-                                                           edgeGatewayDeploymentEdgeCluster=orgVDCDict.get(
-                                                               'EdgeGatewayDeploymentEdgeCluster', None))
+            vcdValidationMapping = self.initializePreCheck(
+                vcdValidationObj, orgVDCDict, validationFailures, sourceOrgVDCId, sourceProviderVDCId,
+                isSourceNSXTbacked, threadObj, nsxtObj,
+                noSnatDestSubnet=orgVDCDict.get("NoSnatDestinationSubnet"),
+                edgeGatewayDeploymentEdgeCluster=orgVDCDict.get('EdgeGatewayDeploymentEdgeCluster', None)
+            )
             for desc, method in vcdValidationMapping.items():
                 methodName = method.pop(0)
                 argsList = method
