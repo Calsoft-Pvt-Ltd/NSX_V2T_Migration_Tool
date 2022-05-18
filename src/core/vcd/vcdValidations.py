@@ -3838,14 +3838,12 @@ class VCDMigrationValidation:
         if not vAppData['NetworkConfigSection'].get('NetworkConfig'):
             return
 
-        networkTypes = set()
         vAppValidations['routerExternalIp'][vApp['@name']] = dict()
         vAppValidations['natExternalIp'][vApp['@name']] = dict()
         for vAppNetwork in listify(vAppData['NetworkConfigSection']['NetworkConfig']):
             if vAppNetwork['@networkName'] == "none":
                 continue
 
-            networkTypes.add(vAppNetwork['Configuration']['FenceMode'])
             if vAppNetwork['Configuration']['FenceMode'] != 'natRouted':
                 continue
 
@@ -3885,28 +3883,6 @@ class VCDMigrationValidation:
                 )
                 if any(value > 1 for value in duplicateNatPorts.values()):
                     vAppValidations['natPfDuplicatePort'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
-
-            elif natService.get('NatType', '') == 'ipTranslation':
-                if natService['IsEnabled'] == 'false':
-                    vAppValidations['natIptDisabled'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
-
-                else:
-                    if parentNetwork['networkType'] == 'NAT_ROUTED':
-                        ipRangeAddresses = set(
-                            str(ipaddress.IPv4Address(ip))
-                            for ipPool in parentNetwork['subnets']['values'][0]['ipRanges'].get('values', []) or []
-                            for ip in range(
-                                int(ipaddress.IPv4Address(ipPool['startAddress'])),
-                                int(ipaddress.IPv4Address(ipPool['endAddress']) + 1))
-                        )
-                        outOfPoolIps = [
-                            natRule['OneToOneVmRule']['ExternalIpAddress']
-                            for natRule in listify(natService['NatRule'])
-                            if natRule['OneToOneVmRule'].get('ExternalIpAddress')
-                            if natRule['OneToOneVmRule']['ExternalIpAddress'] not in ipRangeAddresses
-                        ]
-                        if outOfPoolIps:
-                            vAppValidations['natIptOutOfPoolIps'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}|{','.join(outOfPoolIps)}")
 
             # Check for direct networks
             # target external network (-v2t suffixed) should be overlay backed
@@ -3952,10 +3928,6 @@ class VCDMigrationValidation:
                         vAppValidations['natExternalIp'][vApp['@name']][vAppNetwork['@networkName']].append(
                             rule['OneToOneVmRule'].get('ExternalIpAddress'))
 
-        # Check if routed vapp networks are combined with other type of networks(org VDC/vapp bridged, vapp isolated)
-        if 'natRouted' in networkTypes and len(networkTypes) > 1:
-            vAppValidations['mixedNetworkTypes'].add(vApp['@name'])
-
     def validateRoutedVappNetworks(self, sourceOrgVDCId, v2tAssessmentMode=False, nsxtObj=None):
         """
         Description :   Validates there exists no vapp routed network in source vapps
@@ -3971,7 +3943,6 @@ class VCDMigrationValidation:
                     or v2tAssessmentMode):
                 logger.debug('Validating routed vApp network configuration')
                 vAppValidations = {
-                    'mixedNetworkTypes': set(),
                     'dedicatedDirectNetworks': set(),
                     'legacyDirectNetwork': set(),
                     'vlanBackedNetworks': set(),
@@ -3980,8 +3951,6 @@ class VCDMigrationValidation:
                     'natPfDuplicatePort': set(),
                     'routerExternalIp': dict(),
                     'natExternalIp': dict(),
-                    'natIptDisabled': set(),
-                    'natIptOutOfPoolIps': set()
                 }
                 for vApp in vAppList:
                     self.thread.spawnThread(self._validateRoutedVappNetworks, vApp, vAppValidations, nsxtObj)
@@ -3989,10 +3958,6 @@ class VCDMigrationValidation:
                 if self.thread.stop():
                     raise Exception("Failed to validate vApp routed networks")
                 errors = []
-                if vAppValidations['mixedNetworkTypes']:
-                    errors.append(
-                        f"Routed vapp network is not supported with other type of networks in vapp/s (vApp): "
-                        f"{', '.join(vAppValidations['mixedNetworkTypes'])}")
                 if vAppValidations['dedicatedDirectNetworks']:
                     errors.append(
                         f"Routed vApp parent network should not be a dedicated direct network (vApp|vApp_Network):"
@@ -4017,14 +3982,6 @@ class VCDMigrationValidation:
                     errors.append(
                         f"Invalid NAT rule: Multiple rules with same external port is not supported "
                         f"(vApp|vApp_Network): {', '.join(vAppValidations['natPfDuplicatePort'])}")
-                if vAppValidations['natIptDisabled']:
-                    errors.append(
-                        f"Disabled NAT service is not supported "
-                        f"(vApp|vApp_Network): {', '.join(vAppValidations['natIptDisabled'])}")
-                if vAppValidations['natIptOutOfPoolIps']:
-                    errors.append(
-                        f"External IP used in NAT IP translation rules is not present in Static IP Pool of parent "
-                        f"network (vApp|vApp_Network|IP_Addresses): {', '.join(vAppValidations['natIptOutOfPoolIps'])}")
 
                 # logic to identify router external IP conflicts with NAT
                 for externalVapp, externalNetList in vAppValidations['routerExternalIp'].items():
