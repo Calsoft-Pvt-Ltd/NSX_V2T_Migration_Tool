@@ -1221,6 +1221,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 return
             targetSizingPolicyOrgVDCUrn = 'urn:vcloud:vdc:{}'.format(targetOrgVDCId)
             vmList = listify(responseDict['VApp']['Children']['Vm'])
+            networkTypes = {
+                vAppNetwork['@networkName']: vAppNetwork['Configuration']['FenceMode']
+                for vAppNetwork in listify(responseDict['VApp']['NetworkConfigSection']['NetworkConfig'])
+            }
             # iterating over the vms in vapp
             for vm in vmList:
                 # retrieving the compute policy of vm
@@ -1292,6 +1296,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 for networkConnection in networkConnectionList:
                     if networkConnection['@network'] == 'none':
                         networkName = 'none'
+                    elif networkTypes.get(networkConnection['@network']) in ('natRouted', 'isolated'):
+                        networkName = networkConnection['@network']
                     else:
                         if rollback:
                             # remove the appended -v2t from network name
@@ -3834,7 +3840,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         def getName(vAppNetwork):
             """Get name of target vapp network"""
-            if vAppNetwork['@networkName'] == 'none':
+            if (vAppNetwork['@networkName'] == 'none'
+                    or vAppNetwork['Configuration']['FenceMode'] in ('natRouted', 'isolated')):
                 return vAppNetwork['@networkName']
 
             if rollback:
