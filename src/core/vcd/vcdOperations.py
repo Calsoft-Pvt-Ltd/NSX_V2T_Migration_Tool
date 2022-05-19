@@ -4760,6 +4760,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Parameters  :   network -   details of the network that is to be renamed (DICT)
         """
         try:
+            if not network["name"].endswith('-v2t'):
+                return
+
             headers = {'Authorization': self.headers['Authorization'],
                        'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
             # open api get url to retrieve the details of target org vdc network
