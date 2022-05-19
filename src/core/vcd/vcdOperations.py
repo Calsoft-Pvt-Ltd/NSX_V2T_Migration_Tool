@@ -3671,14 +3671,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                   vcdConstants.GET_VDC_GROUP_BY_ID.format(ID), vcdConstants.VDC_GROUP_SYNC)
             response = self.restClientObj.post(url, self.headers)
-        if response.status_code == requests.codes.accepted:
-            try:
-                taskUrl = response.headers['Location']
-                self._checkTaskStatus(taskUrl=taskUrl)
-            except Exception as e:
-                logger.warning("Failed to sync DC Groups created with exception - {}".format(e))
-        else:
-            logger.warning("Failed to sync DC Groups created with error code - {}".format(response.status_code))
+            if response.status_code == requests.codes.accepted:
+                try:
+                    taskUrl = response.headers['Location']
+                    self._checkTaskStatus(taskUrl=taskUrl)
+                except Exception as e:
+                    logger.warning("Failed to sync DC Groups created with exception - {}".format(e))
+            else:
+                logger.warning("Failed to sync DC Groups created with error code - {}".format(response.status_code))
 
     @staticmethod
     def createExternalNetworkSubPoolRangePayload(externalNetworkPoolRangeList):
