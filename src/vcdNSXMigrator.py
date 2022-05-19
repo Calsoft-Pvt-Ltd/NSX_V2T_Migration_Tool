@@ -896,7 +896,7 @@ class VMwareCloudDirectorNSXMigrator():
             with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
                 for vcdObj, orgVdcDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
                     edgeGatewayDeploymentEdgeCluster = orgVdcDict.get('EdgeGatewayDeploymentEdgeCluster', None)
-                    futures.append(executor.submit(vcdObj.configureTargetVDC, self.vcdObjList, edgeGatewayDeploymentEdgeCluster, self.nsxtObjList[0]))
+                    futures.append(executor.submit(vcdObj.configureTargetVDC, self.vcdObjList, orgVDCDict, edgeGatewayDeploymentEdgeCluster, self.nsxtObjList[0]))
                 waitForThreadToComplete(futures)
         else:
             self.consoleLogger.warning(

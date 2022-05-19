@@ -1696,3 +1696,39 @@ class NSXTOperations():
             raise Exception("Failed to create NSXT-Manager QOS profiles : {}".format(response.json()))
         self.checkRealizedState(intentPath)
         logger.debug("QOS profile {} created successfully.".format(qosProfileName))
+
+    def getVRFdetails(self, vrfBackingId):
+        """
+        Description :   Gets VRF details
+        Parameters  :   VRFbackingId   -   Id of the VRF  (STRING)
+        """
+        url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                            nsxtConstants.GET_LOCALE_SERVICES_API.format(vrfBackingId))
+        response = self.restClientObj.get(url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
+        responseDict = response.json()
+        if response.status_code == requests.codes.ok:
+            vrfData = responseDict
+            return vrfData
+        raise Exception("Failed to get VRF details with error - {}".format(responseDict["error_message"]))
+
+    def createRouteRedistributionRule(self, vrfData, t0Gateway, routeRedistributionRules):
+        """
+        Description :   Create route redistribution rule SYSTEM-VCD-EDGE-SERVICES-REDISTRIBUTION with services
+        Parameters  :   VRFData   -   Info of the VRF  (STRING)
+        """
+        logger.debug("Configuring route redistribution rules on VRF - '{}'".format(t0Gateway))
+        intentPath = vrfData["results"][0]["path"]
+        url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                            intentPath)
+        payLoad = {
+                    "route_redistribution_config": {
+                        "redistribution_rules": routeRedistributionRules
+                    },
+                    "edge_cluster_path": vrfData["results"][0]["edge_cluster_path"]
+                }
+        payloadDict = json.dumps(payLoad)
+        response = self.restClientObj.patch(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payloadDict, auth=self.restClientObj.auth)
+        if response.status_code == requests.codes.ok:
+            logger.debug("Successfully updated route redistribution rules - {} on VRF - '{}'".format(routeRedistributionRules, t0Gateway))
+            return
+        raise Exception("Failed to create route redistribution rules")
