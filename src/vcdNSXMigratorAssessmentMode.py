@@ -313,10 +313,9 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                                                            threadObj, nsxtObj, serviceEngineGroupName=orgVDCDict.get(
                                                                "ServiceEngineGroupName", None),
                                                            noSnatDestSubnet=orgVDCDict.get(
-                                                               "NoSnatDestinationSubnet", None),
+                                                               "NoSnatDestinationSubnet"),
                                                            edgeGatewayDeploymentEdgeCluster=orgVDCDict.get(
                                                                'EdgeGatewayDeploymentEdgeCluster', None))
-
             for desc, method in vcdValidationMapping.items():
                 methodName = method.pop(0)
                 argsList = method

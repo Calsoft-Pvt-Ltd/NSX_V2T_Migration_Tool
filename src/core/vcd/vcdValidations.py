@@ -2137,7 +2137,7 @@ class VCDMigrationValidation:
                 if response.status_code == requests.codes.ok:
                     gatewayInterfaces = responseDict['configuration']['gatewayInterfaces']['gatewayInterface']
                     if len(gatewayInterfaces) > 9 and not networkList:
-                        errorList.append(f"No more uplinks present on source Edge Gateway {responseDict['name']} to connect dummy External Uplink ")
+                        errorList.append(f"No more uplinks present on source Edge Gateway {responseDict['name']} to connect dummy External Uplink")
                     # checking whether source edge gateway has rate limit configured
 
                     rateLimitEnabledInterfaces = [interface for interface in gatewayInterfaces if interface['applyRateLimit']]
@@ -4819,7 +4819,7 @@ class VCDMigrationValidation:
         """
         try:
             # if NSXTProviderVDCNoSnatDestinationSubnet is passed to sampleInput else set it to None
-            noSnatDestSubnet = vdcDict.get("NoSnatDestinationSubnet", None)
+            noSnatDestSubnet = vdcDict.get("NoSnatDestinationSubnet")
 
             # Fetching service engine group name from sampleInput
             ServiceEngineGroupName = vdcDict.get('ServiceEngineGroupName', None)
