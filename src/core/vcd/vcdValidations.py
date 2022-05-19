@@ -3177,7 +3177,7 @@ class VCDMigrationValidation:
                     natrules = natrules if isinstance(natrules, list) else [natrules]
                     # iterating over the nat rules
                     for natrule in natrules:
-                        if natrule['action'] == "dnat" and "-" in natrule['translatedAddress'] or "/" in natrule['translatedAddress']:
+                        if natrule['action'] == "dnat" and not "/32" in natrule['translatedAddress'] and ("-" in natrule['translatedAddress'] or "/" in natrule['translatedAddress']):
                             errorList.append(
                                 'Range of IPs or network found in this DNAT rule {} and range cannot be used in target edge gateway\n'.format(
                                     natrule['ruleId']))
