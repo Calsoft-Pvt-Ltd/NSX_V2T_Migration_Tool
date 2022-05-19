@@ -839,7 +839,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                     break
                             payloadData = self.createNATPayloadData(sourceNATRule, applicationPortProfilesList, version,
                                                                     defaultGatewayDict, destinationIpDict, noSnatRulesList,
-                                                                    bgpConfigDetails, routingConfigDetails, noSnatDestSubnet)
+                                                                    bgpConfigDetails, routingConfigDetails, noSnatDestSubnetList=noSnatDestSubnet)
                             payloadData = payloadData if isinstance(payloadData, list) else [payloadData]
                             for eachPayloadData in payloadData:
                                 currentRuleId = self.createNatRuleTask(eachPayloadData, url)
@@ -1957,7 +1957,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
     def createNATPayloadData(self, sourceNATRule, applicationPortProfilesList, version,
                              defaultEdgeGateway, destinationIpDict, staticRoutesList, bgpDetails,
-                             routingConfigDetails, noSnatDestSubnetList = None):
+                             routingConfigDetails, noSnatDestSubnetList=None):
         """
                 Description :   Creates the payload data for the NAT service to the Target Gateway
                 Parameters  :   sourceNATRule   -   NAT Rule of source gateway  (DICT)
@@ -2112,7 +2112,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             allSnatPayloadList.append(staticNoSnatPayloadDict)
                     if noSnatDestSubnetList is not None and isinstance(bgpDetails, dict) and \
                             bgpDetails['enabled'] == 'true' and ifbgpRouterIdAddress == False:
-                        noSnatDestSubnetList = noSnatDestSubnetList if isinstance(noSnatDestSubnetList, list) else [noSnatDestSubnetList]
                         for eachExtNetwork in noSnatDestSubnetList:
                             bgpNoSnatPayloadDict = copy.deepcopy(payloadDict)
                             bgpNoSnatPayloadDict['ruleId'] = ''
