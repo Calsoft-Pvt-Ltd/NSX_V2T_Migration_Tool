@@ -636,6 +636,8 @@ class VCDMigrationValidation:
         """
 
         try:
+            # Acquiring lock for creation of metadata in OrgVDC.
+            self.lock.acquire(blocking=True)
             if force or self.rollback.executionResult:
                 # getting the source org vdc urn
                 sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
@@ -660,6 +662,12 @@ class VCDMigrationValidation:
         except Exception as err:
             logger.debug(traceback.format_exc())
             raise Exception('Failed to save metadata in source Org VDC due to error - {}'.format(err))
+        finally:
+            # Releasing thread lock
+            try:
+                self.lock.release()
+            except RuntimeError:
+                pass
 
     @isSessionExpired
     def getOrgUrl(self, orgName):
