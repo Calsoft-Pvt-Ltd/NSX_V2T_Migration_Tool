@@ -3873,9 +3873,6 @@ class VCDMigrationValidation:
                     if rule.get('ExternalPort') != '-1' and rule.get('InternalPort') == '-1':
                         vAppValidations['natPfCustomToAny'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
 
-                    if rule['Protocol'] == 'TCP_UDP':
-                        vAppValidations['natPfTcpUdp'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
-
                 # TODO pranshu: Check for duplicate Any port
                 duplicateNatPorts = Counter(
                     rule.get('VmRule', {}).get('ExternalPort')
@@ -3947,7 +3944,6 @@ class VCDMigrationValidation:
                     'legacyDirectNetwork': set(),
                     'vlanBackedNetworks': set(),
                     'natPfCustomToAny': set(),
-                    'natPfTcpUdp': set(),
                     'natPfDuplicatePort': set(),
                     'routerExternalIp': dict(),
                     'natExternalIp': dict(),
@@ -3974,10 +3970,6 @@ class VCDMigrationValidation:
                     errors.append(
                         f"Invalid NAT rule: if internal port is ANY, external port should also be ANY "
                         f"(vApp|vApp_Network): {', '.join(vAppValidations['natPfCustomToAny'])}")
-                if vAppValidations['natPfTcpUdp']:
-                    errors.append(
-                        f"Invalid NAT rule: 'TCP&UDP' rule is not supported "
-                        f"(vApp|vApp_Network): {', '.join(vAppValidations['natPfTcpUdp'])}")
                 if vAppValidations['natPfDuplicatePort']:
                     errors.append(
                         f"Invalid NAT rule: Multiple rules with same external port is not supported "
