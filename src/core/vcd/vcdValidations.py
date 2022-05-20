@@ -4636,7 +4636,11 @@ class VCDMigrationValidation:
 
                 logger.info("Validating the max limit of bridge endpoint profiles in NSX-T")
                 nsxtObj.validateLimitOfBridgeEndpointProfile(orgVdcNetworkList)
+
+                logger.info("Validating MAC Address of the NSX-T Virtual Distributed Router")
+                nsxtObj.validateDlrMacAddress()
                 logger.info("Successfully completed checks for Bridging Components")
+
         except:
             raise
         else:
