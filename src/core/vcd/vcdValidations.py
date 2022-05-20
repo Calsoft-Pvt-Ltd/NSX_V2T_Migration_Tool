@@ -4859,7 +4859,7 @@ class VCDMigrationValidation:
             'ServiceEngineGroupName': self.orgVdcInput.get('ServiceEngineGroupName'),
             'LoadBalancerVIPSubnet': self.orgVdcInput.get('LoadBalancerVIPSubnet', '192.168.255.128/28'),
             # 'EdgeGatewayDeploymentEdgeCluster': self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'),
-            # 'AdvertiseRoutedNetworks': self.orgVdcInput.get('AdvertiseRoutedNetworks', False),
+            'AdvertiseRoutedNetworks': self.orgVdcInput.get('AdvertiseRoutedNetworks', False),
             'NonDistributedNetworks': self.orgVdcInput.get('NonDistributedNetworks', False),
         }
         for egw in self.getOrgVDCEdgeGateway(sourceOrgVDCId):
@@ -4960,8 +4960,7 @@ class VCDMigrationValidation:
                             sourceEdgeGateway['name']))
 
                 bgpEnabled = bgpConfigDict and isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == 'true'
-                advertiseRoutedNetworks = self.orgVdcDict['AdvertiseRoutedNetworks'].get(
-                    sourceEdgeGateway['name'], self.orgVdcDict['AdvertiseRoutedNetworks']['default'])
+                advertiseRoutedNetworks = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['AdvertiseRoutedNetworks']
 
                 # 1. User input validation Across Org VDC
                 orgVdcNameList = self.checkSameExternalNetworkUsedByOtherVDC(
