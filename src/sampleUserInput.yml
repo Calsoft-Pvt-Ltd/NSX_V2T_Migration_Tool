@@ -26,7 +26,6 @@ VCloudDirector:
       EdgeGateways:
         EdgeGateway1:
           Tier0Gateways: tpm-externalnetwork
-          NSXTNetworkPoolName: 2nd-t-network-pool
           NoSnatDestinationSubnet: 10.100.0.0/16
           ServiceEngineGroupName: Tenant1
           LoadBalancerVIPSubnet: 192.168.255.128/28
