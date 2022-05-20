@@ -709,7 +709,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             logger.debug('Application Port Profile for the specific protocol'
                                          ' and port retrieved successfully')
                             return value['name'], value['id']
-                    elif value['scope'] == 'TENANT' and value.get('orgRef'):
+                    elif value['scope'] == 'TENANT' and isinstance(value.get('orgRef'), dict) and value['orgRef']['id'] == data['Organization']['@id']:
                         if value['applicationPorts'][0]['protocol'] == protocol and value['applicationPorts'][0]['destinationPorts'][0] == port:
                             logger.debug('Application Port Profile for the specific protocol'
                                          ' and port retrieved successfully')
