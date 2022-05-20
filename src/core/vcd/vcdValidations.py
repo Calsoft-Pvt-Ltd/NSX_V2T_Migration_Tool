@@ -3876,6 +3876,14 @@ class VCDMigrationValidation:
                     if rule['Protocol'] == 'TCP_UDP':
                         vAppValidations['natPfTcpUdp'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
 
+                # TODO pranshu: Check for duplicate Any port
+                duplicateNatPorts = Counter(
+                    rule.get('VmRule', {}).get('ExternalPort')
+                    for rule in listify(natService.get('NatRule'))
+                )
+                if any(value > 1 for value in duplicateNatPorts.values()):
+                    vAppValidations['natPfDuplicatePort'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
+
             # Check for direct networks
             # target external network (-v2t suffixed) should be overlay backed
             if nsxtObj and parentNetwork['networkType'] == 'DIRECT':
@@ -3940,6 +3948,7 @@ class VCDMigrationValidation:
                     'vlanBackedNetworks': set(),
                     'natPfCustomToAny': set(),
                     'natPfTcpUdp': set(),
+                    'natPfDuplicatePort': set(),
                     'routerExternalIp': dict(),
                     'natExternalIp': dict(),
                 }
@@ -3969,6 +3978,10 @@ class VCDMigrationValidation:
                     errors.append(
                         f"Invalid NAT rule: 'TCP&UDP' rule is not supported "
                         f"(vApp|vApp_Network): {', '.join(vAppValidations['natPfTcpUdp'])}")
+                if vAppValidations['natPfDuplicatePort']:
+                    errors.append(
+                        f"Invalid NAT rule: Multiple rules with same external port is not supported "
+                        f"(vApp|vApp_Network): {', '.join(vAppValidations['natPfDuplicatePort'])}")
 
                 # logic to identify router external IP conflicts with NAT
                 for externalVapp, externalNetList in vAppValidations['routerExternalIp'].items():
