@@ -325,10 +325,17 @@ class VMwareCloudDirectorNSXMigrator():
                     if componentKey == 'SourceOrgVDC':
                         for idx, sourceOrgVdc in enumerate(componentValue):
                             dictKey = "{}['{}'][{}]".format(componentName, componentKey, idx)
-                            if sourceOrgVdc.get('NoSnatDestinationSubnet') and not re.match(
-                                    mainConstants.VALID_IP_CIDR_FORMAT_REGEX,
-                                    sourceOrgVdc['NoSnatDestinationSubnet']):
-                                errorInputDict[dictKey] = "Input IP value is not in proper CIDR format"
+                            if sourceOrgVdc.get('NoSnatDestinationSubnet'):
+                                if isinstance(sourceOrgVdc.get('NoSnatDestinationSubnet'), list):
+                                    for NoSnatDestAddr in sourceOrgVdc.get('NoSnatDestinationSubnet'):
+                                        if sourceOrgVdc.get('NoSnatDestinationSubnet') and not re.match(
+                                                mainConstants.VALID_IP_CIDR_FORMAT_REGEX,
+                                                NoSnatDestAddr):
+                                            errorInputDict[dictKey] = "Input IP value is not in proper CIDR format"
+                                else:
+                                    errorInputDict[dictKey] = (
+                                        "NoSnatDestinationSubnet is in invalid format, please provide in the list "
+                                        "format.")
                             if sourceOrgVdc.get('LoadBalancerVIPSubnet') and not re.match(
                                     mainConstants.VALID_IP_CIDR_FORMAT_REGEX,
                                     sourceOrgVdc['LoadBalancerVIPSubnet']):
@@ -892,7 +899,7 @@ class VMwareCloudDirectorNSXMigrator():
             with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
                 for vcdObj, orgVdcDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
                     edgeGatewayDeploymentEdgeCluster = orgVdcDict.get('EdgeGatewayDeploymentEdgeCluster', None)
-                    futures.append(executor.submit(vcdObj.configureTargetVDC, self.vcdObjList, edgeGatewayDeploymentEdgeCluster, self.nsxtObjList[0]))
+                    futures.append(executor.submit(vcdObj.configureTargetVDC, self.vcdObjList, orgVDCDict, edgeGatewayDeploymentEdgeCluster, self.nsxtObjList[0]))
                 waitForThreadToComplete(futures)
         else:
             self.consoleLogger.warning(

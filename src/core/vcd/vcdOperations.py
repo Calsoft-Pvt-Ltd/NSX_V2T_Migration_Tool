@@ -251,14 +251,15 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description("Allowing of non distributed routing for edge gateway.")
     @remediate
-    def allowNonDistributedRouting(self, edgegatewayId=None, implicit=False):
+    def allowNonDistributedRoutingOnEdgeGW(self, implicitGateways):
         """
         Description : Allow Non-Distributed routing on edge gateway of Organization VDC
         """
         logger.debug('Allow Non-Distributed Routing is getting configured')
         # get the target edge gateway data and enable non distributed routing.
         for index, edgeGateway in enumerate(self.rollback.apiData['targetEdgeGateway']):
-            if implicit and edgegatewayId != edgeGateway['id']:
+            if not (self.orgVdcInput['EdgeGateways'][edgeGateway['name']]['NonDistributedNetworks']
+                    or edgeGateway['name'] in implicitGateways):
                 continue
 
             gatewayId = edgeGateway['id']
@@ -324,13 +325,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description("creation of target Org VDC Networks")
     @remediate
-    def createOrgVDCNetwork(self, orgVDCIDList, sourceOrgVDCNetworks, inputDict, vdcDict, nsxObj):
+    def createOrgVDCNetwork(self, orgVDCIDList, sourceOrgVDCNetworks, inputDict, vdcDict, nsxObj, implicitNetworks):
         """
         Description : Create Org VDC Networks in the specified Organization VDC
         """
         try:
             if not isinstance(self.rollback.metadata.get("prepareTargetVDC", {}).get("createOrgVDCNetwork"), bool):
-                self.rollback.metadata["prepareTargetVDC"]["createOrgVDCNetwork"] = False
+                self.rollback.executionResult.setdefault('prepareTargetVDC', {})
+                self.rollback.executionResult["prepareTargetVDC"]["createOrgVDCNetwork"] = False
                 self.saveMetadataInOrgVdc()
 
             segmetList = list()
@@ -451,23 +453,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     payloadData['guestVlanTaggingAllowed'] = sourceOrgVDCNetwork['guestVlanTaggingAllowed']
 
                 # Create the non distributed routed network.
-                if (float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2)
-                        and payloadData['networkType'] == 'NAT_ROUTED'
-                        and sourceOrgVDCNetwork['connection']['connectionType'] == "INTERNAL"):
-
-                    # check for implicite type creation of Non-Distributed OrgVDC network.
-                    dnsRelayConfig = self.getEdgeGatewayDnsConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
-                                                                  split(':')[-1], False)
-                    orgvdcNetworkGatewayIp = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
-                    orgvdcNetworkDns = sourceOrgVDCNetwork['subnets']['values'][0]['dnsServer1']
-                    edgeGatewayName = sourceOrgVDCNetwork['connection']['routerRef']['name']
-                    edgeGatewayId = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == edgeGatewayName,
-                                                targetEdgeGateway))[0]['id']
-                    if (dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns) or vdcDict.get('NonDistributedNetworks'):
-                        if not vdcDict.get('NonDistributedNetworks'):
-                            self.allowNonDistributedRouting(edgeGatewayId, True)
-                        payloadData['connection']['connectionType'] = None
-                        payloadData['connection']['connectionTypeValue'] = "NON_DISTRIBUTED"
+                edgeGatewayName = sourceOrgVDCNetwork['connection']['routerRef']['name']
+                if (self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks']
+                        or sourceOrgVDCNetwork['id'] in implicitNetworks):
+                    payloadData['connection']['connectionType'] = None
+                    payloadData['connection']['connectionTypeValue'] = "NON_DISTRIBUTED"
 
                 # Setting headers for the OPENAPI requests
                 self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
@@ -1087,7 +1077,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         raise Exception('Failed to update source Edge Gateway {}'.format(responseData['message']))
                 else:
                     raise Exception("Failed to get edge gateway '{}' details due to error - {}".format(
-                        responseDict['name'], responseDict['message']))
+                        edgeGatewaydata['name'], responseDict['message']))
         except:
             raise
 
@@ -1219,6 +1209,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 return
             targetSizingPolicyOrgVDCUrn = 'urn:vcloud:vdc:{}'.format(targetOrgVDCId)
             vmList = listify(responseDict['VApp']['Children']['Vm'])
+            networkTypes = {
+                vAppNetwork['@networkName']: vAppNetwork['Configuration']['FenceMode']
+                for vAppNetwork in listify(responseDict['VApp']['NetworkConfigSection']['NetworkConfig'])
+            }
             # iterating over the vms in vapp
             for vm in vmList:
                 # retrieving the compute policy of vm
@@ -1290,6 +1284,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 for networkConnection in networkConnectionList:
                     if networkConnection['@network'] == 'none':
                         networkName = 'none'
+                    elif networkTypes.get(networkConnection['@network']) in ('natRouted', 'isolated'):
+                        networkName = networkConnection['@network']
                     else:
                         if rollback:
                             # remove the appended -v2t from network name
@@ -2506,18 +2502,19 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # creating target Org VDC Edge Gateway
             self.createEdgeGateway(vdcDict, nsxObj)
 
-            # Configure Edge gateway RateLimits
+            implicitGateways, implicitNetworks = set(), set()
             if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
+                # Configure Edge gateway RateLimits
                 self.configureEdgeGWRateLimit(nsxObj)
 
-            # Allow Non distributed routing for edge gateways
-            if vdcDict.get('NonDistributedNetworks') and float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
-                self.allowNonDistributedRouting()
+                # Allow Non distributed routing for edge gateways
+                implicitGateways, implicitNetworks = self._checkNonDistributedImplicitCondition(orgVdcNetworkList)
+                self.allowNonDistributedRoutingOnEdgeGW(implicitGateways)
 
             # only if source org vdc networks exist
             if orgVdcNetworkList:
                 # creating target Org VDC networks
-                self.createOrgVDCNetwork(orgVDCIDList, orgVdcNetworkList, inputDict, vdcDict, nsxObj)
+                self.createOrgVDCNetwork(orgVDCIDList, orgVdcNetworkList, inputDict, vdcDict, nsxObj, implicitNetworks)
                 # disconnecting target Org VDC networks
                 self.disconnectTargetOrgVDCNetwork()
             else:
@@ -2578,7 +2575,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if hasattr(self, '__done__'):
                 delattr(self, '__done__')
 
-    def configureTargetVDC(self, vcdObjList, edgeGatewayDeploymentEdgeCluster=None, nsxtObj=None):
+    def configureTargetVDC(self, vcdObjList, vdcDict, edgeGatewayDeploymentEdgeCluster=None, nsxtObj=None):
         """
         Description :   Configuring Target VDC
         Parameters  :   vcdObjList - List of objects of vcd operations class (LIST)
@@ -2654,7 +2651,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # reconnecting target org vdc edge gateway from T0
             self.reconnectTargetEdgeGateway()
 
-            # Configure DNAT rules for non-distributed network if NonDistributedNetworks is set from user input.
+            # updating route redistribution rules on tier-0 routers
+            self.updateRouteRedistributionRules(vdcDict, nsxtObj)
+
+            # Configure DNAT rules for non-distributed network if implicit condition is met
             if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
                 self.configureTargetDnatForDns()
         except:
@@ -2667,6 +2667,46 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 delattr(self, '__done__')
             if hasattr(self, '_dfw_configured'):
                 delattr(self, '_dfw_configured')
+
+    def updateRouteRedistributionRules(self, vdcDict, nsxtObj):
+        """
+        Description : update route redistribution rules - services like NAT, LB VIP, IPSEC are set for route redistribution
+        Parameters  :   sourceOrgVDCId  - source Org VDC id (STRING)
+                        targetOrgVDCId  - target Org VDC id (STRING)
+                        orgUrl          - Organization url (STRING)
+        """
+        if not self.rollback.apiData['targetEdgeGateway']:
+            logger.debug("Skipping updating route redistribution rules as target edge gateway does not exists")
+            return
+
+        logger.info('Updating Route Redistribution Rules')
+        T0GatewayList = self.rollback.apiData['targetExternalNetwork']
+        for edge in self.rollback.apiData['sourceEdgeGateway']:
+            edgeGatewayId = edge["id"].split(":")[-1]
+            t0Gateway = vdcDict["Tier0Gateways"].get(edge["name"], vdcDict["Tier0Gateways"].get("default"))
+            vrfBackingId = T0GatewayList[t0Gateway]["networkBackings"]["values"][0]["backingId"]
+            vrfData = nsxtObj.getVRFdetails(vrfBackingId)
+            bgpConfigDict = self.getEdgegatewayBGPconfig(edgeGatewayId, validation=False)
+            routeRedistributionRules = vrfData["results"][0].get("route_redistribution_config", {}).get("redistribution_rules", [])
+            advertisedSubnets = vcdConstants.ADVERTISED_SUBNET_LIST
+            if self.getStaticRoutesDetails(edgeGatewayId) or (isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled']) or \
+                    vdcDict.get("AdvertiseRoutedNetworks", {}).get(edge["name"]) or vdcDict.get("AdvertiseRoutedNetworks", {}).get("default"):
+                advertisedSubnets.append("TIER1_CONNECTED")
+            for rule in routeRedistributionRules:
+                advertisedSubnets = list(set(advertisedSubnets) - set(rule["route_redistribution_types"]))
+
+            sytemVcdEdgeServicesRedistributionDict = {
+                "name": "SYSTEM-VCD-EDGE-SERVICES-REDISTRIBUTION",
+                "route_redistribution_types": advertisedSubnets
+            }
+            for rule in routeRedistributionRules:
+                if rule["name"] == "SYSTEM-VCD-EDGE-SERVICES-REDISTRIBUTION":
+                    rule["route_redistribution_types"] = rule["route_redistribution_types"] + advertisedSubnets
+                    break
+            else:
+                routeRedistributionRules.append(sytemVcdEdgeServicesRedistributionDict)
+            if advertisedSubnets:
+                nsxtObj.createRouteRedistributionRule(vrfData, t0Gateway, routeRedistributionRules)
 
     def migrateCatalogItems(self, sourceOrgVDCId, targetOrgVDCId, orgUrl):
         """
@@ -3664,14 +3704,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                   vcdConstants.GET_VDC_GROUP_BY_ID.format(ID), vcdConstants.VDC_GROUP_SYNC)
             response = self.restClientObj.post(url, self.headers)
-        if response.status_code == requests.codes.accepted:
-            try:
-                taskUrl = response.headers['Location']
-                self._checkTaskStatus(taskUrl=taskUrl)
-            except Exception as e:
-                logger.warning("Failed to sync DC Groups created with exception - {}".format(e))
-        else:
-            logger.warning("Failed to sync DC Groups created with error code - {}".format(response.status_code))
+            if response.status_code == requests.codes.accepted:
+                try:
+                    taskUrl = response.headers['Location']
+                    self._checkTaskStatus(taskUrl=taskUrl)
+                except Exception as e:
+                    logger.warning("Failed to sync DC Groups created with exception - {}".format(e))
+            else:
+                logger.warning("Failed to sync DC Groups created with error code - {}".format(response.status_code))
 
     @staticmethod
     def createExternalNetworkSubPoolRangePayload(externalNetworkPoolRangeList):
@@ -3832,7 +3872,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         def getName(vAppNetwork):
             """Get name of target vapp network"""
-            if vAppNetwork['@networkName'] == 'none':
+            if (vAppNetwork['@networkName'] == 'none'
+                    or vAppNetwork['Configuration']['FenceMode'] in ('natRouted', 'isolated')):
                 return vAppNetwork['@networkName']
 
             if rollback:
@@ -4708,6 +4749,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Parameters  :   network -   details of the network that is to be renamed (DICT)
         """
         try:
+            if not network["name"].endswith('-v2t'):
+                return
+
             headers = {'Authorization': self.headers['Authorization'],
                        'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
             # open api get url to retrieve the details of target org vdc network

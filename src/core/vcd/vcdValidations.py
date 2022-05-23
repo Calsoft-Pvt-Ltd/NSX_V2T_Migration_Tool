@@ -648,6 +648,8 @@ class VCDMigrationValidation:
         """
 
         try:
+            # Acquiring lock for creation of metadata in OrgVDC.
+            self.lock.acquire(blocking=True)
             if force or self.rollback.executionResult:
                 # getting the source org vdc urn
                 sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
@@ -672,6 +674,12 @@ class VCDMigrationValidation:
         except Exception as err:
             logger.debug(traceback.format_exc())
             raise Exception('Failed to save metadata in source Org VDC due to error - {}'.format(err))
+        finally:
+            # Releasing thread lock
+            try:
+                self.lock.release()
+            except RuntimeError:
+                pass
 
     @isSessionExpired
     def getOrgUrl(self, orgName):
@@ -1870,7 +1878,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def validateStaticIpPoolForNonDistributedRouting(self, orgVdcNetworkList, vdcDict):
+    def validateStaticIpPoolForNonDistributedRouting(self, orgVdcNetworkList):
         """
             Description : Validate that OrgVDC network has static IP pool with free IPs
             Parameters  : orgVdcNetworkList - Org VDC's network list for a specific Org VDC (LIST)
@@ -1883,8 +1891,8 @@ class VCDMigrationValidation:
             errorList = list()
             networksWithoutStaticIpPool = list()
             networksWithoutFreeIpInStaticIpPool = list()
+            _, implicitNetworks = self._checkNonDistributedImplicitCondition(orgVdcNetworkList)
             for sourceOrgVDCNetwork in orgVdcNetworkList:
-                distNetworkFlag = False
                 validateStaticIpPool = True
                 # Continue if the OrgVDC network is not routed network.
                 if not (sourceOrgVDCNetwork['networkType'] == 'NAT_ROUTED'
@@ -1902,15 +1910,11 @@ class VCDMigrationValidation:
                         break
                 if not validateStaticIpPool:
                     continue
-                dnsRelayConfig = self.getEdgeGatewayDnsConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
-                                                              split(':')[-1], False)
-                orgvdcNetworkDns = sourceOrgVDCNetwork['subnets']['values'][0]['dnsServer1']
-                ipRanges = sourceOrgVDCNetwork['subnets']['values'][0]['ipRanges']['values']
-                if (dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns) or vdcDict.get(
-                        'NonDistributedNetworks'):
-                    distNetworkFlag = True
 
-                if distNetworkFlag and sourceOrgVDCNetwork['networkType'] == 'NAT_ROUTED':
+                edgeGatewayName = sourceOrgVDCNetwork['connection']['routerRef']['name']
+                if (self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks']
+                        or sourceOrgVDCNetwork['id'] in implicitNetworks):
+                    ipRanges = sourceOrgVDCNetwork['subnets']['values'][0]['ipRanges']['values']
                     if not ipRanges:
                         networksWithoutStaticIpPool.append(sourceOrgVDCNetwork['name'])
 
@@ -2107,7 +2111,7 @@ class VCDMigrationValidation:
                 if response.status_code == requests.codes.ok:
                     gatewayInterfaces = responseDict['configuration']['gatewayInterfaces']['gatewayInterface']
                     if len(gatewayInterfaces) > 9 and not networkList:
-                        errorList.append(f"No more uplinks present on source Edge Gateway {responseDict['name']} to connect dummy External Uplink ")
+                        errorList.append(f"No more uplinks present on source Edge Gateway {responseDict['name']} to connect dummy External Uplink")
                     # checking whether source edge gateway has rate limit configured
 
                     rateLimitEnabledInterfaces = [interface for interface in gatewayInterfaces if interface['applyRateLimit']]
@@ -2537,7 +2541,7 @@ class VCDMigrationValidation:
                 self.thread.spawnThread(self.getEdgeGatewayDhcpConfig, gatewayId, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the dhcp relay config details of specified edge gateway
-                self.thread.spawnThread(self.getDhcpRelayForNonDR, gatewayId, v2tAssessmentMode=v2tAssessmentMode)
+                self.thread.spawnThread(self.getDhcpRelayForNonDR, gatewayId, gatewayName, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the firewall config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewayFirewallConfig, gatewayId)
@@ -2872,7 +2876,7 @@ class VCDMigrationValidation:
         return forwardersList
 
     @isSessionExpired
-    def getDhcpRelayForNonDR(self, edgeGatewayId, v2tAssessmentMode=False):
+    def getDhcpRelayForNonDR(self, edgeGatewayId, edgeGatewayName, v2tAssessmentMode=False):
         """
         Description :   Validating if the DHCP relay service configured in case of non Dist routing .
         """
@@ -2908,7 +2912,7 @@ class VCDMigrationValidation:
 
         # Check for explicit case scenario.
         networkNames = list()
-        if self.orgVdcDict.get('NonDistributedNetworks'):
+        if self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks']:
             # get Non-Dist routing flag from user input and if enabled then raise exception.
             for sourceOrgVDCNetwork in sourceOrgvdcNetworks:
                 if sourceOrgVDCNetwork['networkType'] != 'NAT_ROUTED':
@@ -2925,6 +2929,7 @@ class VCDMigrationValidation:
 
         # Check for implicit case scenario.
         # check the relay agents which can be configured as non DR.
+        _, implicitNetworks = self._checkNonDistributedImplicitCondition(sourceOrgvdcNetworks)
         for sourceOrgVDCNetwork in sourceOrgvdcNetworks:
             if sourceOrgVDCNetwork['networkType'] != 'NAT_ROUTED':
                 continue
@@ -2933,14 +2938,8 @@ class VCDMigrationValidation:
                     or edgeGatewayId not in sourceOrgVDCNetwork['connection']['routerRef']['id']):
                 continue
 
-            # check for implicite type creation of Non-Distributed OrgVDC network.
-            dnsRelayConfig = self.getEdgeGatewayDnsConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
-                                                          split(':')[-1], False)
-            orgvdcNetworkGatewayIp = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
-            orgvdcNetworkDns = sourceOrgVDCNetwork['subnets']['values'][0]['dnsServer1']
-            edgeGatewayName = sourceOrgVDCNetwork['connection']['routerRef']['name']
-            if (dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns and not self.orgVdcDict.get(
-                    'NonDistributedNetworks')):
+            if (self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks']
+                    or sourceOrgVDCNetwork['id'] in implicitNetworks):
                 errorList.append(
                     "DHCP Relay service configured on source edge gateway {} is not supported on target because, OrgVDC network {} will be configured as non-distributed after migration. DHCP Relay is not supported on non-distibuted routed networks.\n".format(
                         edgeGatewayName, sourceOrgVDCNetwork['name']))
@@ -3147,9 +3146,9 @@ class VCDMigrationValidation:
                     natrules = natrules if isinstance(natrules, list) else [natrules]
                     # iterating over the nat rules
                     for natrule in natrules:
-                        if natrule['action'] == "dnat" and "-" in natrule['translatedAddress']:
+                        if natrule['action'] == "dnat" and not "/32" in natrule['translatedAddress'] and ("-" in natrule['translatedAddress'] or "/" in natrule['translatedAddress']):
                             errorList.append(
-                                'Range of IPs found in this DNAT rule {} and range cannot be used in target edge gateway\n'.format(
+                                'Range of IPs or network found in this DNAT rule {} and range cannot be used in target edge gateway\n'.format(
                                     natrule['ruleId']))
                     return errorList, natrules
                 else:
@@ -3807,14 +3806,12 @@ class VCDMigrationValidation:
         if not vAppData['NetworkConfigSection'].get('NetworkConfig'):
             return
 
-        networkTypes = set()
         vAppValidations['routerExternalIp'][vApp['@name']] = dict()
         vAppValidations['natExternalIp'][vApp['@name']] = dict()
         for vAppNetwork in listify(vAppData['NetworkConfigSection']['NetworkConfig']):
             if vAppNetwork['@networkName'] == "none":
                 continue
 
-            networkTypes.add(vAppNetwork['Configuration']['FenceMode'])
             if vAppNetwork['Configuration']['FenceMode'] != 'natRouted':
                 continue
 
@@ -3854,28 +3851,6 @@ class VCDMigrationValidation:
                 )
                 if any(value > 1 for value in duplicateNatPorts.values()):
                     vAppValidations['natPfDuplicatePort'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
-
-            elif natService.get('NatType', '') == 'ipTranslation':
-                if natService['IsEnabled'] == 'false':
-                    vAppValidations['natIptDisabled'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
-
-                else:
-                    if parentNetwork['networkType'] == 'NAT_ROUTED':
-                        ipRangeAddresses = set(
-                            str(ipaddress.IPv4Address(ip))
-                            for ipPool in parentNetwork['subnets']['values'][0]['ipRanges'].get('values', []) or []
-                            for ip in range(
-                                int(ipaddress.IPv4Address(ipPool['startAddress'])),
-                                int(ipaddress.IPv4Address(ipPool['endAddress']) + 1))
-                        )
-                        outOfPoolIps = [
-                            natRule['OneToOneVmRule']['ExternalIpAddress']
-                            for natRule in listify(natService['NatRule'])
-                            if natRule['OneToOneVmRule'].get('ExternalIpAddress')
-                            if natRule['OneToOneVmRule']['ExternalIpAddress'] not in ipRangeAddresses
-                        ]
-                        if outOfPoolIps:
-                            vAppValidations['natIptOutOfPoolIps'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}|{','.join(outOfPoolIps)}")
 
             # Check for direct networks
             # target external network (-v2t suffixed) should be overlay backed
@@ -3921,10 +3896,6 @@ class VCDMigrationValidation:
                         vAppValidations['natExternalIp'][vApp['@name']][vAppNetwork['@networkName']].append(
                             rule['OneToOneVmRule'].get('ExternalIpAddress'))
 
-        # Check if routed vapp networks are combined with other type of networks(org VDC/vapp bridged, vapp isolated)
-        if 'natRouted' in networkTypes and len(networkTypes) > 1:
-            vAppValidations['mixedNetworkTypes'].add(vApp['@name'])
-
     def validateRoutedVappNetworks(self, sourceOrgVDCId, v2tAssessmentMode=False, nsxtObj=None):
         """
         Description :   Validates there exists no vapp routed network in source vapps
@@ -3940,7 +3911,6 @@ class VCDMigrationValidation:
                     or v2tAssessmentMode):
                 logger.debug('Validating routed vApp network configuration')
                 vAppValidations = {
-                    'mixedNetworkTypes': set(),
                     'dedicatedDirectNetworks': set(),
                     'legacyDirectNetwork': set(),
                     'vlanBackedNetworks': set(),
@@ -3949,8 +3919,6 @@ class VCDMigrationValidation:
                     'natPfDuplicatePort': set(),
                     'routerExternalIp': dict(),
                     'natExternalIp': dict(),
-                    'natIptDisabled': set(),
-                    'natIptOutOfPoolIps': set()
                 }
                 for vApp in vAppList:
                     self.thread.spawnThread(self._validateRoutedVappNetworks, vApp, vAppValidations, nsxtObj)
@@ -3958,10 +3926,6 @@ class VCDMigrationValidation:
                 if self.thread.stop():
                     raise Exception("Failed to validate vApp routed networks")
                 errors = []
-                if vAppValidations['mixedNetworkTypes']:
-                    errors.append(
-                        f"Routed vapp network is not supported with other type of networks in vapp/s (vApp): "
-                        f"{', '.join(vAppValidations['mixedNetworkTypes'])}")
                 if vAppValidations['dedicatedDirectNetworks']:
                     errors.append(
                         f"Routed vApp parent network should not be a dedicated direct network (vApp|vApp_Network):"
@@ -3986,14 +3950,6 @@ class VCDMigrationValidation:
                     errors.append(
                         f"Invalid NAT rule: Multiple rules with same external port is not supported "
                         f"(vApp|vApp_Network): {', '.join(vAppValidations['natPfDuplicatePort'])}")
-                if vAppValidations['natIptDisabled']:
-                    errors.append(
-                        f"Disabled NAT service is not supported "
-                        f"(vApp|vApp_Network): {', '.join(vAppValidations['natIptDisabled'])}")
-                if vAppValidations['natIptOutOfPoolIps']:
-                    errors.append(
-                        f"External IP used in NAT IP translation rules is not present in Static IP Pool of parent "
-                        f"network (vApp|vApp_Network|IP_Addresses): {', '.join(vAppValidations['natIptOutOfPoolIps'])}")
 
                 # logic to identify router external IP conflicts with NAT
                 for externalVapp, externalNetList in vAppValidations['routerExternalIp'].items():
@@ -4778,7 +4734,7 @@ class VCDMigrationValidation:
 
             # Validating static Ip pool for OrgVDC network.
             logger.info('Validating Org VDC Network Static IP pool configuration for non distributed routing')
-            self.validateStaticIpPoolForNonDistributedRouting(orgVdcNetworkList, vdcDict)
+            self.validateStaticIpPoolForNonDistributedRouting(orgVdcNetworkList)
 
             # validating DHCP service on Org VDC networks
             logger.info('Validating Isolated OrgVDCNetwork DHCP configuration')
@@ -4831,7 +4787,7 @@ class VCDMigrationValidation:
         """
         try:
             # if NSXTProviderVDCNoSnatDestinationSubnet is passed to sampleInput else set it to None
-            noSnatDestSubnet = vdcDict.get("NoSnatDestinationSubnet", None)
+            noSnatDestSubnet = vdcDict.get("NoSnatDestinationSubnet")
 
             # Fetching service engine group name from sampleInput
             ServiceEngineGroupName = vdcDict.get('ServiceEngineGroupName', None)
@@ -6272,3 +6228,22 @@ class VCDMigrationValidation:
             if network['networkType'] == 'DIRECT':
                 return True
         return False
+
+    def _checkNonDistributedImplicitCondition(self, sourceOrgVDCNetworks):
+        implicitGateways = set()
+        implicitNetworks = set()
+        for sourceOrgVDCNetwork in sourceOrgVDCNetworks:
+            # Create the non distributed routed network.
+            if (sourceOrgVDCNetwork['networkType'] == 'NAT_ROUTED'
+                    and sourceOrgVDCNetwork['connection']['connectionType'] == "INTERNAL"):
+
+                # check for implicit type creation of Non-Distributed OrgVDC network.
+                dnsRelayConfig = self.getEdgeGatewayDnsConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
+                                                              split(':')[-1], False)
+                orgvdcNetworkGatewayIp = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
+                orgvdcNetworkDns = sourceOrgVDCNetwork['subnets']['values'][0]['dnsServer1']
+                if dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns:
+                    implicitGateways.add(sourceOrgVDCNetwork['connection']['routerRef']['name'])
+                    implicitNetworks.add(sourceOrgVDCNetwork['id'])
+
+        return implicitGateways, implicitNetworks

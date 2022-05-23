@@ -14,7 +14,9 @@ VCloudDirector:
       Tier0Gateways: tpm-externalnetwork # Name of the Tier-0 gateway to which target NSX-T edge gateways will be connected to
       LegacyDirectNetwork: False # (Optional) Option to enable legacy migration mechanism of service direct networks
       NSXTNetworkPoolName: 2nd-t-network-pool # Name of the nsxt backed network pool which needs to be added incase of multiple network pools
-      NoSnatDestinationSubnet: 10.100.0.0/16 # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
+      NoSnatDestinationSubnet: # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
+        - 10.100.0.0/16
+        - 10.101.0.0/16
       ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
       LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
@@ -36,7 +38,9 @@ VCloudDirector:
       Tier0Gateways: tpm-externalnetwork # Name of the Tier-0 gateway to which target NSX-T edge gateways will be connected to
       LegacyDirectNetwork: False # (Optional) Option to enable legacy migration mechanism of service direct networks
       NSXTNetworkPoolName: 2nd-t-network-pool # Name of the nsxt backed network pool which needs to be added incase of multiple network pools
-      NoSnatDestinationSubnet: 10.100.0.0/16 # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
+      NoSnatDestinationSubnet: # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
+        - 10.102.0.0/16
+        - 10.103.0.1/16
       ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
       LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
