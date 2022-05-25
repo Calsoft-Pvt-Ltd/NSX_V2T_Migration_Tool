@@ -4859,7 +4859,7 @@ class VCDMigrationValidation:
         edgeGwInputs = {
             'Tier0Gateways': self.orgVdcInput.get('Tier0Gateways'),
             # 'NSXTNetworkPoolName': self.orgVdcInput.get('NSXTNetworkPoolName'),
-            # 'NoSnatDestinationSubnet': self.orgVdcInput.get('NoSnatDestinationSubnet'),
+            'NoSnatDestinationSubnet': self.orgVdcInput.get('NoSnatDestinationSubnet'),
             # 'ServiceEngineGroupName': self.orgVdcInput.get('ServiceEngineGroupName'),
             # 'LoadBalancerVIPSubnet': self.orgVdcInput.get('LoadBalancerVIPSubnet'),
             # 'EdgeGatewayDeploymentEdgeCluster': self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'),
