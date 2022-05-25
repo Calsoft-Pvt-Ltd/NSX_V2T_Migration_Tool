@@ -2573,7 +2573,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if hasattr(self, '__done__'):
                 delattr(self, '__done__')
 
-    def configureTargetVDC(self, vcdObjList, vdcDict, edgeGatewayDeploymentEdgeCluster=None, nsxtObj=None):
+    def configureTargetVDC(self, vcdObjList, edgeGatewayDeploymentEdgeCluster=None, nsxtObj=None):
         """
         Description :   Configuring Target VDC
         Parameters  :   vcdObjList - List of objects of vcd operations class (LIST)
@@ -2650,7 +2650,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             self.reconnectTargetEdgeGateway()
 
             # updating route redistribution rules on tier-0 routers
-            self.updateRouteRedistributionRules(vdcDict, nsxtObj)
+            self.updateRouteRedistributionRules(nsxtObj)
 
             # Configure DNAT rules for non-distributed network if implicit condition is met
             if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
@@ -2666,12 +2666,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if hasattr(self, '_dfw_configured'):
                 delattr(self, '_dfw_configured')
 
-    def updateRouteRedistributionRules(self, vdcDict, nsxtObj):
+    def updateRouteRedistributionRules(self, nsxtObj):
         """
-        Description : update route redistribution rules - services like NAT, LB VIP, IPSEC are set for route redistribution
-        Parameters  :   sourceOrgVDCId  - source Org VDC id (STRING)
-                        targetOrgVDCId  - target Org VDC id (STRING)
-                        orgUrl          - Organization url (STRING)
+        Description : update route redistribution rules - services like NAT, LB VIP, IPSEC are set for route
+        redistribution
         """
         if not self.rollback.apiData['targetEdgeGateway']:
             logger.debug("Skipping updating route redistribution rules as target edge gateway does not exists")
@@ -2681,7 +2679,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         T0GatewayList = self.rollback.apiData['targetExternalNetwork']
         for edge in self.rollback.apiData['sourceEdgeGateway']:
             edgeGatewayId = edge["id"].split(":")[-1]
-            t0Gateway = vdcDict["Tier0Gateways"].get(edge["name"], vdcDict["Tier0Gateways"].get("default"))
+            t0Gateway = self.orgVdcInput['EdgeGateways'][edge['name']]['Tier0Gateways']
             vrfBackingId = T0GatewayList[t0Gateway]["networkBackings"]["values"][0]["backingId"]
             vrfData = nsxtObj.getVRFdetails(vrfBackingId)
             bgpConfigDict = self.getEdgegatewayBGPconfig(edgeGatewayId, validation=False)

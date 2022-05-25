@@ -901,9 +901,9 @@ class VMwareCloudDirectorNSXMigrator():
             # Services configuration
             futures = list()
             with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                for vcdObj in self.vcdObjList:
                     # Configuring services
-                    futures.append(executor.submit(vcdObj.configureServices, self.nsxvObj, orgVDCDict))
+                    futures.append(executor.submit(vcdObj.configureServices, self.nsxvObj))
                 waitForThreadToComplete(futures)
 
             # configuring target vdc i.e reconnecting target vdc networks and edge gateway
@@ -911,7 +911,7 @@ class VMwareCloudDirectorNSXMigrator():
             with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
                 for vcdObj, orgVdcDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
                     edgeGatewayDeploymentEdgeCluster = orgVdcDict.get('EdgeGatewayDeploymentEdgeCluster', None)
-                    futures.append(executor.submit(vcdObj.configureTargetVDC, self.vcdObjList, orgVDCDict, edgeGatewayDeploymentEdgeCluster, self.nsxtObjList[0]))
+                    futures.append(executor.submit(vcdObj.configureTargetVDC, self.vcdObjList, edgeGatewayDeploymentEdgeCluster, self.nsxtObjList[0]))
                 waitForThreadToComplete(futures)
         else:
             self.consoleLogger.warning(

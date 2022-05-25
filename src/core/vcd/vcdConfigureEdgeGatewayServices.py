@@ -40,7 +40,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         vcdConstants.GENERAL_JSON_ACCEPT_HEADER = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
         vcdConstants.OPEN_API_CONTENT_TYPE = vcdConstants.OPEN_API_CONTENT_TYPE.format(self.version)
 
-    def configureServices(self, nsxvObj, orgVDCDict):
+    def configureServices(self, nsxvObj):
         """
         Description :   Configure the  service to the Target Gateway
         Parameters  :   nsxvObj - NSXVOperations class object
@@ -771,7 +771,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
     def configureTargetNAT(self):
         """
         Description :   Configure the NAT service to the Target Gateway
-        Parameters  :   noSnatDestSubnet    -   destimation subnet address (OPTIONAL)
         """
         try:
             targetEdgeGateway = copy.deepcopy(self.rollback.apiData['targetEdgeGateway'])
