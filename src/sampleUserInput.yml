@@ -26,7 +26,9 @@ VCloudDirector:
       EdgeGateways:
         EdgeGateway1:
           Tier0Gateways: tpm-externalnetwork
-          NoSnatDestinationSubnet: 10.100.0.0/16
+          NoSnatDestinationSubnet:
+            - 10.102.0.0/16
+            - 10.103.0.0/16
           ServiceEngineGroupName: Tenant1
           LoadBalancerVIPSubnet: 192.168.255.128/28
           EdgeGatewayDeploymentEdgeCluster: Edge-cluster1

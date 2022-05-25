@@ -4958,7 +4958,7 @@ class VCDMigrationValidation:
     def updateEdgeGatewayInputDict(self, sourceOrgVDCId):
         edgeGwInputs = {
             'Tier0Gateways': self.orgVdcInput.get('Tier0Gateways'),
-            # 'NoSnatDestinationSubnet': self.orgVdcInput.get('NoSnatDestinationSubnet'),
+            'NoSnatDestinationSubnet': self.orgVdcInput.get('NoSnatDestinationSubnet'),
             'ServiceEngineGroupName': self.orgVdcInput.get('ServiceEngineGroupName'),
             'LoadBalancerVIPSubnet': self.orgVdcInput.get('LoadBalancerVIPSubnet', '192.168.255.128/28'),
             # 'EdgeGatewayDeploymentEdgeCluster': self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'),

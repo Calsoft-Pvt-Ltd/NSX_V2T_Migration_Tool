@@ -336,6 +336,18 @@ class VMwareCloudDirectorNSXMigrator():
                                     errorInputDict[dictKey] = (
                                         "NoSnatDestinationSubnet is in invalid format, please provide in the list "
                                         "format.")
+                            if sourceOrgVdc.get('EdgeGateways'):
+                                for edgeGateways, details in sourceOrgVdc.get('EdgeGateways').items():
+                                    if isinstance(details.get('NoSnatDestinationSubnet'), list):
+                                        for NoSnatDestAddr in details.get('NoSnatDestinationSubnet'):
+                                            if details.get('NoSnatDestinationSubnet') and not re.match(
+                                                    mainConstants.VALID_IP_CIDR_FORMAT_REGEX,
+                                                    NoSnatDestAddr):
+                                                errorInputDict[dictKey] = "Input IP value is not in proper CIDR format"
+                                    else:
+                                        errorInputDict[dictKey] = (
+                                            "NoSnatDestinationSubnet is in invalid format, please provide in the list "
+                                            "format.")
                             if sourceOrgVdc.get('LoadBalancerVIPSubnet') and not re.match(
                                     mainConstants.VALID_IP_CIDR_FORMAT_REGEX,
                                     sourceOrgVdc['LoadBalancerVIPSubnet']):
