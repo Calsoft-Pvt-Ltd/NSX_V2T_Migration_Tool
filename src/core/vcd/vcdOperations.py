@@ -129,13 +129,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
             # Use dedicated external network if BGP is configured
             # or AdvertiseRoutedNetworks parameter is set to True
-            if (((isinstance(bgpConfigDict, tuple) and not bgpConfigDict[0]) or not bgpConfigDict or bgpConfigDict[
-                        'enabled'] != "true")
-                    and not self.orgVdcDict['AdvertiseRoutedNetworks'].get(
-                        sourceEdgeGatewayDict['name'], self.orgVdcDict['AdvertiseRoutedNetworks']['default'])):
-                dedicated = False
-            else:
+            if (isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == "true"
+                    or self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']]['AdvertiseRoutedNetworks']):
                 dedicated = True
+            else:
+                dedicated = False
 
             # Prepare payload for edgeGatewayUplinks->subnets->values
             subnetData = []
@@ -2689,8 +2687,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             bgpConfigDict = self.getEdgegatewayBGPconfig(edgeGatewayId, validation=False)
             routeRedistributionRules = vrfData["results"][0].get("route_redistribution_config", {}).get("redistribution_rules", [])
             advertisedSubnets = vcdConstants.ADVERTISED_SUBNET_LIST
-            if self.getStaticRoutesDetails(edgeGatewayId) or (isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled']) or \
-                    vdcDict.get("AdvertiseRoutedNetworks", {}).get(edge["name"]) or vdcDict.get("AdvertiseRoutedNetworks", {}).get("default"):
+            if (self.getStaticRoutesDetails(edgeGatewayId)
+                    or isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == 'true'
+                    or self.orgVdcInput['EdgeGateways'][edge['name']]['AdvertiseRoutedNetworks']):
                 advertisedSubnets.append("TIER1_CONNECTED")
             for rule in routeRedistributionRules:
                 advertisedSubnets = list(set(advertisedSubnets) - set(rule["route_redistribution_types"]))
