@@ -50,7 +50,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # Setting thread name as vdc name
             threading.current_thread().name = self.vdcName
 
-            noSnatDestSubnet = orgVDCDict.get('NoSnatDestinationSubnet')
             # Fetching load balancer vip configuration subnet from user input file
             loadBalancerVIPSubnet = orgVDCDict.get('LoadBalancerVIPSubnet')
             # Fetching service engine group name from sampleInput
@@ -67,7 +66,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # Configuring target IPSEC
             self.configTargetIPSEC(nsxvObj)
             # Configuring target NAT
-            self.configureTargetNAT(orgVDCDict, noSnatDestSubnet)
+            self.configureTargetNAT()
             # Configuring firewall
             self.configureFirewall(networktype=False, configureIPSET=True)
             # Configuring BGP
@@ -774,7 +773,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
     @description("configuration of Target NAT")
     @remediate
-    def configureTargetNAT(self, orgVDCDict, noSnatDestSubnet=None):
+    def configureTargetNAT(self):
         """
         Description :   Configure the NAT service to the Target Gateway
         Parameters  :   noSnatDestSubnet    -   destimation subnet address (OPTIONAL)
@@ -788,8 +787,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 t1gatewayId = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'], targetEdgeGateway))[0]['id']
                 data = self.getEdgeGatewayNatConfig(sourceEdgeGatewayId, validation=False)
                 # reassigning noSnatDestSub from the particular EGW list in userinput file if mentioned else deafult
-                if orgVDCDict['EdgeGateways'][sourceEdgeGateway['name']]:
-                    noSnatDestSubnet = orgVDCDict['EdgeGateways'][sourceEdgeGateway['name']]['noSnatDestinationSubnet']
+                noSnatDestSubnet = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['noSnatDestinationSubnet']
                 # checking whether NAT rule is enabled or present in the source org vdc
                 if not data or not data['enabled']:
                     logger.debug('NAT is not configured or enabled on Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
