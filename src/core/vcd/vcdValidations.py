@@ -2492,13 +2492,12 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getEdgeGatewayServices(self, nsxtObj=None, nsxvObj=None, noSnatDestSubnetAddr=None, preCheckMode=False, ServiceEngineGroupName=None, v2tAssessmentMode=False):
+    def getEdgeGatewayServices(self, nsxtObj=None, nsxvObj=None, noSnatDestSubnetAddr=None, preCheckMode=False, v2tAssessmentMode=False):
         """
         Description :   Gets the Edge gateway services Configuration details
         Parameters  :   nsxtObj - nsxtOperations class object
                         noSnatDestSubnetAddr    -   NoSNAT destination subnet from sample input
                         preCheckMode    -   if migrator tool is run in preCheck mode (BOOLEAN)
-                        ServiceEngineGroupName - Name of service engine group for load balancer configuration (STRING)
                         v2tAssessmentMode - bool the sets whether v2tAssessmentMode is executing this method or not (BOOLEAN)
         """
         try:
@@ -2561,7 +2560,7 @@ class VCDMigrationValidation:
                 self.thread.spawnThread(self.getEdgeGatewayRoutingConfig, gatewayId, gatewayName, precheck=preCheckMode)
                 time.sleep(2)
                 # getting the load balancer config details of specified edge gateway
-                self.thread.spawnThread(self.getEdgeGatewayLoadBalancerConfig, gatewayId, ServiceEngineGroupName, nsxvObj=nsxvObj, v2tAssessmentMode=v2tAssessmentMode)
+                self.thread.spawnThread(self.getEdgeGatewayLoadBalancerConfig, gatewayId, gatewayName, nsxvObj=nsxvObj, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the l2vpn config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewayL2VPNConfig, gatewayId)
@@ -3216,11 +3215,11 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getEdgeGatewayLoadBalancerConfig(self, edgeGatewayId, ServiceEngineGroupName, nsxvObj, v2tAssessmentMode=False):
+    def getEdgeGatewayLoadBalancerConfig(self, edgeGatewayId, gatewayName, nsxvObj, v2tAssessmentMode=False):
         """
         Description :   Gets the Load Balancer Configuration details on the Edge Gateway
         Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
-                        ServiceEngineGroupName - Name of service engine group for load balancer configuration (STRING)
+                        gatewayName -  Name of the Edge Gateway  (STRING)
                         nsxvObj - NSXVOperations class object (OBJECT)
                         v2tAssessmentMode - bool the sets whether v2tAssessmentMode is executing this method or not (BOOLEAN)
         """
@@ -3316,18 +3315,19 @@ class VCDMigrationValidation:
 
                     if not v2tAssessmentMode:
                         serviceEngineGroupResultList = self.getServiceEngineGroupDetails()
+                        serviceEngineGroupName = self.orgVdcInput['EdgeGateways'][gatewayName]['ServiceEngineGroupName']
                         if serviceEngineGroupResultList:
-                            if not ServiceEngineGroupName:
+                            if not serviceEngineGroupName:
                                 loadBalancerErrorList.append("NSX-V LoadBalancer service is enabled on Source Edge Gateway {}, Service Engine Group must be present in userInput yaml\n".format(edgeGatewayId))
-                            serviceEngineGroupDetails = [serviceEngineGroup for serviceEngineGroup in serviceEngineGroupResultList if serviceEngineGroup['name'] == ServiceEngineGroupName]
+                            serviceEngineGroupDetails = [serviceEngineGroup for serviceEngineGroup in serviceEngineGroupResultList if serviceEngineGroup['name'] == serviceEngineGroupName]
 
                             if not serviceEngineGroupDetails:
-                                loadBalancerErrorList.append("Service Engine Group {} doesnot exist in Avi.\n".format(ServiceEngineGroupName))
+                                loadBalancerErrorList.append("Service Engine Group {} does not exist in Avi.\n".format(serviceEngineGroupName))
                             else:
                                 if serviceEngineGroupDetails[0].get('haMode') != 'LEGACY_ACTIVE_STANDBY':
                                     logger.warning("Service engine group has HA MODE '{}', if you keep using this you may incur some extra charges.".format(serviceEngineGroupDetails[0].get('haMode')))
                         else:
-                           loadBalancerErrorList.append("Service Engine Group {} doesn't exist in Avi.\n".format(ServiceEngineGroupName))
+                           loadBalancerErrorList.append("Service Engine Group {} doesn't exist in Avi.\n".format(serviceEngineGroupName))
             else:
                 loadBalancerErrorList.append('Unable to get load balancer service configuration with error code {} \n'.format(response.status_code))
             return loadBalancerErrorList
@@ -4789,8 +4789,6 @@ class VCDMigrationValidation:
             # if NSXTProviderVDCNoSnatDestinationSubnet is passed to sampleInput else set it to None
             noSnatDestSubnet = vdcDict.get("NoSnatDestinationSubnet")
 
-            # Fetching service engine group name from sampleInput
-            ServiceEngineGroupName = vdcDict.get('ServiceEngineGroupName', None)
             # get distributed firewall configuration
             logger.info('Validating Distributed Firewall configuration')
             dfwConfigReturn = self.getDistributedFirewallConfig(sourceOrgVDCId, validation=True)
@@ -4798,8 +4796,7 @@ class VCDMigrationValidation:
                 raise dfwConfigReturn
 
             # get the list of services configured on source Edge Gateway
-            self.getEdgeGatewayServices(nsxtObj, nsxvObj, noSnatDestSubnet,
-                                        ServiceEngineGroupName=ServiceEngineGroupName)
+            self.getEdgeGatewayServices(nsxtObj, nsxvObj, noSnatDestSubnet)
         except:
             raise
         else:
@@ -4858,12 +4855,11 @@ class VCDMigrationValidation:
     def updateEdgeGatewayInputDict(self, sourceOrgVDCId):
         edgeGwInputs = {
             'Tier0Gateways': self.orgVdcInput.get('Tier0Gateways'),
-            # 'NSXTNetworkPoolName': self.orgVdcInput.get('NSXTNetworkPoolName'),
             'NoSnatDestinationSubnet': self.orgVdcInput.get('NoSnatDestinationSubnet'),
-            # 'ServiceEngineGroupName': self.orgVdcInput.get('ServiceEngineGroupName'),
-            # 'LoadBalancerVIPSubnet': self.orgVdcInput.get('LoadBalancerVIPSubnet'),
+            'ServiceEngineGroupName': self.orgVdcInput.get('ServiceEngineGroupName'),
+            'LoadBalancerVIPSubnet': self.orgVdcInput.get('LoadBalancerVIPSubnet', '192.168.255.128/28'),
             # 'EdgeGatewayDeploymentEdgeCluster': self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'),
-            # 'AdvertiseRoutedNetworks': self.orgVdcInput.get('AdvertiseRoutedNetworks', False),
+            'AdvertiseRoutedNetworks': self.orgVdcInput.get('AdvertiseRoutedNetworks', False),
             'NonDistributedNetworks': self.orgVdcInput.get('NonDistributedNetworks', False),
         }
         for egw in self.getOrgVDCEdgeGateway(sourceOrgVDCId):
@@ -4877,6 +4873,8 @@ class VCDMigrationValidation:
                 self.orgVdcInput['EdgeGateways'][egw['name']] = {
                     **edgeGwInputs
                 }
+
+        # TODO pranshu: add validation for EdgeGateways
 
     def preMigrationValidation(self, inputDict, vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj, validateVapp=False, validateServices=False):
         """
@@ -4962,8 +4960,7 @@ class VCDMigrationValidation:
                             sourceEdgeGateway['name']))
 
                 bgpEnabled = bgpConfigDict and isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == 'true'
-                advertiseRoutedNetworks = self.orgVdcDict['AdvertiseRoutedNetworks'].get(
-                    sourceEdgeGateway['name'], self.orgVdcDict['AdvertiseRoutedNetworks']['default'])
+                advertiseRoutedNetworks = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['AdvertiseRoutedNetworks']
 
                 # 1. User input validation Across Org VDC
                 orgVdcNameList = self.checkSameExternalNetworkUsedByOtherVDC(
