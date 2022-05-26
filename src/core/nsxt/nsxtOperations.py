@@ -8,6 +8,7 @@ Description: NSXT Module which performs the Bridging Operations
 
 import copy
 import traceback
+import uuid
 from functools import wraps
 import inspect
 import logging
@@ -345,33 +346,31 @@ class NSXTOperations():
         """
         try:
             logger.info('Creating Bridge Uplink Host Profile.')
+            data = self.rollback.apiData
             filePath = os.path.join(nsxtConstants.NSXT_ROOT_DIRECTORY, 'template.json')
-            if not self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                         componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME):
-                url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
-                                                             nsxtConstants.HOST_SWITCH_PROFILE_API)
-                payloadDict = {'uplinkProfileName': nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME}
-                # create payload for host profile creation
-                payload = self.nsxtUtils.createPayload(filePath=filePath, fileType="json",
-                                                       componentName=nsxtConstants.COMPONENT_NAME,
-                                                       templateName=nsxtConstants.CREATE_UPLINK_PROFILE,
-                                                       payloadDict=payloadDict)
-                payload = json.loads(payload)
-                payload["teaming"]["active_list"].append(dict(uplink_type="PNIC", uplink_name="Uplink1"))
-                payload = json.dumps(payload)
-                # REST POST call to create uplink profile
-                response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payload, auth=self.restClientObj.auth)
-                if response.status_code == requests.codes.created:
-                    logger.debug("Successfully created uplink profile {}".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME))
-                    uplinkProfileId = json.loads(response.content)["id"]
-                    logger.info('Successfully created Bridge Uplink Host Profile.')
-                    return uplinkProfileId
-                msg = "Failed to create uplink profile {}.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
-                logger.error(msg)
-                raise Exception(msg, response.status_code)
-            msg = "Uplink {} already exists.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                            nsxtConstants.HOST_SWITCH_PROFILE_API)
+            BridgeUplinkProfile = nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME + str(uuid.uuid4())
+            payloadDict = {'uplinkProfileName': BridgeUplinkProfile}
+            # create payload for host profile creation
+            payload = self.nsxtUtils.createPayload(filePath=filePath, fileType="json",
+                                                    componentName=nsxtConstants.COMPONENT_NAME,
+                                                    templateName=nsxtConstants.CREATE_UPLINK_PROFILE,
+                                                    payloadDict=payloadDict)
+            payload = json.loads(payload)
+            payload["teaming"]["active_list"].append(dict(uplink_type="PNIC", uplink_name="Uplink1"))
+            payload = json.dumps(payload)
+            # REST POST call to create uplink profile
+            response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payload, auth=self.restClientObj.auth)
+            if response.status_code == requests.codes.created:
+                logger.debug("Successfully created uplink profile {}".format(BridgeUplinkProfile))
+                uplinkProfileId = json.loads(response.content)["id"]
+                logger.info('Successfully created Bridge Uplink Host Profile.')
+                data['BridgingStatus']['UplinkProfileName'] = BridgeUplinkProfile
+                return uplinkProfileId
+            msg = "Failed to create uplink profile {}.".format(BridgeUplinkProfile)
             logger.error(msg)
-            raise Exception(msg)
+            raise Exception(msg, response.status_code)
         except Exception:
             raise
 
@@ -389,10 +388,12 @@ class NSXTOperations():
             openApiSpecsData = self.getComponentData(componentApi=nsxtConstants.OPENAPI_SPECS_API)
             if openApiSpecsData:
                 nsxtVersion = tuple(map(int, openApiSpecsData['info']['version'].split('.')))
-            transportZoneName = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME
+            data = self.rollback.apiData
+            transportZoneName = data['BridgingStatus']['TransportZone']
+            BridgeUplinkProfile = data['BridgingStatus']['UplinkProfileName']
             logger.info('Adding Bridge Transport Zone to Bridge Edge Transport Nodes.')
             uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                                      componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                                                      componentName=BridgeUplinkProfile)
 
             transportZoneData = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName)
 
@@ -518,6 +519,7 @@ class NSXTOperations():
         try:
             logger.info('Attaching bridge endpoint profile to Logical Switch.')
             apiVersion = self.getNsxtAPIVersion()
+            data = self.rollback.apiData
 
             switchList = []
             for orgVdcNetwork in targetOrgVDCNetworks:
@@ -552,7 +554,7 @@ class NSXTOperations():
             filePath = os.path.join(nsxtConstants.NSXT_ROOT_DIRECTORY, 'template.json')
 
             # Get transport Zone /infra/sites path.
-            transportZoneName = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME
+            transportZoneName = data['BridgingStatus']['TransportZone']
             transportZoneId = self.getNsxtComponentIdByName(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName)
             transportZonePath = self.getTransportZoneData(transportZoneId)
             if transportZonePath is None:
@@ -783,7 +785,7 @@ class NSXTOperations():
             threading.current_thread().name = "MainThread"
 
             orgVDCNetworkList = list(filter(lambda network: network['networkType'] != 'DIRECT' and network['networkType'] != 'OPAQUE', orgVDCNetworkList))
-            transportZoneName = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME
+            transportZoneName = self.rollback.apiData['BridgingStatus']['TransportZone']
             transportZoneId = self.getNsxtComponentIdByName(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName)
             if not orgVDCNetworkList:
                 return
@@ -949,8 +951,9 @@ class NSXTOperations():
                     raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
 
             # Fetching uplink profile data
+            BridgeUplinkProfile = self.rollback.apiData['BridgingStatus'].get('UplinkProfileName')
             uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                                      componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                                                        componentName=BridgeUplinkProfile)
             # updating the transport node details inside edgeTransportNodeList
             for edgeTransportNode in edgeTransportNodeList:
                 url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
@@ -1008,7 +1011,7 @@ class NSXTOperations():
 
             # getting the host switch profile details
             hostSwitchProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                                          componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                                                          componentName=BridgeUplinkProfile)
             if hostSwitchProfileData:
                 hostSwitchProfileId = hostSwitchProfileData['id']
                 url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
@@ -1117,6 +1120,9 @@ class NSXTOperations():
             filteredList = copy.deepcopy(targetOrgVdcNetworkList)
             filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT' and network['networkType'] != 'OPAQUE', filteredList))
             if filteredList:
+
+                # check if the edge nodes are not in use
+                self.validateEdgeNodesNotInUse(edgeClusterNameList)
 
                 # create bridge transport zone
                 self.createTransportZone()
@@ -1436,13 +1442,12 @@ class NSXTOperations():
         Description :   Created bridge transport zone if it is not present in NSX-T
         """
         try:
-            # Validating whether the bridge transport zone exists or not
-            self.validateTransportZoneExistsInNSXT(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME)
-        except Exception:
             # Url to create transport zone
             url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.TRANSPORT_ZONE_API)
+            TransportZone = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME + str(uuid.uuid4())
+            data = self.rollback.apiData
             payloadData = {
-                        "display_name": nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME,
+                        "display_name": TransportZone,
                         "transport_type": "VLAN",
                         "description": "Transport zone to be used for bridging"
                       }
@@ -1453,11 +1458,13 @@ class NSXTOperations():
                                                data=payloadData)
             if response.status_code == requests.codes.created:
                 logger.debug(
-                    'Bridge Transport Zone {} created successfully.'.format(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME))
+                    'Bridge Transport Zone {} created successfully.'.format(TransportZone))
+                data['BridgingStatus'] = {"TransportZone": TransportZone}
             else:
                 raise Exception('Failed to create Bridge Transport Zone. Errors {}.'.format(response.content))
-        else:
-            logger.debug(f'Bridge Transport Zone {nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME} is already present in NSX-T')
+        except:
+            raise
+
 
     def deleteTransportZone(self):
         """
@@ -1466,9 +1473,10 @@ class NSXTOperations():
         try:
             try:
                 # Validating whether the bridge transport zone exists or not
-                bridgeTransportZoneData = self.validateTransportZoneExistsInNSXT(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME, returnData=True)
+                TransportZone = self.rollback.apiData['BridgingStatus']['TransportZone']
+                bridgeTransportZoneData = self.validateTransportZoneExistsInNSXT(TransportZone, returnData=True)
             except Exception:
-                logger.debug(f'Bridge Transport Zone {nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME} does not exist in NSX-T')
+                logger.debug(f'Bridge Transport Zone {TransportZone} does not exist in NSX-T')
                 logger.debug(traceback.format_exc())
                 return
             transportZoneId = bridgeTransportZoneData['id']
@@ -1476,10 +1484,10 @@ class NSXTOperations():
             response = self.restClientObj.delete(url=url, headers=nsxtConstants.NSXT_API_HEADER,
                                                  auth=self.restClientObj.auth)
             if response.status_code == requests.codes.ok:
-                logger.debug('Successfully deleted Bridge Transport Zone - "{}"'.format(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME))
+                logger.debug('Successfully deleted Bridge Transport Zone - "{}"'.format(TransportZone))
             else:
                 responseData = json.loads(response.content)
-                msg = 'Failed to Bridge Transport Zone - "{}" due to error - {}'.format(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME,
+                msg = 'Failed to Bridge Transport Zone - "{}" due to error - {}'.format(TransportZone,
                                                                                         responseData['error_message'])
                 raise Exception(msg)
         except:
