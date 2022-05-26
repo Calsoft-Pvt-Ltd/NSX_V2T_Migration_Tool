@@ -3873,14 +3873,6 @@ class VCDMigrationValidation:
                     if rule.get('ExternalPort') != '-1' and rule.get('InternalPort') == '-1':
                         vAppValidations['natPfCustomToAny'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
 
-                # TODO pranshu: Check for duplicate Any port
-                duplicateNatPorts = Counter(
-                    rule.get('VmRule', {}).get('ExternalPort')
-                    for rule in listify(natService.get('NatRule'))
-                )
-                if any(value > 1 for value in duplicateNatPorts.values()):
-                    vAppValidations['natPfDuplicatePort'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
-
             # Check for direct networks
             # target external network (-v2t suffixed) should be overlay backed
             if nsxtObj and parentNetwork['networkType'] == 'DIRECT':
@@ -3944,7 +3936,6 @@ class VCDMigrationValidation:
                     'legacyDirectNetwork': set(),
                     'vlanBackedNetworks': set(),
                     'natPfCustomToAny': set(),
-                    'natPfDuplicatePort': set(),
                     'routerExternalIp': dict(),
                     'natExternalIp': dict(),
                 }
@@ -3970,10 +3961,6 @@ class VCDMigrationValidation:
                     errors.append(
                         f"Invalid NAT rule: if internal port is ANY, external port should also be ANY "
                         f"(vApp|vApp_Network): {', '.join(vAppValidations['natPfCustomToAny'])}")
-                if vAppValidations['natPfDuplicatePort']:
-                    errors.append(
-                        f"Invalid NAT rule: Multiple rules with same external port is not supported "
-                        f"(vApp|vApp_Network): {', '.join(vAppValidations['natPfDuplicatePort'])}")
 
                 # logic to identify router external IP conflicts with NAT
                 for externalVapp, externalNetList in vAppValidations['routerExternalIp'].items():
