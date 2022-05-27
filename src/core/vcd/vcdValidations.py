@@ -4031,7 +4031,7 @@ class VCDMigrationValidation:
             logger.debug('Validating routed vApp network configuration')
             errors = []
 
-            if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA) and not v2tAssessmentMode:
+            if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_3) and not v2tAssessmentMode:
                 # 10.3.2.1 only validations
                 vAppValidations = {
                     'mixedNetworkTypes': set(),
@@ -4042,7 +4042,7 @@ class VCDMigrationValidation:
                 }
 
                 for vApp in vAppList:
-                    self.thread.spawnThread(self._validateRoutedVappNetworks_10_3_2_1, vApp, vAppValidations, nsxtObj)
+                    self.thread.spawnThread(self._validateRoutedVappNetworks_10_3_2_1, vApp, vAppValidations)
                 self.thread.joinThreads()
                 if self.thread.stop():
                     raise Exception("Failed to validate vApp routed networks")
