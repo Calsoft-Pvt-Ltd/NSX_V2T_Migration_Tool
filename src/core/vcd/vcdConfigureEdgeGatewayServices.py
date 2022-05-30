@@ -1592,7 +1592,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # get info of networks and configure DHCP in relay mode, if the network is used as relay agent.
             for network in orgvdcNetworks:
                 networkGateway = network['subnets']['values'][0]['gateway']
-                if networkGateway not in relayAgents:
+                if networkGateway not in relayAgents or network['networkType'] == 'ISOLATED':
                     continue
 
                 networkId = network['id']
