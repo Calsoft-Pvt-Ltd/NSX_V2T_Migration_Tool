@@ -3652,7 +3652,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
-    def updateSourceExternalNetwork(self, networkName, edgeGatewaySubnetDict):
+    def updateSourceExternalNetwork(self, networkName, edgeGatewaySubnetDict, vdcDict):
         """
         Description : Update Source External Network sub allocated ip pools
         Parameters : networkName: source external network name (STRING)
@@ -3674,6 +3674,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # If no ipPools are used from corresponding network then skip the iteration
             if not subIpPools:
                 continue
+            # Raise exception if target ext network subnet has only one IP and EmptyPoolOverride flag is False
+            if subnet["totalIpCount"] == 1:
+                if vdcDict.get("EmptyIPPoolOverride", False):
+                    logger.warning("Skipping removing '{}' IP from source external network - '{}'".format(externalRanges[0]["startAddress"], networkName))
+                    continue
+                else:
+                    raise Exception("External Network subnet has only one IP address which cannot be removed. EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
+
             # creating range of source edge gateway sub allocated pool range
             subIpRangeList = []
             for ipRange in subIpPools:
@@ -4181,7 +4189,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
-    def resetTargetExternalNetwork(self, extNetInput):
+    def resetTargetExternalNetwork(self, extNetInput, vdcDict):
         """
         Description :   Resets the target external network(i.e updating the target external network to its initial state)
         Parameters  :   uplinkName  -   name of the source external network
@@ -4208,6 +4216,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     #  Continue if source edge gateway has no IP from the specific subnet
                     if not sourceEgwSubnets.get(targetExtNetSubnetAddress):
                         continue
+
+                    # Raise exception if target ext network subnet has only one IP and EmptyPoolOverride flag is False
+                    if targetExtNetSubnet["totalIpCount"] == 1:
+                        if vdcDict.get("EmptyIPPoolOverride", False):
+                            continue
+                        else:
+                            raise Exception("External Network subnet has only one IP address which cannot be removed. EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
 
                     # creating range of target external network pool range
                     targetExtNetIpRange = set()

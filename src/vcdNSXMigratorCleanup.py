@@ -199,7 +199,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             self.consoleLogger.info('Updating the source External network.')
             for sourceExternalNetwork in sourceExternalNetworkData:
                 # update the source external network ip pools
-                self.vcdObj.updateSourceExternalNetwork(sourceExternalNetwork['name'], edgeGatewaySubnetDict)
+                self.vcdObj.updateSourceExternalNetwork(sourceExternalNetwork['name'], edgeGatewaySubnetDict, self.orgvdcdict)
 
             self.consoleLogger.info("Syncing DC Groups created")
             self.vcdObj.syncOrgVDCGroup(self.vcdObj.rollback.apiData.get('OrgVDCGroupID', {}))
