@@ -226,7 +226,8 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                     'Validating whether the edge transport nodes are accessible via ssh or not': [nsxtObj.validateIfEdgeTransportNodesAreAccessibleViaSSH, self.EdgeClusterName],
                     'Validating whether the edge transport nodes are deployed on v-cluster or not': [nsxtObj.validateEdgeNodesDeployedOnVCluster, self.EdgeClusterName, self.vcenterObj, vxlanBackingPresent],
                     'Validating OrgVDC Network and Edge transport Nodes': [nsxtObj.validateOrgVdcNetworksAndEdgeTransportNodes, self.EdgeClusterName, filteredList],
-                    'Validating the max limit of bridge endpoint profiles in NSX-T': [nsxtObj.validateLimitOfBridgeEndpointProfile, filteredList]
+                    'Validating the max limit of bridge endpoint profiles in NSX-T': [nsxtObj.validateLimitOfBridgeEndpointProfile, filteredList],
+                    'Validating MAC Address of the NSX-T Virtual Distributed Router': [nsxtObj.validateDlrMacAddress]
                 }
                 for desc, method in checksMapping.items():
                     methodName = method.pop(0)

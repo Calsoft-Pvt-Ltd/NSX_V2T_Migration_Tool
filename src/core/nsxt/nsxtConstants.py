@@ -153,3 +153,9 @@ NSXT_VERSION = "api/v1/node"
 
 # NSXT QOS profile
 NSXT_QOS_PROFILE = "/infra/gateway-qos-profiles/{}_Mbps"
+
+#NSXT GlobalConfig
+NSXT_GLOBALCONFIG = "/infra/global-config"
+
+#NSXT macaddressglobal
+NSXT_MACGLOBAL = '02:50:56:56:44:52'

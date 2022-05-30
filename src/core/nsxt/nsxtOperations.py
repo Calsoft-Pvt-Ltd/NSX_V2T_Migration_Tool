@@ -1179,6 +1179,26 @@ class NSXTOperations():
         except:
             raise
 
+    def validateDlrMacAddress(self):
+        """
+        Description :   Validates whether NSXT global mac address is "02:50:56:56:44:52"
+        """
+        url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), nsxtConstants.NSXT_GLOBALCONFIG)
+        response = self.restClientObj.get(
+            url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
+        if response.status_code != requests.codes.ok:
+            raise Exception("Fail to get response")
+
+        data = json.loads(response.content)
+        if data['vdr_mac']  == nsxtConstants.NSXT_MACGLOBAL:
+            logger.warning(
+                'Make sure that the MAC Address of the NSX-T Virtual Distributed Router is different than the NSX-V'
+                ' Distributed Logical Router (DLR) MAC address. The L2 bridging will not work properly for routed '
+                'Org VDC networks. MAC address of the NSX-T Virtual Distributed Router is set to default: '
+                '"02:50:56:56:44:52"'
+                'https://docs.vmware.com/en/VMware-NSX-T-Data-Center/3.2/migration/GUID-538774C2-DE66-4F24-B9B7-537CA2FA87E9.html '
+            )
+
     def validateEdgeNodesDeployedOnVCluster(self, edgeClusterNameList, vcenterObj, vxlanBackingPresent=True):
         """
         Description :   Validates whether the edge transport nodes are accessible via ssh or not
