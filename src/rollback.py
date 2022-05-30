@@ -63,7 +63,7 @@ class Rollback:
             'vcdObj.deleteNsxTBackedOrgVDCEdgeGateways(targetOrgVDCId)',
             'vcdObj.enableSourceAffinityRules()',
             'vcdObj.deleteOrgVDC(targetOrgVDCId, rollback=True)',
-            'vcdObj.resetTargetExternalNetwork(targetExternalNetwork)',
+            'vcdObj.resetTargetExternalNetwork(targetExternalNetwork, orgVDCDict)',
             'vcdObj.disconnectSourceOrgVDCNetwork(orgVDCNetworkList, sourceEdgeGatewayId, rollback=True)',
             'vcdObj.dhcpRollBack()',
             'vcdObj.ipsecRollBack()',

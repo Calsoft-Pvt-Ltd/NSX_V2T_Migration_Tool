@@ -17,6 +17,7 @@ VCloudDirector:
         EdgeGateway3: tpm-externalnetwork-2
         default: tpm-externalnetwork
       LegacyDirectNetwork: False # (Optional) Option to enable legacy migration mechanism of service direct networks
+      EmptyIPPoolOverride: False # (Optional) Option to enable migration that will not remove IP address from IP Pool if it is the last one
       NSXTNetworkPoolName: 2nd-t-network-pool # Name of the nsxt backed network pool which needs to be added incase of multiple network pools
       NoSnatDestinationSubnet: # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
         - 10.100.0.0/16
@@ -34,6 +35,7 @@ VCloudDirector:
       NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
       Tier0Gateways: tpm-externalnetwork # Name of the Tier-0 gateway to which target NSX-T edge gateways will be connected to
       LegacyDirectNetwork: False # (Optional) Option to enable legacy migration mechanism of service direct networks
+      EmptyIPPoolOverride: False # (Optional) Option to enable migration that will not remove IP address from IP Pool if it is the last one
       NSXTNetworkPoolName: 2nd-t-network-pool # Name of the nsxt backed network pool which needs to be added incase of multiple network pools
       NoSnatDestinationSubnet: # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
         - 10.102.0.0/16
