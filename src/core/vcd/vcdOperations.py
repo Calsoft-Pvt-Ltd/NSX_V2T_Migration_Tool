@@ -524,8 +524,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         tcpPortName, tcpPortId = self._searchApplicationPortProfile(applicationPortProfileList, 'tcp', '53')
         udpPortName, udpPortId = self._searchApplicationPortProfile(applicationPortProfileList, 'udp', '53')
 
-        # get taregt OrgVDC Network details.
-        orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
+        # get target OrgVDC Network details.
+        # We are not creating DNAT rules for shared network for non-DR, bcz of the VCD issue on lower versions.
+        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_3):
+            orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
+        else:
+            orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', sharedNetwork=True,
+                                                    saveResponse=False)
         sourceEdgeGateway = copy.deepcopy(self.rollback.apiData['sourceEdgeGateway'])
 
         # iterate over the OrgVDC networks and configure DNAT rule. Each non-distributed routed networks will
