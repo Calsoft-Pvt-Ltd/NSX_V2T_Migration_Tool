@@ -336,6 +336,18 @@ class VMwareCloudDirectorNSXMigrator():
                                     errorInputDict[dictKey] = (
                                         "NoSnatDestinationSubnet is in invalid format, please provide in the list "
                                         "format.")
+                            if sourceOrgVdc.get('EdgeGateways'):
+                                for edgeGateways, details in sourceOrgVdc.get('EdgeGateways').items():
+                                    if isinstance(details.get('NoSnatDestinationSubnet'), list):
+                                        for NoSnatDestAddr in details.get('NoSnatDestinationSubnet'):
+                                            if details.get('NoSnatDestinationSubnet') and not re.match(
+                                                    mainConstants.VALID_IP_CIDR_FORMAT_REGEX,
+                                                    NoSnatDestAddr):
+                                                errorInputDict[dictKey] = "Input IP value is not in proper CIDR format"
+                                    else:
+                                        errorInputDict[dictKey] = (
+                                            "NoSnatDestinationSubnet is in invalid format, please provide in the list "
+                                            "format.")
                             if sourceOrgVdc.get('LoadBalancerVIPSubnet') and not re.match(
                                     mainConstants.VALID_IP_CIDR_FORMAT_REGEX,
                                     sourceOrgVdc['LoadBalancerVIPSubnet']):
@@ -343,14 +355,6 @@ class VMwareCloudDirectorNSXMigrator():
                             if sourceOrgVdc.get('LegacyDirectNetwork') and not isinstance(
                                     sourceOrgVdc.get('LegacyDirectNetwork'), bool):
                                 errorInputDict[dictKey] = "Value must be boolean i.e either True or False."
-
-                            if not isinstance(sourceOrgVdc.get('Tier0Gateways', {}), (str, dict)):
-                                errorInputDict[dictKey] = "ExternalNetwork is either missing or in invalid format, " \
-                                                          "please provide in the string or Dict format."
-                            if isinstance(sourceOrgVdc.get('Tier0Gateways'), str):
-                                sourceOrgVdc['Tier0Gateways'] = {
-                                    'default': sourceOrgVdc.get('Tier0Gateways')
-                                }
 
                             if sourceOrgVdc.get('AdvertiseRoutedNetworks'):
                                 if isinstance(sourceOrgVdc['AdvertiseRoutedNetworks'], bool):
@@ -396,7 +400,6 @@ class VMwareCloudDirectorNSXMigrator():
         self.consoleLogger.info('Login into the VMware Cloud Director - {}'.format(self.vcdObjList[0].ipAddress))
         try:
             for vcdObject in self.vcdObjList:
-                vcdObject.password = self.vCloudDirectorPassword
                 vcdObject.password = self.vCloudDirectorPassword
                 vcdObject.vcdLogin()
             self.loginErrorDict[self._loginToVcd.__name__] = True
@@ -735,7 +738,7 @@ class VMwareCloudDirectorNSXMigrator():
             self.threadCount / self.numberOfParallelMigrations)
 
         # Iterating over the org vdcs provided in the user input and creating desired number of objects
-        for index, orgVDCDict in enumerate(self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+        for index, orgVdcInput in enumerate(self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
             # Initializing thread class with specified number of threads common for all objects
             threadObj = Thread(maxNumberOfThreads=maxNumberOfThreads)
 
@@ -747,11 +750,7 @@ class VMwareCloudDirectorNSXMigrator():
             rollback.timeoutForVappMigration = self.timeoutForVappMigration
             # initializing vmware cloud director Operations class
             self.vcdObjList.append(VCloudDirectorOperations(
-                self.inputDict["VCloudDirector"]["Common"]["ipAddress"],
-                self.inputDict["VCloudDirector"]["Common"]["username"],
-                self.inputDict['VCloudDirector']['Common']['password'],
-                self.inputDict['VCloudDirector']['Common']['verify'],
-                rollback, threadObj, lockObj=lockObj, vdcName=orgVDCDict["OrgVDCName"], orgVDCDict=orgVDCDict,
+                self.inputDict, None, rollback, threadObj, lockObj=lockObj, orgVdcInput=orgVdcInput,
             ))
 
             # preparing the nsxt dict for bridging
@@ -787,6 +786,15 @@ class VMwareCloudDirectorNSXMigrator():
         with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
             for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
                 futures.append(executor.submit(self.fetchMetadataFromOrgVDC, vcdObj, orgVDCDict))
+            waitForThreadToComplete(futures)
+
+        futures = list()
+        with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+            for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                futures.append(executor.submit(
+                    vcdObj.updateEdgeGatewayInputDict,
+                    self.orgVDCData[orgVDCDict["OrgVDCName"]]["id"]
+                ))
             waitForThreadToComplete(futures)
 
     def runCleanup(self):
@@ -994,7 +1002,7 @@ class VMwareCloudDirectorNSXMigrator():
             # Execute v2tAssessment
             if self.v2tAssessment:
                 self.runV2tAssessment()
-                os._exit(0)
+                return
 
             self.getPassword()
             self.inputValidation()
@@ -1016,7 +1024,7 @@ class VMwareCloudDirectorNSXMigrator():
             # Running cleanup script if cleanup parameter is provided
             if self.cleanup:
                 self.runCleanup()
-                os._exit(0)
+                return
 
             self.runPreMigrationValidation()
             self.runPrepareTarget()

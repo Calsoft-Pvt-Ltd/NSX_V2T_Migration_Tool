@@ -84,7 +84,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         finally:
             return sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked
 
-    def initializePreCheck(self, vcdValidationObj, orgVDCDict, validationFailures, sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked, threadObj, nsxtObj, serviceEngineGroupName=None, noSnatDestSubnet=None, edgeGatewayDeploymentEdgeCluster=None):
+    def initializePreCheck(self, vcdValidationObj, orgVDCDict, validationFailures, sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked, threadObj, nsxtObj, noSnatDestSubnet=None, edgeGatewayDeploymentEdgeCluster=None):
         """
         Description : This method fetches the necessary details to run validations
         Parameters :  vcdValidationObj - Object the holds reference to class with all the validation methods (OBJECT)
@@ -94,7 +94,6 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                       sourceProviderVDCId - ID of the source provider vdc (STRING)
                       isSourceNSXTbacked - Flag that defines whether the org vdc is NSX-T backed or not (BOOLEAN)
                       threadObj - Object of threading class (OBJECT)
-                      serviceEngineGroupName - service engine group name to be used to migration of Load Balancer (STRING)
         """
         try:
             getSourceExternalNetworkDesc = 'Getting NSX-V backed Provider VDC External network details'
@@ -104,15 +103,16 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             getOrgVdcNetworkDesc = 'Getting NSX-V backed Org VDC network details'
             # fetch details of edge gateway
             self.consoleLogger.info(getEdgeGatewayDesc)
-            edgeGatewayIdList = vcdValidationObj.getOrgVDCEdgeGatewayId(sourceOrgVDCId, saveResponse=True)
+            sourceEdgeGatewayData = vcdValidationObj.getOrgVDCEdgeGateway(sourceOrgVDCId)
+            edgeGatewayIdList = vcdValidationObj.getOrgVDCEdgeGatewayId(sourceEdgeGatewayData, saveResponse=True)
             # fetch details of source external network
             self.consoleLogger.info(getSourceExternalNetworkDesc)
             threadObj.spawnThread(vcdValidationObj.getSourceExternalNetwork,
-                                sourceOrgVDCId, saveOutputKey='sourceExternalNetwork')
+                                sourceEdgeGatewayData, saveOutputKey='sourceExternalNetwork')
             # fetch details of target External network
             self.consoleLogger.info(getTargetExternalNetworkDesc)
             threadObj.spawnThread(vcdValidationObj.getTargetExternalNetworks,
-                                    orgVDCDict.get("Tier0Gateways", {}),
+                                    sourceEdgeGatewayData,
                                     saveOutputKey='targetExternalNetwork')
             # fetch details of dummy external network
             self.consoleLogger.info(getDummyExternalNetworkDesc.format(self.inputDict["VCloudDirector"].get("DummyExternalNetwork")))
@@ -140,7 +140,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             vcdValidationMapping = {
                 'Validating NSX-T manager Ip Address and version': [vcdValidationObj.getNsxDetails, self.inputDict["NSXT"]["Common"]["ipAddress"]],
                 'Validating if target OrgVDC do not exists': [vcdValidationObj.validateNoTargetOrgVDCExists, orgVDCDict["OrgVDCName"]],
-                'Validating external network mapping with Gateway mentioned in userInput file': [vcdValidationObj.validateEdgeGatewayToExternalNetworkMapping, sourceOrgVDCId, orgVDCDict.get("Tier0Gateways", {})],
+                'Validating external network mapping with Gateway mentioned in userInput file': [vcdValidationObj.validateEdgeGatewayToExternalNetworkMapping, sourceEdgeGatewayData],
                 'Validating whether other Edge gateways are using dedicated external network': [vcdValidationObj.validateDedicatedExternalNetwork, self.inputDict],
                 'Validating Source Network Pool backing': [vcdValidationObj.validateSourceNetworkPools, self.inputDict["VCloudDirector"].get("CloneOverlayIds")],
                 'Validating whether source Org VDC is NSX-V backed': [vcdValidationObj.validateOrgVDCNSXbacking, sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked],
@@ -153,13 +153,14 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating if all edge gateways interfaces are in use': [vcdValidationObj.validateEdgeGatewayUplinks, sourceOrgVDCId, edgeGatewayIdList, True],
                 'Validating whether DHCP is enabled on source Isolated Org VDC network': [vcdValidationObj.validateDHCPEnabledonIsolatedVdcNetworks, orgVdcNetworkList, edgeGatewayIdList, edgeGatewayDeploymentEdgeCluster, nsxtObj],
                 'Validating Isolated OrgVDCNetwork DHCP configuration': [vcdValidationObj.getOrgVDCNetworkDHCPConfig, orgVdcNetworkList],
-                'Validating Org VDC Network Static IP pool configuration for non distributed routing': [vcdValidationObj.validateStaticIpPoolForNonDistributedRouting, orgVdcNetworkList, orgVDCDict],
+                'Validating Org VDC Network Static IP pool configuration for non distributed routing': [vcdValidationObj.validateStaticIpPoolForNonDistributedRouting, orgVdcNetworkList],
                 'Validating whether shared networks are supported or not': [vcdValidationObj.validateOrgVDCNetworkShared, sourceOrgVDCId],
                 'Validating Source OrgVDC Direct networks': [vcdValidationObj.validateOrgVDCNetworkDirect, orgVdcNetworkList, orgVDCDict, self.NSXTProviderVDCImportedNeworkTransportZone, nsxtObj],
                 'Validating Edge cluster for target edge gateway deployment': [vcdValidationObj.validateEdgeGatewayDeploymentEdgeCluster, edgeGatewayDeploymentEdgeCluster, nsxtObj],
                 'Validating whether the source NSX-V Segment ID Pool is subset of target NSX-T VNI pool or not': [vcdValidationObj.validateVniPoolRanges, nsxtObj, self.nsxvObj, self.inputDict["VCloudDirector"].get("CloneOverlayIds")],
                 'Validating Target NSX-T backed Network Pools': [vcdValidationObj.validateTargetPvdcNetworkPools, orgVDCDict.get('NSXTNetworkPoolName', None)],
                 'Validating Cross VDC Networking is enabled or not': [vcdValidationObj.validateCrossVdcNetworking, sourceOrgVDCId],
+                'Validating whether catalogs are published in the Org VDC': [vcdValidationObj.validateCatalogPublishing, sourceOrgVDCId, self.inputDict["VCloudDirector"]["Organization"]["OrgName"]],
             }
             # Perform these validations only if vapps are to be migrated
             if mainConstants.MOVEVAPP_KEYWORD in self.executeList:
@@ -176,7 +177,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             # Perform these validations only if services are to be configured
             if mainConstants.SERVICES_KEYWORD in self.executeList:
                 vcdValidationMapping.update({
-                    'Validating Source Edge gateway services': [vcdValidationObj.getEdgeGatewayServices, nsxtObj, self.nsxvObj, noSnatDestSubnet, True, serviceEngineGroupName],
+                    'Validating Source Edge gateway services': [vcdValidationObj.getEdgeGatewayServices, nsxtObj, self.nsxvObj, noSnatDestSubnet, True],
                     'Validating Distributed Firewall configuration': [vcdValidationObj.getDistributedFirewallConfig, sourceOrgVDCId, True, True, False]
                 })
 
@@ -309,14 +310,12 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             if orgExceptionList:
                 return
 
-            vcdValidationMapping = self.initializePreCheck(vcdValidationObj, orgVDCDict, validationFailures,
-                                                           sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked,
-                                                           threadObj, nsxtObj, serviceEngineGroupName=orgVDCDict.get(
-                                                               "ServiceEngineGroupName", None),
-                                                           noSnatDestSubnet=orgVDCDict.get(
-                                                               "NoSnatDestinationSubnet"),
-                                                           edgeGatewayDeploymentEdgeCluster=orgVDCDict.get(
-                                                               'EdgeGatewayDeploymentEdgeCluster', None))
+            vcdValidationMapping = self.initializePreCheck(
+                vcdValidationObj, orgVDCDict, validationFailures, sourceOrgVDCId, sourceProviderVDCId,
+                isSourceNSXTbacked, threadObj, nsxtObj,
+                noSnatDestSubnet=orgVDCDict.get("NoSnatDestinationSubnet"),
+                edgeGatewayDeploymentEdgeCluster=orgVDCDict.get('EdgeGatewayDeploymentEdgeCluster', None)
+            )
             for desc, method in vcdValidationMapping.items():
                 methodName = method.pop(0)
                 argsList = method

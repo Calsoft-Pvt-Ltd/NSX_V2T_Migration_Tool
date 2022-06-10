@@ -102,6 +102,7 @@ VALIDATION_CLASSIFICATION = {
     'No free interface on edge gateways': 1,
     'Shared Independent Disks': 2,
     'Cross VDC Networking': 2,
+    'Catalog is published' : 1,
     **EDGE_GW_SERVICES_VALIDATIONS,
     **DFW_VALIDATIONS,
 }
@@ -158,11 +159,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
         # Creating object of vcd validation class
         self.vcdValidationObj = self.vcdValidationObj = VCDMigrationValidation(
-            self.inputDict['VCloudDirector']['ipAddress'],
-            self.inputDict['VCloudDirector']['username'],
-            vCloudDirectorPassword,
-            self.inputDict['VCloudDirector']['verify'],
-            self.rollback, threadObj, vdcName="MainThread")
+            self.inputDict, vCloudDirectorPassword, self.rollback, threadObj, assessmentMode=True)
 
         # Login to vCD
         self.vcdValidationObj.vcdLogin()
@@ -255,12 +252,14 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
             # fetch details of edge gateway
             self.consoleLogger.info('Getting details of source edge gateway list')
-            self.edgeGatewayIdList = self.vcdValidationObj.getOrgVDCEdgeGatewayId(vdcId, saveResponse=True)
+            sourceEdgeGatewayData = self.vcdValidationObj.getOrgVDCEdgeGateway(vdcId)
+            self.edgeGatewayIdList = self.vcdValidationObj.getOrgVDCEdgeGatewayId(sourceEdgeGatewayData, saveResponse=True)
             if isinstance(self.edgeGatewayIdList, Exception):
                 raise self.edgeGatewayIdList
 
             # Validation methods reference
             self.vcdValidationMapping = {
+                'Catalog is published': [self.vcdValidationObj.validateCatalogPublishing, vdcId, orgName],
                 'Empty vApps': [self.vcdValidationObj.validateNoEmptyVappsExistInSourceOrgVDC, vdcId],
                 'Suspended VMs': [self.vcdValidationObj.validateSourceSuspendedVMsInVapp, vdcId],
                 'Unsupported Routed vApp Network Configuration': [self.vcdValidationObj.validateRoutedVappNetworks, vdcId, True, None],
@@ -269,7 +268,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                      vdcId, self.edgeGatewayIdList, False],
                 'Shared Independent Disks': [self.vcdValidationObj.validateIndependentDisks, vdcId, OrgId, True],
                 'VM with Independent disks having different storage policies and fast provisioning enabled': [self.vcdValidationObj.validateNamedDiskWithFastProvisioned, vdcId],
-                'Validating Source Edge gateway services': [self.vcdValidationObj.getEdgeGatewayServices, None, None, None, True, None, True],
+                'Validating Source Edge gateway services': [self.vcdValidationObj.getEdgeGatewayServices, None, None, None, True, True],
                 'Unsupported DFW configuration': [self.vcdValidationObj.getDistributedFirewallConfig, vdcId, True, True, True],
                 'Cross VDC Networking': [self.vcdValidationObj.validateCrossVdcNetworking, vdcId]
             }
