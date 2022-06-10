@@ -47,11 +47,13 @@ def isSessionExpired(func):
     """
         Description : decorator to check and get vcd Rest API session
     """
+
     @wraps(func)
     def inner(self, *args, **kwargs):
         getSession(self)
         result = func(self, *args, **kwargs)
         return result
+
     return inner
 
 
@@ -59,6 +61,7 @@ def remediate(func):
     """
         Description : decorator to save task status and save metadata in Org VDC after task is performed successfully
     """
+
     @wraps(func)
     def inner(self, *args, **kwargs):
         if not self.rollback.retryRollback and (self.rollback.metadata.get(func.__name__) or
@@ -88,6 +91,7 @@ def remediate(func):
             return result
         except Exception as err:
             raise err
+
     return inner
 
 
@@ -97,6 +101,7 @@ def remediate_threaded(func):
                         True if all threads completed successfully
                         False if some or none threads are completed successfully
     """
+
     @wraps(func)
     def inner(self, *args, **kwargs):
         # If True, return; If False/None, continue
@@ -142,13 +147,16 @@ def description(desc, threadName=None):
     """
         Description : decorator to add description for a task before calling remediation decorator
     """
+
     def nested(function):
         @wraps(function)
         def wrapped(self, *args, **kwargs):
             setattr(self, '__desc__', desc)
             setattr(self, '__threadname__', threadName)
             return function(self, *args, **kwargs)
+
         return wrapped
+
     return nested
 
 
@@ -211,7 +219,7 @@ class VCDMigrationValidation:
             self.orgVdcInput = orgVdcInput
             self.vdcName = orgVdcInput["OrgVDCName"]
 
-        self.orgVdcDict = orgVdcInput   # TODO pranshu: delete
+        self.orgVdcDict = orgVdcInput # TODO pranshu: delete
         self.assessmentMode = assessmentMode
         self.vCDSessionId = None
         self.vcdUtils = Utilities()
@@ -270,7 +278,8 @@ class VCDMigrationValidation:
                 self.VCD_SESSION_CREATED = True
                 self.vCDSessionId = loginResponse.json().get('id', None)
                 return self.bearerToken, loginResponse.status_code
-            raise Exception("Failed to login to VMware Cloud Director {} with the given credentials".format(self.ipAddress))
+            raise Exception(
+                "Failed to login to VMware Cloud Director {} with the given credentials".format(self.ipAddress))
         except requests.exceptions.SSLError as e:
             raise e
         except requests.exceptions.ConnectionError as e:
@@ -352,7 +361,8 @@ class VCDMigrationValidation:
         # fetching raw metadata from source org vdc
         raw_metadata = self.getOrgVDCMetadata(sourceOrgVDCId, rawData=True)
         # segregating user created metadata
-        metadataToMigrate = {data['Key']: [data['TypedValue']['Value'], data['TypedValue']['@type'], data.get('Domain')] for data in raw_metadata
+        metadataToMigrate = {data['Key']: [data['TypedValue']['Value'], data['TypedValue']['@type'], data.get('Domain')]
+                             for data in raw_metadata
                              if not re.search(r'-v2t$', data['Key'])}
         if metadataToMigrate:
             # Creating metadata in target org vdc
@@ -449,8 +459,8 @@ class VCDMigrationValidation:
             logger.debug('Getting data center group details')
             while resultTotal > 0 and pageSizeCount < resultTotal:
                 url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                        vcdConstants.VDC_GROUPS, pageNo,
-                                                        25)
+                                                                     vcdConstants.VDC_GROUPS, pageNo,
+                                                                     25)
                 getSession(self)
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
@@ -669,7 +679,7 @@ class VCDMigrationValidation:
                         self.rollback.executionResult[key] = combinedSubtask
 
                 self.createMetaDataInOrgVDC(sourceOrgVDCId,
-                                                    metadataDict=self.rollback.executionResult, domain='system')
+                                            metadataDict=self.rollback.executionResult, domain='system')
 
         except Exception as err:
             logger.debug(traceback.format_exc())
@@ -729,7 +739,7 @@ class VCDMigrationValidation:
             logger.debug('Organization {} ID {} retrieved successfully'.format(orgName, orgId))
             return orgId
         raise Exception('Failed to retrieve organization ID for {} due to {}'.format(
-            orgName,orgResponseDict['Error']['@message']))
+            orgName, orgResponseDict['Error']['@message']))
 
     def getOrgVDCUrl(self, orgUrl, orgVDCName, saveResponse=True):
         """
@@ -791,7 +801,8 @@ class VCDMigrationValidation:
                 # returning the orgVDCName details
                 return responseDict['AdminVdc']['@id']
             raise Exception("Failed to retrieve details of Organization VDC {} {}".format(orgVDCName,
-                                                                                          responseDict['Error']['@message']))
+                                                                                          responseDict['Error'][
+                                                                                              '@message']))
         except Exception:
             raise
 
@@ -890,7 +901,7 @@ class VCDMigrationValidation:
         return targetExternalNetwork
 
     @isSessionExpired
-    def validateEdgeGatewayToExternalNetworkMapping(self,sourceEdgeGatewayData):
+    def validateEdgeGatewayToExternalNetworkMapping(self, sourceEdgeGatewayData):
         """
             Description :   Validate EdgeGateway to external network mapping mentioned in userInput file.
             Parameters  :   extnetInfo (STRING/DICT)
@@ -913,7 +924,8 @@ class VCDMigrationValidation:
         try:
             logger.debug("Getting NSXT manager id of Provider VDC {}".format(pvdcName))
             # url to get details of the all provider vdcs
-            url = "{}{}?sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.PROVIDER_VDC)
+            url = "{}{}?sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                             vcdConstants.PROVIDER_VDC)
             # get api call to retrieve the all provider vdc details
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
@@ -925,10 +937,10 @@ class VCDMigrationValidation:
             else:
                 errorDict = response.json()
                 raise Exception("Failed to get Provider VDC {} details {}".format(pvdcName,
-                                                                         errorDict['message']))
+                                                                                  errorDict['message']))
             while resultTotal > 0 and pageSizeCount < resultTotal:
                 url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                        vcdConstants.PROVIDER_VDC, pageNo, 25)
+                                                                     vcdConstants.PROVIDER_VDC, pageNo, 25)
                 getSession(self)
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
@@ -963,7 +975,8 @@ class VCDMigrationValidation:
         try:
             logger.debug("Getting Provider VDC {} id".format(pvdcName))
             # url to get details of the all provider vdcs
-            url = "{}{}?sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.PROVIDER_VDC)
+            url = "{}{}?sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                             vcdConstants.PROVIDER_VDC)
             # get api call to retrieve the all provider vdc details
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
@@ -975,10 +988,10 @@ class VCDMigrationValidation:
             else:
                 errorDict = response.json()
                 raise Exception("Failed to get Provider VDC {} details {}".format(pvdcName,
-                                                                         errorDict['message']))
+                                                                                  errorDict['message']))
             while resultTotal > 0 and pageSizeCount < resultTotal:
                 url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                        vcdConstants.PROVIDER_VDC, pageNo, 25)
+                                                                     vcdConstants.PROVIDER_VDC, pageNo, 25)
                 getSession(self)
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
@@ -1032,7 +1045,8 @@ class VCDMigrationValidation:
                     data[key] = responseDict['ProviderVdc']['Capabilities']
                 data[key] = responseDict['ProviderVdc']
                 self.thread.releaseLock()
-                logger.debug("Provider VDC {} details retrieved successfully".format(responseDict['ProviderVdc']['@name']))
+                logger.debug(
+                    "Provider VDC {} details retrieved successfully".format(responseDict['ProviderVdc']['@name']))
                 if not isNSXTbacked:
                     # warning the user that source pvdc is disabled which may break rollback
                     if responseDict['ProviderVdc']['IsEnabled'] == "false":
@@ -1067,7 +1081,7 @@ class VCDMigrationValidation:
                 if orgVDCEntityList:
                     # getting list of source vapps
                     sourceVappList = [vAppEntity for vAppEntity in orgVDCEntityList if
-                                    vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
+                                      vAppEntity['@type'] == vcdConstants.TYPE_VAPP]
                     return sourceVappList
             else:
                 return []
@@ -1085,12 +1099,13 @@ class VCDMigrationValidation:
                                 vcdConstants.NSX_MANAGERS)
             response = self.restClientObj.get(url, self.headers)
             responseDict = self.vcdUtils.parseXml(response.content)
-            allNsxtManager = responseDict['NsxTManagers']['NsxTManager'] if isinstance(responseDict['NsxTManagers']['NsxTManager'], list) else [responseDict['NsxTManagers']['NsxTManager']]
+            allNsxtManager = responseDict['NsxTManagers']['NsxTManager'] if isinstance(
+                responseDict['NsxTManagers']['NsxTManager'], list) else [responseDict['NsxTManagers']['NsxTManager']]
 
             for eachNsxManager in allNsxtManager:
                 # Match hostname with NSXT URL if FQDN is provided in the input file else check for ip address
                 if (re.search('[a-zA-z]+', nsxIpAddress) and
-                    nsxIpAddress.split('.')[0] in eachNsxManager['Url'])\
+                    nsxIpAddress.split('.')[0] in eachNsxManager['Url']) \
                         or nsxIpAddress in eachNsxManager['Url']:
                     # Network provider scope to be used for data center group creation for DFW migration
                     self.networkProviderScope = eachNsxManager.get('NetworkProviderScope')
@@ -1099,7 +1114,8 @@ class VCDMigrationValidation:
                     self.nsxManagerId = eachNsxManager['@id']
                     return
             else:
-                raise Exception('Incorrect NSX-T IP Address in input file. Please check if the NSX-T IP Address matches the one in NSXT-Managers in vCD')
+                raise Exception(
+                    'Incorrect NSX-T IP Address in input file. Please check if the NSX-T IP Address matches the one in NSXT-Managers in vCD')
         except Exception:
             raise
 
@@ -1128,21 +1144,28 @@ class VCDMigrationValidation:
                     # checking for the networks present in the vapp
                     if vAppData.get('NetworkConfigSection'):
                         if vAppData['NetworkConfigSection'].get('NetworkConfig'):
-                            networksInvApp = vAppData['NetworkConfigSection']['NetworkConfig'] if isinstance(vAppData['NetworkConfigSection']['NetworkConfig'], list) else [vAppData['NetworkConfigSection']['NetworkConfig']]
+                            networksInvApp = vAppData['NetworkConfigSection']['NetworkConfig'] if isinstance(
+                                vAppData['NetworkConfigSection']['NetworkConfig'], list) else [
+                                vAppData['NetworkConfigSection']['NetworkConfig']]
                             # iterating over the networks present in vapp(example:- vapp networks, org vdc networks, etc)
                             for network in networksInvApp:
                                 # checking if the network is org vdc network(i.e if network's name and its parent network name is same means the network is org vdc network)
                                 # here our interest networks are only org vdc networks present in vapp
-                                if network['Configuration'].get('ParentNetwork') and network['@networkName'] == network['Configuration']['ParentNetwork']['@name']:
-                                    if network['Configuration'].get('Features') and network['Configuration']['Features'].get('FirewallService'):
+                                if network['Configuration'].get('ParentNetwork') and network['@networkName'] == \
+                                        network['Configuration']['ParentNetwork']['@name']:
+                                    if network['Configuration'].get('Features') and network['Configuration'][
+                                        'Features'].get('FirewallService'):
                                         # since FirewallService is enabled on org vdc networks if fence mode is enabled, checking if ['FirewallService']['IsEnabled'] attribute is true
-                                        if network['Configuration']['Features']['FirewallService']['IsEnabled'] == 'true':
+                                        if network['Configuration']['Features']['FirewallService'][
+                                            'IsEnabled'] == 'true':
                                             # adding the vapp name in the vAppFencingList to raise the exception
                                             vAppFencingList.append(eachVapp['@name'])
                                             # this will logged number of times equal to org vdc networks present in vapp before enabling the fence mode
-                                            logger.debug("Fence mode is enabled on vApp: '{}'".format(eachVapp['@name']))
+                                            logger.debug(
+                                                "Fence mode is enabled on vApp: '{}'".format(eachVapp['@name']))
                 else:
-                    raise Exception('Error occurred while retrieving fencing details due to {}'.format(responseDict['error']['@message']))
+                    raise Exception('Error occurred while retrieving fencing details due to {}'.format(
+                        responseDict['error']['@message']))
             if vAppFencingList:
                 raise ValidationError('Fencing mode is enabled on vApp: {}'.format(', '.join(set(vAppFencingList))))
             else:
@@ -1313,14 +1336,16 @@ class VCDMigrationValidation:
             response = self.restClientObj.get(url, self.headers)
             responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
-                data['sourceOrgVDCComputePolicyList'] = responseDict['VdcComputePolicyReferences']['VdcComputePolicyReference']
+                data['sourceOrgVDCComputePolicyList'] = responseDict['VdcComputePolicyReferences'][
+                    'VdcComputePolicyReference']
             sourceOrgVDCName = data['sourceOrgVDC']['@name']
             targetProviderVDCName = data['targetProviderVDC']['@name']
             targetProviderVDCId = data['targetProviderVDC']['@id']
             sourcePolicyList = data['sourceOrgVDCComputePolicyList']
             sourceComputePolicyList = [sourcePolicyList] if isinstance(sourcePolicyList, dict) else sourcePolicyList
             allOrgVDCComputePolicesList = self.getOrgVDCComputePolicies()
-            orgVDCComputePolicesList = [allOrgVDCComputePolicesList] if isinstance(allOrgVDCComputePolicesList, dict) else allOrgVDCComputePolicesList
+            orgVDCComputePolicesList = [allOrgVDCComputePolicesList] if isinstance(allOrgVDCComputePolicesList,
+                                                                                   dict) else allOrgVDCComputePolicesList
             targetTemporaryList = []
             # iterating over the org vdc compute policies
             for eachComputePolicy in orgVDCComputePolicesList:
@@ -1334,7 +1359,8 @@ class VCDMigrationValidation:
                             if response.status_code == requests.codes.ok:
                                 responseDict = response.json()
                             else:
-                                raise Exception("Failed to retrieve ComputePolicy with error {}".format(responseDict["message"]))
+                                raise Exception(
+                                    "Failed to retrieve ComputePolicy with error {}".format(responseDict["message"]))
                             if responseDict['pvdcComputePolicy'] == eachComputePolicy['pvdcComputePolicy']:
                                 # handling the multiple occurrences of same policy, but adding the policy just once in the  list 'targetPVDCComputePolicyList'
                                 if eachComputePolicy['name'] not in targetTemporaryList:
@@ -1342,7 +1368,8 @@ class VCDMigrationValidation:
                                     targetPVDCComputePolicyList.append(eachComputePolicy)
 
             # creating list of source org vdc compute policies excluding system default
-            sourceOrgVDCComputePolicyList = [sourceComputePolicy for sourceComputePolicy in sourceComputePolicyList if sourceComputePolicy['@name'] != 'System Default']
+            sourceOrgVDCComputePolicyList = [sourceComputePolicy for sourceComputePolicy in sourceComputePolicyList if
+                                             sourceComputePolicy['@name'] != 'System Default']
             sourceOrgVDCPlacementPolicyList = []
             sourceTemporaryList = []
             # iterating over source org vdc compute policies
@@ -1360,9 +1387,10 @@ class VCDMigrationValidation:
             del targetTemporaryList
             del sourceTemporaryList
             if len(sourceOrgVDCPlacementPolicyList) != len(targetPVDCComputePolicyList):
-                raise Exception('Target PVDC - {} does not have source Org VDC - {} placement policies in it.'.format(targetProviderVDCName,
-                                                                                                                     sourceOrgVDCName))
-            if len(sourceOrgVDCPlacementPolicyList)>0:
+                raise Exception('Target PVDC - {} does not have source Org VDC - {} placement policies in it.'.format(
+                    targetProviderVDCName,
+                    sourceOrgVDCName))
+            if len(sourceOrgVDCPlacementPolicyList) > 0:
                 logger.debug("Validated successfully, source Org VDC placement policy exist in target PVDC")
             else:
                 logger.debug("No placement policies are present in source Org VDC")
@@ -1379,9 +1407,15 @@ class VCDMigrationValidation:
             data = self.rollback.apiData
             errorList = list()
             # retrieving source org vdc storage profiles
-            sourceOrgVDCStorageProfile = [data['sourceOrgVDC']['VdcStorageProfiles']['VdcStorageProfile']] if isinstance(data['sourceOrgVDC']['VdcStorageProfiles']['VdcStorageProfile'], dict) else data['sourceOrgVDC']['VdcStorageProfiles']['VdcStorageProfile']
+            sourceOrgVDCStorageProfile = [
+                data['sourceOrgVDC']['VdcStorageProfiles']['VdcStorageProfile']] if isinstance(
+                data['sourceOrgVDC']['VdcStorageProfiles']['VdcStorageProfile'], dict) else \
+            data['sourceOrgVDC']['VdcStorageProfiles']['VdcStorageProfile']
             # retrieving target provider vdc storage profiles
-            targetPVDCStorageProfile = [data['targetProviderVDC']['StorageProfiles']['ProviderVdcStorageProfile']] if isinstance(data['targetProviderVDC']['StorageProfiles']['ProviderVdcStorageProfile'], dict) else data['targetProviderVDC']['StorageProfiles']['ProviderVdcStorageProfile']
+            targetPVDCStorageProfile = [
+                data['targetProviderVDC']['StorageProfiles']['ProviderVdcStorageProfile']] if isinstance(
+                data['targetProviderVDC']['StorageProfiles']['ProviderVdcStorageProfile'], dict) else \
+            data['targetProviderVDC']['StorageProfiles']['ProviderVdcStorageProfile']
             # creating list of source org vdc storage profiles found in target provider vdc
             storagePoliciesFound = [sourceDict for sourceDict in sourceOrgVDCStorageProfile for targetDict in
                                     targetPVDCStorageProfile if sourceDict['@name'] == targetDict['@name']]
@@ -1391,7 +1425,10 @@ class VCDMigrationValidation:
                 errorList.append("Storage profiles in Target PVDC should be same as those in Source Org VDC")
 
             # retrieving the storage profiles of the target provider vdc
-            targetStorageProfiles = self.rollback.apiData['targetProviderVDC']['StorageProfiles']['ProviderVdcStorageProfile'] if isinstance(self.rollback.apiData['targetProviderVDC']['StorageProfiles']['ProviderVdcStorageProfile'], list) else [self.rollback.apiData['targetProviderVDC']['StorageProfiles']['ProviderVdcStorageProfile']]
+            targetStorageProfiles = self.rollback.apiData['targetProviderVDC']['StorageProfiles'][
+                'ProviderVdcStorageProfile'] if isinstance(
+                self.rollback.apiData['targetProviderVDC']['StorageProfiles']['ProviderVdcStorageProfile'], list) else [
+                self.rollback.apiData['targetProviderVDC']['StorageProfiles']['ProviderVdcStorageProfile']]
 
             # list to hold the disabled storage profiles in target PVDC which are from source org vdc
             targetPVDCDisabledStorageProfiles = []
@@ -1407,19 +1444,24 @@ class VCDMigrationValidation:
                             if getResponseDict['ProviderVdcStorageProfile']['Enabled'] == "false":
                                 targetPVDCDisabledStorageProfiles.append(storageProfile['@name'])
                         else:
-                            raise Exception("Failed to retrieve target provider vdc storage profile '{}' information".format(targetStorageProfile['@name']))
+                            raise Exception(
+                                "Failed to retrieve target provider vdc storage profile '{}' information".format(
+                                    targetStorageProfile['@name']))
                         break
 
             # if targetPVDCDisabledStorageProfiles is not empty then appending the error message in errorList
             if targetPVDCDisabledStorageProfiles:
-                errorList.append("Storage profiles '{}' disabled on target Provider VDC".format(', '.join(targetPVDCDisabledStorageProfiles)))
+                errorList.append("Storage profiles '{}' disabled on target Provider VDC".format(
+                    ', '.join(targetPVDCDisabledStorageProfiles)))
 
             # if errorList is not empty then raising all the exception present in the list
             if errorList:
                 raise Exception('\n'.join(errorList))
             else:
-                logger.debug("Validated successfully, storage Profiles in target PVDC are same as those of source Org VDC")
-                logger.debug("Validated successfully, source org vdc storage profiles are all enabled in target provider vdc")
+                logger.debug(
+                    "Validated successfully, storage Profiles in target PVDC are same as those of source Org VDC")
+                logger.debug(
+                    "Validated successfully, source org vdc storage profiles are all enabled in target provider vdc")
 
         except Exception:
             raise
@@ -1556,10 +1598,12 @@ class VCDMigrationValidation:
             responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
                 data = self.rollback.apiData
-                data['sourceVMAffinityRules'] = responseDict['VmAffinityRules']['VmAffinityRule'] if responseDict['VmAffinityRules'].get('VmAffinityRule', None) else {}
+                data['sourceVMAffinityRules'] = responseDict['VmAffinityRules']['VmAffinityRule'] if responseDict[
+                    'VmAffinityRules'].get('VmAffinityRule', None) else {}
                 logger.debug("Retrieved Source Org VDC affinity rules Successfully")
             else:
-                raise Exception("Failed to retrieve VM Affinity rules of source Org VDC due to {}".format(responseDict['Error']['@message']))
+                raise Exception("Failed to retrieve VM Affinity rules of source Org VDC due to {}".format(
+                    responseDict['Error']['@message']))
         except Exception:
             raise
 
@@ -1591,7 +1635,7 @@ class VCDMigrationValidation:
         return sourceEdgeGatewayIdList
 
     @isSessionExpired
-    def getEdgeGatewayAdminApiDetails(self, edgeGatewayId, staticRouteDetails = None, returnDefaultGateway = False):
+    def getEdgeGatewayAdminApiDetails(self, edgeGatewayId, staticRouteDetails=None, returnDefaultGateway=False):
         """
             Description :   Get details of edge gateway from admin API
             Parameters  :   edgeGatewayId   -   Edge Gateway ID  (STRING)
@@ -1600,7 +1644,7 @@ class VCDMigrationValidation:
             Returns     :   Details of edge gateway
         """
         try:
-            defaultGatewayDict= dict()
+            defaultGatewayDict = dict()
             noSnatList = list()
             allnonDefaultGatewaySubnetList = list()
             logger.debug('Getting Edge Gateway Admin API details')
@@ -1626,7 +1670,8 @@ class VCDMigrationValidation:
                             # if ip range is not present assign ip address as ipRange
                             elif eachSubnetParticipant['ipRanges'] is None:
                                 defaultGatewayDict['ipRanges'].append('{}-{}'.format(eachSubnetParticipant['ipAddress'],
-                                                                                     eachSubnetParticipant['ipAddress']))
+                                                                                     eachSubnetParticipant[
+                                                                                         'ipAddress']))
                             else:
                                 return ['Failed to get default gateway sub allocated IPs\n']
                         else:
@@ -1798,8 +1843,8 @@ class VCDMigrationValidation:
                 logger.debug('Getting Org VDC Networks')
                 while resultTotal > 0 and pageSizeCount < resultTotal:
                     url = urlForNetworksPagenation.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                            vcdConstants.ALL_ORG_VDC_NETWORKS, pageNo,
-                                                            15, key, orgVDCId)
+                                                          vcdConstants.ALL_ORG_VDC_NETWORKS, pageNo,
+                                                          15, key, orgVDCId)
                     getSession(self)
                     response = self.restClientObj.get(url, self.headers)
                     if response.status_code == requests.codes.ok:
@@ -1811,7 +1856,8 @@ class VCDMigrationValidation:
                         resultTotal = responseDict['resultTotal']
                     else:
                         responseDict = response.json()
-                        raise Exception('Failed to get Org VDC network details due to: {}'.format(responseDict['message']))
+                        raise Exception(
+                            'Failed to get Org VDC network details due to: {}'.format(responseDict['message']))
                 logger.debug('Total Org VDC Networks result count = {}'.format(len(resultList)))
                 logger.debug('All Org VDC Networks successfully retrieved')
 
@@ -1864,13 +1910,16 @@ class VCDMigrationValidation:
                                             tempDhcpPoolList.append(eachDhcpPool)
                                     responseDict['dhcpPools'] = tempDhcpPoolList
                                 else:
-                                    logger.warning("DHCP pools not present on OrgVDC Network: {}".format(orgVDCNetwork['name']))
+                                    logger.warning(
+                                        "DHCP pools not present on OrgVDC Network: {}".format(orgVDCNetwork['name']))
                         else:
                             raise Exception('Unable to getOrgVDC Network DHCP configuration')
                         eachOrgVDCNetworkDict[orgVDCNetwork['name']] = responseDict
                         allOrgVDCNetworkDHCPList.append(eachOrgVDCNetworkDict)
                     if disabledDhcpPools is True:
-                        logger.warning("DHCP pools in OrgVDC network: {} are in disabled state and will not be migrated to target".format(orgVDCNetwork['name']))
+                        logger.warning(
+                            "DHCP pools in OrgVDC network: {} are in disabled state and will not be migrated to target".format(
+                                orgVDCNetwork['name']))
                 self.rollback.apiData['OrgVDCIsolatedNetworkDHCP'] = allOrgVDCNetworkDHCPList
             else:
                 self.rollback.apiData['OrgVDCIsolatedNetworkDHCP'] = allOrgVDCNetworkDHCPList
@@ -1920,7 +1969,7 @@ class VCDMigrationValidation:
 
                     totalIpCount = sourceOrgVDCNetwork['subnets']['values'][0]['totalIpCount']
                     usedIpCount = sourceOrgVDCNetwork['subnets']['values'][0]['usedIpCount']
-                    if ipRanges and not(usedIpCount < totalIpCount):
+                    if ipRanges and not (usedIpCount < totalIpCount):
                         networksWithoutFreeIpInStaticIpPool.append(sourceOrgVDCNetwork['name'])
             if networksWithoutStaticIpPool:
                 errorList.append(
@@ -1937,7 +1986,8 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def validateDHCPEnabledonIsolatedVdcNetworks(self, orgVdcNetworkList, edgeGatewayList, edgeGatewayDeploymentEdgeCluster, nsxtObj):
+    def validateDHCPEnabledonIsolatedVdcNetworks(self, orgVdcNetworkList, edgeGatewayList,
+                                                 edgeGatewayDeploymentEdgeCluster, nsxtObj):
         """
         Description : Validate that DHCP is not enabled on isolated Org VDC Network
         Parameters  : orgVdcNetworkList - Org VDC's network list for a specific Org VDC (LIST)
@@ -1951,7 +2001,8 @@ class VCDMigrationValidation:
                 if orgVdcNetwork['networkType'] == 'ISOLATED':
                     url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                            vcdConstants.ALL_ORG_VDC_NETWORKS,
-                                           vcdConstants.DHCP_ENABLED_FOR_ORG_VDC_NETWORK_BY_ID.format(orgVdcNetwork['id']))
+                                           vcdConstants.DHCP_ENABLED_FOR_ORG_VDC_NETWORK_BY_ID.format(
+                                               orgVdcNetwork['id']))
                     # get api call to retrieve org vdc networks on which dhcp is enabled
                     response = self.restClientObj.get(url, self.headers)
                     if response.status_code == requests.codes.ok:
@@ -1961,10 +2012,13 @@ class VCDMigrationValidation:
                             DHCPEnabledList.append(orgVdcNetwork['name'])
                             if len(edgeGatewayList) == 0:
                                 if edgeGatewayDeploymentEdgeCluster is not None:
-                                    logger.debug("DHCP is enabled on source Isolated Org VDC Network. But source edge gateway is not present.Checking edgeGatewayDeploymentEdgeCluster")
-                                    self.validateEdgeGatewayDeploymentEdgeCluster(edgeGatewayDeploymentEdgeCluster, nsxtObj)
+                                    logger.debug(
+                                        "DHCP is enabled on source Isolated Org VDC Network. But source edge gateway is not present.Checking edgeGatewayDeploymentEdgeCluster")
+                                    self.validateEdgeGatewayDeploymentEdgeCluster(edgeGatewayDeploymentEdgeCluster,
+                                                                                  nsxtObj)
                                 else:
-                                    raise Exception("DHCP is enabled on source Isolated Org VDC Network, but neither Source EdgeGateway is present nor 'EdgeGatewayDeploymentEdgeCluster' is provided in the input file.")
+                                    raise Exception(
+                                        "DHCP is enabled on source Isolated Org VDC Network, but neither Source EdgeGateway is present nor 'EdgeGatewayDeploymentEdgeCluster' is provided in the input file.")
                         else:
                             logger.debug("Validated Successfully, DHCP is not enabled on Isolated Org VDC Network.")
                     else:
@@ -1976,7 +2030,8 @@ class VCDMigrationValidation:
 
             if (DHCPEnabledList and float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS)):
                 raise Exception(
-                    "DHCP is not supported with API version 34.0 but is enabled on source Isolated Org VDC Network - {}".format(','.join(DHCPEnabledList))
+                    "DHCP is not supported with API version 34.0 but is enabled on source Isolated Org VDC Network - {}".format(
+                        ','.join(DHCPEnabledList))
                 )
         except Exception:
             raise
@@ -1994,12 +2049,14 @@ class VCDMigrationValidation:
 
             # iterating over the org vdc networks
             orgVdcNetworkSharedList = list()
-            for orgVdcNetwork in self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False, sharedNetwork=True):
+            for orgVdcNetwork in self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False,
+                                                        sharedNetwork=True):
                 # checking only for isolated Org VDC Network
                 if bool(orgVdcNetwork['shared']):
                     orgVdcNetworkSharedList.append(orgVdcNetwork['name'])
             if orgVdcNetworkSharedList:
-                raise Exception("Org VDC Network {} is a shared network. No shared networks should exist.".format(','.join(orgVdcNetworkSharedList)))
+                raise Exception("Org VDC Network {} is a shared network. No shared networks should exist.".format(
+                    ','.join(orgVdcNetworkSharedList)))
             else:
                 logger.debug("Validated Successfully, No Source Org VDC Networks are shared")
         except Exception:
@@ -2018,7 +2075,8 @@ class VCDMigrationValidation:
             for orgVdcNetwork in orgVdcNetworkList:
                 if orgVdcNetwork['networkType'] == 'DIRECT':
                     parentNetworkId = orgVdcNetwork['parentNetworkId']
-                    networkName, exception = self.validateExternalNetworkdvpg(parentNetworkId, vdcDict, orgVdcNetwork['name'], orgVdcNetwork)
+                    networkName, exception = self.validateExternalNetworkdvpg(parentNetworkId, vdcDict,
+                                                                              orgVdcNetwork['name'], orgVdcNetwork)
                     if networkName:
                         orgVdcNetworkDirectList.append(networkName)
                     if exception:
@@ -2029,7 +2087,9 @@ class VCDMigrationValidation:
                 if exception:
                     errorlist.append(exception)
             if orgVdcNetworkDirectList and float(self.version) <= float(vcdConstants.API_VERSION_ZEUS):
-                raise Exception("Direct network {} exist in source Org VDC. Direct networks can't be migrated to target Org VDC".format(','.join(orgVdcNetworkDirectList)))
+                raise Exception(
+                    "Direct network {} exist in source Org VDC. Direct networks can't be migrated to target Org VDC".format(
+                        ','.join(orgVdcNetworkDirectList)))
             elif float(self.version) <= float(vcdConstants.API_VERSION_ZEUS):
                 logger.debug("Validated Successfully, No direct networks exist in Source Org VDC")
             if errorlist:
@@ -2070,7 +2130,7 @@ class VCDMigrationValidation:
             logger.debug('Getting details of Application services group')
             orgVdcIdStr = orgVdcId.split(':')[-1]
             url = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
-                            vcdConstants.GET_APPLICATION_SERVICE_GROUPS.format(orgVdcIdStr))
+                                vcdConstants.GET_APPLICATION_SERVICE_GROUPS.format(orgVdcIdStr))
             response = self.restClientObj.get(url, self.headers)
             responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
@@ -2098,7 +2158,7 @@ class VCDMigrationValidation:
 
                 # Filtering networks connected to edge gateway
                 networkList = list(filter(lambda network: network.get('connection') and
-                                          network.get('connection', {}).get('routerRef', {})
+                                                          network.get('connection', {}).get('routerRef', {})
                                           .get('id') == sourceEdgeGatewayId and network
                                           .get('networkType') == 'NAT_ROUTED', sourceOrgVDCNetworks))
                 url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
@@ -2111,12 +2171,15 @@ class VCDMigrationValidation:
                 if response.status_code == requests.codes.ok:
                     gatewayInterfaces = responseDict['configuration']['gatewayInterfaces']['gatewayInterface']
                     if len(gatewayInterfaces) > 9 and not networkList:
-                        errorList.append(f"No more uplinks present on source Edge Gateway {responseDict['name']} to connect dummy External Uplink")
+                        errorList.append(
+                            f"No more uplinks present on source Edge Gateway {responseDict['name']} to connect dummy External Uplink")
                     # checking whether source edge gateway has rate limit configured
 
-                    rateLimitEnabledInterfaces = [interface for interface in gatewayInterfaces if interface['applyRateLimit']]
+                    rateLimitEnabledInterfaces = [interface for interface in gatewayInterfaces if
+                                                  interface['applyRateLimit']]
                     for rateLimitEnabledInterface in rateLimitEnabledInterfaces:
-                        logger.info(f"Validating whether source Org VDC Edge Gateway {responseDict['name']} has rate limit configured")
+                        logger.info(
+                            f"Validating whether source Org VDC Edge Gateway {responseDict['name']} has rate limit configured")
                         if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
                             if preCheck:
                                 errorList.append(f"The source OrgVDC EdgeGateway {responseDict['name']} has rate limit "
@@ -2153,7 +2216,7 @@ class VCDMigrationValidation:
             # get layer3 services on source
             allAppServices = self.getApplicationServicesDetails(orgVdcId)
 
-            #get all layer3 servicesBGP service is disabled
+            # get all layer3 servicesBGP service is disabled
             for eachAppService in allAppServices:
                 if eachAppService['layer'] == 'layer3':
                     layer3AppServicesList.append(eachAppService['name'])
@@ -2170,18 +2233,21 @@ class VCDMigrationValidation:
                 allSources = allDestinations = list()
 
                 if eachRule.get('sources'):
-                    allSources = eachRule['sources']['source'] if isinstance(eachRule['sources']['source'], list) else [eachRule['sources']['source']]
+                    allSources = eachRule['sources']['source'] if isinstance(eachRule['sources']['source'], list) else [
+                        eachRule['sources']['source']]
                 if eachRule.get('destinations'):
-                    allDestinations = eachRule['destinations']['destination'] if isinstance(eachRule['destinations']['destination'], list) else [eachRule['destinations']['destination']]
+                    allDestinations = eachRule['destinations']['destination'] if isinstance(
+                        eachRule['destinations']['destination'], list) else [eachRule['destinations']['destination']]
 
-                for eachObject in allSources+allDestinations:
+                for eachObject in allSources + allDestinations:
                     if v2tAssessment or float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA):
                         if eachObject['type'] not in vcdConstants.DISTRIBUTED_FIREWALL_OBJECT_LIST_ANDROMEDA:
                             InvalidRuleDict[eachRule['name']].add(eachObject['type'])
                         elif eachObject['type'] == 'SecurityGroup':
                             errors = self.validateSecurityGroupObject(allSecurityGroups[eachObject['value']])
                             if errors:
-                                InvalidSecurityGroupDict[eachRule['name']].add(f"{allSecurityGroups[eachObject['value']]['name']}")
+                                InvalidSecurityGroupDict[eachRule['name']].add(
+                                    f"{allSecurityGroups[eachObject['value']]['name']}")
                                 if isinstance(errors, list):
                                     securityGroupErrors.extend(errors)
 
@@ -2197,7 +2263,8 @@ class VCDMigrationValidation:
                         withAppFlag = bool()
                         if eachRuleService.get('name'):
                             if eachRuleService['name'] in serviceGroupsList:
-                                InvalidRuleDict[eachRule['name']].add('{}: {}'.format(eachRuleService['name'], 'is a service group'))
+                                InvalidRuleDict[eachRule['name']].add(
+                                    '{}: {}'.format(eachRuleService['name'], 'is a service group'))
                                 continue
                             if eachRuleService['name'] not in layer3AppServicesList:
                                 if eachRuleService['name'].startswith('APP_'):
@@ -2210,9 +2277,11 @@ class VCDMigrationValidation:
                                     # compare service name with names of all L7 service
                                     if eachRuleService['name'] not in allNetworkContextProfilesDict.keys():
                                         if withAppFlag is True:
-                                            InvalidRuleDict[eachRule['name']].add('{}{}: {}'.format('APP_', eachRuleService['name'], 'not present'))
+                                            InvalidRuleDict[eachRule['name']].add(
+                                                '{}{}: {}'.format('APP_', eachRuleService['name'], 'not present'))
                                         else:
-                                            InvalidRuleDict[eachRule['name']].add('{}: {}'.format(eachRuleService['name'], 'not present'))
+                                            InvalidRuleDict[eachRule['name']].add(
+                                                '{}: {}'.format(eachRuleService['name'], 'not present'))
                                     else:
                                         l7ServiceCnt += 1
                             else:
@@ -2220,7 +2289,8 @@ class VCDMigrationValidation:
                         else:
                             if eachRuleService['protocolName'] == 'TCP' or eachRuleService['protocolName'] == 'UDP':
                                 if not eachRuleService.get('sourcePort') or not eachRuleService.get('destinationPort'):
-                                    InvalidRuleDict[eachRule['name']].add("{}:{}".format(eachRuleService['protocolName'], 'Any'))
+                                    InvalidRuleDict[eachRule['name']].add(
+                                        "{}:{}".format(eachRuleService['protocolName'], 'Any'))
                                 else:
                                     l3ServiceCnt += 1
                         # if l3ServiceCnt >= 1 and l7ServiceCnt > 1:
@@ -2271,15 +2341,16 @@ class VCDMigrationValidation:
                 else [securityGroup['dynamicMemberDefinition']['dynamicSet']])
 
             for setId, dynset in enumerate(dynamicSets):
-                setId = setId+1
+                setId = setId + 1
                 criteriaPrefix = f"Security Group ({securityGroup['name']}) - Criteria ({setId}):"
                 if dynset['operator'] == 'AND':
                     errors.append(f"{criteriaPrefix} 'AND' operation is not supported")
 
-                dynamicCriteria = dynset['dynamicCriteria'] if isinstance(dynset['dynamicCriteria'], list) else [dynset['dynamicCriteria']]
+                dynamicCriteria = dynset['dynamicCriteria'] if isinstance(dynset['dynamicCriteria'], list) else [
+                    dynset['dynamicCriteria']]
                 hasOR = False
                 for ruleId, rule in enumerate(dynamicCriteria):
-                    ruleId = ruleId+1
+                    ruleId = ruleId + 1
                     rulePrefix = f"Security Group ({securityGroup['name']}) - Criteria ({setId}) - Rule ({ruleId}):"
                     if rule['operator'] == 'OR':
                         hasOR = True
@@ -2291,7 +2362,7 @@ class VCDMigrationValidation:
                         errors.append(
                             f"{rulePrefix} {rule['criteria']} is not supported with {rule['key']}")
                     elif rule['key'] == 'VM.SECURITY_TAG' and rule['criteria'] not in [
-                            'contains', 'starts_with', 'ends_with']:
+                        'contains', 'starts_with', 'ends_with']:
                         errors.append(
                             f"{rulePrefix} {rule['criteria']} is not supported with {rule['key']}")
 
@@ -2321,7 +2392,9 @@ class VCDMigrationValidation:
             nsxtManagerId = self.getNsxtManagerId(tpvdcName)
 
             while True:
-                url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),'networkContextProfiles?page={}&pageSize=25&filter=_context=={}&sortAsc=name'.format(str(pageNo), nsxtManagerId))
+                url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                    'networkContextProfiles?page={}&pageSize=25&filter=_context=={}&sortAsc=name'.format(
+                                        str(pageNo), nsxtManagerId))
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
@@ -2336,7 +2409,7 @@ class VCDMigrationValidation:
                     logger.error('Failed to get Network  context profiles')
             return allNetContextProfiles
         except Exception:
-             raise
+            raise
 
     @isSessionExpired
     def getApplicationServicesDetails(self, orgVdcId):
@@ -2350,7 +2423,7 @@ class VCDMigrationValidation:
             logger.debug('Getting details of Application services')
             orgVdcIdStr = orgVdcId.split(':')[-1]
             url = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
-                            vcdConstants.GET_APPLICATION_SERVICES.format(orgVdcIdStr))
+                                vcdConstants.GET_APPLICATION_SERVICES.format(orgVdcIdStr))
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
                 responseDict = self.vcdUtils.parseXml(response.content)
@@ -2363,7 +2436,8 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getDistributedFirewallConfig(self, orgVdcId=None, validation=False, validateRules=True, v2tAssessmentMode=False):
+    def getDistributedFirewallConfig(self, orgVdcId=None, validation=False, validateRules=True,
+                                     v2tAssessmentMode=False):
         """
             Description :   Get DFW configuration
             Parameters  :   orgVdcId   -   OrgVDC ID  (STRING)
@@ -2378,7 +2452,7 @@ class VCDMigrationValidation:
             orgVdcId = orgVdcId or self.rollback.apiData['sourceOrgVDC']['@id']
             orgVdcIdStr = orgVdcId.split(':')[-1]
             url = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
-                            vcdConstants.GET_DISTRIBUTED_FIREWALL.format(orgVdcIdStr))
+                                vcdConstants.GET_DISTRIBUTED_FIREWALL.format(orgVdcIdStr))
             response = self.restClientObj.get(url, self.headers)
             responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
@@ -2405,13 +2479,15 @@ class VCDMigrationValidation:
                         # get all the id's of conflict networks
                         conflictIDs = self.networkConflictValidation(orgVdcId)
                         # get the exception if a conflict network is used in DFW
-                        conflictNetworks = self.validatingDFWobjects(orgVdcId, allLayer3Rules, conflictIDs, allSecurityGroups)
+                        conflictNetworks = self.validatingDFWobjects(orgVdcId, allLayer3Rules, conflictIDs,
+                                                                     allSecurityGroups)
                         # adding the the exception to the list
                         allErrorList.extend(conflictNetworks)
 
                 if responseDict['firewallConfiguration']['layer2Sections']['section'].get('rule'):
-                    if isinstance(responseDict['firewallConfiguration']['layer2Sections']['section']['rule'], dict) and\
-                            responseDict['firewallConfiguration']['layer2Sections']['section']['rule']['name'] == 'Default Allow Rule':
+                    if isinstance(responseDict['firewallConfiguration']['layer2Sections']['section']['rule'], dict) and \
+                            responseDict['firewallConfiguration']['layer2Sections']['section']['rule'][
+                                'name'] == 'Default Allow Rule':
                         logger.debug('Default layer2 rule present')
                     else:
                         allErrorList.append('Layer2 rule present in distributed firewall')
@@ -2492,7 +2568,8 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getEdgeGatewayServices(self, nsxtObj=None, nsxvObj=None, noSnatDestSubnetAddr=None, preCheckMode=False, v2tAssessmentMode=False):
+    def getEdgeGatewayServices(self, nsxtObj=None, nsxvObj=None, noSnatDestSubnetAddr=None, preCheckMode=False,
+                               v2tAssessmentMode=False):
         """
         Description :   Gets the Edge gateway services Configuration details
         Parameters  :   nsxtObj - nsxtOperations class object
@@ -2505,9 +2582,10 @@ class VCDMigrationValidation:
             # Handle condition if NSX-IP if different than the one registered in vCD
             if not v2tAssessmentMode and not self.nsxVersion and self.rollback.apiData['sourceEdgeGateway']:
                 raise Exception('Incorrect NSX-T IP Address in input file. '
-                        'Please check if the NSX-T IP Address matches the one in NSXT-Managers in vCD')
+                                'Please check if the NSX-T IP Address matches the one in NSXT-Managers in vCD')
 
-            if not v2tAssessmentMode and 'targetExternalNetwork' not in self.rollback.apiData.keys() and self.rollback.apiData['sourceEdgeGateway']:
+            if not v2tAssessmentMode and 'targetExternalNetwork' not in self.rollback.apiData.keys() and \
+                    self.rollback.apiData['sourceEdgeGateway']:
                 raise Exception('Target External Network not present')
 
             errorData = {'DHCP': [],
@@ -2522,7 +2600,7 @@ class VCDMigrationValidation:
                          'DNS': [],
                          'Syslog': [],
                          'SSH': [],
-                         'GRETUNNEL' : []}
+                         'GRETUNNEL': []}
             self.rollback.apiData['sourceEdgeGatewayDHCP'] = {}
             if not self.rollback.apiData.get('ipsecConfigDict'):
                 self.rollback.apiData['ipsecConfigDict'] = {}
@@ -2540,7 +2618,8 @@ class VCDMigrationValidation:
                 self.thread.spawnThread(self.getEdgeGatewayDhcpConfig, gatewayId, v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the dhcp relay config details of specified edge gateway
-                self.thread.spawnThread(self.getDhcpRelayForNonDR, gatewayId, gatewayName, v2tAssessmentMode=v2tAssessmentMode)
+                self.thread.spawnThread(self.getDhcpRelayForNonDR, gatewayId, gatewayName,
+                                        v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the firewall config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewayFirewallConfig, gatewayId)
@@ -2554,13 +2633,15 @@ class VCDMigrationValidation:
                     v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the bgp config details of specified edge gateway
-                self.thread.spawnThread(self.getEdgegatewayBGPconfig, gatewayId, validation=True, nsxtObj=nsxtObj, v2tAssessmentMode=v2tAssessmentMode)
+                self.thread.spawnThread(self.getEdgegatewayBGPconfig, gatewayId, validation=True, nsxtObj=nsxtObj,
+                                        v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the routing config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewayRoutingConfig, gatewayId, gatewayName, precheck=preCheckMode)
                 time.sleep(2)
                 # getting the load balancer config details of specified edge gateway
-                self.thread.spawnThread(self.getEdgeGatewayLoadBalancerConfig, gatewayId, gatewayName, nsxvObj=nsxvObj, v2tAssessmentMode=v2tAssessmentMode)
+                self.thread.spawnThread(self.getEdgeGatewayLoadBalancerConfig, gatewayId, gatewayName, nsxvObj=nsxvObj,
+                                        v2tAssessmentMode=v2tAssessmentMode)
                 time.sleep(2)
                 # getting the l2vpn config details of specified edge gateway
                 self.thread.spawnThread(self.getEdgeGatewayL2VPNConfig, gatewayId)
@@ -2601,10 +2682,11 @@ class VCDMigrationValidation:
                 sshErrorList = self.thread.returnValues['getEdgeGatewaySSHConfig']
                 greTunnelErrorList = self.thread.returnValues['getEdgeGatewayGreTunnel']
                 if bgpStatus is True and edgeGatewayCount > 1:
-                    bgpErrorList.append('BGP is enabled on: {} and more than 1 edge gateway present'.format(gatewayName))
+                    bgpErrorList.append(
+                        'BGP is enabled on: {} and more than 1 edge gateway present'.format(gatewayName))
                 currentErrorList = currentErrorList + dhcpErrorList + dhcpRelayErrorList + firewallErrorList + natErrorList + ipsecErrorList \
-                               + bgpErrorList + routingErrorList + loadBalancingErrorList + L2VpnErrorList \
-                               + SslVpnErrorList + dnsErrorList + syslogErrorList + sshErrorList + greTunnelErrorList
+                                   + bgpErrorList + routingErrorList + loadBalancingErrorList + L2VpnErrorList \
+                                   + SslVpnErrorList + dnsErrorList + syslogErrorList + sshErrorList + greTunnelErrorList
                 defaultGatewayDetails = self.getEdgeGatewayAdminApiDetails(gatewayId, returnDefaultGateway=True)
                 if isinstance(defaultGatewayDetails, list):
                     currentErrorList = currentErrorList + defaultGatewayDetails
@@ -2620,23 +2702,27 @@ class VCDMigrationValidation:
                                 ifSnatOnDefaultGateway = True
                                 break
                     else:
-                        logger.debug('NAT rules not present on default gateway or default gateway on Edge Gateway is disabled')
+                        logger.debug(
+                            'NAT rules not present on default gateway or default gateway on Edge Gateway is disabled')
                         ifSnatOnDefaultGateway = False
                     if defaultGatewayDetails.get('ipRanges') and routingDetails is not None and \
                             routingDetails['routingGlobalConfig'].get('routerId'):
                         for eachIpRange in defaultGatewayDetails['ipRanges']:
                             startIpAddr, endIpAddr = eachIpRange.split('-')
                             # check if routerId in dynamic routing config part of default gateway IP range
-                            if self.ifIpBelongsToIpRange(routingDetails['routingGlobalConfig']['routerId'], startIpAddr, endIpAddr) == True:
+                            if self.ifIpBelongsToIpRange(routingDetails['routingGlobalConfig']['routerId'], startIpAddr,
+                                                         endIpAddr) == True:
                                 ifRouterIdInDefaultGateway = True
                                 break
                     else:
                         logger.debug('Either default gateway id disabled or Router is not configured')
                     if ifRouterIdInDefaultGateway is False and noSnatDestSubnetAddr is None and \
                             ifSnatOnDefaultGateway is True and bgpStatus is True:
-                        logger.warning('BGP learnt routes route via non-default GW external interface present but NoSnatDestinationSubnet is not configured. For each SNAT rule on the default GW interface SNAT rule will be created')
+                        logger.warning(
+                            'BGP learnt routes route via non-default GW external interface present but NoSnatDestinationSubnet is not configured. For each SNAT rule on the default GW interface SNAT rule will be created')
                     self.rollback.apiData['sourceEdgeGatewayDHCP'][edgeGateway['id']] = dhcpConfigOut
-                    logger.debug("Source Edge Gateway - {} services configuration retrieved successfully".format(gatewayName))
+                    logger.debug(
+                        "Source Edge Gateway - {} services configuration retrieved successfully".format(gatewayName))
                 errorData['DHCP'] = errorData.get('DHCP', []) + dhcpErrorList + dhcpRelayErrorList
                 errorData['Firewall'] = errorData.get('Firewall', []) + firewallErrorList
                 errorData['NAT'] = errorData.get('NAT', []) + natErrorList
@@ -2722,8 +2808,8 @@ class VCDMigrationValidation:
                 {
                     param: disk.get(param)
                     for param in [
-                        'id', 'name', 'iops', 'storageProfile', 'storageProfileName', 'isAttached', 'href',
-                        'isShareable', 'sharingType']
+                    'id', 'name', 'iops', 'storageProfile', 'storageProfileName', 'isAttached', 'href',
+                    'isShareable', 'sharingType']
                 }
                 for disk in resultFetched
             ]
@@ -2988,11 +3074,14 @@ class VCDMigrationValidation:
                             'DHCP Relay is configured in source edge gateway, but not supported in target.\n')
             else:
                 errorList.append(
-                    'Failed to retrieve DHCP Relay configuration of Source Edge Gateway with error code {} \n'.format(relayresponse.status_code))
+                    'Failed to retrieve DHCP Relay configuration of Source Edge Gateway with error code {} \n'.format(
+                        relayresponse.status_code))
                 return errorList, None
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
-                if not v2tAssessmentMode and float(self.version) >= float(vcdConstants.API_VERSION_ZEUS) and self.nsxVersion.startswith('2.5.2') and responseDict['enabled']:
+                if not v2tAssessmentMode and float(self.version) >= float(
+                        vcdConstants.API_VERSION_ZEUS) and self.nsxVersion.startswith('2.5.2') and responseDict[
+                    'enabled']:
                     errorList.append("DHCP is enabled in source edge gateway but not supported in target\n")
                 # checking if static binding is configured in dhcp, if so raising exception if DHCP Binding IP
                 # address overlaps with static IP Pool range on Network
@@ -3014,7 +3103,9 @@ class VCDMigrationValidation:
                 # returning the dhcp details
                 return errorList, responseDict
             else:
-                errorList.append('Failed to retrieve DHCP configuration of Source Edge Gateway with error code {} \n'.format(response.status_code))
+                errorList.append(
+                    'Failed to retrieve DHCP configuration of Source Edge Gateway with error code {} \n'.format(
+                        response.status_code))
                 return errorList, None
         except Exception:
             raise
@@ -3049,14 +3140,17 @@ class VCDMigrationValidation:
                                            firewall['ruleType'] == 'user']
                     if float(self.version) <= float(vcdConstants.API_VERSION_PRE_ZEUS):
                         # getting the default policy rules which the user has marked as 'DENY'
-                        defaultFirewallRule = [defaultRule for defaultRule in responseDict['firewall']['firewallRules']['firewallRule'] if
-                                               defaultRule['ruleType'] == 'default_policy' and defaultRule['action'] != 'accept']
+                        defaultFirewallRule = [defaultRule for defaultRule in
+                                               responseDict['firewall']['firewallRules']['firewallRule'] if
+                                               defaultRule['ruleType'] == 'default_policy' and defaultRule[
+                                                   'action'] != 'accept']
                         userDefinedFirewall.extend(defaultFirewallRule)
                     if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
                         # getting the default policy rules which the user has marked as 'DENY'
                         defaultFirewallRule = [defaultRule for defaultRule in
                                                responseDict['firewall']['firewallRules']['firewallRule'] if
-                                               defaultRule['ruleType'] == 'default_policy' and defaultRule['action'] == 'accept']
+                                               defaultRule['ruleType'] == 'default_policy' and defaultRule[
+                                                   'action'] == 'accept']
                         userDefinedFirewall.extend(defaultFirewallRule)
 
                     for rule in userDefinedFirewall:
@@ -3069,43 +3163,80 @@ class VCDMigrationValidation:
                     for firewall in userDefinedFirewall:
                         if firewall.get('application'):
                             if firewall['application'].get('service'):
-                                services = firewall['application']['service'] if isinstance(firewall['application']['service'], list) else [firewall['application']['service']]
+                                services = firewall['application']['service'] if isinstance(
+                                    firewall['application']['service'], list) else [firewall['application']['service']]
                                 for service in services:
                                     if service['protocol'] == "tcp" or service['protocol'] == "udp":
                                         if service['port'] == "any":
-                                            errorList.append("Any as a TCP/UDP port present in the firewall rule '{}'\n".format(firewall['name']))
+                                            errorList.append(
+                                                "Any as a TCP/UDP port present in the firewall rule '{}'\n".format(
+                                                    firewall['name']))
                         if firewall.get('source'):
                             if firewall['source'].get('vnicGroupId'):
-                                errorList.append("vNicGroupId '{}' is present in the source of firewall rule '{}'\n".format(firewall['source']['vnicGroupId'], firewall['name']))
+                                errorList.append(
+                                    "vNicGroupId '{}' is present in the source of firewall rule '{}'\n".format(
+                                        firewall['source']['vnicGroupId'], firewall['name']))
                             if firewall['source'].get('groupingObjectId'):
-                                groupingobjects = firewall['source']['groupingObjectId'] if isinstance(firewall['source']['groupingObjectId'], list) else [firewall['source']['groupingObjectId']]
+                                groupingobjects = firewall['source']['groupingObjectId'] if isinstance(
+                                    firewall['source']['groupingObjectId'], list) else [
+                                    firewall['source']['groupingObjectId']]
                                 for groupingobject in groupingobjects:
                                     if 'network' in groupingobject:
                                         for network in orgVdcNetworks:
-                                            if network['networkType'] == "DIRECT" and network['parentNetworkId']['id'] == groupingobject:
-                                                errorList.append("Direct network '{}' cannot be used in the source of firewall rule : '{}'\n".format(network['name'], firewall['name']))
-                                            elif network['id'] == groupingobject and network['networkType'] == 'ISOLATED':
-                                                errorList.append("Isolated network '{}' cannot be used in the source of firewall rule : '{}'\n".format(network['name'], firewall['name']))
-                                            elif network['id'] == groupingobject and network['networkType'] == 'NAT_ROUTED' and network.get('connection', {})['routerRef']['id'].split(':')[-1] != edgeGatewayId:
-                                                errorList.append("Routed Network '{}' is connected to different edge gateway so it cannot be used in source of firewall rule : '{}'\n".format(network['name'], firewall['name']))
+                                            if network['networkType'] == "DIRECT" and network['parentNetworkId'][
+                                                'id'] == groupingobject:
+                                                errorList.append(
+                                                    "Direct network '{}' cannot be used in the source of firewall rule : '{}'\n".format(
+                                                        network['name'], firewall['name']))
+                                            elif network['id'] == groupingobject and network[
+                                                'networkType'] == 'ISOLATED':
+                                                errorList.append(
+                                                    "Isolated network '{}' cannot be used in the source of firewall rule : '{}'\n".format(
+                                                        network['name'], firewall['name']))
+                                            elif network['id'] == groupingobject and network[
+                                                'networkType'] == 'NAT_ROUTED' and \
+                                                    network.get('connection', {})['routerRef']['id'].split(':')[
+                                                        -1] != edgeGatewayId:
+                                                errorList.append(
+                                                    "Routed Network '{}' is connected to different edge gateway so it cannot be used in source of firewall rule : '{}'\n".format(
+                                                        network['name'], firewall['name']))
                                     if "ipset" not in groupingobject and "network" not in groupingobject:
-                                        errorList.append("The grouping object type '{}' in the source of firewall rule '{}' is not supported\n".format(groupingobject, firewall['name']))
+                                        errorList.append(
+                                            "The grouping object type '{}' in the source of firewall rule '{}' is not supported\n".format(
+                                                groupingobject, firewall['name']))
                         if firewall.get('destination'):
                             if firewall['destination'].get('vnicGroupId'):
-                                errorList.append("vNicGroupId '{}' is present in the destination of firewall rule '{}'\n".format(firewall['destination']['vnicGroupId'], firewall['name']))
+                                errorList.append(
+                                    "vNicGroupId '{}' is present in the destination of firewall rule '{}'\n".format(
+                                        firewall['destination']['vnicGroupId'], firewall['name']))
                             if firewall['destination'].get('groupingObjectId'):
-                                groupingobjects = firewall['destination']['groupingObjectId'] if isinstance(firewall['destination']['groupingObjectId'], list) else [firewall['destination']['groupingObjectId']]
+                                groupingobjects = firewall['destination']['groupingObjectId'] if isinstance(
+                                    firewall['destination']['groupingObjectId'], list) else [
+                                    firewall['destination']['groupingObjectId']]
                                 for groupingobject in groupingobjects:
                                     if 'network' in groupingobject:
                                         for network in orgVdcNetworks:
-                                            if network['networkType'] == "DIRECT" and network['parentNetworkId']['id'] == groupingobject:
-                                                errorList.append("Direct network '{}' cannot be used in the source of firewall rule : '{}'\n".format(network['name'], firewall['name']))
-                                            elif network['id'] == groupingobject and network['networkType'] == 'ISOLATED':
-                                                errorList.append("Isolated network '{}' cannot be used in the source of firewall rule : '{}'\n".format(network['name'], firewall['name']))
-                                            elif network['id'] == groupingobject and network['networkType'] == 'NAT_ROUTED' and network.get('connection', {})['routerRef']['id'].split(':')[-1] != edgeGatewayId:
-                                                errorList.append("Routed Network '{}' is connected to different edge gateway so it cannot be used in source of firewall rule : '{}'\n".format(network['name'], firewall['name']))
+                                            if network['networkType'] == "DIRECT" and network['parentNetworkId'][
+                                                'id'] == groupingobject:
+                                                errorList.append(
+                                                    "Direct network '{}' cannot be used in the source of firewall rule : '{}'\n".format(
+                                                        network['name'], firewall['name']))
+                                            elif network['id'] == groupingobject and network[
+                                                'networkType'] == 'ISOLATED':
+                                                errorList.append(
+                                                    "Isolated network '{}' cannot be used in the source of firewall rule : '{}'\n".format(
+                                                        network['name'], firewall['name']))
+                                            elif network['id'] == groupingobject and network[
+                                                'networkType'] == 'NAT_ROUTED' and \
+                                                    network.get('connection', {})['routerRef']['id'].split(':')[
+                                                        -1] != edgeGatewayId:
+                                                errorList.append(
+                                                    "Routed Network '{}' is connected to different edge gateway so it cannot be used in source of firewall rule : '{}'\n".format(
+                                                        network['name'], firewall['name']))
                                     if "ipset" not in groupingobject and "network" not in groupingobject:
-                                        errorList.append("The grouping object type '{}' in the destination of firewall rule '{}' is not supported\n".format(groupingobject, firewall['name']))
+                                        errorList.append(
+                                            "The grouping object type '{}' in the destination of firewall rule '{}' is not supported\n".format(
+                                                groupingobject, firewall['name']))
                     return errorList
                 else:
                     errorList.append('Firewall is disabled in source\n')
@@ -3145,7 +3276,8 @@ class VCDMigrationValidation:
                     natrules = natrules if isinstance(natrules, list) else [natrules]
                     # iterating over the nat rules
                     for natrule in natrules:
-                        if natrule['action'] == "dnat" and not "/32" in natrule['translatedAddress'] and ("-" in natrule['translatedAddress'] or "/" in natrule['translatedAddress']):
+                        if natrule['action'] == "dnat" and not "/32" in natrule['translatedAddress'] and (
+                                "-" in natrule['translatedAddress'] or "/" in natrule['translatedAddress']):
                             errorList.append(
                                 'Range of IPs or network found in this DNAT rule {} and range cannot be used in target edge gateway\n'.format(
                                     natrule['ruleId']))
@@ -3183,7 +3315,8 @@ class VCDMigrationValidation:
                 else:
                     return []
             else:
-                return ['Unable to get SSLVPN Services Configuration Details with error code {}\n'.format(response.status_code)]
+                return ['Unable to get SSLVPN Services Configuration Details with error code {}\n'.format(
+                    response.status_code)]
         except Exception:
             raise
 
@@ -3210,7 +3343,9 @@ class VCDMigrationValidation:
                 else:
                     return []
             else:
-                return ['Unable to get L2VPN Services Configuration Details of Source Edge Gateway with error code {} \n'.format(response.status_code)]
+                return [
+                    'Unable to get L2VPN Services Configuration Details of Source Edge Gateway with error code {} \n'.format(
+                        response.status_code)]
         except Exception:
             raise
 
@@ -3227,7 +3362,8 @@ class VCDMigrationValidation:
             loadBalancerErrorList = []
             supportedLoadBalancerAlgo = ['round-robin', 'leastconn']
             supportedLoadBalancerPersistence = ['cookie', 'sourceip']
-            logger.debug("Getting Load Balancer Services Configuration Details of Source Edge Gateway {}".format(edgeGatewayId))
+            logger.debug(
+                "Getting Load Balancer Services Configuration Details of Source Edge Gateway {}".format(edgeGatewayId))
             # url to retrieve the load balancer config info
             url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                                   vcdConstants.NETWORK_EDGES,
@@ -3239,26 +3375,34 @@ class VCDMigrationValidation:
                 # checking if load balancer is enabled, if so raising exception
                 if responseDict['loadBalancer']['enabled'] == "true":
                     if not v2tAssessmentMode and not float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
-                        return ["Load Balancer service is configured in the Source edge gateway but not supported in the Target\n"]
+                        return [
+                            "Load Balancer service is configured in the Source edge gateway but not supported in the Target\n"]
 
                     applicationRules = responseDict['loadBalancer'].get('applicationRule', [])
 
                     if applicationRules:
-                        loadBalancerErrorList.append('Application rules are present in load balancer service but not supported in the Target\n')
+                        loadBalancerErrorList.append(
+                            'Application rules are present in load balancer service but not supported in the Target\n')
 
                     for pool in listify(responseDict['loadBalancer'].get('pool')):
                         for monitor in listify(responseDict['loadBalancer'].get('monitor')):
                             if pool['monitorId'] == monitor['monitorId']:
                                 if monitor['type'] in ['tcp', 'http', 'https', 'icmp']:
-                                    if any(key in monitor and monitor[key] for key in ['expected', 'send', 'receive', 'extension']) or \
+                                    if any(key in monitor and monitor[key] for key in
+                                           ['expected', 'send', 'receive', 'extension']) or \
                                             (monitor.get('url') and monitor.get('url') != '/'):
-                                        loadBalancerErrorList.append("Load balancer pool '{}' have unsupported values configured in monitor '{}'\n".format(pool['name'], monitor['name']))
+                                        loadBalancerErrorList.append(
+                                            "Load balancer pool '{}' have unsupported values configured in monitor '{}'\n".format(
+                                                pool['name'], monitor['name']))
                                 elif monitor['type'] == 'udp':
                                     if v2tAssessmentMode:
-                                        loadBalancerErrorList.append("Load balancer pool '{}' have unsupported values configured in monitor '{}'\n".format(pool['name'], monitor['name']))
+                                        loadBalancerErrorList.append(
+                                            "Load balancer pool '{}' have unsupported values configured in monitor '{}'\n".format(
+                                                pool['name'], monitor['name']))
                                     else:
-                                        logger.warning("UDP monitor '{}' send / receive will be set based on the Avi System-UDP".format(monitor['name']))
-
+                                        logger.warning(
+                                            "UDP monitor '{}' send / receive will be set based on the Avi System-UDP".format(
+                                                monitor['name']))
 
                     # url for getting edge gateway load balancer virtual servers configuration
                     url = '{}{}'.format(
@@ -3274,20 +3418,27 @@ class VCDMigrationValidation:
                         else:
                             virtualServersData = []
                     else:
-                        return ['Failed to get source edge gateway load balancer virtual servers configuration with error code {} \n'.format(response.status_code)]
+                        return [
+                            'Failed to get source edge gateway load balancer virtual servers configuration with error code {} \n'.format(
+                                response.status_code)]
 
                     for virtualServer in virtualServersData:
                         if not virtualServer.get('defaultPoolId', None):
-                            loadBalancerErrorList.append("Default pool is not configured in load balancer virtual server '{}'\n".format(virtualServer['name']))
+                            loadBalancerErrorList.append(
+                                "Default pool is not configured in load balancer virtual server '{}'\n".format(
+                                    virtualServer['name']))
 
                     for virtualServer in virtualServersData:
-                        #check for IPV4 Address for virtual server
+                        # check for IPV4 Address for virtual server
                         if type(ipaddress.ip_address(virtualServer['ipAddress'])) is ipaddress.IPv6Address:
-                            loadBalancerErrorList.append("IPV6 Address used as VIP in virtual Server '{}'\n".format(virtualServer['name']))
+                            loadBalancerErrorList.append(
+                                "IPV6 Address used as VIP in virtual Server '{}'\n".format(virtualServer['name']))
 
                     for virtualServer in virtualServersData:
-                        if not(virtualServer.get('applicationProfileId')):
-                            loadBalancerErrorList.append("Application profile is not added in virtual Server '{}'\n".format(virtualServer['name']))
+                        if not (virtualServer.get('applicationProfileId')):
+                            loadBalancerErrorList.append(
+                                "Application profile is not added in virtual Server '{}'\n".format(
+                                    virtualServer['name']))
 
                     # Fetching application profiles data from response
                     if responseDict['loadBalancer'].get('applicationProfile'):
@@ -3298,8 +3449,11 @@ class VCDMigrationValidation:
                         applicationProfiles = []
 
                     for profile in applicationProfiles:
-                        if profile.get('persistence') and profile['persistence']['method'] not in supportedLoadBalancerPersistence:
-                            loadBalancerErrorList.append("Unsupported persistence type '{}' provided in application profile '{}'\n".format(profile['persistence']['method'], profile['name']))
+                        if profile.get('persistence') and profile['persistence'][
+                            'method'] not in supportedLoadBalancerPersistence:
+                            loadBalancerErrorList.append(
+                                "Unsupported persistence type '{}' provided in application profile '{}'\n".format(
+                                    profile['persistence']['method'], profile['name']))
 
                     # fetching load balancer pools data
                     if responseDict['loadBalancer'].get('pool', []):
@@ -3307,29 +3461,45 @@ class VCDMigrationValidation:
                         lbPoolsData = lbPoolsData if isinstance(lbPoolsData, list) else [lbPoolsData]
                         for pool in lbPoolsData:
                             if pool['algorithm'] not in supportedLoadBalancerAlgo:
-                                loadBalancerErrorList.append("Unsupported algorithm '{}' provided in load balancer pool '{}'\n".format(pool['algorithm'], pool['name']))
+                                loadBalancerErrorList.append(
+                                    "Unsupported algorithm '{}' provided in load balancer pool '{}'\n".format(
+                                        pool['algorithm'], pool['name']))
                             if pool['transparent'] != 'false':
-                                loadBalancerErrorList.append('{} pool has transparent mode enabled which is not supported\n'.format(pool['name']))
+                                loadBalancerErrorList.append(
+                                    '{} pool has transparent mode enabled which is not supported\n'.format(
+                                        pool['name']))
                     if not v2tAssessmentMode and not nsxvObj.ipAddress and not nsxvObj.username:
-                        loadBalancerErrorList.append("NSX-V LoadBalancer service is enabled on Source Edge Gateway {}, but NSX-V details are not provided in user input file\n".format(edgeGatewayId))
+                        loadBalancerErrorList.append(
+                            "NSX-V LoadBalancer service is enabled on Source Edge Gateway {}, but NSX-V details are not provided in user input file\n".format(
+                                edgeGatewayId))
 
                     if not v2tAssessmentMode:
                         serviceEngineGroupResultList = self.getServiceEngineGroupDetails()
                         serviceEngineGroupName = self.orgVdcInput['EdgeGateways'][gatewayName]['ServiceEngineGroupName']
                         if serviceEngineGroupResultList:
                             if not serviceEngineGroupName:
-                                loadBalancerErrorList.append("NSX-V LoadBalancer service is enabled on Source Edge Gateway {}, Service Engine Group must be present in userInput yaml\n".format(edgeGatewayId))
-                            serviceEngineGroupDetails = [serviceEngineGroup for serviceEngineGroup in serviceEngineGroupResultList if serviceEngineGroup['name'] == serviceEngineGroupName]
+                                loadBalancerErrorList.append(
+                                    "NSX-V LoadBalancer service is enabled on Source Edge Gateway {}, Service Engine Group must be present in userInput yaml\n".format(
+                                        edgeGatewayId))
+                            serviceEngineGroupDetails = [serviceEngineGroup for serviceEngineGroup in
+                                                         serviceEngineGroupResultList if
+                                                         serviceEngineGroup['name'] == serviceEngineGroupName]
 
                             if not serviceEngineGroupDetails:
-                                loadBalancerErrorList.append("Service Engine Group {} does not exist in Avi.\n".format(serviceEngineGroupName))
+                                loadBalancerErrorList.append(
+                                    "Service Engine Group {} does not exist in Avi.\n".format(serviceEngineGroupName))
                             else:
                                 if serviceEngineGroupDetails[0].get('haMode') != 'LEGACY_ACTIVE_STANDBY':
-                                    logger.warning("Service engine group has HA MODE '{}', if you keep using this you may incur some extra charges.".format(serviceEngineGroupDetails[0].get('haMode')))
+                                    logger.warning(
+                                        "Service engine group has HA MODE '{}', if you keep using this you may incur some extra charges.".format(
+                                            serviceEngineGroupDetails[0].get('haMode')))
                         else:
-                           loadBalancerErrorList.append("Service Engine Group {} doesn't exist in Avi.\n".format(serviceEngineGroupName))
+                            loadBalancerErrorList.append(
+                                "Service Engine Group {} doesn't exist in Avi.\n".format(serviceEngineGroupName))
             else:
-                loadBalancerErrorList.append('Unable to get load balancer service configuration with error code {} \n'.format(response.status_code))
+                loadBalancerErrorList.append(
+                    'Unable to get load balancer service configuration with error code {} \n'.format(
+                        response.status_code))
             return loadBalancerErrorList
         except Exception:
             raise
@@ -3345,7 +3515,7 @@ class VCDMigrationValidation:
         try:
             # url to retrieve the routing config info
             url = "{}{}/{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
-                                  vcdConstants.NETWORK_EDGES, edgeGatewayID, vcdConstants.VNIC)
+                                     vcdConstants.NETWORK_EDGES, edgeGatewayID, vcdConstants.VNIC)
             # get api call to retrieve the edge gateway config info
             response = self.restClientObj.get(url, self.headers)
             subnetMask = None
@@ -3360,8 +3530,10 @@ class VCDMigrationValidation:
                         subnetMask = vnicData['addressGroups']['addressGroup']['subnetMask']
                         break
 
-            if subnetMask and ipaddress.ip_address(nextHopeIp) in ipaddress.ip_network('{}/{}'.format(primaryAddress, subnetMask), strict=False):
-                logger.debug("Next hop IP {} belongs to network of {}.".format(nextHopeIp, ipaddress.ip_network('{}/{}'.format(primaryAddress, subnetMask), strict=False)))
+            if subnetMask and ipaddress.ip_address(nextHopeIp) in ipaddress.ip_network(
+                    '{}/{}'.format(primaryAddress, subnetMask), strict=False):
+                logger.debug("Next hop IP {} belongs to network of {}.".format(nextHopeIp, ipaddress.ip_network(
+                    '{}/{}'.format(primaryAddress, subnetMask), strict=False)))
                 return True
             return False
         except:
@@ -3419,7 +3591,8 @@ class VCDMigrationValidation:
                     logger.debug("Routing configuration of Source Edge Gateway retrieved Successfully")
                     return errorList, responseDict['routing']
             else:
-                return ['Failed to get Routing service details with error code {} \n'.format(response.status_code)], None
+                return ['Failed to get Routing service details with error code {} \n'.format(
+                    response.status_code)], None
         except Exception:
             raise
 
@@ -3550,12 +3723,15 @@ class VCDMigrationValidation:
                     if responseDict['bgp']['enabled'] != 'false':
                         if not v2tAssessmentMode and float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
                             # get the target external network backed Tier-0 gateway
-                            targetExternalBackingTypeValue = targetExternalNetwork['networkBackings']['values'][0]['backingTypeValue']
+                            targetExternalBackingTypeValue = targetExternalNetwork['networkBackings']['values'][0][
+                                'backingTypeValue']
                             # validate only if backing type is VRF
                             if targetExternalBackingTypeValue == 'NSXT_VRF_TIER0':
                                 if self.nsxVersion.startswith('2.'):
-                                    errorList.append('VRF is not supported in NSX-T version: {}\n'.format(self.nsxVersion))
-                                tier0RouterName = targetExternalNetwork['networkBackings']['values'][0]['parentTier0Ref']['id']
+                                    errorList.append(
+                                        'VRF is not supported in NSX-T version: {}\n'.format(self.nsxVersion))
+                                tier0RouterName = \
+                                targetExternalNetwork['networkBackings']['values'][0]['parentTier0Ref']['id']
                                 tier0Details = nsxtObj.getTier0GatewayDetails(tier0RouterName)
                                 tier0localASnum = tier0Details['local_as_num']
                                 if tier0Details['graceful_restart_config']['mode'] == 'DISABLE':
@@ -3579,12 +3755,14 @@ class VCDMigrationValidation:
                             return errorList, True
                 return [], False
             else:
-                return ["Failed to retrieve the BGP Configurations of Source Edge Gateway with error code {} \n".format(response.status_code)], False
+                return ["Failed to retrieve the BGP Configurations of Source Edge Gateway with error code {} \n".format(
+                    response.status_code)], False
         except Exception:
             raise
 
     @isSessionExpired
-    def _checkTaskStatus(self, taskUrl, returnOutput=False, timeoutForTask=vcdConstants.VCD_CREATION_TIMEOUT, entityName=''):
+    def _checkTaskStatus(self, taskUrl, returnOutput=False, timeoutForTask=vcdConstants.VCD_CREATION_TIMEOUT,
+                         entityName=''):
         """
         Description : Checks status of a task in VDC
         Parameters  : taskUrl   - Url of the task monitored (STRING)
@@ -3653,8 +3831,8 @@ class VCDMigrationValidation:
             logger.debug('Getting Org VDC Compute Policies')
             while resultTotal > 0 and pageSizeCount < resultTotal:
                 url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                        vcdConstants.VDC_COMPUTE_POLICIES, pageNo,
-                                                        vcdConstants.ORG_VDC_COMPUTE_POLICY_PAGE_SIZE)
+                                                                     vcdConstants.VDC_COMPUTE_POLICIES, pageNo,
+                                                                     vcdConstants.ORG_VDC_COMPUTE_POLICY_PAGE_SIZE)
                 getSession(self)
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
@@ -3958,7 +4136,10 @@ class VCDMigrationValidation:
                             for natNet, natIpList in natNetList.items():
                                 if externalIp in natIpList and externalVapp != natVapp:
                                     errors.append("Router external IP of '{}' network of '{}' vapp is used for "
-                                                  "NAT external IP of '{}' network of '{}' vapp".format(externalNet, externalVapp, natNet, natVapp))
+                                                  "NAT external IP of '{}' network of '{}' vapp".format(externalNet,
+                                                                                                        externalVapp,
+                                                                                                        natNet,
+                                                                                                        natVapp))
 
                 if errors:
                     raise ValidationError('\n'.join(errors))
@@ -3996,7 +4177,7 @@ class VCDMigrationValidation:
         responseDict = self.vcdUtils.parseXml(response.content)
         if not response.status_code == requests.codes.ok:
             raise Exception('Error occurred while retrieving vapp details to validate isolated network'
-                            'for {} due to {}'.format(vApp['@name'],responseDict['Error']['@message']))
+                            'for {} due to {}'.format(vApp['@name'], responseDict['Error']['@message']))
         vAppData = responseDict['VApp']
         # checking if the networkConfig is present in vapp's NetworkConfigSection
         if vAppData['NetworkConfigSection'].get('NetworkConfig'):
@@ -4012,7 +4193,8 @@ class VCDMigrationValidation:
                         # if parent network is absent then raising exception only if the  network gateway is not dhcp
                         if vAppNetwork['Configuration']['IpScopes']['IpScope']['Gateway'] != '196.254.254.254':
                             # Checking for dhcp configuration on vapp isolated networks
-                            if vAppNetwork['Configuration'].get('Features', {}).get('DhcpService', {}).get('IsEnabled') == 'true':
+                            if vAppNetwork['Configuration'].get('Features', {}).get('DhcpService', {}).get(
+                                    'IsEnabled') == 'true':
                                 if self.version >= vcdConstants.API_VERSION_ANDROMEDA:
                                     logger.debug("validation successful the vApp networks {} in vApp {} is isolated "
                                                  "with DHCP enabled".format(vAppNetwork['@networkName'], vApp['@name']))
@@ -4063,7 +4245,8 @@ class VCDMigrationValidation:
                                 "DHCP is enabled on Isolated vApp Network. But source edge gateway is not present.Checking edgeGatewayDeploymentEdgeCluster")
                             self.validateEdgeGatewayDeploymentEdgeCluster(edgeGatewayDeploymentEdgeCluster, nsxtObj)
                         else:
-                            raise Exception("DHCP is enabled on Isolated vApp Network, but neither Source EdgeGateway is present nor 'EdgeGatewayDeploymentEdgeCluster' is provided in the input file.")
+                            raise Exception(
+                                "DHCP is enabled on Isolated vApp Network, but neither Source EdgeGateway is present nor 'EdgeGatewayDeploymentEdgeCluster' is provided in the input file.")
                     logger.debug("DHCP is enabled on vApp Isolated Network: '{}'".format(', '.join(vAppNetworkList)))
                 else:
                     raise Exception("DHCP is enabled on vApp Isolated Network: '{}'".format(', '.join(vAppNetworkList)))
@@ -4101,7 +4284,8 @@ class VCDMigrationValidation:
 
         self.thread.joinThreads()
         if self.thread.stop():
-            raise Exception("Failed to validate independent Disks with Fast Provisioned enabled. Check log file for errors")
+            raise Exception(
+                "Failed to validate independent Disks with Fast Provisioned enabled. Check log file for errors")
 
         if unsupportedVms['vm']:
             raise ValidationError("VM/s ({}) has independent disk attached with different storage policies.".format(
@@ -4124,14 +4308,17 @@ class VCDMigrationValidation:
                 responseDict = self.vcdUtils.parseXml(response.content)
                 # checking if vapp has vms in it
                 if responseDict['VApp'].get('Children'):
-                    vmList = responseDict['VApp']['Children']['Vm'] if isinstance(responseDict['VApp']['Children']['Vm'],
-                                                                                  list) else [
+                    vmList = responseDict['VApp']['Children']['Vm'] if isinstance(
+                        responseDict['VApp']['Children']['Vm'],
+                        list) else [
                         responseDict['VApp']['Children']['Vm']]
                     # iterating over vms in the vapp
                     for vm in vmList:
                         if vm.get('VmSpecSection', {}).get('MediaSection', {}):
-                            mediaSettings = vm.get('VmSpecSection', {}).get('MediaSection', {}).get('MediaSettings', []) if isinstance(
-                                vm.get('VmSpecSection', {}).get('MediaSection', {}).get('MediaSettings', []), list) else [
+                            mediaSettings = vm.get('VmSpecSection', {}).get('MediaSection', {}).get('MediaSettings',
+                                                                                                    []) if isinstance(
+                                vm.get('VmSpecSection', {}).get('MediaSection', {}).get('MediaSettings', []),
+                                list) else [
                                 vm.get('VmSpecSection', {}).get('MediaSection', {}).get('MediaSettings', [])
                             ]
                             # iterating over the list of media settings of vm
@@ -4143,7 +4330,8 @@ class VCDMigrationValidation:
                     if vmWithMediaList:
                         return vmWithMediaList
                     else:
-                        logger.debug("Validated successfully that media of source vm {} is not connected".format(vm['@name']))
+                        logger.debug(
+                            "Validated successfully that media of source vm {} is not connected".format(vm['@name']))
                 else:
                     logger.debug("Source vApp {} has no VMs in it".format(vApp['@name']))
             else:
@@ -4166,7 +4354,9 @@ class VCDMigrationValidation:
             if not vCDVersion:
                 raise Exception("Not able to fetch vCD version due to API response difference")
             elif version.parse(vCDVersion) < version.parse("10.3"):
-                logger.warning("VCD {} is not supported with current migration tool. Some features may not work as expected.".format(vCDVersion))
+                logger.warning(
+                    "VCD {} is not supported with current migration tool. Some features may not work as expected.".format(
+                        vCDVersion))
                 return vCDVersion
             else:
                 return vCDVersion
@@ -4301,9 +4491,10 @@ class VCDMigrationValidation:
         resultList = []
         logger.debug('Getting portgroup details')
         while resultTotal > 0 and pageSizeCount < resultTotal:
-            url = "{}{}&page={}&pageSize={}&format=records&sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                                                   vcdConstants.GET_PORTGROUP_INFO, pageNo,
-                                                                   vcdConstants.PORT_GROUP_PAGE_SIZE)
+            url = "{}{}&page={}&pageSize={}&format=records&sortAsc=name".format(
+                vcdConstants.XML_API_URL.format(self.ipAddress),
+                vcdConstants.GET_PORTGROUP_INFO, pageNo,
+                vcdConstants.PORT_GROUP_PAGE_SIZE)
             getSession(self)
             response = self.restClientObj.get(url, headers)
             responseDict = response.json()
@@ -4427,7 +4618,9 @@ class VCDMigrationValidation:
         try:
             data = self.rollback.apiData
             # retrieving list instance of org vdcs under the specified organization in user input file
-            orgVDCsList = data['Organization']['Vdcs']['Vdc'] if isinstance(data['Organization']['Vdcs']['Vdc'], list) else [data['Organization']['Vdcs']['Vdc']]
+            orgVDCsList = data['Organization']['Vdcs']['Vdc'] if isinstance(data['Organization']['Vdcs']['Vdc'],
+                                                                            list) else [
+                data['Organization']['Vdcs']['Vdc']]
             # iterating over the list of org vdcs under the specified organization
             for orgVDC in orgVDCsList:
                 # checking if target org vdc's name already exist in the given organization; if so raising exception
@@ -4455,7 +4648,7 @@ class VCDMigrationValidation:
                             .format(edgeClusterName))
                 else:
                     logger.debug("Validated successfully Edge Transport Nodes are present in the cluster {}".format(
-                            edgeClusterName))
+                        edgeClusterName))
         except:
             raise
 
@@ -4509,11 +4702,11 @@ class VCDMigrationValidation:
 
         for orgVDC in resultList:
             data.append({
-                        "name": orgVDC["name"],
-                        "id": f"urn:vcloud:vdc:{orgVDC['href'].split('/')[-1]}",
-                        "org": {"name": orgVDC["orgName"]},
-                        "vcName": orgVDC['vcName']
-                        })
+                "name": orgVDC["name"],
+                "id": f"urn:vcloud:vdc:{orgVDC['href'].split('/')[-1]}",
+                "org": {"name": orgVDC["orgName"]},
+                "vcName": orgVDC['vcName']
+            })
         return data
 
     @isSessionExpired
@@ -4523,7 +4716,8 @@ class VCDMigrationValidation:
         Parameters  : orgVDCId   -   ID of org vdc (STRING)
         Returns     : Backing type of org vdc - NSX_V/NSX_T (STRING)
         """
-        url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ORG_VDC_CAPABILITIES.format(orgVDCId))
+        url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                            vcdConstants.ORG_VDC_CAPABILITIES.format(orgVDCId))
         response = self.restClientObj.get(url, self.headers)
         responseDict = response.json()
         if response.status_code == requests.codes.ok:
@@ -4538,7 +4732,8 @@ class VCDMigrationValidation:
                 raise Exception("Unable to fetch backing type from capabilities of org vdc")
         else:
             # failure in retrieving the capabilities of org vdc
-            raise Exception("Failed to fetch the capabilities of org vdc due to error - {}".format(responseDict['message']))
+            raise Exception(
+                "Failed to fetch the capabilities of org vdc due to error - {}".format(responseDict['message']))
 
     def validateVniPoolRanges(self, nsxtObj, nsxvObj, cloneOverlayIds=False):
         """
@@ -4570,7 +4765,8 @@ class VCDMigrationValidation:
             if not sourceVNIPoolIds.issubset(targetVNIPoolIds):
                 raise Exception("All the source NSX-V Segment IDs are not present in target NSX-T VNI pools")
             else:
-                logger.debug('Validated successfully that the source NSX-V VNI pool is subset of target NSX-T VNI pools')
+                logger.debug(
+                    'Validated successfully that the source NSX-V VNI pool is subset of target NSX-T VNI pools')
         except:
             raise
 
@@ -4639,6 +4835,7 @@ class VCDMigrationValidation:
         try:
             logger.info(f'Starting with PreMigration validation tasks for org vdc "{vdcDict["OrgVDCName"]}"')
 
+
             logger.info('Validating NSX-T manager details')
             self.getNsxDetails(inputDict["NSXT"]["Common"]["ipAddress"])
 
@@ -4659,7 +4856,8 @@ class VCDMigrationValidation:
             self.getTargetExternalNetworks(sourceEdgeGatewayData, validateVRF=True)
 
             # getting the source dummy External Network details
-            logger.info('Getting the source dummy External Network - {} details.'.format(inputDict["VCloudDirector"].get("DummyExternalNetwork")))
+            logger.info('Getting the source dummy External Network - {} details.'.format(
+                inputDict["VCloudDirector"].get("DummyExternalNetwork")))
             self.getDummyExternalNetwork(inputDict["VCloudDirector"].get("DummyExternalNetwork"))
 
             # getting the source provider VDC details and checking if its NSX-V backed
@@ -4705,7 +4903,8 @@ class VCDMigrationValidation:
             self.validateStorageProfiles()
 
             logger.info("Validating Edge cluster for target edge gateway deployment")
-            self.validateEdgeGatewayDeploymentEdgeCluster(vdcDict.get('EdgeGatewayDeploymentEdgeCluster', None), nsxtObj)
+            self.validateEdgeGatewayDeploymentEdgeCluster(vdcDict.get('EdgeGatewayDeploymentEdgeCluster', None),
+                                                          nsxtObj)
 
             # getting the source External Network details
             logger.info('Getting the source External Network details.')
@@ -4742,7 +4941,8 @@ class VCDMigrationValidation:
 
             # validating whether DHCP is enabled on source Isolated Org VDC network
             edgeGatewayDeploymentEdgeCluster = vdcDict.get('EdgeGatewayDeploymentEdgeCluster', None)
-            self.validateDHCPEnabledonIsolatedVdcNetworks(orgVdcNetworkList, sourceEdgeGatewayIdList, edgeGatewayDeploymentEdgeCluster,nsxtObj)
+            self.validateDHCPEnabledonIsolatedVdcNetworks(orgVdcNetworkList, sourceEdgeGatewayIdList,
+                                                          edgeGatewayDeploymentEdgeCluster, nsxtObj)
 
             # validating whether any org vdc network is shared or not
             logger.info('Validating whether shared networks are supported or not')
@@ -4750,7 +4950,8 @@ class VCDMigrationValidation:
 
             # validating whether any source org vdc network is not direct network
             logger.info('Validating Source OrgVDC Direct networks')
-            providerVDCImportedNeworkTransportZone = inputDict["VCloudDirector"].get("ImportedNetworkTransportZone", None)
+            providerVDCImportedNeworkTransportZone = inputDict["VCloudDirector"].get("ImportedNetworkTransportZone",
+                                                                                     None)
             self.validateOrgVDCNetworkDirect(orgVdcNetworkList, vdcDict,
                                              providerVDCImportedNeworkTransportZone, nsxtObj)
 
@@ -4829,12 +5030,14 @@ class VCDMigrationValidation:
 
             # validating that No vApps have isolated networks with dhcp configured
             logger.info('Validating isolated vApp networks with DHCP enabled')
-            self.validateDHCPOnIsolatedvAppNetworks(sourceOrgVDCId, vdcDict.get('EdgeGatewayDeploymentEdgeCluster', None), nsxtObj)
+            self.validateDHCPOnIsolatedvAppNetworks(sourceOrgVDCId,
+                                                    vdcDict.get('EdgeGatewayDeploymentEdgeCluster', None), nsxtObj)
 
             logger.info("Validating Independent Disks")
             self.validateIndependentDisks(sourceOrgVDCId)
 
-            logger.info('Validating a VM does not have independent disks with different storage policies when fast provisioning is enabled')
+            logger.info(
+                'Validating a VM does not have independent disks with different storage policies when fast provisioning is enabled')
             self.validateNamedDiskWithFastProvisioned(sourceOrgVDCId)
 
             logger.info('Validating whether media is attached to any vApp VMs')
@@ -4876,7 +5079,8 @@ class VCDMigrationValidation:
 
         # TODO pranshu: add validation for EdgeGateways
 
-    def preMigrationValidation(self, inputDict, vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj, validateVapp=False, validateServices=False):
+    def preMigrationValidation(self, inputDict, vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj, validateVapp=False,
+                               validateServices=False):
         """
         Description : Pre migration validation tasks
         Parameters  : inputDict      -  dictionary of all the input yaml file key/values (DICT)
@@ -4894,12 +5098,12 @@ class VCDMigrationValidation:
             self.getNsxDetails(inputDict["NSXT"]["Common"]["ipAddress"])
 
             if any([
-                    # Performing org vdc related validations
-                    self.orgVDCValidations(inputDict, vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj),
-                    # Performing services related validations
-                    self.servicesValidations(vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj) if validateServices else False,
-                    # Performing vApp related validations
-                    self.vappValidations(vdcDict, sourceOrgVDCId, nsxtObj) if validateVapp else False]):
+                # Performing org vdc related validations
+                self.orgVDCValidations(inputDict, vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj),
+                # Performing services related validations
+                self.servicesValidations(vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj) if validateServices else False,
+                # Performing vApp related validations
+                self.vappValidations(vdcDict, sourceOrgVDCId, nsxtObj) if validateVapp else False]):
                 logger.debug(
                     f'Successfully completed org vdc related validation tasks for org vdc "{vdcDict["OrgVDCName"]}"')
         except:
@@ -4960,7 +5164,8 @@ class VCDMigrationValidation:
                             sourceEdgeGateway['name']))
 
                 bgpEnabled = bgpConfigDict and isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == 'true'
-                advertiseRoutedNetworks = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['AdvertiseRoutedNetworks']
+                advertiseRoutedNetworks = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']][
+                    'AdvertiseRoutedNetworks']
 
                 # 1. User input validation Across Org VDC
                 orgVdcNameList = self.checkSameExternalNetworkUsedByOtherVDC(
@@ -5054,7 +5259,8 @@ class VCDMigrationValidation:
                 else:
                     # failure in current vmware cloud director user log out
                     deleteResponseDict = deleteResponse.json()
-                    raise Exception("Failed to log out current user of VMware Cloud Director: {}".format(deleteResponseDict['message']))
+                    raise Exception("Failed to log out current user of VMware Cloud Director: {}".format(
+                        deleteResponseDict['message']))
         except Exception:
             raise
 
@@ -5096,7 +5302,8 @@ class VCDMigrationValidation:
                         return responseDict
                     return []
             else:
-                return ["Failed to retrieve DNS configuration of Source Edge Gateway with error code {}\n".format(response.status_code)]
+                return ["Failed to retrieve DNS configuration of Source Edge Gateway with error code {}\n".format(
+                    response.status_code)]
         except Exception:
             raise
 
@@ -5161,13 +5368,15 @@ class VCDMigrationValidation:
             highestSourceVersion = 0
             highestSourceVersionName = str()
             highestTargetVersionName = str()
-            for eachSourceVersionDetail in data['sourceProviderVDC']['Capabilities']['SupportedHardwareVersions']['SupportedHardwareVersion']:
+            for eachSourceVersionDetail in data['sourceProviderVDC']['Capabilities']['SupportedHardwareVersions'][
+                'SupportedHardwareVersion']:
                 [name, currentVersion] = eachSourceVersionDetail['@name'].split('-')
                 if int(currentVersion) > highestSourceVersion:
                     highestSourceVersion = int(currentVersion)
                 highestSourceVersionName = '-'.join([name, str(highestSourceVersion)])
             highestTargetVersion = 0
-            for eachTargetVersionDetail in data['targetProviderVDC']['Capabilities']['SupportedHardwareVersions']['SupportedHardwareVersion']:
+            for eachTargetVersionDetail in data['targetProviderVDC']['Capabilities']['SupportedHardwareVersions'][
+                'SupportedHardwareVersion']:
                 [name, currentVersion] = eachTargetVersionDetail['@name'].split('-')
                 if int(currentVersion) > highestTargetVersion:
                     highestTargetVersion = int(currentVersion)
@@ -5193,12 +5402,13 @@ class VCDMigrationValidation:
             targetOrgVdcId = targetOrgVDCId.split(':')[-1]
             # url to retrieve the specified provider vdc details
             url = '{}{}'.format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                   vcdConstants.ORG_VDC_BY_ID.format(targetOrgVdcId))
+                                vcdConstants.ORG_VDC_BY_ID.format(targetOrgVdcId))
             # get api call retrieve the specified provider vdc details
             response = self.restClientObj.get(url, self.headers)
             responseDict = self.vcdUtils.parseXml(response.content)
             if response.status_code == requests.codes.ok:
-                if responseDict['AdminVdc']['@id'] == targetOrgVDCId and responseDict['AdminVdc']['IsEnabled'] == "true":
+                if responseDict['AdminVdc']['@id'] == targetOrgVDCId and responseDict['AdminVdc'][
+                    'IsEnabled'] == "true":
                     logger.debug('Target Org VDC is enabled')
                     return
                 else:
@@ -5215,7 +5425,7 @@ class VCDMigrationValidation:
         try:
             # url to get the media info of specified organization
             url = "{}{}&sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                vcdConstants.GET_MEDIA_INFO)
+                                             vcdConstants.GET_MEDIA_INFO)
             acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,
                        'X-VMWARE-VCLOUD-TENANT-CONTEXT': orgId}
@@ -5259,7 +5469,7 @@ class VCDMigrationValidation:
         try:
             # url to get vapp template info
             url = "{}{}&sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                vcdConstants.GET_VAPP_TEMPLATE_INFO)
+                                             vcdConstants.GET_VAPP_TEMPLATE_INFO)
             acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
             headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,
                        'X-VMWARE-VCLOUD-TENANT-CONTEXT': orgId}
@@ -5274,9 +5484,10 @@ class VCDMigrationValidation:
             logger.debug('Getting vapp template details')
             while resultTotal > 0 and pageSizeCount < resultTotal:
                 # url to get the vapp template info with page number and page size count
-                url = "{}{}&page={}&pageSize={}&format=records&sortAsc=name".format(vcdConstants.XML_API_URL.format(self.ipAddress),
-                                                                       vcdConstants.GET_VAPP_TEMPLATE_INFO, pageNo,
-                                                                       vcdConstants.VAPP_TEMPLATE_PAGE_SIZE)
+                url = "{}{}&page={}&pageSize={}&format=records&sortAsc=name".format(
+                    vcdConstants.XML_API_URL.format(self.ipAddress),
+                    vcdConstants.GET_VAPP_TEMPLATE_INFO, pageNo,
+                    vcdConstants.VAPP_TEMPLATE_PAGE_SIZE)
                 getSession(self)
                 # get api call to retrieve the vapp template details with page number and page size count
                 response = self.restClientObj.get(url, headers)
@@ -5302,7 +5513,9 @@ class VCDMigrationValidation:
             data = self.rollback.apiData
             # checking if there exists affinity rules on source org vdc
             if data['sourceVMAffinityRules']:
-                sourceAffinityRules = data['sourceVMAffinityRules'] if isinstance(data['sourceVMAffinityRules'], list) else [data['sourceVMAffinityRules']]
+                sourceAffinityRules = data['sourceVMAffinityRules'] if isinstance(data['sourceVMAffinityRules'],
+                                                                                  list) else [
+                    data['sourceVMAffinityRules']]
                 # iterating over the affinity rules
                 for sourceAffinityRule in sourceAffinityRules:
                     affinityID = sourceAffinityRule['@id']
@@ -5344,7 +5557,8 @@ class VCDMigrationValidation:
                         self._checkTaskStatus(taskUrl=task_url)
                         logger.debug('Affinity Rules got enabled successfully in Source')
                     else:
-                        raise Exception('Failed to enable Affinity Rules in Source {} '.format(responseDict['Error']['@message']))
+                        raise Exception(
+                            'Failed to enable Affinity Rules in Source {} '.format(responseDict['Error']['@message']))
         except Exception:
             raise
 
@@ -5361,7 +5575,9 @@ class VCDMigrationValidation:
             data = self.rollback.apiData
             # checking if there exists affinity rules on source org vdc
             if data['sourceVMAffinityRules']:
-                sourceAffinityRules = data['sourceVMAffinityRules'] if isinstance(data['sourceVMAffinityRules'], list) else [data['sourceVMAffinityRules']]
+                sourceAffinityRules = data['sourceVMAffinityRules'] if isinstance(data['sourceVMAffinityRules'],
+                                                                                  list) else [
+                    data['sourceVMAffinityRules']]
                 # iterating over the affinity rules
                 for sourceAffinityRule in sourceAffinityRules:
                     affinityID = sourceAffinityRule['@id']
@@ -5403,7 +5619,8 @@ class VCDMigrationValidation:
                         self._checkTaskStatus(taskUrl=task_url)
                         logger.debug('Affinity Rules got disabled successfully in Source')
                     else:
-                        raise Exception('Failed to disable Affinity Rules in Source {} '.format(responseDict['Error']['@message']))
+                        raise Exception(
+                            'Failed to disable Affinity Rules in Source {} '.format(responseDict['Error']['@message']))
         except Exception:
             raise
 
@@ -5440,7 +5657,7 @@ class VCDMigrationValidation:
         lastIndex = listOfIPs.index(endAddress)
 
         # Return IP range
-        return listOfIPs[firstIndex:lastIndex+1]
+        return listOfIPs[firstIndex:lastIndex + 1]
 
     def getServiceEngineGroupDetails(self):
         """
@@ -5451,7 +5668,7 @@ class VCDMigrationValidation:
             logger.debug("Getting Service Engine Group Details")
             # url to retrieve service engine group details
             url = "{}{}?sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                vcdConstants.GET_SERVICE_ENGINE_GROUP_URI)
+                                             vcdConstants.GET_SERVICE_ENGINE_GROUP_URI)
             # get api call to retrieve org vdc compute policies
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
@@ -5465,8 +5682,8 @@ class VCDMigrationValidation:
             resultList = []
             while resultTotal > 0 and pageSizeCount < resultTotal:
                 url = "{}{}?page={}&pageSize={}&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                        vcdConstants.GET_SERVICE_ENGINE_GROUP_URI, pageNo,
-                                                        vcdConstants.SERVICE_ENGINE_GROUP_PAGE_SIZE)
+                                                                     vcdConstants.GET_SERVICE_ENGINE_GROUP_URI, pageNo,
+                                                                     vcdConstants.SERVICE_ENGINE_GROUP_PAGE_SIZE)
                 getSession(self)
                 response = self.restClientObj.get(url, self.headers)
                 if response.status_code == requests.codes.ok:
@@ -5528,7 +5745,8 @@ class VCDMigrationValidation:
         """
         try:
             # Fetching networks details from metadata dict
-            orgVdcNetworks = self.getOrgVDCNetworks(orgVdcId, 'sourceOrgVDCNetworks', saveResponse=False, sharedNetwork=True)
+            orgVdcNetworks = self.getOrgVDCNetworks(orgVdcId, 'sourceOrgVDCNetworks', saveResponse=False,
+                                                    sharedNetwork=True)
             # Converting list into dict for faster access in subsequent for loops
             orgVdcNetworks = {
                 network['parentNetworkId']['name'] if network['networkType'] == "DIRECT" else network['name']: network
@@ -5549,7 +5767,8 @@ class VCDMigrationValidation:
                 appliedToNetworkEdges = set()
                 for appliedToParam in appliedToList:
                     if appliedToParam['type'] not in vcdConstants.APPLIED_TO_LIST:
-                        errorList.append(f'Unsupported type "{appliedToParam["type"]}" provided in applied to section in rule "{rule["name"]}"')
+                        errorList.append(
+                            f'Unsupported type "{appliedToParam["type"]}" provided in applied to section in rule "{rule["name"]}"')
                     if appliedToParam['type'] == 'Network':
                         appliedToNet = orgVdcNetworks.get(appliedToParam['name'])
                         appliedToNetworkEdges.add(appliedToNet['connection']['routerRef']['id'])
@@ -5565,7 +5784,7 @@ class VCDMigrationValidation:
 
                 # Collect network objects directly specified in rule and specified in Security Groups
                 dfwRuleNetworks = set()
-                for entity in sources+destinations:
+                for entity in sources + destinations:
                     if entity['type'] == 'Network':
                         dfwRuleNetworks.add((entity['name'], None))
 
@@ -5582,7 +5801,8 @@ class VCDMigrationValidation:
                 sourceDFWNetworkDict = {}
                 for dfwRuleNetwork, origin in dfwRuleNetworks:
                     orgVdcNetwork = orgVdcNetworks[dfwRuleNetwork]
-                    if orgVdcNetwork['networkType'] == "DIRECT" and orgVdcNetwork['parentNetworkId']['name'] == dfwRuleNetwork:
+                    if orgVdcNetwork['networkType'] == "DIRECT" and orgVdcNetwork['parentNetworkId'][
+                        'name'] == dfwRuleNetwork:
                         errorList.append("Rule: {} has invalid objects: {}.".format(rule['name'], dfwRuleNetwork))
                     elif orgVdcNetwork['name'] == dfwRuleNetwork and orgVdcNetwork['networkType'] == 'NAT_ROUTED':
                         key = f"{dfwRuleNetwork}({origin})" if origin else dfwRuleNetwork
@@ -5621,7 +5841,8 @@ class VCDMigrationValidation:
         """
         try:
             # url to retrieve the networks with external network id
-            url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_ORG_VDC_NETWORKS, vcdConstants.QUERY_EXTERNAL_NETWORK.format(parentNetworkId['id']))
+            url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_ORG_VDC_NETWORKS,
+                                  vcdConstants.QUERY_EXTERNAL_NETWORK.format(parentNetworkId['id']))
             # get api call to retrieve the networks with external network id
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
@@ -5644,29 +5865,30 @@ class VCDMigrationValidation:
                                 extNetUsedByDirectNet = copy.deepcopy(extNet)
                                 break
                         else:
-                            return None, "External Network - '{}' used by direct network - '{}' is not present".format(parentNetworkId['name'], orgvdcNetwork)
+                            return None, "External Network - '{}' used by direct network - '{}' is not present".format(
+                                parentNetworkId['name'], orgvdcNetwork)
 
                         for extNet in externalNetworks:
                             # Finding segment backed ext net for shared direct network
                             if parentNetworkId['name'] + '-v2t' == extNet['name']:
                                 if [backing for backing in extNet['networkBackings']['values'] if
-                                   backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH']:
+                                    backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH']:
                                     # Fetching all subnets from source ext net used by direct network
                                     extNetUsedByDirectNetSubnets = [ipaddress.ip_network(
                                         f'{subnet["gateway"]}/{subnet["prefixLength"]}', strict=False)
-                                                                    for subnet in extNetUsedByDirectNet['subnets']
-                                                                    ['values']]
+                                        for subnet in extNetUsedByDirectNet['subnets']
+                                        ['values']]
                                     # Fetching all subnets from nsxt segment backed external network
                                     nsxtSegmentBackedExtNetSubnets = [ipaddress.ip_network(
                                         f'{subnet["gateway"]}/{subnet["prefixLength"]}', strict=False)
-                                                                      for subnet in extNet['subnets']['values']]
+                                        for subnet in extNet['subnets']['values']]
                                     # If all the subnets from source ext-net are not present in nsxt segment backed ext net, then raise exception
                                     if [gateway for gateway in extNetUsedByDirectNetSubnets if
-                                       gateway not in nsxtSegmentBackedExtNetSubnets]:
+                                        gateway not in nsxtSegmentBackedExtNetSubnets]:
                                         return None, f"All the External Network - '{parentNetworkId['name']}' subnets are not present in Target External Network - '{extNet['name']}'."
                                     break
                         else:
-                            return None, f"NSXT segment backed external network {parentNetworkId['name']+'-v2t'} is not present, and it is required for this direct shared network - {orgvdcNetwork}\n"
+                            return None, f"NSXT segment backed external network {parentNetworkId['name'] + '-v2t'} is not present, and it is required for this direct shared network - {orgvdcNetwork}\n"
                     else:
                         targetProviderVDCId, isNSXTbacked = self.getProviderVDCId(vdcDict["NSXTProviderVDCName"])
                         responseValues = self.getPaginatedResults(
@@ -5679,7 +5901,8 @@ class VCDMigrationValidation:
                         )
                         externalNetworkIds = [values['name'] for values in responseValues]
                         if parentNetworkId['name'] not in externalNetworkIds:
-                            return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, vdcDict["NSXTProviderVDCName"])
+                            return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(
+                                parentNetworkId['name'], orgvdcNetwork, vdcDict["NSXTProviderVDCName"])
                 else:
                     try:
                         sourceExternalNetwork = self.fetchAllExternalNetworks()
@@ -5693,7 +5916,8 @@ class VCDMigrationValidation:
                         externalDict = value
                     for value in externalDict['values']:
                         if value['backingType'] != 'DV_PORTGROUP':
-                            return None, 'The external network {} should be backed by VLAN if a dedicated direct network is connected to it'.format(parentNetworkId['name'])
+                            return None, 'The external network {} should be backed by VLAN if a dedicated direct network is connected to it'.format(
+                                parentNetworkId['name'])
                     backingid = [values['backingId'] for values in externalDict['values']]
                     url = '{}{}'.format(vcdConstants.XML_API_URL.format(self.ipAddress),
                                         vcdConstants.GET_PORTGROUP_VLAN_ID.format(backingid[0]))
@@ -5706,7 +5930,9 @@ class VCDMigrationValidation:
                     return orgvdcNetwork, None
                 return None, None
             else:
-                raise Exception(' Failed to get Org VDC network connected to external network {} with error code - {} '.format(parentNetworkId['name'], response.status_code))
+                raise Exception(
+                    ' Failed to get Org VDC network connected to external network {} with error code - {} '.format(
+                        parentNetworkId['name'], response.status_code))
         except Exception:
             raise
 
@@ -5727,7 +5953,8 @@ class VCDMigrationValidation:
 
             networkList = list()
             for orgVDCId in orgVDCIdList:
-                networkList += self.getOrgVDCNetworks(orgVDCId, 'sourceOrgVDCNetworks', saveResponse=False, sharedNetwork=differentOwners)
+                networkList += self.getOrgVDCNetworks(orgVDCId, 'sourceOrgVDCNetworks', saveResponse=False,
+                                                      sharedNetwork=differentOwners)
 
             # check whether network is shared and create a list of all shared networks.
             orgVdcNetworkSharedList = list()
@@ -5853,7 +6080,9 @@ class VCDMigrationValidation:
         try:
             if orgVdcNetworkSharedList:
                 if len(sourceOrgVdcList) > vcdConstants.MAX_ORGVDC_COUNT:
-                    raise Exception("In case of shared networks, the number of OrgVdcs to be parallely migrated should not be more than {}.".format(vcdConstants.MAX_ORGVDC_COUNT))
+                    raise Exception(
+                        "In case of shared networks, the number of OrgVdcs to be parallely migrated should not be more than {}.".format(
+                            vcdConstants.MAX_ORGVDC_COUNT))
             else:
                 logger.debug("No shared networks are present")
         except:
@@ -5868,7 +6097,9 @@ class VCDMigrationValidation:
         try:
             extraOrgVdcsOnSharedNetwork = [x for x in orgVdcNameList if x not in sourceOrgVdcList]
             if len(extraOrgVdcsOnSharedNetwork) > 0:
-                raise Exception("OrgVdc/s : {}, also use shared network used by the OrgVdc/s {}. These also need to be added in input file".format(','.join(set(extraOrgVdcsOnSharedNetwork)), sourceOrgVdcList))
+                raise Exception(
+                    "OrgVdc/s : {}, also use shared network used by the OrgVdc/s {}. These also need to be added in input file".format(
+                        ','.join(set(extraOrgVdcsOnSharedNetwork)), sourceOrgVdcList))
         except:
             raise
 
@@ -5878,7 +6109,8 @@ class VCDMigrationValidation:
         """
         try:
             ownersOfSharedNetworks = list()
-            orgVDCNameListToBeMigrated = [orgvdc['OrgVDCName'] for orgvdc in inputDict["VCloudDirector"]["SourceOrgVDC"]]
+            orgVDCNameListToBeMigrated = [orgvdc['OrgVDCName'] for orgvdc in
+                                          inputDict["VCloudDirector"]["SourceOrgVDC"]]
             networkOwnerMapping = dict()
             # get list shared network
             orgVdcNetworkSharedList = self.checkSharedNetworksUsedByOrgVdc(inputDict, differentOwners=True)
@@ -5898,10 +6130,12 @@ class VCDMigrationValidation:
             for networkUsageData in networkOwnerMapping.values():
                 if [orgvdc for orgvdc in networkUsageData[1] if orgvdc in orgVDCNameListToBeMigrated]:
                     ownersOfSharedNetworks.append(networkUsageData[0])
-            ownersOfSharedNetworksNotPartOfMigration = [orgvdc for orgvdc in set(ownersOfSharedNetworks) if orgvdc not in orgVDCNameListToBeMigrated]
+            ownersOfSharedNetworksNotPartOfMigration = [orgvdc for orgvdc in set(ownersOfSharedNetworks) if
+                                                        orgvdc not in orgVDCNameListToBeMigrated]
 
             if ownersOfSharedNetworksNotPartOfMigration:
-                raise Exception(f"{', '.join(ownersOfSharedNetworksNotPartOfMigration)} are owners of shared networks, so they also need to added in input file for migration")
+                raise Exception(
+                    f"{', '.join(ownersOfSharedNetworksNotPartOfMigration)} are owners of shared networks, so they also need to added in input file for migration")
         except:
             raise
         finally:
@@ -5933,7 +6167,8 @@ class VCDMigrationValidation:
                 raise Exception('Unable to find source Org VDC ID')
 
             try:
-                defaultRule = vcdObj.getDistributedFirewallRules(sourceOrgVDCId, ruleType='default', validateRules=False)
+                defaultRule = vcdObj.getDistributedFirewallRules(sourceOrgVDCId, ruleType='default',
+                                                                 validateRules=False)
                 dfwDefaultRules.append(defaultRule)
                 evaluatedOrgVdcs.append(orgVdcName)
             except DfwRulesAbsentError as e:
@@ -5990,7 +6225,8 @@ class VCDMigrationValidation:
                 logger.info("Validating number of Org Vdc/s to be migrated are less/equal to max limit")
                 self.checkMaxOrgVdcCount(sourceOrgVdcList, orgVdcNetworkSharedList)
 
-                logger.info("Validating if any Org Vdc is using shared network other than those mentioned in input file")
+                logger.info(
+                    "Validating if any Org Vdc is using shared network other than those mentioned in input file")
                 self.checkextraOrgVdcsOnSharedNetwork(orgVdcNameList, sourceOrgVdcList)
 
                 logger.info("Validating if the owner of shared networks are also part of migration or not")
@@ -6008,7 +6244,6 @@ class VCDMigrationValidation:
             return True
         finally:
             threading.current_thread().name = "MainThread"
-
 
     @isSessionExpired
     def getSourceDfwSecurityGroups(self):
@@ -6123,7 +6358,8 @@ class VCDMigrationValidation:
 
         # if multiple network pools exist and network pool not specified in user spec
         if not networkPoolName:
-            raise Exception('Target PVDC has multiple network pools. Please specify the NSXT Network Pool in user spec.')
+            raise Exception(
+                'Target PVDC has multiple network pools. Please specify the NSXT Network Pool in user spec.')
 
         # if network pool passed by user doesn't exist in target then raise exception
         if [pool for pool in networkPoolReferences if pool['@name'] == networkPoolName]:
@@ -6159,12 +6395,70 @@ class VCDMigrationValidation:
         Parameters  : orgVdcId - ID of org vdc for which the validation is to be performed
         """
         logger.info("Validating cross VDC networking.")
-        orgVdcNetworkList = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', sharedNetwork=True, saveResponse=False)
+        orgVdcNetworkList = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', sharedNetwork=True,
+                                                   saveResponse=False)
+
         for orgVdcNetwork in orgVdcNetworkList:
             if orgVdcNetwork['crossVdcNetworkId'] and orgVdcNetwork['networkType'] == "CROSS_VDC":
                 raise ValidationError(
                     "Cross VDC Networking enabled and OrgVdc uses Cross VDC network {}, which is not supported on migration tool.".format(
                         orgVdcNetwork['name']))
+
+    @isSessionExpired
+    def validateCatalogPublishing(self, vdcId, orgName):
+        """
+        Description : Method that checks whether catalog is published or not
+        Parameters  : orgVdcId - ID of org vdc for which the validation is to be performed
+        """
+        logger.debug("Validating if catalogs are present for the ORGVDC")
+        vdcId = vdcId.split(':')[-1]
+        url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                            vcdConstants.ORG_VDC_BY_ID.format(vdcId))
+        vdcResponse = self.restClientObj.get(url, self.headers)
+        vdcResponseDict = self.vcdUtils.parseXml(vdcResponse.content)
+
+        storageProfileIDsList = []
+        storageProfilesList = []
+        storageProfiles = vdcResponseDict['AdminVdc']['VdcStorageProfiles'][
+            'VdcStorageProfile'] if isinstance(
+            vdcResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'], list) else [
+            vdcResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile']]
+        for storageProfile in storageProfiles:
+            storageProfilesList.append(storageProfile)
+            storageProfileIDsList.append(storageProfile['@id'])
+
+        orgUrl = self.getOrgUrl(orgName)
+        orgResponse = self.restClientObj.get(orgUrl, headers=self.headers)
+        orgResponseDict = self.vcdUtils.parseXml(orgResponse.content)
+
+        # if no catalogs exist
+        if not orgResponseDict['AdminOrg'].get("Catalogs"):
+            logger.debug("No Catalogs exist in Organization")
+            return
+
+        orgCatalogs = orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"] if isinstance(
+            orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"], list) else [
+            orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"]]
+
+        vdcCatalogDetails = []
+        for catalog in orgCatalogs:
+            catalogResponse = self.restClientObj.get(catalog['@href'], headers=self.headers)
+            catalogResponseDict = self.vcdUtils.parseXml(catalogResponse.content)
+            if catalogResponseDict['AdminCatalog'].get('CatalogStorageProfiles'):
+                if catalogResponseDict['AdminCatalog']['CatalogStorageProfiles']['VdcStorageProfile'][
+                    '@id'] in storageProfileIDsList:
+                    vdcCatalogDetails.append(catalogResponseDict['AdminCatalog'])
+        errors = []
+        for cat in vdcCatalogDetails:
+            if cat.get('PublishExternalCatalogParams'):
+                errors.append(f"The catalog {cat.get('@name')} is published in org {orgName} hence needs to be"
+                              " published again after migration.")
+
+        if errors:
+            raise ValidationError('\n'.join(errors))
+
+        logger.debug(f"Validated successfully no published catalogs in the org {orgName}")
+
 
     @isSessionExpired
     def getEdgeGatewayGreTunnel(self, edgeGatewayId):
@@ -6173,9 +6467,9 @@ class VCDMigrationValidation:
         Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
         """
         url = '{}{}'.format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
-                    'edges/{}'.format(edgeGatewayId))
+                            'edges/{}'.format(edgeGatewayId))
         headers = {'Authorization': self.headers['Authorization'],
-                    'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
+                   'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
         # call get api to get gre tunnel config details of specified edge gateway
         response = self.restClientObj.get(url, headers)
         if response.status_code == requests.codes.ok:

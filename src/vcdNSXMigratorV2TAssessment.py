@@ -102,6 +102,7 @@ VALIDATION_CLASSIFICATION = {
     'No free interface on edge gateways': 1,
     'Shared Independent Disks': 2,
     'Cross VDC Networking': 2,
+    'Catalog is published' : 1,
     **EDGE_GW_SERVICES_VALIDATIONS,
     **DFW_VALIDATIONS,
 }
@@ -258,6 +259,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
             # Validation methods reference
             self.vcdValidationMapping = {
+                'Catalog is published': [self.vcdValidationObj.validateCatalogPublishing, vdcId, orgName],
                 'Empty vApps': [self.vcdValidationObj.validateNoEmptyVappsExistInSourceOrgVDC, vdcId],
                 'Suspended VMs': [self.vcdValidationObj.validateSourceSuspendedVMsInVapp, vdcId],
                 'Unsupported Routed vApp Network Configuration': [self.vcdValidationObj.validateRoutedVappNetworks, vdcId, True, None],

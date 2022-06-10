@@ -2769,7 +2769,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     # skipping the organization level catalogs(i.e catalogs that doesnot belong to any org vdc) while are handled in the for-else loop
                     logger.debug("Skipping the catalog '{}' since catalog doesnot belong to any org vdc".format(
                         catalog['@name']))
-
+            # Warning if the catalog is published then after migration it needs to be published again
+            for cat in sourceOrgVDCCatalogDetails:
+                if cat.get('PublishExternalCatalogParams'):
+                    logger.warning(f"The catalog {cat.get('@name')} is published hence needs to be published again "
+                                   f"after migration.")
             # getting the target storage profile details
             targetOrgVDCId = targetOrgVDCId.split(':')[-1]
             # url to get target org vdc details
