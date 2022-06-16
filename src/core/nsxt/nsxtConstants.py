@@ -99,9 +99,6 @@ CREATE_BRIDGE_ENDPOINT_TEMPLATE = "createBridgeEndpoint"
 # nsx-t create bridge endpoint uri
 CREATE_BRIDGE_ENDPOINT_API = "api/v1/bridge-endpoints"
 
-# nsx-t pnic name for attaching vxlan logical switch to edge transport node
-PNIC_NAME = 'fp-eth2'
-
 # nsx-t bridge endpoint by id uri
 GET_BRIDGE_ENDPOINT_BY_ID_API = "api/v1/bridge-endpoints/{}"
 
