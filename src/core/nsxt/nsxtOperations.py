@@ -1414,9 +1414,8 @@ class NSXTOperations():
                     if responseDict.get('host_switch_spec'):
                         hostSwitchSpec = responseDict["host_switch_spec"]["host_switches"]
                         for hostSwitch in hostSwitchSpec:
-                            for pnics in hostSwitch["pnics"]:
-                                if pnics["device_name"] == nsxtConstants.PNIC_NAME:
-                                    hostSwitchNameList.append(responseDict['display_name'])
+                            if hostSwitch["host_switch_name"] == "Bridge-nvds-v2t":
+                                hostSwitchNameList.append(responseDict['display_name'])
                     else:
                         raise Exception('Host switch specification not available')
                 else:
