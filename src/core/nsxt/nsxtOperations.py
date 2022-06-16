@@ -350,8 +350,8 @@ class NSXTOperations():
             filePath = os.path.join(nsxtConstants.NSXT_ROOT_DIRECTORY, 'template.json')
             url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
                                                             nsxtConstants.HOST_SWITCH_PROFILE_API)
-            BridgeUplinkProfile = nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME + str(uuid.uuid4())
-            payloadDict = {'uplinkProfileName': BridgeUplinkProfile}
+            bridgeUplinkProfile = nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME + str(uuid.uuid4())
+            payloadDict = {'uplinkProfileName': bridgeUplinkProfile}
             # create payload for host profile creation
             payload = self.nsxtUtils.createPayload(filePath=filePath, fileType="json",
                                                     componentName=nsxtConstants.COMPONENT_NAME,
@@ -363,12 +363,12 @@ class NSXTOperations():
             # REST POST call to create uplink profile
             response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payload, auth=self.restClientObj.auth)
             if response.status_code == requests.codes.created:
-                logger.debug("Successfully created uplink profile {}".format(BridgeUplinkProfile))
+                logger.debug("Successfully created uplink profile {}".format(bridgeUplinkProfile))
                 uplinkProfileId = json.loads(response.content)["id"]
                 logger.info('Successfully created Bridge Uplink Host Profile.')
-                data['BridgingStatus']['UplinkProfileName'] = BridgeUplinkProfile
+                data['BridgingStatus']['UplinkProfileName'] = bridgeUplinkProfile
                 return uplinkProfileId
-            msg = "Failed to create uplink profile {}.".format(BridgeUplinkProfile)
+            msg = "Failed to create uplink profile {}.".format(bridgeUplinkProfile)
             logger.error(msg)
             raise Exception(msg, response.status_code)
         except Exception:
@@ -390,10 +390,10 @@ class NSXTOperations():
                 nsxtVersion = tuple(map(int, openApiSpecsData['info']['version'].split('.')))
             data = self.rollback.apiData
             transportZoneName = data['BridgingStatus']['TransportZone']
-            BridgeUplinkProfile = data['BridgingStatus']['UplinkProfileName']
+            bridgeUplinkProfile = data['BridgingStatus']['UplinkProfileName']
             logger.info('Adding Bridge Transport Zone to Bridge Edge Transport Nodes.')
             uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                                      componentName=BridgeUplinkProfile)
+                                                      componentName=bridgeUplinkProfile)
 
             transportZoneData = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName)
 
@@ -951,9 +951,9 @@ class NSXTOperations():
                     raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
 
             # Fetching uplink profile data
-            BridgeUplinkProfile = self.rollback.apiData['BridgingStatus'].get('UplinkProfileName')
+            bridgeUplinkProfile = self.rollback.apiData['BridgingStatus'].get('UplinkProfileName')
             uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                                        componentName=BridgeUplinkProfile)
+                                                        componentName=bridgeUplinkProfile)
             # updating the transport node details inside edgeTransportNodeList
             for edgeTransportNode in edgeTransportNodeList:
                 url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
@@ -1011,7 +1011,7 @@ class NSXTOperations():
 
             # getting the host switch profile details
             hostSwitchProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                                          componentName=BridgeUplinkProfile)
+                                                          componentName=bridgeUplinkProfile)
             if hostSwitchProfileData:
                 hostSwitchProfileId = hostSwitchProfileData['id']
                 url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
