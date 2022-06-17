@@ -534,8 +534,7 @@ class VMwareCloudDirectorNSXMigrator():
                 # Rollback: Copying direct network IP's from NSX-T segment backed external network to source external network
                 futures = list()
                 with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                    for vcdObj, nsxtObj, orgVDCDict in zip(self.vcdObjList, self.nsxtObjList,
-                                                           self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                    for vcdObj in self.vcdObjList:
                         if vcdObj.rollback.metadata:
                             futures.append(executor.submit(vcdObj.copyIPToSegmentBackedExtNet, rollback=True))
                     waitForThreadToComplete(futures)
@@ -560,24 +559,20 @@ class VMwareCloudDirectorNSXMigrator():
 
                 futures = list()
                 with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                    for vcdObj, orgVDCDict in zip(
-                            self.vcdObjList,
-                            self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                    for vcdObj in self.vcdObjList:
                         if vcdObj.rollback.metadata:
-                            futures.append(executor.submit(vcdObj.rollback.performDfwRollback, orgVDCDict, vcdObj))
+                            futures.append(executor.submit(vcdObj.rollback.performDfwRollback, vcdObj))
                     waitForThreadToComplete(futures)
 
                 # Perform other rollback tasks
                 futures = list()
                 with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                    for vcdObj, nsxtObj, orgVDCDict in zip(self.vcdObjList, self.nsxtObjList,
-                                                           self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                    for vcdObj, nsxtObj in zip(self.vcdObjList, self.nsxtObjList):
                         if vcdObj.rollback.metadata:
-                            futures.append(executor.submit(vcdObj.rollback.perform, orgVDCDict, vcdObj, nsxtObj,
-                                                           self.vcdObjList,
+                            futures.append(executor.submit(vcdObj.rollback.perform, vcdObj, nsxtObj,self.vcdObjList,
                                                            rollbackTasks=vcdObj.rollback.metadata.get('rollbackTasks')))
                         else:
-                            self.consoleLogger.warning(f"No rollback task exist for org vdc {orgVDCDict['OrgVDCName']}.")
+                            self.consoleLogger.warning(f"No rollback task exist for org vdc {vcdObj.orgVdcInput['OrgVDCName']}.")
                             continue
                     waitForThreadToComplete(futures)
             if self.retryRollback and not any([vcdObj.rollback.metadata for vcdObj in self.vcdObjList]):
@@ -598,29 +593,29 @@ class VMwareCloudDirectorNSXMigrator():
         except:
             raise
 
-    def fetchMetadataFromOrgVDC(self, vcdObj, orgVDCDict):
+    def fetchMetadataFromOrgVDC(self, vcdObj):
         """
             Description: Fetching metadata from source Org VDC and performing all metadata related operations
         """
         try:
             # Setting thread name same as the org vdc name
-            threading.current_thread().name = orgVDCDict["OrgVDCName"]
-            self.consoleLogger.info(f"Fetching metadata for org vdc '{orgVDCDict['OrgVDCName']}'")
+            threading.current_thread().name = vcdObj.orgVdcInput["OrgVDCName"]
+            self.consoleLogger.info(f"Fetching metadata for org vdc '{vcdObj.orgVdcInput['OrgVDCName']}'")
 
             # Creating key of org vdc name to store data
-            if orgVDCDict["OrgVDCName"] not in self.orgVDCData:
-                self.orgVDCData[orgVDCDict["OrgVDCName"]] = dict()
+            if vcdObj.orgVdcInput["OrgVDCName"] not in self.orgVDCData:
+                self.orgVDCData[vcdObj.orgVdcInput["OrgVDCName"]] = dict()
 
             # Fetching source Org VDC Id
             orgUrl = vcdObj.getOrgUrl(self.inputDict["VCloudDirector"]["Organization"]["OrgName"])
-            sourceOrgVDCId = vcdObj.getOrgVDCDetails(orgUrl, orgVDCDict["OrgVDCName"], 'sourceOrgVDC')
+            sourceOrgVDCId = vcdObj.getOrgVDCDetails(orgUrl, vcdObj.orgVdcInput["OrgVDCName"], 'sourceOrgVDC')
 
-            self.orgVDCData[orgVDCDict["OrgVDCName"]]["id"] = sourceOrgVDCId
+            self.orgVDCData[vcdObj.orgVdcInput["OrgVDCName"]]["id"] = sourceOrgVDCId
 
             # Fetching metadata from source orgVDC
             metadata = vcdObj.getOrgVDCMetadata(sourceOrgVDCId, domain='system')
 
-            # self.orgVDCData[orgVDCDict["OrgVDCName"]]["metadata"] = metadata
+            # self.orgVDCData[vcdObj.orgVdcInput["OrgVDCName"]]["metadata"] = metadata
 
             vcdObj.rollback.metadata = copy.deepcopy(metadata)
 
@@ -784,16 +779,16 @@ class VMwareCloudDirectorNSXMigrator():
         # Fetching metadata and performing all metadata related operation required for migration
         futures = list()
         with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-            for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
-                futures.append(executor.submit(self.fetchMetadataFromOrgVDC, vcdObj, orgVDCDict))
+            for vcdObj in self.vcdObjList:
+                futures.append(executor.submit(self.fetchMetadataFromOrgVDC, vcdObj))
             waitForThreadToComplete(futures)
 
         futures = list()
         with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-            for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+            for vcdObj in self.vcdObjList:
                 futures.append(executor.submit(
                     vcdObj.updateEdgeGatewayInputDict,
-                    self.orgVDCData[orgVDCDict["OrgVDCName"]]["id"]
+                    self.orgVDCData[vcdObj.orgVdcInput["OrgVDCName"]]["id"]
                 ))
             waitForThreadToComplete(futures)
 
@@ -801,10 +796,11 @@ class VMwareCloudDirectorNSXMigrator():
         self.CLEAN_UP_SCRIPT_RUN = True
         passFilePath = self.passFile if self.passFile else self.defaultPassFileName
 
-        cleanupObjectsList = [VMwareCloudDirectorNSXMigratorCleanup(orgVDCDict, self.inputDict, vcdObj, nsxtObj,
-                                                                    passFilePath)
-                              for orgVDCDict, nsxtObj, vcdObj in zip(self.inputDict["VCloudDirector"]["SourceOrgVDC"],
-                                                                     self.nsxtObjList, self.vcdObjList)]
+        cleanupObjectsList = [
+            VMwareCloudDirectorNSXMigratorCleanup(orgVDCDict, self.inputDict, vcdObj, nsxtObj, passFilePath)
+            for orgVDCDict, nsxtObj, vcdObj in zip(
+                self.inputDict["VCloudDirector"]["SourceOrgVDC"], self.nsxtObjList, self.vcdObjList)
+        ]
 
         # Spawning threads for org vdc cleanup
         futures = list()
@@ -829,10 +825,9 @@ class VMwareCloudDirectorNSXMigrator():
         # Perform premigration validations
         futures = list()
         with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-            for vcdObj, nsxtObj, orgVDCDict in zip(self.vcdObjList, self.nsxtObjList,
-                                                   self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
-                futures.append(executor.submit(vcdObj.preMigrationValidation, self.inputDict, orgVDCDict,
-                                               self.orgVDCData[orgVDCDict["OrgVDCName"]]["id"], nsxtObj,
+            for vcdObj, nsxtObj in zip(self.vcdObjList, self.nsxtObjList):
+                futures.append(executor.submit(vcdObj.preMigrationValidation, self.inputDict,
+                                               self.orgVDCData[vcdObj.orgVdcInput["OrgVDCName"]]["id"], nsxtObj,
                                                self.nsxvObj,
                                                validateVapp=mainConstants.MOVEVAPP_KEYWORD in self.executeList,
                                                validateServices=mainConstants.SERVICES_KEYWORD in self.executeList))
@@ -860,13 +855,11 @@ class VMwareCloudDirectorNSXMigrator():
         # Preparing Target VDC
         futures = list()
         with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-            orgVDCIDList = [data["id"] for data in self.orgVDCData.values()]
-            for vcdObj, nsxtObj, orgVDCDict in zip(self.vcdObjList, self.nsxtObjList,
-                                                   self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+            for vcdObj, nsxtObj in zip(self.vcdObjList, self.nsxtObjList):
                 futures.append(executor.submit(vcdObj.prepareTargetVDC, self.vcdObjList,
-                                               self.orgVDCData[orgVDCDict["OrgVDCName"]]["id"],
-                                               self.inputDict, orgVDCDict, nsxtObj, orgVDCDict["OrgVDCName"],
-                                               orgVDCIDList, self.vcenterObj,
+                                               self.orgVDCData[vcdObj.orgVdcInput["OrgVDCName"]]["id"],
+                                               self.inputDict, nsxtObj, vcdObj.orgVdcInput["OrgVDCName"],
+                                               self.vcenterObj,
                                                configureBridging=mainConstants.BRIDGING_KEYWORD in self.executeList,
                                                configureServices=mainConstants.SERVICES_KEYWORD in self.executeList)
                                )
@@ -901,17 +894,17 @@ class VMwareCloudDirectorNSXMigrator():
             # Services configuration
             futures = list()
             with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                for vcdObj in self.vcdObjList:
                     # Configuring services
-                    futures.append(executor.submit(vcdObj.configureServices, self.nsxvObj, orgVDCDict))
+                    futures.append(executor.submit(vcdObj.configureServices, self.nsxvObj))
                 waitForThreadToComplete(futures)
 
             # configuring target vdc i.e reconnecting target vdc networks and edge gateway
             futures = list()
             with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                for vcdObj, orgVdcDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
-                    edgeGatewayDeploymentEdgeCluster = orgVdcDict.get('EdgeGatewayDeploymentEdgeCluster', None)
-                    futures.append(executor.submit(vcdObj.configureTargetVDC, self.vcdObjList, orgVDCDict, edgeGatewayDeploymentEdgeCluster, self.nsxtObjList[0]))
+                for vcdObj in self.vcdObjList:
+                    edgeGatewayDeploymentEdgeCluster = vcdObj.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster', None)
+                    futures.append(executor.submit(vcdObj.configureTargetVDC, self.vcdObjList, edgeGatewayDeploymentEdgeCluster, self.nsxtObjList[0]))
                 waitForThreadToComplete(futures)
         else:
             self.consoleLogger.warning(
@@ -931,16 +924,15 @@ class VMwareCloudDirectorNSXMigrator():
             futures = list()
             with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
                 orgVDCIDList = [data["id"] for data in self.orgVDCData.values()]
-                for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
-                    futures.append(executor.submit(vcdObj.copyIPToSegmentBackedExtNet, orgVDCDict, orgVDCIDList=orgVDCIDList))
+                for vcdObj in self.vcdObjList:
+                    futures.append(executor.submit(vcdObj.copyIPToSegmentBackedExtNet, orgVDCIDList=orgVDCIDList))
                 waitForThreadToComplete(futures)
 
             # update network profile
             futures = list()
             with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                for vcdObj, orgVdcDict in zip(self.vcdObjList,
-                                              self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
-                    edgeGatewayDeploymentEdgeCluster = orgVdcDict.get('EdgeGatewayDeploymentEdgeCluster', None)
+                for vcdObj in self.vcdObjList:
+                    edgeGatewayDeploymentEdgeCluster = vcdObj.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster', None)
                     sourceOrgVDCID = vcdObj.rollback.apiData['sourceOrgVDC']['@id']
                     targetOrgVDCID = vcdObj.rollback.apiData['targetOrgVDC']['@id']
                     futures.append(executor.submit(vcdObj.updateNetworkProfileOnTarget, sourceOrgVDCID,
@@ -957,15 +949,14 @@ class VMwareCloudDirectorNSXMigrator():
             # Enable target affinity rules
             futures = list()
             with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                for vcdObj in self.vcdObjList:
                     futures.append(executor.submit(vcdObj.enableTargetAffinityRules))
                 waitForThreadToComplete(futures)
 
             # Removing IP/s from v-external network after vApp migration
             futures = list()
             with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-                for vcdObj, orgVDCDict in zip(self.vcdObjList,
-                                              self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                for vcdObj in self.vcdObjList:
                     futures.append(executor.submit(vcdObj.directNetworkIpCleanup, source=True))
                 waitForThreadToComplete(futures)
         else:

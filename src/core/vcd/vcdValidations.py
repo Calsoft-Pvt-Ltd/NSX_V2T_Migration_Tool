@@ -211,7 +211,6 @@ class VCDMigrationValidation:
             self.orgVdcInput = orgVdcInput
             self.vdcName = orgVdcInput["OrgVDCName"]
 
-        self.orgVdcDict = orgVdcInput   # TODO pranshu: delete
         self.assessmentMode = assessmentMode
         self.vCDSessionId = None
         self.vcdUtils = Utilities()
@@ -2006,7 +2005,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def validateOrgVDCNetworkDirect(self, orgVdcNetworkList, vdcDict, transportZone, nsxtObj):
+    def validateOrgVDCNetworkDirect(self, orgVdcNetworkList, transportZone, nsxtObj):
         """
         Description :   Validates if Source Org VDC Networks are not direct networks
         Parameters  :   orgVdcNetworkList   -   list of org vdc network list (LIST)
@@ -2018,7 +2017,7 @@ class VCDMigrationValidation:
             for orgVdcNetwork in orgVdcNetworkList:
                 if orgVdcNetwork['networkType'] == 'DIRECT':
                     parentNetworkId = orgVdcNetwork['parentNetworkId']
-                    networkName, exception = self.validateExternalNetworkdvpg(parentNetworkId, vdcDict, orgVdcNetwork['name'], orgVdcNetwork)
+                    networkName, exception = self.validateExternalNetworkdvpg(parentNetworkId, orgVdcNetwork['name'], orgVdcNetwork)
                     if networkName:
                         orgVdcNetworkDirectList.append(networkName)
                     if exception:
@@ -3858,7 +3857,7 @@ class VCDMigrationValidation:
 
                 if int(responseDict['resultTotal']) > 1:
                     if not parentNetwork['shared']:
-                        if self.orgVdcDict.get('LegacyDirectNetwork', False):
+                        if self.orgVdcInput.get('LegacyDirectNetwork', False):
                             # Service direct network legacy implementation
                             vAppValidations['legacyDirectNetwork'].add(f"{vApp['@name']}|{vAppNetwork['@networkName']}")
                         else:
@@ -4728,11 +4727,10 @@ class VCDMigrationValidation:
 
     @description("Performing OrgVDC related validations")
     @remediate
-    def orgVDCValidations(self, inputDict, vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj):
+    def orgVDCValidations(self, inputDict, sourceOrgVDCId, nsxtObj, nsxvObj):
         """
         Description : Pre migration validation tasks for org vdc
         Parameters  : inputDict      -  dictionary of all the input yaml file key/values (DICT)
-                      vdcDict        -  dictionary of the vcd details (DIC)
                       sourceOrgVDCId -  ID of source org vdc (STRING)
                       nsxtObj        -  Object of NSXT operations class holding all functions related to NSXT (OBJECT)
                       nsxvObj        -  Object of NSXV operations class holding all functions related to NSXV (OBJECT)
@@ -4740,14 +4738,14 @@ class VCDMigrationValidation:
         # Flag to check whether the org vdc was disabled or not
         disableOrgVDC = False
         try:
-            logger.info(f'Starting with PreMigration validation tasks for org vdc "{vdcDict["OrgVDCName"]}"')
+            logger.info(f'Starting with PreMigration validation tasks for org vdc "{self.orgVdcInput["OrgVDCName"]}"')
 
             logger.info('Validating NSX-T manager details')
             self.getNsxDetails(inputDict["NSXT"]["Common"]["ipAddress"])
 
             # validating whether target org vdc with same name as that of source org vdc exists
             logger.info("Validating whether target Org VDC already exists")
-            self.validateNoTargetOrgVDCExists(vdcDict["OrgVDCName"])
+            self.validateNoTargetOrgVDCExists(self.orgVdcInput["OrgVDCName"])
 
             # Getting Org VDC Edge Gateway Id
             sourceEdgeGatewayData = self.getOrgVDCEdgeGateway(sourceOrgVDCId)
@@ -4766,8 +4764,8 @@ class VCDMigrationValidation:
             self.getDummyExternalNetwork(inputDict["VCloudDirector"].get("DummyExternalNetwork"))
 
             # getting the source provider VDC details and checking if its NSX-V backed
-            logger.info('Getting the source Provider VDC - {} details.'.format(vdcDict["NSXVProviderVDCName"]))
-            sourceProviderVDCId, isNSXTbacked = self.getProviderVDCId(vdcDict["NSXVProviderVDCName"])
+            logger.info('Getting the source Provider VDC - {} details.'.format(self.orgVdcInput["NSXVProviderVDCName"]))
+            sourceProviderVDCId, isNSXTbacked = self.getProviderVDCId(self.orgVdcInput["NSXVProviderVDCName"])
             self.getProviderVDCDetails(sourceProviderVDCId, isNSXTbacked)
 
             # validating the source network pool backing
@@ -4780,27 +4778,27 @@ class VCDMigrationValidation:
 
             #  getting the target provider VDC details and checking if its NSX-T backed
             logger.info(
-                'Getting the target Provider VDC - {} details.'.format(vdcDict["NSXTProviderVDCName"]))
-            targetProviderVDCId, isNSXTbacked = self.getProviderVDCId(vdcDict["NSXTProviderVDCName"])
+                'Getting the target Provider VDC - {} details.'.format(self.orgVdcInput["NSXTProviderVDCName"]))
+            targetProviderVDCId, isNSXTbacked = self.getProviderVDCId(self.orgVdcInput["NSXTProviderVDCName"])
             self.getProviderVDCDetails(targetProviderVDCId, isNSXTbacked)
 
             # validating hardware version of source and target Provider VDC
             logging.info('Validating Hardware version of Source Provider VDC: {} and Target Provider VDC: {}'.format(
-                vdcDict["NSXVProviderVDCName"], vdcDict["NSXTProviderVDCName"]))
+                self.orgVdcInput["NSXVProviderVDCName"], self.orgVdcInput["NSXTProviderVDCName"]))
             self.validateHardwareVersion()
 
             # validating if the target provider vdc is enabled or not
             logger.info(
-                'Validating Target Provider VDC {} is enabled'.format(vdcDict["NSXTProviderVDCName"]))
+                'Validating Target Provider VDC {} is enabled'.format(self.orgVdcInput["NSXTProviderVDCName"]))
             self.validateTargetProviderVdc()
 
             # disable the source Org VDC so that operations cant be performed on it
-            logger.info('Disabling the source Org VDC - {}'.format(vdcDict["OrgVDCName"]))
+            logger.info('Disabling the source Org VDC - {}'.format(self.orgVdcInput["OrgVDCName"]))
             disableOrgVDC = self.disableOrgVDC(sourceOrgVDCId)
 
             # validating the source org vdc placement policies exist in target PVDC also
             logger.info('Validating whether source org vdc - {} placement policies are present in target PVDC'.format(
-                vdcDict["OrgVDCName"]))
+                self.orgVdcInput["OrgVDCName"]))
             self.validateVMPlacementPolicy(sourceOrgVDCId)
 
             # validating whether source and target P-VDC have same vm storage profiles
@@ -4808,7 +4806,7 @@ class VCDMigrationValidation:
             self.validateStorageProfiles()
 
             logger.info("Validating Edge cluster for target edge gateway deployment")
-            self.validateEdgeGatewayDeploymentEdgeCluster(vdcDict.get('EdgeGatewayDeploymentEdgeCluster', None), nsxtObj)
+            self.validateEdgeGatewayDeploymentEdgeCluster(self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster', None), nsxtObj)
 
             # getting the source External Network details
             logger.info('Getting the source External Network details.')
@@ -4832,7 +4830,7 @@ class VCDMigrationValidation:
             self.validateDedicatedExternalNetwork(inputDict)
 
             # getting the source Org VDC networks
-            logger.info('Getting the Org VDC networks of source Org VDC {}'.format(vdcDict["OrgVDCName"]))
+            logger.info('Getting the Org VDC networks of source Org VDC {}'.format(self.orgVdcInput["OrgVDCName"]))
             orgVdcNetworkList = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks')
 
             # Validating static Ip pool for OrgVDC network.
@@ -4844,7 +4842,7 @@ class VCDMigrationValidation:
             self.getOrgVDCNetworkDHCPConfig(orgVdcNetworkList)
 
             # validating whether DHCP is enabled on source Isolated Org VDC network
-            edgeGatewayDeploymentEdgeCluster = vdcDict.get('EdgeGatewayDeploymentEdgeCluster', None)
+            edgeGatewayDeploymentEdgeCluster = self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster', None)
             self.validateDHCPEnabledonIsolatedVdcNetworks(orgVdcNetworkList, sourceEdgeGatewayIdList, edgeGatewayDeploymentEdgeCluster,nsxtObj)
 
             # validating whether any org vdc network is shared or not
@@ -4854,8 +4852,8 @@ class VCDMigrationValidation:
             # validating whether any source org vdc network is not direct network
             logger.info('Validating Source OrgVDC Direct networks')
             providerVDCImportedNeworkTransportZone = inputDict["VCloudDirector"].get("ImportedNetworkTransportZone", None)
-            self.validateOrgVDCNetworkDirect(orgVdcNetworkList, vdcDict,
-                                             providerVDCImportedNeworkTransportZone, nsxtObj)
+
+            self.validateOrgVDCNetworkDirect(orgVdcNetworkList, providerVDCImportedNeworkTransportZone, nsxtObj)
 
             # validating NSX-V and NSX-T VNI pool ranges
             logger.info('Validating whether the source NSX-V Segment ID Pool is subset of target NSX-T VNI pool or not')
@@ -4863,7 +4861,7 @@ class VCDMigrationValidation:
                                        cloneOverlayIds=inputDict['VCloudDirector'].get('CloneOverlayIds'))
 
             # validating target external network pools
-            nsxtNetworkPoolName = vdcDict.get('NSXTNetworkPoolName', None)
+            nsxtNetworkPoolName = self.orgVdcInput.get('NSXTNetworkPoolName', None)
             logger.info('Validating Target NSXT backed Network Pools')
             self.validateTargetPvdcNetworkPools(nsxtNetworkPoolName)
 
@@ -4880,17 +4878,16 @@ class VCDMigrationValidation:
 
     @description("Performing services related validations")
     @remediate
-    def servicesValidations(self, vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj):
+    def servicesValidations(self, sourceOrgVDCId, nsxtObj, nsxvObj):
         """
         Description : Pre migration validation tasks related to services configured in org vdc
-        Parameters  : vdcDict        -  dictionary of the vcd details (DIC)
-                      sourceOrgVDCId -  ID of source org vdc (STRING)
+        Parameters  : sourceOrgVDCId -  ID of source org vdc (STRING)
                       nsxtObj        -  Object of NSXT operations class holding all functions related to NSXT (OBJECT)
                       nsxvObj        -  Object of NSXV operations class holding all functions related to NSXV (OBJECT)
         """
         try:
             # if NSXTProviderVDCNoSnatDestinationSubnet is passed to sampleInput else set it to None
-            noSnatDestSubnet = vdcDict.get("NoSnatDestinationSubnet")
+            noSnatDestSubnet = self.orgVdcInput.get("NoSnatDestinationSubnet")
 
             # get distributed firewall configuration
             logger.info('Validating Distributed Firewall configuration')
@@ -4907,11 +4904,10 @@ class VCDMigrationValidation:
 
     @description("Performing vApp related validations")
     @remediate
-    def vappValidations(self, vdcDict, sourceOrgVDCId, nsxtObj=None):
+    def vappValidations(self, sourceOrgVDCId, nsxtObj=None):
         """
         Description : Pre migration validation tasks related to vApps present in org vdc
-        Parameters  : vdcDict        -  dictionary of the vcd details (DIC)
-                      sourceOrgVDCId -  ID of source org vdc (STRING)
+        Parameters  : sourceOrgVDCId -  ID of source org vdc (STRING)
         """
         try:
             # validating whether there are empty vapps in source org vdc
@@ -4932,7 +4928,7 @@ class VCDMigrationValidation:
 
             # validating that No vApps have isolated networks with dhcp configured
             logger.info('Validating isolated vApp networks with DHCP enabled')
-            self.validateDHCPOnIsolatedvAppNetworks(sourceOrgVDCId, vdcDict.get('EdgeGatewayDeploymentEdgeCluster', None), nsxtObj)
+            self.validateDHCPOnIsolatedvAppNetworks(sourceOrgVDCId, self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster', None), nsxtObj)
 
             logger.info("Validating Independent Disks")
             self.validateIndependentDisks(sourceOrgVDCId)
@@ -4944,7 +4940,7 @@ class VCDMigrationValidation:
             self.validateVappVMsMediaNotConnected(sourceOrgVDCId)
 
             # get the affinity rules of source Org VDC
-            logger.info('Getting the VM affinity rules of source Org VDC {}'.format(vdcDict["OrgVDCName"]))
+            logger.info('Getting the VM affinity rules of source Org VDC {}'.format(self.orgVdcInput["OrgVDCName"]))
             self.getOrgVDCAffinityRules(sourceOrgVDCId)
 
             # disabling Affinity rules
@@ -4979,11 +4975,10 @@ class VCDMigrationValidation:
 
         # TODO pranshu: add validation for EdgeGateways
 
-    def preMigrationValidation(self, inputDict, vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj, validateVapp=False, validateServices=False):
+    def preMigrationValidation(self, inputDict, sourceOrgVDCId, nsxtObj, nsxvObj, validateVapp=False, validateServices=False):
         """
         Description : Pre migration validation tasks
         Parameters  : inputDict      -  dictionary of all the input yaml file key/values (DICT)
-                      vdcDict        -  dictionary of the vcd details (DIC)
                       sourceOrgVDCId -  ID of source org vdc (STRING)
                       nsxtObj        -  Object of NSXT operations class holding all functions related to NSXT (OBJECT)
                       nsxvObj        -  Object of NSXV operations class holding all functions related to NSXV (OBJECT)
@@ -4998,13 +4993,13 @@ class VCDMigrationValidation:
 
             if any([
                     # Performing org vdc related validations
-                    self.orgVDCValidations(inputDict, vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj),
+                    self.orgVDCValidations(inputDict, sourceOrgVDCId, nsxtObj, nsxvObj),
                     # Performing services related validations
-                    self.servicesValidations(vdcDict, sourceOrgVDCId, nsxtObj, nsxvObj) if validateServices else False,
+                    self.servicesValidations(sourceOrgVDCId, nsxtObj, nsxvObj) if validateServices else False,
                     # Performing vApp related validations
-                    self.vappValidations(vdcDict, sourceOrgVDCId, nsxtObj) if validateVapp else False]):
+                    self.vappValidations(sourceOrgVDCId, nsxtObj) if validateVapp else False]):
                 logger.debug(
-                    f'Successfully completed org vdc related validation tasks for org vdc "{vdcDict["OrgVDCName"]}"')
+                    f'Successfully completed org vdc related validation tasks for org vdc "{self.orgVdcInput["OrgVDCName"]}"')
         except:
             logger.error(traceback.format_exc())
             raise
@@ -5717,7 +5712,7 @@ class VCDMigrationValidation:
             urlFilter='sortAsc=name')
 
     @isSessionExpired
-    def validateExternalNetworkdvpg(self, parentNetworkId, vdcDict, orgvdcNetwork, networkData):
+    def validateExternalNetworkdvpg(self, parentNetworkId, orgvdcNetwork, networkData):
         """
         Description: This method validates the external network used by direct networks
 
@@ -5731,7 +5726,7 @@ class VCDMigrationValidation:
                 responseDict = response.json()
                 if int(responseDict['resultTotal']) > 1:
                     # Added validation for shared direct network
-                    if networkData['shared'] or not vdcDict.get("LegacyDirectNetwork", False):
+                    if networkData['shared'] or not self.orgVdcInput.get("LegacyDirectNetwork", False):
                         if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
                             return None, "Shared Networks are not supported with this vCD version"
                         # Fetching all external networks from vCD
@@ -5771,7 +5766,7 @@ class VCDMigrationValidation:
                         else:
                             return None, f"NSXT segment backed external network {parentNetworkId['name']+'-v2t'} is not present, and it is required for this direct shared network - {orgvdcNetwork}\n"
                     else:
-                        targetProviderVDCId, isNSXTbacked = self.getProviderVDCId(vdcDict["NSXTProviderVDCName"])
+                        targetProviderVDCId, isNSXTbacked = self.getProviderVDCId(self.orgVdcInput["NSXTProviderVDCName"])
                         responseValues = self.getPaginatedResults(
                             entity='External Networks',
                             baseUrl='{}{}'.format(
@@ -5782,7 +5777,7 @@ class VCDMigrationValidation:
                         )
                         externalNetworkIds = [values['name'] for values in responseValues]
                         if parentNetworkId['name'] not in externalNetworkIds:
-                            return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, vdcDict["NSXTProviderVDCName"])
+                            return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, self.orgVdcInput["NSXTProviderVDCName"])
                 else:
                     try:
                         sourceExternalNetwork = self.fetchAllExternalNetworks()
