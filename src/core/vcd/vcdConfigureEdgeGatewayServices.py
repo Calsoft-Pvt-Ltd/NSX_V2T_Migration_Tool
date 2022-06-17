@@ -2285,7 +2285,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
                         for network in orgvdcNetworks:
                             networkGateway = network['subnets']['values'][0]['gateway']
-                            if networkGateway in relayAgentsList:
+                            if networkGateway in relayAgentsList and network['networkType'] == 'NAT_ROUTED':
                                 orgvdcNetworkVNics = self.getOrgVDCNetworksVNics(edgeGatewayId, network['name'])
                                 for relayAgent in relayAgentsData:
                                     if relayAgent['giAddress'] == networkGateway:
