@@ -2716,7 +2716,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 "route_redistribution_types": advertisedSubnets
             }
             for rule in routeRedistributionRules:
-                if rule["name"] == "SYSTEM-VCD-EDGE-SERVICES-REDISTRIBUTION":
+                if rule.get("name") == "SYSTEM-VCD-EDGE-SERVICES-REDISTRIBUTION":
                     rule["route_redistribution_types"] = rule["route_redistribution_types"] + advertisedSubnets
                     break
             else:
