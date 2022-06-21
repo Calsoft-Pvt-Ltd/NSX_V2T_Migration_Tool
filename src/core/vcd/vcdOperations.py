@@ -1612,8 +1612,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     if eachComputePolicy["name"] != 'System Default':
                         # iterating over the source compute policies
                         for computePolicy in sourceComputePolicyList:
-                            if computePolicy['@name'] == eachComputePolicy['name'] and eachComputePolicy['name'] != \
-                                    data['targetOrgVDC']['DefaultComputePolicy']['@name']:
+                            if computePolicy['@name'] == eachComputePolicy['name'] and eachComputePolicy['id'] != \
+                                    data['sourceOrgVDC']['DefaultComputePolicy']['@id']:
                                 # get api call to retrieve compute policy details
                                 response = self.restClientObj.get(computePolicy['@href'], self.headers)
                                 if response.status_code == requests.codes.ok:
@@ -4526,7 +4526,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # iterating over the org vdc compute policies
                 for eachComputPolicy in orgVDCComputePolicesList:
                     if eachComputPolicy["name"] == data['sourceOrgVDC']['DefaultComputePolicy']['@name'] and \
-                            eachComputPolicy["pvdcId"] == data['targetProviderVDC']['@id']:
+                            (eachComputPolicy["pvdcId"] == data['targetProviderVDC']['@id'] or not eachComputPolicy["pvdcId"]):
+                        if not eachComputPolicy["pvdcId"] and not eachComputPolicy['id'] == data['sourceOrgVDC']['DefaultComputePolicy']['@id']:
+                            continue
                         href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                 vcdConstants.VDC_COMPUTE_POLICIES,
                                                 eachComputPolicy["id"])
