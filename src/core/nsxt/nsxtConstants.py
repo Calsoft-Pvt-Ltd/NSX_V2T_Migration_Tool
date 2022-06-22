@@ -64,7 +64,8 @@ COMPONENT_NAME = 'NSXT'
 TRANSPORT_NODE_API = "api/v1/transport-nodes"
 
 # nsx-t host switch profile uri
-HOST_SWITCH_PROFILE_API = "api/v1/host-switch-profiles"
+DEPRECATED_HOST_SWITCH_PROFILE_API = "api/v1/host-switch-profiles"
+HOST_SWITCH_PROFILE_API = "/infra/host-switch-profiles"
 
 # nsx-t create uplink profile template name used in template.json
 CREATE_UPLINK_PROFILE = "createUplinkProfiles"
@@ -79,7 +80,8 @@ BRIDGE_TRANSPORT_ZONE_NAME = "Bridge-Migration-TZ"
 BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME = "Bridge-nvds-v2t"
 
 # nsx-t transport zone uri
-TRANSPORT_ZONE_API = "api/v1/transport-zones"
+DEPRECATED_TRANSPORT_ZONE_API = "api/v1/transport-zones"
+TRANSPORT_ZONE_API = "/infra/sites/default/enforcement-points/default/transport-zones"
 
 # nsx-t transport node by id uri
 UPDATE_TRANSPORT_NODE_API = "api/v1/transport-nodes/{}"
@@ -126,6 +128,9 @@ SEGMENT_DETAILS = "/infra/segments"
 
 # policy API version startswith '3.' onwards.
 API_VERSION_STARTWITH = "3."
+
+# policy API version startswith '3.2' onwards.
+API_VERSION_STARTWITH_3_2 = "3.2"
 
 # nsx-t openapi specs uri
 OPENAPI_SPECS_API = "api/v1/spec/openapi/nsx_api.json"

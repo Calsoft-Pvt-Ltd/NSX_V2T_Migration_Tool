@@ -13,7 +13,7 @@
       "failover_mode": "PREEMPTIVE"
     },
     "createUplinkProfiles": {
-      "resource_type": "UplinkHostSwitchProfile",
+      "resource_type": "{{resource_type}}",
       "description": "",
       "display_name": "{{uplinkProfileName}}",
       "mtu": 9000,

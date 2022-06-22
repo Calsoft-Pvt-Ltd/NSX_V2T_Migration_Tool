@@ -92,6 +92,7 @@ class NSXTOperations():
         self.verify = verify
         self.rollback = rollback
         self.vcdObj = vcdObj
+        self.apiVersion = None
 
     def getComponentData(self, componentApi, componentName=None, usePolicyApi=False):
         """
@@ -128,7 +129,7 @@ class NSXTOperations():
         except Exception:
             raise
 
-    def getNetworkData(self, nsxtVersion, componentName=None, backingNetworkingId=None):
+    def getNetworkData(self, componentName=None, backingNetworkingId=None):
         """
         Description   : This function validates the presence of the component in NSX-T
         Parameters    : nsxtVersion         -   NSXT version to check for interop (STRING)
@@ -138,7 +139,7 @@ class NSXTOperations():
         """
         try:
             logger.debug("Fetching NSXT Logical-Segment data")
-            if str(nsxtVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
+            if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                 url = "{}{}".format(
                     nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
                     nsxtConstants.SEGMENT_DETAILS)
@@ -256,12 +257,11 @@ class NSXTOperations():
             logger.info('Creating Bridge Endpoint Profile.')
             bridgeEndpointProfileList = []
             logger.debug("Retrieving ID of edge cluster/s: {}".format(', '.join(edgeClusterNameList)))
-            version = self.getNsxtAPIVersion()
 
             edgeClusterMembers = []
             for edgeClusterName in edgeClusterNameList:
                 # checks API version for Interoperability.
-                if str(version).startswith(nsxtConstants.API_VERSION_STARTWITH):
+                if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                     edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API, edgeClusterName, usePolicyApi=True)
                     url = "{}{}{}".format(
                         nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
@@ -293,7 +293,7 @@ class NSXTOperations():
             edgeNodePortgroupList = zip(edgeClusterMembers, portgroupList)
             for data, _ in edgeNodePortgroupList:
                 # checks API version for Interoperability.
-                if str(version).startswith(nsxtConstants.API_VERSION_STARTWITH):
+                if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                     intent_path = nsxtConstants.BRIDGE_ENDPOINT_PROFILE_POLICY_PATH.format(data['transport_node_id'])
                     url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
                     edgePath = data['edgePath']
@@ -346,32 +346,66 @@ class NSXTOperations():
         try:
             logger.info('Creating Bridge Uplink Host Profile.')
             filePath = os.path.join(nsxtConstants.NSXT_ROOT_DIRECTORY, 'template.json')
-            if not self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                         componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME):
-                url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
-                                                             nsxtConstants.HOST_SWITCH_PROFILE_API)
-                payloadDict = {'uplinkProfileName': nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME}
-                # create payload for host profile creation
-                payload = self.nsxtUtils.createPayload(filePath=filePath, fileType="json",
-                                                       componentName=nsxtConstants.COMPONENT_NAME,
-                                                       templateName=nsxtConstants.CREATE_UPLINK_PROFILE,
-                                                       payloadDict=payloadDict)
-                payload = json.loads(payload)
-                payload["teaming"]["active_list"].append(dict(uplink_type="PNIC", uplink_name="Uplink1"))
-                payload = json.dumps(payload)
-                # REST POST call to create uplink profile
-                response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payload, auth=self.restClientObj.auth)
-                if response.status_code == requests.codes.created:
-                    logger.debug("Successfully created uplink profile {}".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME))
-                    uplinkProfileId = json.loads(response.content)["id"]
-                    logger.info('Successfully created Bridge Uplink Host Profile.')
-                    return uplinkProfileId
-                msg = "Failed to create uplink profile {}.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+            if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                if not self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
+                                             componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME, usePolicyApi=True):
+                    url = "{}{}/{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                                                                 nsxtConstants.HOST_SWITCH_PROFILE_API, nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                    payloadDict = {'uplinkProfileName': nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME,
+                                   'resource_type': "PolicyUplinkHostSwitchProfile"}
+                    # create payload for host profile creation
+                    payload = self.nsxtUtils.createPayload(filePath=filePath, fileType="json",
+                                                           componentName=nsxtConstants.COMPONENT_NAME,
+                                                           templateName=nsxtConstants.CREATE_UPLINK_PROFILE,
+                                                           payloadDict=payloadDict)
+                    payload = json.loads(payload)
+                    payload["teaming"]["active_list"].append(dict(uplink_type="PNIC", uplink_name="Uplink1"))
+                    payload = json.dumps(payload)
+                    # REST POST call to create uplink profile
+                    response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payload,
+                                                      auth=self.restClientObj.auth)
+                    if response.status_code == requests.codes.ok:
+                        logger.debug("Successfully created uplink profile {}".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME))
+                        uplinkProfileId = json.loads(response.content)["unique_id"]
+                        logger.info('Successfully created Bridge Uplink Host Profile.')
+                        return uplinkProfileId
+                    msg = "Failed to create uplink profile {}.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                    logger.error(msg)
+                    raise Exception(msg, response.status_code)
+                msg = "Uplink {} already exists.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
                 logger.error(msg)
-                raise Exception(msg, response.status_code)
-            msg = "Uplink {} already exists.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
-            logger.error(msg)
-            raise Exception(msg)
+                raise Exception(msg)
+            else:
+                logger.info('Creating Bridge Uplink Host Profile.')
+                filePath = os.path.join(nsxtConstants.NSXT_ROOT_DIRECTORY, 'template.json')
+                if not self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
+                                             componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME):
+                    url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                                 nsxtConstants.DEPRECATED_HOST_SWITCH_PROFILE_API)
+                    payloadDict = {'uplinkProfileName': nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME,
+                                   'resource_type': "UplinkHostSwitchProfile"}
+                    # create payload for host profile creation
+                    payload = self.nsxtUtils.createPayload(filePath=filePath, fileType="json",
+                                                           componentName=nsxtConstants.COMPONENT_NAME,
+                                                           templateName=nsxtConstants.CREATE_UPLINK_PROFILE,
+                                                           payloadDict=payloadDict)
+                    payload = json.loads(payload)
+                    payload["teaming"]["active_list"].append(dict(uplink_type="PNIC", uplink_name="Uplink1"))
+                    payload = json.dumps(payload)
+                    # REST POST call to create uplink profile
+                    response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payload,
+                                                       auth=self.restClientObj.auth)
+                    if response.status_code == requests.codes.created:
+                        logger.debug("Successfully created uplink profile {}".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME))
+                        uplinkProfileId = json.loads(response.content)["id"]
+                        logger.info('Successfully created Bridge Uplink Host Profile.')
+                        return uplinkProfileId
+                    msg = "Failed to create uplink profile {}.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                    logger.error(msg)
+                    raise Exception(msg, response.status_code)
+                msg = "Uplink {} already exists.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                logger.error(msg)
+                raise Exception(msg)
         except Exception:
             raise
 
@@ -384,24 +418,29 @@ class NSXTOperations():
                      portgroupList          - List containing details of vxlan backed logical switch (LIST)
         """
         try:
-            # getting the nsxt version using openapi spec.json
-            nsxtVersion = tuple()
-            openApiSpecsData = self.getComponentData(componentApi=nsxtConstants.OPENAPI_SPECS_API)
-            if openApiSpecsData:
-                nsxtVersion = tuple(map(int, openApiSpecsData['info']['version'].split('.')))
             transportZoneName = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME
             logger.info('Adding Bridge Transport Zone to Bridge Edge Transport Nodes.')
-            uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                                      componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+            if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
+                                                          componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME, usePolicyApi=True)
 
-            transportZoneData = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName)
+                transportZoneData = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName,  usePolicyApi=True)
+
+                id_key = "unique_id"
+            else:
+                uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.DEPRECATED_HOST_SWITCH_PROFILE_API,
+                                                          componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+
+                transportZoneData = self.getComponentData(nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API, transportZoneName)
+
+                id_key = "id"
+
 
             logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(edgeClusterNameList)))
-            apiVersion = self.getNsxtAPIVersion()
             edgeClusterMembers = []
             for edgeClusterName in edgeClusterNameList:
                 # checks API version for Interoperability.
-                if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
+                if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                     edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API, edgeClusterName, usePolicyApi=True)
                     url = "{}{}{}".format(
                         nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
@@ -437,14 +476,14 @@ class NSXTOperations():
                     lastUsedUplink = hostSwitchSpec[-1]['pnics'][-1]['device_name']
                     # get the next unused uplink
                     nextUnusedUplink = re.sub('\d', lambda x: str(int(x.group(0)) + 1), lastUsedUplink)
-                    newHostSwitchSpec = {"host_switch_profile_ids": [{"key": "UplinkHostSwitchProfile", "value": uplinkProfileData['id']}],
+                    newHostSwitchSpec = {"host_switch_profile_ids": [{"key": "UplinkHostSwitchProfile", "value": uplinkProfileData[id_key]}],
                                          "host_switch_mode": "STANDARD",
                                          'host_switch_name': nsxtConstants.BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME,
                                          "pnics": [{"device_name": nextUnusedUplink, "uplink_name": uplinkProfileData['teaming']['active_list'][0]['uplink_name']}],
                                          "is_migrate_pnics": False,
                                          "ip_assignment_spec": {"resource_type": "AssignedByDhcp"},
                                          "transport_zone_endpoints": [
-                                             {"transport_zone_id": transportZoneData['id'],
+                                             {"transport_zone_id": transportZoneData[id_key],
                                               "transport_zone_profile_ids": hostSwitchSpec[0]['transport_zone_endpoints'][0]['transport_zone_profile_ids']
                                               }]
                                          }
@@ -517,17 +556,15 @@ class NSXTOperations():
         """
         try:
             logger.info('Attaching bridge endpoint profile to Logical Switch.')
-            apiVersion = self.getNsxtAPIVersion()
 
             switchList = []
             for orgVdcNetwork in targetOrgVDCNetworks:
                 if orgVdcNetwork['networkType'] != 'DIRECT' and orgVdcNetwork['networkType'] != 'OPAQUE':
-                    networkData = self.getNetworkData(nsxtVersion=apiVersion,
-                                                      componentName=f"{orgVdcNetwork['name']}-"
+                    networkData = self.getNetworkData(componentName=f"{orgVdcNetwork['name']}-"
                                                                     f"{orgVdcNetwork['id'].split(':')[-1]}",
                                                       backingNetworkingId=orgVdcNetwork['backingNetworkId'])
                     # checks API version for Interoperability
-                    if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
+                    if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                         switchTags = [data for data in networkData['tags'] if
                                       orgVdcNetwork['orgVdc']['id'] in data['tag']]
                     else:
@@ -553,8 +590,11 @@ class NSXTOperations():
 
             # Get transport Zone /infra/sites path.
             transportZoneName = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME
-            transportZoneId = self.getNsxtComponentIdByName(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName)
-            transportZonePath = self.getTransportZoneData(transportZoneId)
+            if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                transportZoneId = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName, usePolicyApi=True)["unique_id"]
+            else:
+                transportZoneId = self.getNsxtComponentIdByName(nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API, transportZoneName)
+            transportZonePath = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME, usePolicyApi=True)['path']
             if transportZonePath is None:
                 transportZonePath = nsxtConstants.TRANSPORT_ZONE_PATH.format(transportZoneId)
 
@@ -563,7 +603,7 @@ class NSXTOperations():
             edgeClusterMembers = []
             for edgeClusterName in edgeClusterNameList:
                 # checks API version for Interoperability.
-                if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
+                if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                     edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API, edgeClusterName, usePolicyApi=True)
                     url = "{}{}{}".format(
                         nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
@@ -593,7 +633,7 @@ class NSXTOperations():
             for data, geneveLogicalSwitch in edgeNodeSwitchList:
                 edgeNodeId = data['transport_node_id']
                 # checks API version for Interoperability.
-                if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
+                if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                     bridgeProfileDict = self.getComponentData(
                         componentApi=nsxtConstants.BRIDGE_EDGE_PROFILE_DETAILS, usePolicyApi=True)
                     bridgeProfile = [bridgeProfile for bridgeProfile in bridgeProfileDict if edgeNodeId in bridgeProfile['display_name']]
@@ -603,7 +643,7 @@ class NSXTOperations():
                 if not bridgeProfile:
                     continue
                 # checks API version for Interoperability.
-                if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
+                if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                     intent_path = nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(geneveLogicalSwitch[1])
                     segmentDetailsUrl = "{}{}".format(
                         nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
@@ -784,12 +824,14 @@ class NSXTOperations():
 
             orgVDCNetworkList = list(filter(lambda network: network['networkType'] != 'DIRECT' and network['networkType'] != 'OPAQUE', orgVDCNetworkList))
             transportZoneName = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME
-            transportZoneId = self.getNsxtComponentIdByName(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName)
+            if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                transportZoneId = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName, usePolicyApi=True)["unique_id"]
+            else:
+                transportZoneId = self.getNsxtComponentIdByName(nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API, transportZoneName)
             if not orgVDCNetworkList:
                 return
             if rollback:
                 logger.info("RollBack: Clearing NSX-T Bridging")
-            apiVersion = self.getNsxtAPIVersion()
             switchList = []
             logicalPorturl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
                                                                     nsxtConstants.CREATE_LOGICAL_SWITCH_PORT_API)
@@ -802,12 +844,11 @@ class NSXTOperations():
             # getting the logical switch id of the corresponding org vdc network
             for orgVdcNetwork in orgVDCNetworkList:
                 if orgVdcNetwork['networkType'] != 'DIRECT' and orgVdcNetwork['networkType'] != 'OPAQUE':
-                    networkData = self.getNetworkData(nsxtVersion=apiVersion,
-                                                      componentName=f"{orgVdcNetwork['name']}-"
+                    networkData = self.getNetworkData(componentName=f"{orgVdcNetwork['name']}-"
                                                                     f"{orgVdcNetwork['id'].split(':')[-1]}",
                                                       backingNetworkingId=orgVdcNetwork['backingNetworkId'])
                     # checks API version for Interoperability
-                    if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
+                    if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                         if orgVdcNetwork.get('orgVdc', None) is None:
                             switchTags = [data for data in networkData['tags'] if 'vdcGroup' in data['tag']]
                         else:
@@ -816,7 +857,7 @@ class NSXTOperations():
                         switchTags = [data for data in networkData['tags'] if orgVdcNetwork['backingNetworkId'] in data['tag']]
 
                     if switchTags:
-                        if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
+                        if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                             switchList.append((networkData['display_name'], networkData['id'], networkData['transport_zone_path'],
                                                networkData['path']))
                             if "bridge_profiles" in networkData.keys():
@@ -836,7 +877,7 @@ class NSXTOperations():
                                logicalPort['attachment']['attachment_type'] == 'BRIDGEENDPOINT']
             # Detach the segment
             # checks API version for Interoperability.
-            if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
+            if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                 # for each segment present in switchList, we are calling detach segment API.
                 for segment in switchList:
                     intent_path = nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(segment[1])
@@ -949,8 +990,14 @@ class NSXTOperations():
                     raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
 
             # Fetching uplink profile data
-            uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                                      componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+            if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
+                                                          componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME, usePolicyApi=True)
+                id_key = "unique_id"
+            else:
+                uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.DEPRECATED_HOST_SWITCH_PROFILE_API,
+                                                          componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                id_key = "id"
             # updating the transport node details inside edgeTransportNodeList
             for edgeTransportNode in edgeTransportNodeList:
                 url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
@@ -966,7 +1013,7 @@ class NSXTOperations():
                     # Check if this node was used for bridging or not
                     for switch in edgeNodeData["host_switch_spec"]["host_switches"]:
                         if switch['transport_zone_endpoints'][0]['transport_zone_id'] == transportZoneId and \
-                           switch['host_switch_profile_ids'][0]['value'] == uplinkProfileData['id']:
+                           switch['host_switch_profile_ids'][0]['value'] == uplinkProfileData[id_key]:
                             break
                     else:
                         continue
@@ -1007,14 +1054,25 @@ class NSXTOperations():
                     raise Exception(msg)
 
             # getting the host switch profile details
-            hostSwitchProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                                          componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+            if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                hostSwitchProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
+                                                            componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME, usePolicyApi=True)
+            else:
+                hostSwitchProfileData = self.getComponentData(componentApi=nsxtConstants.DEPRECATED_HOST_SWITCH_PROFILE_API,
+                                                            componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
             if hostSwitchProfileData:
-                hostSwitchProfileId = hostSwitchProfileData['id']
-                url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
-                                                             nsxtConstants.DELETE_HOST_SWITCH_PROFILE_API.format(hostSwitchProfileId))
-                response = self.restClientObj.delete(url, headers=nsxtConstants.NSXT_API_HEADER,
-                                                     auth=self.restClientObj.auth)
+                if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                    hostSwitchProfileId = hostSwitchProfileData['unique_id']
+                    intent_path = hostSwitchProfileData['path']
+                    url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
+                    response = self.restClientObj.delete(url, headers=nsxtConstants.NSXT_API_HEADER,
+                                                         auth=self.restClientObj.auth)
+                else:
+                    hostSwitchProfileId = hostSwitchProfileData['id']
+                    url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                                 nsxtConstants.DELETE_HOST_SWITCH_PROFILE_API.format(hostSwitchProfileId))
+                    response = self.restClientObj.delete(url, headers=nsxtConstants.NSXT_API_HEADER,
+                                                         auth=self.restClientObj.auth)
                 if response.status_code == requests.codes.ok:
                     logger.debug('Host Switch Profile {} deleted successfully'.format(hostSwitchProfileId))
                 else:
@@ -1052,7 +1110,7 @@ class NSXTOperations():
         """
         Description :    Get the version of NSX-T
         """
-
+        self.apiVersion = self.getNsxtAPIVersion()
         url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.NSXT_VERSION)
         response = self.restClientObj.get(url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
         responseDict = response.json()
@@ -1144,8 +1202,11 @@ class NSXTOperations():
                         If exists raises exception
         """
         try:
-            if not self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                         componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME):
+            if not self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API
+                                        if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2)
+                                        else nsxtConstants.DEPRECATED_HOST_SWITCH_PROFILE_API,
+                                         componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME,
+                                         usePolicyApi=version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2)):
                 logger.debug("Validated successfully that the {} does not exist".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME))
             else:
                 msg = "Host Switch Profile uplink - '{}' already exists.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
@@ -1159,10 +1220,9 @@ class NSXTOperations():
         Parameters  :   orgVdcNetworkList     -   List of org vdc networks to be bridged (LIST)
         """
         # Fetching NSXT version
-        apiVersion = self.getNsxtAPIVersion()
         try:
             # checks API version for Interoperability.
-            if str(apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
+            if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                 # Fetching bridge endpoint profiles from NSXT
                 bridgeProfileDict = self.getComponentData(
                     componentApi=nsxtConstants.BRIDGE_EDGE_PROFILE_DETAILS, usePolicyApi=True)
@@ -1354,14 +1414,20 @@ class NSXTOperations():
             Parameters  :   tier0GatewayName -  Name of tier-0 gateway (STRING)
         """
         try:
-            tier0GatewayData = self.getComponentData(nsxtConstants.LOGICAL_ROUTER_API,
-                                                    tier0GatewayName)
+            if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                tier0GatewayData = self.getVRFdetails(tier0GatewayName)
+            else:
+                tier0GatewayData = self.getComponentData(nsxtConstants.LOGICAL_ROUTER_API,
+                                                        tier0GatewayName)
 
             if not tier0GatewayData:
                 raise Exception(
                     "TIER-0 Gateway '{}' does not exist in NSX-T".format(tier0GatewayName))
             else:
-                return tier0GatewayData['edge_cluster_id']
+                if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                    return tier0GatewayData["results"][0]["edge_cluster_path"].split("/")[-1]
+                else:
+                    return tier0GatewayData['edge_cluster_id']
         except:
             raise
 
@@ -1434,7 +1500,10 @@ class NSXTOperations():
                         returnData - Return data of transport zone (BOOLEAN)
         """
         try:
-            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.TRANSPORT_ZONE_API)
+            if version.parse(apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), nsxtConstants.TRANSPORT_ZONE_API)
+            else:
+                url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API)
             response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
@@ -1458,23 +1527,39 @@ class NSXTOperations():
             # Validating whether the bridge transport zone exists or not
             self.validateTransportZoneExistsInNSXT(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME)
         except Exception:
-            # Url to create transport zone
-            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.TRANSPORT_ZONE_API)
-            payloadData = {
-                        "display_name": nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME,
-                        "transport_type": "VLAN",
-                        "description": "Transport zone to be used for bridging"
-                      }
-            if version.parse(self.getNsxtVersion()) < version.parse("3.2"):
-                payloadData["host_switch_name"] = nsxtConstants.BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME
-            payloadData = json.dumps(payloadData)
-            response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth,
-                                               data=payloadData)
-            if response.status_code == requests.codes.created:
-                logger.debug(
-                    'Bridge Transport Zone {} created successfully.'.format(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME))
+            if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                # Url to create transport zone
+                url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                                       nsxtConstants.TRANSPORT_ZONE_PATH.format(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME))
+                payloadData = {
+                    "display_name": nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME,
+                    "tz_type": "VLAN_BACKED",
+                    "description": "Transport zone to be used for bridging"
+                }
+                payloadData = json.dumps(payloadData)
+                response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER,
+                                                   auth=self.restClientObj.auth,
+                                                   data=payloadData)
+                if response.status_code == requests.codes.ok:
+                    logger.debug('Bridge Transport Zone {} created successfully.'.format(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME))
+                else:
+                    raise Exception('Failed to create Bridge Transport Zone. Errors {}.'.format(response.content))
             else:
-                raise Exception('Failed to create Bridge Transport Zone. Errors {}.'.format(response.content))
+                # Url to create transport zone
+                url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API)
+                payloadData = {
+                            "display_name": nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME,
+                            "transport_type": "VLAN",
+                            "host_switch_name": nsxtConstants.BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME,
+                            "description": "Transport zone to be used for bridging"
+                          }
+                payloadData = json.dumps(payloadData)
+                response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth,
+                                                   data=payloadData)
+                if response.status_code == requests.codes.created:
+                    logger.debug('Bridge Transport Zone {} created successfully.'.format(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME))
+                else:
+                    raise Exception('Failed to create Bridge Transport Zone. Errors {}.'.format(response.content))
         else:
             logger.debug(f'Bridge Transport Zone {nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME} is already present in NSX-T')
 
@@ -1490,8 +1575,13 @@ class NSXTOperations():
                 logger.debug(f'Bridge Transport Zone {nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME} does not exist in NSX-T')
                 logger.debug(traceback.format_exc())
                 return
-            transportZoneId = bridgeTransportZoneData['id']
-            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.TRANSPORT_ZONE_API) + f"/{transportZoneId}"
+            if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                transportZoneId = bridgeTransportZoneData['unique_id']
+                intent_path = bridgeTransportZoneData['path']
+                url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
+            else:
+                transportZoneId = bridgeTransportZoneData['id']
+                url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API) + f"/{transportZoneId}"
             response = self.restClientObj.delete(url=url, headers=nsxtConstants.NSXT_API_HEADER,
                                                  auth=self.restClientObj.auth)
             if response.status_code == requests.codes.ok:
@@ -1548,7 +1638,10 @@ class NSXTOperations():
         """
         try:
             if transportZoneName:
-                transportZoneData = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName)
+                if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                    transportZoneData = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName)
+                else:
+                    transportZoneData = self.getComponentData(nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API, transportZoneName)
                 if not transportZoneData:
                     return 'The Transport Zone {} is not present in the NSX-T\n'. format(transportZoneName)
                     # raise Exception('The Transport Zone {} is not present in the NSX-T'. format(transportZoneName))
@@ -1575,7 +1668,10 @@ class NSXTOperations():
             url = "{}{}".format(
                 nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
                 nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(segmentId))
-            urlTZ = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.TRANSPORT_ZONE_API)
+            if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                urlTZ = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.TRANSPORT_ZONE_API)
+            else:
+                urlTZ = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API)
             responseTZ = self.restClientObj.get(url=urlTZ, headers=nsxtConstants.NSXT_API_HEADER,
                                               auth=self.restClientObj.auth)
             if responseTZ.status_code == requests.codes.ok:
