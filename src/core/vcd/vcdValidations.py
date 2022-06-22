@@ -4910,6 +4910,10 @@ class VCDMigrationValidation:
             # validating cross vdc networking
             logger.info('Validating Cross VDC Networking is enabled or not')
             self.validateCrossVdcNetworking(sourceOrgVDCId)
+
+            # validating published catalogs
+            logger.info("Validating published catalogs")
+            self.getOrgVDCPublishedCatalogs(sourceOrgVDCId, inputDict['VCloudDirector']['Organization']['OrgName'])
         except:
             # Enabling source Org VDC if premigration validation fails
             if disableOrgVDC:
@@ -5410,6 +5414,80 @@ class VCDMigrationValidation:
             return resultList
         except Exception:
             raise
+
+    @isSessionExpired
+    def getOrgVDCPublishedCatalogs(self, sourceOrgVDCId, orgName, v2tAssessmentMode=False, Migration=False):
+        """
+        Description : Method that checks whether catalog publish status
+        Parameters  : sourceOrgVDCId - ID of org vdc for which the validation is to be performed
+        """
+        errorList = list()
+        sourceOrgVDCId = sourceOrgVDCId.split(':')[-1]
+        # url to get the details of source org vdc
+        url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                            vcdConstants.ORG_VDC_BY_ID.format(sourceOrgVDCId))
+        # get api call to retrieve the source org vdc details
+        sourceOrgVDCResponse = self.restClientObj.get(url, self.headers)
+        sourceOrgVDCResponseDict = self.vcdUtils.parseXml(sourceOrgVDCResponse.content)
+
+        # sourceStorageProfileIDsList holds list the IDs of the source org vdc storage profiles
+        sourceStorageProfileIDsList = []
+        # sourceStorageProfilesList holds the list of dictionaries of details of each source org vdc storage profile
+        sourceStorageProfilesList = []
+        storageProfiles = sourceOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles'][
+            'VdcStorageProfile'] if isinstance(
+            sourceOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'], list) else [
+            sourceOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile']]
+        for storageProfile in storageProfiles:
+            sourceStorageProfilesList.append(storageProfile)
+            sourceStorageProfileIDsList.append(storageProfile['@id'])
+
+        # get api call to retrieve the organization details
+        orgUrl = self.getOrgUrl(orgName)
+        orgResponse = self.restClientObj.get(orgUrl, headers=self.headers)
+        orgResponseDict = self.vcdUtils.parseXml(orgResponse.content)
+        # retrieving the organization ID
+        orgId = orgResponseDict['AdminOrg']['@id'].split(':')[-1]
+
+        # if no catalogs exist
+        if not orgResponseDict['AdminOrg'].get("Catalogs"):
+            logger.debug("No Catalogs exist in Organization")
+            return
+
+        # orgCatalogs contains list of all catalogs in the organization
+        # each org catalog in orgCatalogs is of type dict which has keys {'@href', '@name', '@type'}
+        orgCatalogs = orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"] if isinstance(
+            orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"], list) else [
+            orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"]]
+
+        # sourceOrgVDCCatalogDetails will hold list of only catalogs present in the source org vdc
+        sourceOrgVDCCatalogDetails = []
+        # iterating over all the organization catalogs
+        for catalog in orgCatalogs:
+            # get api call to retrieve the catalog details
+            catalogResponse = self.restClientObj.get(catalog['@href'], headers=self.headers)
+            catalogResponseDict = self.vcdUtils.parseXml(catalogResponse.content)
+            if catalogResponseDict['AdminCatalog'].get('CatalogStorageProfiles'):
+                # checking if catalogs storage profile is same from source org vdc storage profile by matching the ID of storage profile
+                if catalogResponseDict['AdminCatalog']['CatalogStorageProfiles']['VdcStorageProfile']['@id'] in sourceStorageProfileIDsList:
+                    # creating the list of catalogs from source org vdc
+                    sourceOrgVDCCatalogDetails.append(catalogResponseDict['AdminCatalog'])
+            else:
+                # skipping the organization level catalogs(i.e catalogs that doesnot belong to any org vdc) while are handled in the for-else loop
+                logger.debug("Skipping the catalog '{}' since catalog doesnot belong to any org vdc".format(
+                    catalog['@name']))
+
+        for srcCatalog in sourceOrgVDCCatalogDetails:
+            if srcCatalog.get('PublishExternalCatalogParams', {}).get('IsPublishedExternally'):
+                errorList.append(
+                    "Published Catalog {} exists in org hence needs to be published again after migration.".format(
+                        srcCatalog.get('@name')))
+                logger.warning(f"Published Catalog {srcCatalog.get('@name')} exists in org hence needs to be"
+                            " published again after migration.")
+        if v2tAssessmentMode and errorList:
+                raise ValidationError(',\n'.join(errorList))
+        if Migration:
+            return orgId, sourceOrgVDCResponseDict, orgCatalogs, sourceOrgVDCCatalogDetails
 
     @isSessionExpired
     def disableSourceAffinityRules(self):

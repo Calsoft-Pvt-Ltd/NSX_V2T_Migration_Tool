@@ -152,7 +152,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
 
             # migrating catalog items - vApp Templates and media objects
             self.consoleLogger.info('Migrating catalog items - vApp Templates & media objects.')
-            self.vcdObj.migrateCatalogItems(sourceOrgVDCId, self.targetOrgVDCId, self.orgUrl)
+            self.vcdObj.migrateCatalogItems(sourceOrgVDCId, self.targetOrgVDCId, self.inputDict["VCloudDirector"]["Organization"]["OrgName"])
 
             # delete the source org vdc networks
             self.consoleLogger.info('Deleting the source Org VDC Networks.')
