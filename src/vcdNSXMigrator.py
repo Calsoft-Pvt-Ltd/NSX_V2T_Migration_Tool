@@ -439,6 +439,7 @@ class VMwareCloudDirectorNSXMigrator():
             for nsxtObj in self.nsxtObjList:
                 nsxtObj.password = self.nsxtPassword
                 nsxtObj.getComputeManagers()
+                nsxtObj.getNsxtAPIVersion()
             self.loginErrorDict[self._loginToNsxt.__name__] = True
         except Exception as err:
             logging.error(str(err))

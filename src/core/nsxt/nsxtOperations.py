@@ -179,8 +179,7 @@ class NSXTOperations():
             response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
                                               auth=self.restClientObj.auth)
             api_data = json.loads(response.content)
-            version = api_data['info']['version']
-            return version
+            self.apiVersion = api_data['info']['version']
         except:
             raise
 
@@ -1110,7 +1109,6 @@ class NSXTOperations():
         """
         Description :    Get the version of NSX-T
         """
-        self.apiVersion = self.getNsxtAPIVersion()
         url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.NSXT_VERSION)
         response = self.restClientObj.get(url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
         responseDict = response.json()
@@ -1500,7 +1498,7 @@ class NSXTOperations():
                         returnData - Return data of transport zone (BOOLEAN)
         """
         try:
-            if version.parse(apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+            if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
                 url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), nsxtConstants.TRANSPORT_ZONE_API)
             else:
                 url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API)
