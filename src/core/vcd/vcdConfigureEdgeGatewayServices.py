@@ -841,7 +841,17 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                                     defaultGatewayDict, destinationIpDict, noSnatRulesList,
                                                                     bgpConfigDetails, routingConfigDetails, noSnatDestSubnetList=noSnatDestSubnet)
                             payloadData = payloadData if isinstance(payloadData, list) else [payloadData]
-                            for eachPayloadData in payloadData:
+                            noSnatRulesPayload = [natPayload for natPayload in payloadData if
+                                                  natPayload['ruleType'] == 'NO_SNAT']
+                            snatRulesPayload = [natPayload for natPayload in payloadData if
+                                                natPayload['ruleType'] == 'SNAT']
+                            for eachPayloadData in noSnatRulesPayload:
+                                currentRuleId = self.createNatRuleTask(eachPayloadData, url)
+                                # adding a key here to make sure the rule have configured successfully and when remediation skipping this rule
+                                rulesConfigured.append(currentRuleId)
+                                statusForNATConfiguration.update({t1gatewayId: rulesConfigured})
+                                self.rollback.apiData['NATstatus'] = statusForNATConfiguration
+                            for eachPayloadData in snatRulesPayload:
                                 currentRuleId = self.createNatRuleTask(eachPayloadData, url)
                                 # adding a key here to make sure the rule have configured successfully and when remediation skipping this rule
                                 rulesConfigured.append(currentRuleId)
