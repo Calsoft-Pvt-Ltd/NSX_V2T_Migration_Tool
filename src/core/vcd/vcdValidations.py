@@ -4973,6 +4973,8 @@ class VCDMigrationValidation:
                     **edgeGwInputs
                 }
 
+        logger.warning(self.orgVdcInput['EdgeGateways'])
+
         # TODO pranshu: add validation for EdgeGateways
 
     def preMigrationValidation(self, inputDict, sourceOrgVDCId, nsxtObj, nsxvObj, validateVapp=False, validateServices=False):
