@@ -453,12 +453,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if sourceOrgVDCNetwork.get('guestVlanTaggingAllowed'):
                     payloadData['guestVlanTaggingAllowed'] = sourceOrgVDCNetwork['guestVlanTaggingAllowed']
 
-                # Create the non distributed routed network.
-                edgeGatewayName = sourceOrgVDCNetwork['connection']['routerRef']['name']
-                if (self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks']
-                        or sourceOrgVDCNetwork['id'] in implicitNetworks):
-                    payloadData['connection']['connectionType'] = None
-                    payloadData['connection']['connectionTypeValue'] = "NON_DISTRIBUTED"
+                if (payloadData['networkType'] == 'NAT_ROUTED'
+                        and sourceOrgVDCNetwork['connection']['connectionType'] == "INTERNAL"):
+                    # Create the non distributed routed network.
+                    edgeGatewayName = sourceOrgVDCNetwork['connection']['routerRef']['name']
+                    if (self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks']
+                            or sourceOrgVDCNetwork['id'] in implicitNetworks):
+                        payloadData['connection']['connectionType'] = None
+                        payloadData['connection']['connectionTypeValue'] = "NON_DISTRIBUTED"
 
                 # Setting headers for the OPENAPI requests
                 self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
