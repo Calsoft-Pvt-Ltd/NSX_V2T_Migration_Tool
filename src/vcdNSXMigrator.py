@@ -325,50 +325,9 @@ class VMwareCloudDirectorNSXMigrator():
                     if componentKey == 'SourceOrgVDC':
                         for idx, sourceOrgVdc in enumerate(componentValue):
                             dictKey = "{}['{}'][{}]".format(componentName, componentKey, idx)
-                            if sourceOrgVdc.get('NoSnatDestinationSubnet'):
-                                if isinstance(sourceOrgVdc.get('NoSnatDestinationSubnet'), list):
-                                    for NoSnatDestAddr in sourceOrgVdc.get('NoSnatDestinationSubnet'):
-                                        if sourceOrgVdc.get('NoSnatDestinationSubnet') and not re.match(
-                                                mainConstants.VALID_IP_CIDR_FORMAT_REGEX,
-                                                NoSnatDestAddr):
-                                            errorInputDict[dictKey] = "Input IP value is not in proper CIDR format"
-                                else:
-                                    errorInputDict[dictKey] = (
-                                        "NoSnatDestinationSubnet is in invalid format, please provide in the list "
-                                        "format.")
-                            # if sourceOrgVdc.get('EdgeGateways'):
-                            #     for edgeGateways, details in sourceOrgVdc.get('EdgeGateways').items():
-                            #         if isinstance(details.get('NoSnatDestinationSubnet'), list):
-                            #             for NoSnatDestAddr in details.get('NoSnatDestinationSubnet'):
-                            #                 if details.get('NoSnatDestinationSubnet') and not re.match(
-                            #                         mainConstants.VALID_IP_CIDR_FORMAT_REGEX,
-                            #                         NoSnatDestAddr):
-                            #                     errorInputDict[dictKey] = "Input IP value is not in proper CIDR format"
-                            #         else:
-                            #             errorInputDict[dictKey] = (
-                            #                 "NoSnatDestinationSubnet is in invalid format, please provide in the list "
-                            #                 "format.")
-                            if sourceOrgVdc.get('LoadBalancerVIPSubnet') and not re.match(
-                                    mainConstants.VALID_IP_CIDR_FORMAT_REGEX,
-                                    sourceOrgVdc['LoadBalancerVIPSubnet']):
-                                errorInputDict[dictKey] = "Input IP value is not in proper CIDR format"
                             if sourceOrgVdc.get('LegacyDirectNetwork') and not isinstance(
                                     sourceOrgVdc.get('LegacyDirectNetwork'), bool):
                                 errorInputDict[dictKey] = "Value must be boolean i.e either True or False."
-
-                            if sourceOrgVdc.get('AdvertiseRoutedNetworks'):
-                                if isinstance(sourceOrgVdc['AdvertiseRoutedNetworks'], bool):
-                                    sourceOrgVdc['AdvertiseRoutedNetworks'] = {
-                                        'default': sourceOrgVdc['AdvertiseRoutedNetworks']
-                                    }
-                                elif isinstance(sourceOrgVdc['AdvertiseRoutedNetworks'], dict):
-                                    sourceOrgVdc['AdvertiseRoutedNetworks'].setdefault('default', False)
-                                else:
-                                    errorInputDict[dictKey] = (
-                                        "AdvertiseRoutedNetworks is in invalid format, please provide in the Bool or"
-                                        " Dict format.")
-                            else:
-                                sourceOrgVdc['AdvertiseRoutedNetworks'] = {'default': False}
 
         if not isinstance(self.inputDict['VCloudDirector'].get('SourceOrgVDC'), list):
             errorInputDict["VCloudDirector['SourceOrgVDC']"] = 'Value should be list'
