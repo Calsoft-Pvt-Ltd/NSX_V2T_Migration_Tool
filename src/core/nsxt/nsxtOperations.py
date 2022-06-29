@@ -1460,7 +1460,6 @@ class NSXTOperations():
         try:
             edgeTransportNodeList = []
             edgeClusterNotFound = []
-            bridgeEndpointProfileIdList = []
             freeTransportNodesList = []
             migrationId = inputDict['VCloudDirector']['Organization']['OrgName'] + '-' \
                           + inputDict['VCloudDirector']['SourceOrgVDC'][0]['OrgVDCName']
@@ -1481,8 +1480,6 @@ class NSXTOperations():
 
             # fetching bridge endpoint profile list
             bridgeEndpointProfileList = self.getComponentData(nsxtConstants.CREATE_BRIDGE_ENDPOINT_PROFILE)
-            for bridgeEndpointProfile in bridgeEndpointProfileList:
-                bridgeEndpointProfileIdList.append(bridgeEndpointProfile["display_name"].replace("Bridge-Endpoint-Profile-", ''))
 
             for transportNode in edgeTransportNodeList:
                 url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
