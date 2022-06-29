@@ -781,7 +781,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 t1gatewayId = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'], targetEdgeGateway))[0]['id']
                 data = self.getEdgeGatewayNatConfig(sourceEdgeGatewayId, validation=False)
                 # reassigning noSnatDestSub from the particular EGW list in userinput file if mentioned else deafult
-                noSnatDestSubnet = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['noSnatDestinationSubnet']
+                noSnatDestSubnet = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['NoSnatDestinationSubnet']
                 # checking whether NAT rule is enabled or present in the source org vdc
                 if not data or not data['enabled']:
                     logger.debug('NAT is not configured or enabled on Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
