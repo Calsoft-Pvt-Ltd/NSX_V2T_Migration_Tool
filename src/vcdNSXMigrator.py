@@ -545,7 +545,12 @@ class VMwareCloudDirectorNSXMigrator():
                     self.vcdObjList, self.timeoutForVappMigration, threadCount=self.threadCount)
 
                 # If bridging is configured do rollback
-                self.nsxtObjList[0].rollbackBridging(self.inputDict["NSXT"]["EdgeClusterName"], self.vcdObjList)
+                self.nsxtObjList[0].rollbackBridging(self.vcdObjList)
+
+                # untag the used nodes in bridging if remaining
+                if self.vcdObjList[0].rollback.apiData.get('taggedNodesList'):
+                    self.nsxtObjList[0].tagEdgeTransportNodes(self.vcdObjList, self.vcdObjList[0].rollback.apiData.get('taggedNodesList'),
+                                                              migration=False)
 
                 # Rollback dfw/firewall rules
                 futures = list()
@@ -757,7 +762,8 @@ class VMwareCloudDirectorNSXMigrator():
 
             # preparing the nsxt dict for bridging
             self.nsxtObjList.append(NSXTOperations(self.inputDict["NSXT"]["Common"]["ipAddress"], self.inputDict["NSXT"]["Common"]["username"],
-                                          self.inputDict["NSXT"]["Common"]["password"], rollback, self.vcdObjList[index], self.inputDict["NSXT"]["Common"]["verify"]))
+                                          self.inputDict["NSXT"]["Common"]["password"], rollback, self.vcdObjList[index], self.inputDict["NSXT"]["Common"]["verify"],
+                                                   self.inputDict["NSXT"]["EdgeClusterName"]))
 
         # initializing nsxv operations class
         if self.inputDict.get("NSXV", None):
@@ -843,8 +849,8 @@ class VMwareCloudDirectorNSXMigrator():
             if filteredList:
                 # Perform checks related to bridging
                 orgVDCIDList = [data["id"] for data in self.orgVDCData.values()]
-                self.vcdObjList[0].checkBridgingComponents(orgVDCIDList, self.inputDict["NSXT"]["EdgeClusterName"],
-                                                           self.nsxtObjList[0], self.vcenterObj, self.vcdObjList)
+                self.vcdObjList[0].checkBridgingComponents(orgVDCIDList, self.inputDict, self.nsxtObjList[0],
+                                                           self.vcenterObj, self.vcdObjList)
 
         # Perform check for sharedNetwork.
         self.vcdObjList[0].sharedNetworkChecks(self.inputDict, self.vcdObjList, self.orgVDCData)
@@ -878,7 +884,7 @@ class VMwareCloudDirectorNSXMigrator():
             # only if org vdc networks exist bridging will be configured
             if filteredList:
                 # Configuring Bridging
-                self.nsxtObjList[0].configureNSXTBridging(self.inputDict["NSXT"]["EdgeClusterName"], self.vcdObjList)
+                self.nsxtObjList[0].configureNSXTBridging(self.vcdObjList)
                 # verify bridge connectivity
                 self.nsxtObjList[0].verifyBridgeConnectivity(self.vcdObjList, self.vcenterObj)
             elif orgVdcNetworkList:
