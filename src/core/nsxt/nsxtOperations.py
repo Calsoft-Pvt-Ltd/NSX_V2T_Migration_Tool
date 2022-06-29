@@ -246,7 +246,7 @@ class NSXTOperations():
 
     @description("creation of Bridge Endpoint Profile", threadName="Bridging")
     @remediate
-    def createBridgeEndpointProfile(self, portgroupList):
+    def createBridgeEndpointProfile(self, portgroupList, vcdObj):
         """
         Description : Create Bridge Endpoint Profile for the members of edge Cluster
         Parameters  : edgeClusterNameList   -   List of names of the edge cluster participating in bridging (LIST)
@@ -272,8 +272,9 @@ class NSXTOperations():
                         responseData = json.loads(response.content)
                         resultData = responseData['results']
                         for edgeNodeData in resultData:
-                            edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
-                                                       'member_index': edgeNodeData['member_index'], 'edgePath': edgeNodeData['path']})
+                            if edgeNodeData['nsx_id'] in vcdObj.rollback.apiData['taggedNodesList']:
+                                edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
+                                                           'member_index': edgeNodeData['member_index'], 'edgePath': edgeNodeData['path']})
                     else:
                         raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
                 else:
@@ -284,6 +285,8 @@ class NSXTOperations():
                                  edgeClusterData['members']))
                         edgeClusterMembers += edgeClusterData['members'] if isinstance(edgeClusterData['members'], list)\
                             else [edgeClusterData['members']]
+                        edgeClusterMembers = [member for member in edgeClusterMembers
+                                              if member['transport_node_id'] in vcdObj.rollback.apiData['taggedNodesList']]
                     else:
                         raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
 
@@ -411,7 +414,7 @@ class NSXTOperations():
 
     @description("addition of Bridge Transport Zone to Bridge Edge Transport Nodes", threadName="Bridging")
     @remediate
-    def updateEdgeTransportNodes(self, portgroupList):
+    def updateEdgeTransportNodes(self, portgroupList, vcdObj):
         """
         Description: Update Edge Transport Node
         Parameters:  edgeClusterNameList    - List of names of the edge cluster participating in bridging (LIST)
@@ -451,8 +454,9 @@ class NSXTOperations():
                         responseData = json.loads(response.content)
                         resultData = responseData['results']
                         for edgeNodeData in resultData:
-                            edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
-                                                       'member_index': edgeNodeData['member_index'], 'edgePath': edgeNodeData['path']})
+                            if edgeNodeData['nsx_id'] in vcdObj.rollback.apiData['taggedNodesList']:
+                                edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
+                                                           'member_index': edgeNodeData['member_index'], 'edgePath': edgeNodeData['path']})
                     else:
                         raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
                 else:
@@ -461,6 +465,8 @@ class NSXTOperations():
                     if edgeClusterData:
                         edgeClusterMembers += edgeClusterData['members'] if isinstance(edgeClusterData['members'], list) \
                             else [edgeClusterData['members']]
+                        edgeClusterMembers = [member for member in edgeClusterMembers
+                                              if member['transport_node_id'] in vcdObj.rollback.apiData['taggedNodesList']]
                     else:
                         raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
             edgeNodePortgroupList = zip(edgeClusterMembers, portgroupList)
@@ -548,7 +554,7 @@ class NSXTOperations():
 
     @description("attaching bridge endpoint profile to Logical Switch", threadName="Bridging")
     @remediate
-    def attachBridgeEndpointSegment(self, portgroupList, targetOrgVDCNetworks):
+    def attachBridgeEndpointSegment(self, portgroupList, targetOrgVDCNetworks, vcdObj):
         """
         Description : Attach Bridge Endpoint to logical segments
         Parameters  : edgeClusterNameList - List of names of the edge cluster participating in bridging (LIST)
@@ -615,9 +621,10 @@ class NSXTOperations():
                         responseData = json.loads(response.content)
                         resultData = responseData['results']
                         for edgeNodeData in resultData:
-                            edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
-                                                       'member_index': edgeNodeData['member_index'],
-                                                       'edgePath': edgeNodeData['path']})
+                            if edgeNodeData['nsx_id'] in vcdObj.rollback.apiData['taggedNodesList']:
+                                edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
+                                                           'member_index': edgeNodeData['member_index'],
+                                                           'edgePath': edgeNodeData['path']})
                     else:
                         raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
                 else:
@@ -626,6 +633,8 @@ class NSXTOperations():
                     if edgeClusterData:
                         edgeClusterMembers += edgeClusterData['members'] if isinstance(edgeClusterData['members'], list)\
                             else [edgeClusterData['members']]
+                        edgeClusterMembers = [member for member in edgeClusterMembers
+                                              if member['transport_node_id'] in vcdObj.rollback.apiData['taggedNodesList']]
                     else:
                         raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
 
@@ -986,6 +995,8 @@ class NSXTOperations():
                     edgeTransportNodeList += edgeClusterData['members'] if isinstance(edgeClusterData['members'],
                                                                                       list) \
                         else [edgeClusterData['members']]
+                    edgeTransportNodeList = [member for member in edgeTransportNodeList
+                                             if member['transport_node_id'] in vcdObj.rollback.apiData['taggedNodesList']]
                 else:
                     raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
 
@@ -1000,8 +1011,6 @@ class NSXTOperations():
                 id_key = "id"
             # updating the transport node details inside edgeTransportNodeList
             for edgeTransportNode in edgeTransportNodeList:
-                if edgeTransportNode['transport_node_id'] not in vcdObj.rollback.apiData["taggedNodesList"]:
-                    continue
                 url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
                                                              nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(
                                                                  edgeTransportNode['transport_node_id']))
@@ -1185,16 +1194,16 @@ class NSXTOperations():
                 self.createTransportZone()
 
                 # create bridge endpoint profile
-                self.createBridgeEndpointProfile(portGroupList)
+                self.createBridgeEndpointProfile(portGroupList, vcdObjList[0])
 
                 # create host uplink profile for bridge n-vds
                 self.createUplinkProfile()
 
                 # add bridge transport to bridge edge transport nodes
-                self.updateEdgeTransportNodes(portGroupList)
+                self.updateEdgeTransportNodes(portGroupList, vcdObjList[0])
 
                 # attach bridge endpoint profile to logical switch
-                self.attachBridgeEndpointSegment(portGroupList, targetOrgVdcNetworkList)
+                self.attachBridgeEndpointSegment(portGroupList, targetOrgVdcNetworkList, vcdObjList[0])
         except:
             raise
         finally:
