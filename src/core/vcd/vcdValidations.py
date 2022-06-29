@@ -172,6 +172,12 @@ class ConfigurationError(Exception):
     """
     pass
 
+class VDCNotFoundError(Exception):
+    """
+    Raise this exception when requesting object is not found in precheck, pre-migration validation or assessment mode
+    """
+    pass
+
 
 class VCDMigrationValidation:
     """
@@ -498,7 +504,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def deleteMetadata(self, orgVDCId, entity='Org VDC'):
+    def deleteMetadata(self, orgVDCId, entity='source'):
         """
             Description :   Delete Metadata from the specified Organization VDC
             Parameters  :   orgVDCId    -   Id of the Organization VDC (STRING)
@@ -508,7 +514,7 @@ class VCDMigrationValidation:
             orgVDCId = orgVDCId.split(':')[-1]
             metadata = self.getOrgVDCMetadata(orgVDCId, entity=entity, wholeData=True)
             if metadata:
-                logger.info(f"Rollback: Deleting metadata from source {entity}")
+                logger.info(f"Deleting metadata from {entity} Org VDC")
                 for key in metadata.keys():
                     # spawn thread for deleting metadata key api call
                     self.thread.spawnThread(self.deleteMetadataApiCall, key, orgVDCId, entity)
@@ -749,7 +755,7 @@ class VCDMigrationValidation:
                         orgVDCUrl = response['@href']
                         logger.debug('Organization VDC {} url {} retrieved successfully'.format(orgVDCName, orgVDCUrl))
                 if not orgVDCUrl:
-                    raise Exception('Org VDC {} does not belong to this organization {}'.format(orgVDCName, orgUrl))
+                    raise VDCNotFoundError('Org VDC {} does not belong to this organization {}'.format(orgVDCName, orgUrl))
                 return orgVDCUrl
             raise Exception("Failed to retrieve Organization VDC {} url".format(orgVDCName))
         except Exception:

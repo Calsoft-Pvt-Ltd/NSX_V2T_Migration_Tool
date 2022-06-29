@@ -41,6 +41,7 @@ from src.core.nsxt.nsxtOperations import NSXTOperations
 from src.core.nsxv.nsxvOperations import NSXVOperations
 from src.core.vcd import vcdConstants
 from src.core.vcd.vcdOperations import VCloudDirectorOperations
+from src.core.vcd.vcdValidations import VDCNotFoundError
 from src.core.vcenter.vcenterApis import VcenterApi
 from src.vcdNSXMigratorCleanup import VMwareCloudDirectorNSXMigratorCleanup
 from src.vcdNSXMigratorAssessmentMode import VMwareCloudDirectorNSXMigratorAssessmentMode
@@ -616,12 +617,24 @@ class VMwareCloudDirectorNSXMigrator():
 
             # Fetching source Org VDC Id
             orgUrl = vcdObj.getOrgUrl(self.inputDict["VCloudDirector"]["Organization"]["OrgName"])
-            sourceOrgVDCId = vcdObj.getOrgVDCDetails(orgUrl, orgVDCDict["OrgVDCName"], 'sourceOrgVDC')
 
-            self.orgVDCData[orgVDCDict["OrgVDCName"]]["id"] = sourceOrgVDCId
+            # Fetching target org vdc id for metadata
+            if self.cleanup:
+                # Fetch target ord vdc id in case of cleanup
+                try:
+                    # During cleanup before removing '-v2t' suffix from target org vdc name(Ord VDC name will be -v2t suffixed)
+                    orgVDCId = vcdObj.getOrgVDCDetails(orgUrl, orgVDCDict["OrgVDCName"] + '-v2t', 'targetOrgVDC', saveResponse=False)
+                except VDCNotFoundError:
+                    # During cleanup after removing '-v2t' suffix from target org vdc name(Ord VDC name will not be -v2t suffixed)
+                    orgVDCId = vcdObj.getOrgVDCDetails(orgUrl, orgVDCDict["OrgVDCName"], 'targetOrgVDC', saveResponse=False)
+            else:
+                # Fetch source ord vdc id in case of precheck, migration and rollback
+                orgVDCId = vcdObj.getOrgVDCDetails(orgUrl, orgVDCDict["OrgVDCName"], 'sourceOrgVDC')
+
+            self.orgVDCData[orgVDCDict["OrgVDCName"]]["id"] = orgVDCId
 
             # Fetching metadata from source orgVDC
-            metadata = vcdObj.getOrgVDCMetadata(sourceOrgVDCId, domain='system')
+            metadata = vcdObj.getOrgVDCMetadata(orgVDCId, domain='system')
 
             # self.orgVDCData[orgVDCDict["OrgVDCName"]]["metadata"] = metadata
 
@@ -629,7 +642,7 @@ class VMwareCloudDirectorNSXMigrator():
 
             # Fetching apiData from metadata and send apiData to every class
             if metadata:
-                vcdObj.rollback.apiData.update(vcdObj.getOrgVDCMetadata(sourceOrgVDCId, domain='general'))
+                vcdObj.rollback.apiData.update(vcdObj.getOrgVDCMetadata(orgVDCId, domain='general'))
         except:
             self.consoleLogger.error(traceback.format_exc())
             raise
@@ -971,6 +984,13 @@ class VMwareCloudDirectorNSXMigrator():
             self.consoleLogger.warning("Skipping vApp migration as the input parameters provided")
 
     def runPostMigrationSteps(self):
+        # Copying source org vdc metadata to target org vdc
+        futures = list()
+        with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+            for vcdObj, orgVDCDict in zip(self.vcdObjList, self.inputDict["VCloudDirector"]["SourceOrgVDC"]):
+                futures.append(executor.submit(vcdObj.copyMetadatatToTargetVDC, vcdObj))
+            waitForThreadToComplete(futures)
+
         # Disabling target vdc only if source org vdc is disabled
         futures = list()
         with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
