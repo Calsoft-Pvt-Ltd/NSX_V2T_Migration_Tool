@@ -1671,7 +1671,8 @@ class VCDMigrationValidation:
                             if staticRouteDetails is not None:
                                 # if current interface has static routes
                                 if eachGatewayInterface['name'] in staticRouteDetails.keys():
-                                    noSnatList.append(staticRouteDetails[eachGatewayInterface['name']]['network'])
+                                    for staticRoute in staticRouteDetails[eachGatewayInterface['name']]:
+                                        noSnatList.append(staticRoute['network'])
                 if defaultGatewayDict == {} and returnDefaultGateway is True:
                     return ['Default Gateway not configured on Edge Gateway\n']
                 if returnDefaultGateway is False and noSnatList is not []:
@@ -1721,15 +1722,15 @@ class VCDMigrationValidation:
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
                 if responseDict['staticRoutes'] != {}:
-                    edgesEternalNetworkList = self.getEdgesExternalNetworkDetails(edgeGatewayId)
+                    edgesExternalNetworkList = self.getEdgesExternalNetworkDetails(edgeGatewayId)
                     allStaticRoutes = responseDict['staticRoutes']['staticRoutes']
-                    for eachStaticRoute in allStaticRoutes:
-                        if eachStaticRoute.get('vnic'):
-                            for eachExternalNetworkInEdges in edgesEternalNetworkList:
+                    for eachExternalNetworkInEdges in edgesExternalNetworkList:
+                        allStaticRouteDict[eachExternalNetworkInEdges['name']] = list()
+                        for eachStaticRoute in allStaticRoutes:
+                            if eachStaticRoute.get('vnic'):
                                 if int(eachStaticRoute['vnic']) == eachExternalNetworkInEdges['index']:
-                                    allStaticRouteDict[eachExternalNetworkInEdges['name']] = eachStaticRoute
-                                    break
-                    return allStaticRouteDict
+                                    allStaticRouteDict[eachExternalNetworkInEdges['name']].append(eachStaticRoute)
+                    return {extNetworkName: value for extNetworkName, value in allStaticRouteDict.items() if value != []}
                 else:
                     logger.debug('No static routes present')
                     return None
