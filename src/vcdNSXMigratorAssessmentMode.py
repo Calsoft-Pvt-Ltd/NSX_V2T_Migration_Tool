@@ -221,7 +221,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 self.consoleLogger.info("Performing checks related to bridging components")
                 checksMapping = {
                     'Validating NSX-T Bridge Uplink Profile does not exist': [nsxtObj.validateBridgeUplinkProfile],
-                    'Validating Edge Cluster exists in NSX-T and Edge Transport Nodes are not in use': [nsxtObj.validateEdgeNodesNotInUse, filteredList, self.vcdObjList, True],
+                    'Validating Edge Cluster exists in NSX-T and Edge Transport Nodes are not in use': [nsxtObj.validateEdgeNodesNotInUse, self.inputDict, filteredList, self.vcdObjList, True],
                     'Validating whether the edge transport nodes are accessible via ssh or not': [nsxtObj.validateIfEdgeTransportNodesAreAccessibleViaSSH],
                     'Validating whether the edge transport nodes are deployed on v-cluster or not': [nsxtObj.validateEdgeNodesDeployedOnVCluster, self.vcenterObj, vxlanBackingPresent],
                     'Validating the max limit of bridge endpoint profiles in NSX-T': [nsxtObj.validateLimitOfBridgeEndpointProfile, filteredList],
