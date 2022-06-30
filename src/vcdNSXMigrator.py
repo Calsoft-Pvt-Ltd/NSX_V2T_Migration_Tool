@@ -550,8 +550,8 @@ class VMwareCloudDirectorNSXMigrator():
 
                 # untag the used nodes in bridging if remaining
                 if self.vcdObjList[0].rollback.apiData.get('taggedNodesList'):
-                    self.nsxtObjList[0].tagEdgeTransportNodes(self.vcdObjList, self.vcdObjList[0].rollback.apiData.get('taggedNodesList'),
-                                                              migration=False)
+                    self.nsxtObjList[0].untagEdgeTransportNodes(
+                            self.vcdObjList, self.vcdObjList[0].rollback.apiData.get('taggedNodesList'))
 
                 # Rollback dfw/firewall rules
                 futures = list()

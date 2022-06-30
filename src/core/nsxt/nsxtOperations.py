@@ -24,7 +24,7 @@ import src.core.nsxt.nsxtConstants as nsxtConstants
 from src.constants import rootDir
 from src.commonUtils.sshUtils import SshUtils
 from src.commonUtils.restClient import RestAPIClient
-from src.commonUtils.utils import Utilities
+from src.commonUtils.utils import Utilities, listify
 from src.core.vcd.vcdValidations import description
 
 
@@ -1038,7 +1038,7 @@ class NSXTOperations():
                     edgeNodeData["host_switch_spec"]["host_switches"] = hostSwitchSpec
                     edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config'][
                         'data_network_ids'] = dataNetworkList
-                    edgeNodeData['tags'] = []
+                    edgeNodeData['tags'] = [tag for tag in edgeNodeData['tags'] if nsxtConstants.MIGRATION_TAG_SCOPE not in tag["scope"]]
                     del edgeNodeData['_create_time']
                     del edgeNodeData['_last_modified_user']
                     del edgeNodeData['_last_modified_time']
@@ -1391,37 +1391,6 @@ class NSXTOperations():
             #Restoring log level of paramiko transport logs
             logging.getLogger("paramiko").setLevel(logging.INFO)
 
-    def validateOrgVdcNetworksAndEdgeTransportNodes(self, orgVdcNetworkList):
-        """
-        Description :   Validates the number of networks in source Org Vdc match with the number of Edge Transport Nodes in the specified cluster name
-        Parameters  :   edgeClusterNameList     -   List of names of the cluster (STRING)
-                        orgVdcNetworkList   -   Source Org VDC Network List (LIST)
-        """
-        try:
-            logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(self.edgeClusterNameList)))
-            edgeTransportNodeList = []
-            edgeClusterNotFound = []
-            for edgeClusterName in self.edgeClusterNameList:
-                edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
-                                                        edgeClusterName)
-                if not edgeClusterData:
-                    edgeClusterNotFound.append(edgeClusterName)
-                else:
-                    edgeTransportNodeList += edgeClusterData['members'] \
-                        if isinstance(edgeClusterData['members'], list) else [edgeClusterData['members']]
-
-            if edgeClusterNotFound:
-                raise Exception(
-                    "Edge Cluster '{}' do not exist in NSX-T, so can't validate org VDC networks and transport nodes".format(
-                        ', '.join(edgeClusterNotFound)))
-            orgVdcNetworkList = [network for network in orgVdcNetworkList if network['networkType'] != 'DIRECT']
-            if len(orgVdcNetworkList) <= len(edgeTransportNodeList):
-                logger.debug("Validated successfully the number of source Org VDC networks are equal/less than the number of Edge Transport Nodes in the cluster {}".format(self.edgeClusterNameList))
-            else:
-                raise Exception("Number of Source Org VDC Networks should always be equal/less than the number of Edge Transport Nodes in the cluster {}".format(self.edgeClusterNameList))
-        except Exception:
-            raise
-
     def fetchEdgeClusterIdForTier0Gateway(self, tier0GatewayName):
         """
             Description :   Get edge cluster name for tier-0 gateway
@@ -1496,85 +1465,152 @@ class NSXTOperations():
                 response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
-                    # adding node response to free node list
-                    freeTransportNodesList.append(responseDict['node_id'])
-                    try:
-                        if responseDict.get('host_switch_spec'):
-                            hostSwitchSpec = responseDict["host_switch_spec"]["host_switches"]
-                            for hostSwitch in hostSwitchSpec:
-                                # checking host name with default bridge transport zone host switch name
-                                if hostSwitch["host_switch_name"] == "Bridge-nvds-v2t":
-                                    raise StopIteration
-                        else:
-                            raise Exception('Host switch specification not available')
-                        # checking if bridge endpoint profile exists on edge node
-                        if any([responseDict["node_id"] in bridgeEndpointProfile["display_name"] for bridgeEndpointProfile in bridgeEndpointProfileList]):
-                            raise StopIteration
-                        # checking migration tag on edge node is same
-                        if any([tag["scope"] == 'V2T-Migration' for tag in responseDict.get("tags", [])]):
-                            raise StopIteration
-                    except StopIteration:
+                    freeTransportNodesList.append(responseDict)
+                    # edge transport node is added to freeTransportNodesList after successful GET call
+                    # edge transport node is popped out of freeTransportNodesList and loop is skipped in case if -
+                    # 1. Host switch named 'Bridge-nvds-v2t' exists on node
+                    # 2. Bridge endpoint profile exists on node
+                    # 3. edge node is already tagged with migration Id
+                    hostSwitchFlag = False
+                    if responseDict.get('host_switch_spec'):
+                        hostSwitchSpec = responseDict["host_switch_spec"]["host_switches"]
+                        for hostSwitch in hostSwitchSpec:
+                            if hostSwitch["host_switch_name"] == "Bridge-nvds-v2t":
+                                hostSwitchFlag = True
+                    else:
+                        raise Exception('Host switch specification not available')
+                    if hostSwitchFlag:
                         freeTransportNodesList.pop()
+                        continue
+                    if any([responseDict["node_id"] in bridgeEndpointProfile["display_name"] for bridgeEndpointProfile in bridgeEndpointProfileList]):
+                        freeTransportNodesList.pop()
+                        continue
+                    if any([tag["scope"] == nsxtConstants.MIGRATION_TAG_SCOPE for tag in responseDict.get("tags", [])]):
+                        freeTransportNodesList.pop()
+                        continue
                 else:
-                    raise Exception('Failed to fetch transport node details')
+                    raise Exception('Failed to fetch transport node details with error - {}'.format(responseDict["error_message"]))
 
+            logger.debug("freeTransportNodesList = {}".format(
+                [{"name": freeNode["display_name"], "id": freeNode["node_id"]} for freeNode in freeTransportNodesList]))
             if len(orgVdcNetworkList) <= len(freeTransportNodesList):
+                logger.debug("Validated org vdc networks against free nodes in edge cluster/s {}".format(
+                    ', '.join(self.edgeClusterNameList)))
                 if not precheck:
-                    logger.debug("Validated org vdc networks against free nodes in edge cluster/s {}".format(', '.join(self.edgeClusterNameList)))
-                    self.tagEdgeTransportNodes(vcdObjList, freeTransportNodesList[0:len(orgVdcNetworkList)], migrationId=migrationId)
+                    self.tagEdgeTransportNodes(vcdObjList, freeTransportNodesList[0:len(orgVdcNetworkList)], migrationId)
             else:
                 raise Exception("Transport Nodes already in use")
         except Exception:
             raise
 
-    def tagEdgeTransportNodes(self, vcdObjList, transportNodesList, migration=True, migrationId=None):
+    def tagEdgeTransportNodes(self, vcdObjList, transportNodesList, migrationId):
         """
         Description :   Tags the available edge transport nodes with migration Id
         Parameters  :   freeTransportNodesList -   List of edge nodes available for bridging (LIST)
         """
-        try:
-            for node in transportNodesList:
-
-                url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
-                                                            nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(node))
-                response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
-                                                auth=self.restClientObj.auth)
-                if response.status_code == requests.codes.ok:
-                    responseDict = response.json()
-                else:
-                    raise Exception('Failed to fetch transport node details')
-
-                if migration:
-                    logger.info("Tagging edge transport nodes")
-                    responseDict['tags'].append({"scope": "V2T-Migration", "tag": migrationId})
-                else:
-                    logger.info("Removing migration tag from edge transport nodes")
-                    responseDict['tags'] = []
-
-                url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
-                                                            nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(node))
-                payloadDict = json.dumps(responseDict)
-                response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payloadDict,
-                                          auth=self.restClientObj.auth)
-                if response.status_code == requests.codes.ok:
-                    if migration:
-                        logger.debug("Successfully tagged Edge Transport node {} with migration Id - {}".format(responseDict['display_name'], migrationId))
-                    else:
-                        logger.debug("Successfully removed tags from edge transport node {}".format(responseDict['display_name']))
-                else:
-                    msg = "Failed to tag update Edge Transport node {} with error {}.".format(responseDict['display_name'],
-                                                                                  response.json()['error_message'])
-                    logger.error(msg)
-                    raise Exception(msg)
-
-            if migration:
-                vcdObjList[0].createMetaDataInOrgVDC(vcdObjList[0].rollback.apiData.get('sourceOrgVDC', {}).get('@id'),
-                                                    metadataDict={"taggedNodesList": transportNodesList}, domain='general')
+        logger.info("Tagging edge transport nodes")
+        data = vcdObjList[0].rollback.apiData
+        for node in transportNodesList:
+            if not node.get('tags'):
+                node['tags'] = []
+            node['tags'].append({"scope": nsxtConstants.MIGRATION_TAG_SCOPE, "tag": migrationId})
+            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                        nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(node["node_id"]))
+            payloadDict = json.dumps(node)
+            response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payloadDict,
+                                            auth=self.restClientObj.auth)
+            if response.status_code == requests.codes.ok:
+                logger.debug("Successfully tagged Edge Transport node {} with migration Id - {}".format(
+                            node['display_name'], migrationId))
             else:
-                vcdObjList[0].deleteMetadataApiCall(key='taggedNodesList-v2t',
-                                             orgVDCId=vcdObjList[0].rollback.apiData.get('sourceOrgVDC', {}).get('@id'))
-        except:
-            raise
+                msg = "Failed to update Edge Transport node {} with error {}.".format(node['display_name'],
+                                                                                response.json()['error_message'])
+                logger.error(msg)
+                raise Exception(msg)
+
+        logger.debug("taggedNodesList = {}".format(
+            [{"name": transportNode["display_name"], "id": transportNode["node_id"]}
+             for transportNode in transportNodesList]))
+        data['taggedNodesList'] = [transportNode["node_id"] for transportNode in transportNodesList]
+
+    def untagEdgeTransportNodes(self, vcdObjList, transportNodesIdList):
+        """
+        Description :   Untags the available edge transport nodes tagged with migration Id
+        Parameters  :   freeTransportNodesList -   List of edge nodes id available for bridging (LIST)
+        """
+        logger.info("Removing migration tag from edge transport nodes")
+        untaggedNodesList = list()
+        for node in transportNodesIdList:
+
+            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                        nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(node))
+            response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
+                                            auth=self.restClientObj.auth)
+            if response.status_code == requests.codes.ok:
+                responseDict = response.json()
+            else:
+                raise Exception('Failed to fetch transport node details with error - {}'.format(responseDict["error_message"]))
+
+            responseDict['tags'] = [tag for tag in responseDict['tags'] if nsxtConstants.MIGRATION_TAG_SCOPE not in tag["scope"]]
+
+            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                        nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(node))
+            payloadDict = json.dumps(responseDict)
+            response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payloadDict,
+                                            auth=self.restClientObj.auth)
+            responseDict = response.json()
+            if response.status_code == requests.codes.ok:
+                untaggedNodesList.append({"name": responseDict["display_name"], "id": responseDict["node_id"]})
+                logger.debug(
+                    "Successfully removed tags from edge transport node {}".format(responseDict['display_name']))
+            else:
+                msg = "Failed to update Edge Transport node {} with error {}.".format(responseDict['display_name'],
+                                                                                  response.json()['error_message'])
+                logger.error(msg)
+                raise Exception(msg)
+        logger.debug("untaggedNodesList = {}".format(untaggedNodesList))
+        vcdObjList[0].deleteMetadataApiCall(key='taggedNodesList-v2t',
+                                            orgVDCId=vcdObjList[0].rollback.apiData.get('sourceOrgVDC', {}).get('@id'))
+
+    def updateEdgeTransportNodesTags(self, transportNodesIdList, tagToAdd=None, tagToRemove=None):
+        """
+        Description :   Update the edge transport node tags
+        Parameters  :   transportNodesList -   Transport nodes ID list (LIST)
+                        tagToAdd - List of tags to add (LIST of TUPLES)
+                        tagToRemove - List of tags to remove (LIST of TUPLES)
+        """
+        logger.debug("Updating edge transport nodes tags")
+        for node in transportNodesIdList:
+
+            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                         nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(node))
+            response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
+                                              auth=self.restClientObj.auth)
+            if response.status_code == requests.codes.ok:
+                responseDict = response.json()
+            else:
+                raise Exception(
+                    'Failed to fetch transport node details with error - {}'.format(responseDict["error_message"]))
+            if not responseDict.get('tags'):
+                responseDict['tags'] = []
+            responseDict['tags'] = [tag for tag in responseDict['tags'] for removeTag in listify(tagToRemove)
+                                    if tag["scope"] != removeTag[0] and tag["tag"] != removeTag[1]] + \
+                                   [{"scope": tag[0], "tag": tag[1]} for tag in listify(tagToAdd)]
+
+            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                         nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(node))
+            payloadDict = json.dumps(responseDict)
+            response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payloadDict,
+                                              auth=self.restClientObj.auth)
+            responseDict = response.json()
+            if response.status_code == requests.codes.ok:
+                logger.debug(
+                    "Successfully updated edge transport node {} tags".format(responseDict['display_name']))
+            else:
+                msg = "Failed to update Edge Transport node {} with error {}.".format(responseDict['display_name'],
+                                                                                          response.json()['error_message'])
+                logger.error(msg)
+                raise Exception(msg)
 
     def validateTransportZoneExistsInNSXT(self, transportZoneName, returnData=False):
         """
