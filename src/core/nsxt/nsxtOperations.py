@@ -377,7 +377,7 @@ class NSXTOperations():
             else:
                 logger.info('Creating Bridge Uplink Host Profile.')
                 filePath = os.path.join(nsxtConstants.NSXT_ROOT_DIRECTORY, 'template.json')
-                if not self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
+                if not self.getComponentData(componentApi=nsxtConstants.DEPRECATED_HOST_SWITCH_PROFILE_API,
                                              componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME):
                     url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
                                                                  nsxtConstants.DEPRECATED_HOST_SWITCH_PROFILE_API)
@@ -1637,7 +1637,7 @@ class NSXTOperations():
         try:
             if transportZoneName:
                 if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
-                    transportZoneData = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName)
+                    transportZoneData = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName, usePolicyApi=True)
                 else:
                     transportZoneData = self.getComponentData(nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API, transportZoneName)
                 if not transportZoneData:
@@ -1667,7 +1667,7 @@ class NSXTOperations():
                 nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
                 nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(segmentId))
             if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
-                urlTZ = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.TRANSPORT_ZONE_API)
+                urlTZ = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), nsxtConstants.TRANSPORT_ZONE_API)
             else:
                 urlTZ = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API)
             responseTZ = self.restClientObj.get(url=urlTZ, headers=nsxtConstants.NSXT_API_HEADER,
