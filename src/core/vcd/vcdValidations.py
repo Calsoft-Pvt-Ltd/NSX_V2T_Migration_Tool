@@ -5459,7 +5459,7 @@ class VCDMigrationValidation:
         # if no catalogs exist
         if not orgResponseDict['AdminOrg'].get("Catalogs"):
             logger.debug("No Catalogs exist in Organization")
-            return
+            return orgId, sourceOrgVDCResponseDict, None, None
 
         # orgCatalogs contains list of all catalogs in the organization
         # each org catalog in orgCatalogs is of type dict which has keys {'@href', '@name', '@type'}
