@@ -832,14 +832,8 @@ class NSXTOperations():
             if rollback:
                 logger.info("RollBack: Clearing NSX-T Bridging")
             switchList = []
-            logicalPorturl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
-                                                                    nsxtConstants.CREATE_LOGICAL_SWITCH_PORT_API)
-            response = self.restClientObj.get(url=logicalPorturl, headers=nsxtConstants.NSXT_API_HEADER,
-                                              auth=self.restClientObj.auth)
-            if response.status_code == requests.codes.ok:
-                logicalPortsList = json.loads(response.content)
-                logicalPortsList = logicalPortsList['results']
             edgeBridgeList = []
+            bridgeEndpointIdList = []
             # getting the logical switch id of the corresponding org vdc network
             for orgVdcNetwork in orgVDCNetworkList:
                 if orgVdcNetwork['networkType'] != 'DIRECT' and orgVdcNetwork['networkType'] != 'OPAQUE':
@@ -865,15 +859,24 @@ class NSXTOperations():
                                     edgeBridgeList.append(data['bridge_profile_path'])
                         else:
                             switchList.append((networkData['display_name'], networkData['id']))
-            # get the attached bridge endpoint id from logical switch ports
-            bridgeEndpointIdList = [logicalPort['attachment']['id'] for logicalPort in logicalPortsList for switch in switchList if switch[1] == logicalPort['logical_switch_id'] and
-                                    logicalPort['attachment']['attachment_type'] == 'BRIDGEENDPOINT']
 
+            if version.parse(self.apiVersion) < version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                logicalPorturl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                                        nsxtConstants.CREATE_LOGICAL_SWITCH_PORT_API)
+                response = self.restClientObj.get(url=logicalPorturl, headers=nsxtConstants.NSXT_API_HEADER,
+                                                auth=self.restClientObj.auth)
+                if response.status_code == requests.codes.ok:
+                    logicalPortsList = json.loads(response.content)
+                    logicalPortsList = logicalPortsList['results']
+                # get the attached bridge endpoint id from logical switch ports
+                bridgeEndpointIdList = [logicalPort['attachment']['id'] for logicalPort in logicalPortsList for switch in switchList if switch[1] == logicalPort['logical_switch_id'] and
+                                        logicalPort['attachment']['attachment_type'] == 'BRIDGEENDPOINT']
 
-            # get the logical port id
-            logicalPortList = [logicalPort['id'] for logicalPort in logicalPortsList for switch in
-                               switchList if switch[1] == logicalPort['logical_switch_id'] and
-                               logicalPort['attachment']['attachment_type'] == 'BRIDGEENDPOINT']
+                # get the logical port id
+                logicalPortList = [logicalPort['id'] for logicalPort in logicalPortsList for switch in
+                                switchList if switch[1] == logicalPort['logical_switch_id'] and
+                                logicalPort['attachment']['attachment_type'] == 'BRIDGEENDPOINT']
+
             # Detach the segment
             # checks API version for Interoperability.
             if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
