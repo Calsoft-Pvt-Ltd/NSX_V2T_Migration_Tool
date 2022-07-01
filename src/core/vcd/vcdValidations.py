@@ -1586,7 +1586,6 @@ class VCDMigrationValidation:
                 raise Exception('Failed to retrieve Org VDC Edge gateway details due to: {}'.format(responseDict['message']))
             pageNo = 1
             pageSizeCount = 0
-            resultList = []
             while resultTotal > 0 and pageSizeCount < resultTotal:
                 url = "{}{}?page={}&pageSize={}&filter=(orgVdc.id=={})&sortAsc=name".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.ALL_EDGE_GATEWAYS, pageNo, 15, orgVDCId)
@@ -1602,7 +1601,7 @@ class VCDMigrationValidation:
                 else:
                     responseDict = response.json()
                     raise Exception('Failed to get Org VDC Edge Gateway details due to: {}'.format(responseDict['message']))
-            logger.debug('Total Org VDC Edge Gateway result count = {}'.format(len(resultList)))
+            logger.debug('Total Org VDC Edge Gateway result count = {}'.format(len(edgeGatewayData)))
             logger.debug('All Org VDC Edge Gateway successfully retrieved')
             return edgeGatewayData
         except Exception:
@@ -1627,62 +1626,79 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getEdgeGatewayAdminApiDetails(self, edgeGatewayId, staticRouteDetails = None, returnDefaultGateway = False):
+    def getEdgeGatewayAdminApiDetails(self, edgeGatewayId):
         """
             Description :   Get details of edge gateway from admin API
             Parameters  :   edgeGatewayId   -   Edge Gateway ID  (STRING)
-                            staticRouteDetails  -   Destails of static routes
-                            returnDefaultGateway    -   Flag if default gateway details are to be returned
             Returns     :   Details of edge gateway
         """
-        try:
-            defaultGatewayDict= dict()
-            noSnatList = list()
-            allnonDefaultGatewaySubnetList = list()
-            logger.debug('Getting Edge Gateway Admin API details')
-            url = '{}{}'.format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
-            headers = {'Authorization': self.headers['Authorization'],
-                       'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
-            response = self.restClientObj.get(url, headers)
-            if response.status_code == requests.codes.ok:
-                responseDict = response.json()
-                for eachGatewayInterface in responseDict['configuration']['gatewayInterfaces']['gatewayInterface']:
-                    for eachSubnetParticipant in eachGatewayInterface['subnetParticipation']:
-                        # gather data of default gateway
-                        if eachSubnetParticipant['useForDefaultRoute'] == True:
-                            defaultGatewayDict['gateway'] = eachSubnetParticipant['gateway']
-                            defaultGatewayDict['netmask'] = eachSubnetParticipant['netmask']
-                            defaultGatewayDict['subnetPrefixLength'] = eachSubnetParticipant['subnetPrefixLength']
-                            defaultGatewayDict['ipRanges'] = list()
-                            if eachSubnetParticipant['ipRanges'] is not None:
-                                for eachIpRange in eachSubnetParticipant['ipRanges']['ipRange']:
-                                    defaultGatewayDict['ipRanges'].append('{}-{}'.format(eachIpRange['startAddress'],
-                                                                                         eachIpRange['endAddress']))
-                            # if ip range is not present assign ip address as ipRange
-                            elif eachSubnetParticipant['ipRanges'] is None:
-                                defaultGatewayDict['ipRanges'].append('{}-{}'.format(eachSubnetParticipant['ipAddress'],
-                                                                                     eachSubnetParticipant['ipAddress']))
-                            else:
-                                return ['Failed to get default gateway sub allocated IPs\n']
-                        else:
-                            if eachGatewayInterface['interfaceType'] == 'uplink':
-                                allnonDefaultGatewaySubnetList.extend(eachGatewayInterface['subnetParticipation'])
-                            if staticRouteDetails is not None:
-                                # if current interface has static routes
-                                if eachGatewayInterface['name'] in staticRouteDetails.keys():
-                                    for staticRoute in staticRouteDetails[eachGatewayInterface['name']]:
-                                        noSnatList.append(staticRoute['network'])
-                if defaultGatewayDict == {} and returnDefaultGateway is True:
-                    return ['Default Gateway not configured on Edge Gateway\n']
-                if returnDefaultGateway is False and noSnatList is not []:
-                    return allnonDefaultGatewaySubnetList, defaultGatewayDict, noSnatList
+        logger.debug('Getting Edge Gateway Admin API details')
+        url = '{}{}'.format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                            vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
+        headers = {'Authorization': self.headers['Authorization'],
+                   'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
+        response = self.restClientObj.get(url, headers)
+        if response.status_code == requests.codes.ok:
+            return response.json()
+
+        logger.debug(response.json())
+        raise Exception('Failed to get edge gateway admin api response')
+
+    def getEdgeGatewayNoSnatStaticRoute(self, edgeGatewayId, staticRouteDetails=None):
+        """
+            Description :   Get NOSNAT subnets to be configures id static route is configured
+            Parameters  :   edgeGatewayId   -   Edge Gateway ID  (STRING)
+                            staticRouteDetails  -   Details of static routes
+        """
+        staticRouteDetails = staticRouteDetails or {}
+        defaultGatewayDict = {}
+        noSnatList = []
+        allnonDefaultGatewaySubnetList = []
+
+        edgeGatewayData = self.getEdgeGatewayAdminApiDetails(edgeGatewayId)
+        for eachGatewayInterface in edgeGatewayData['configuration']['gatewayInterfaces']['gatewayInterface']:
+            for eachSubnetParticipant in eachGatewayInterface['subnetParticipation']:
+                # gather data of default gateway
+                if eachSubnetParticipant['useForDefaultRoute'] == True:
+                    defaultGatewayDict['gateway'] = eachSubnetParticipant['gateway']
+                    defaultGatewayDict['netmask'] = eachSubnetParticipant['netmask']
+                    defaultGatewayDict['subnetPrefixLength'] = eachSubnetParticipant['subnetPrefixLength']
+                    defaultGatewayDict['ipRanges'] = list()
+
+                    if eachSubnetParticipant['ipRanges'] is not None:
+                        for eachIpRange in eachSubnetParticipant['ipRanges']['ipRange']:
+                            defaultGatewayDict['ipRanges'].append(
+                                '{}-{}'.format(eachIpRange['startAddress'], eachIpRange['endAddress']))
+                    else:
+                        # if ip range is not present assign ip address as ipRange
+                        defaultGatewayDict['ipRanges'].append(
+                            '{}-{}'.format(
+                                eachSubnetParticipant['ipAddress'], eachSubnetParticipant['ipAddress']))
+
                 else:
-                    return defaultGatewayDict
-            else:
-                return ['Failed to get edge gateway admin api response\n']
-        except Exception:
-            raise
+                    if eachGatewayInterface['interfaceType'] == 'uplink':
+                        allnonDefaultGatewaySubnetList.extend(eachGatewayInterface['subnetParticipation'])
+
+                    # if non default gateway interface has static routes
+                    if eachGatewayInterface['name'] in staticRouteDetails.keys():
+                        for staticRoute in staticRouteDetails[eachGatewayInterface['name']]:
+                                        noSnatList.append(staticRoute['network'])
+
+            return allnonDefaultGatewaySubnetList, defaultGatewayDict, noSnatList
+
+    def getEdgeGatewayDefaultGateway(self, edgeGatewayId):
+        """
+            Description :   Get Default Gateway of edge gateway from admin API
+            Parameters  :   edgeGatewayId   -   Edge Gateway ID  (STRING)
+            Returns     :   Default Gateway of edge gateway
+        """
+        edgeGatewayData = self.getEdgeGatewayAdminApiDetails(edgeGatewayId)
+        for eachGatewayInterface in edgeGatewayData['configuration']['gatewayInterfaces']['gatewayInterface']:
+            for eachSubnetParticipant in eachGatewayInterface['subnetParticipation']:
+                if eachSubnetParticipant['useForDefaultRoute']:
+                    return eachSubnetParticipant['gateway']
+
+        logger.debug(f"Default gateway is not configured on {edgeGatewayId}")
 
     @isSessionExpired
     def getEdgesExternalNetworkDetails(self, edgeGatewayId):
@@ -2642,16 +2658,17 @@ class VCDMigrationValidation:
                 syslogErrorList = self.thread.returnValues['getEdgeGatewaySyslogConfig']
                 sshErrorList = self.thread.returnValues['getEdgeGatewaySSHConfig']
                 greTunnelErrorList = self.thread.returnValues['getEdgeGatewayGreTunnel']
+
                 if bgpStatus is True and edgeGatewayCount > 1:
                     bgpErrorList.append('BGP is enabled on: {} and more than 1 edge gateway present'.format(gatewayName))
+
                 currentErrorList = currentErrorList + dhcpErrorList + dhcpRelayErrorList + firewallErrorList + natErrorList + ipsecErrorList \
                                + bgpErrorList + routingErrorList + loadBalancingErrorList + L2VpnErrorList \
                                + SslVpnErrorList + dnsErrorList + syslogErrorList + sshErrorList + greTunnelErrorList
-                defaultGatewayDetails = self.getEdgeGatewayAdminApiDetails(gatewayId, returnDefaultGateway=True)
-                if isinstance(defaultGatewayDetails, list):
-                    currentErrorList = currentErrorList + defaultGatewayDetails
                 if len(currentErrorList) > 1:
                     allErrorList = allErrorList + currentErrorList
+
+                _, defaultGatewayDetails, _ = self.getEdgeGatewayNoSnatStaticRoute(gatewayId)
                 if preCheckMode is False and isinstance(defaultGatewayDetails, dict):
                     ifRouterIdInDefaultGateway = False
                     ifSnatOnDefaultGateway = False

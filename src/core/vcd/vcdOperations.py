@@ -117,13 +117,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if sourceEdgeGatewayDict['name'] in targetEdgeGatewayNames:
                 continue
 
-            # Checking if default edge gateway is configured on edge gateway
             sourceEdgeGatewayId = sourceEdgeGatewayDict['id'].split(':')[-1]
-            defaultGatewayData = self.getEdgeGatewayAdminApiDetails(sourceEdgeGatewayId, returnDefaultGateway=True)
-            if isinstance(defaultGatewayData, list):
-                raise Exception(
-                    'Default gateway is not configured on edge gateway - {}'.format(sourceEdgeGatewayDict['name']))
-            defaultGateway = defaultGatewayData.get('gateway')
 
             # Prepare payload for edgeGatewayUplinks->dedicated
             bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
@@ -140,22 +134,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # Prepare payload for edgeGatewayUplinks->subnets->values
             subnetData = []
             for uplink in sourceEdgeGatewayDict['edgeGatewayUplinks']:
-                # TODO pranshu: multiple T0 - this can be removed.
-                #  Check self.rollback.apiData['sourceEdgeGateway'] in older versions
-                # for subnet in uplink['subnets']['values']:
-                #     networkAddress = ipaddress.ip_network(
-                #         '{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
-                #         strict=False
-                #     )
-                #     # adding primary ip to sub allocated ip pool
-                #     primaryIp = subnet.get('primaryIp')
-                #     if primaryIp and ipaddress.ip_address(primaryIp) in networkAddress:
-                #         subnet['ipRanges']['values'].extend(
-                #             [{'startAddress': primaryIp, 'endAddress': primaryIp}]
-                #         )
                 subnetData += uplink['subnets']['values']
 
-            # Setting primary ip to be used for edge gateway creation
+            # Checking if default edge gateway is configured on edge gateway
+            # and Setting primary ip to be used for edge gateway creation
+            defaultGateway = self.getEdgeGatewayDefaultGateway(sourceEdgeGatewayId)
             for subnet in subnetData:
                 if subnet['gateway'] != defaultGateway:
                     subnet['primaryIp'] = None

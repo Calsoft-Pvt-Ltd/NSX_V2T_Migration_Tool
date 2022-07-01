@@ -801,8 +801,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                                             sourceEdgeGateway['name'],
                                                                             validation=False)
                     # get details of all Non default gateway subnet, default gateway and noSnatRules
-                    allnonDefaultGatewaySubnetList, defaultGatewayDict, noSnatRulesList = self.getEdgeGatewayAdminApiDetails(
-                        sourceEdgeGatewayId, staticRouteDetails=staticRoutingConfig)
+                    allnonDefaultGatewaySubnetList, defaultGatewayDict, noSnatRulesList = self.getEdgeGatewayNoSnatStaticRoute(
+                        sourceEdgeGatewayId, staticRoutingConfig)
                     natRuleList = data['natRules']['natRule']
                     # checking natrules is a list if not converting it into a list
                     sourceNATRules = natRuleList if isinstance(natRuleList, list) else [natRuleList]
@@ -822,21 +822,26 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             if sourceNATRule['ruleId'] in rulesConfigured or sourceNATRule['ruleTag'] in rulesConfigured:
                                 logger.debug('Rule Id: {} already created'.format(sourceNATRule['ruleId']))
                                 continue
+
                             # loop to iterate over all subnets to check if translatedAddr in source rule does not belong
                             # to default gateway and is matches to primaryIp or subAllocated IP address
                             for eachParticipant in allnonDefaultGatewaySubnetList:
-                                if eachParticipant['ipRanges'] is not None:
+                                if eachParticipant['ipRanges']:
                                     for ipRange in eachParticipant['ipRanges']['ipRange']:
                                         participantStartAddr = ipRange['startAddress']
                                         participantEndAddr = ipRange['endAddress']
-                                elif eachParticipant['ipRanges'] is None or eachParticipant['ipRanges'] == []:
+                                else:
                                     participantStartAddr = participantEndAddr = eachParticipant['ipAddress']
+
                                 # check if translatedAddress belongs to suballocated address pool or primary IP
-                                if self.ifIpBelongsToIpRange(sourceNATRule['translatedAddress'], participantStartAddr, participantEndAddr) \
-                                        is True or sourceNATRule['translatedAddress'] == eachParticipant['ipAddress']:
-                                    destinationIpDict = {'gateway': eachParticipant['gateway'],
-                                                            'netmask': eachParticipant['netmask']}
+                                if (self.ifIpBelongsToIpRange(
+                                        sourceNATRule['translatedAddress'], participantStartAddr, participantEndAddr)
+                                        or sourceNATRule['translatedAddress'] == eachParticipant['ipAddress']):
+                                    destinationIpDict = {
+                                        'gateway': eachParticipant['gateway'],
+                                        'netmask': eachParticipant['netmask']}
                                     break
+
                             payloadData = self.createNATPayloadData(sourceNATRule, applicationPortProfilesList, version,
                                                                     defaultGatewayDict, destinationIpDict, noSnatRulesList,
                                                                     bgpConfigDetails, routingConfigDetails, noSnatDestSubnetList=noSnatDestSubnet)
@@ -2085,10 +2090,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 "translatedAddress": translatedAddressCIDR
             })
             ipInSuAllocatedStatus = False
-            if defaultEdgeGateway is {}:
-                raise Exception('Default Gateway not configured on Edge Gateway')
             # If dynamic routerId belongs to default gateway subnet
-            if isinstance(bgpDetails, dict):
+            if isinstance(bgpDetails, dict) and defaultEdgeGateway is not {}:
                 networkAddress = ipaddress.IPv4Network('{}/{}'.format(defaultEdgeGateway['gateway'],
                                                                            defaultEdgeGateway['subnetPrefixLength']),
                                                        strict=False)
@@ -2096,29 +2099,30 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                        ipaddress.ip_network(networkAddress)
 
             # bgpRouterIdAddress = False
-            for eachIpRange in defaultEdgeGateway['ipRanges']:
-                startAddr, endAddr = eachIpRange.split('-')
-                # if translated IP address belongs to default gateway Ip range return True
-                ipInSuAllocatedStatus = self.ifIpBelongsToIpRange(sourceNATRule['translatedAddress'],
-                                                                  startAddr, endAddr)
-                if ipInSuAllocatedStatus:
-                    if staticRoutesList:
-                        for eachNetwork in staticRoutesList:
-                            staticNoSnatPayloadDict = copy.deepcopy(payloadDict)
-                            staticNoSnatPayloadDict['ruleId'] = ''
-                            staticNoSnatPayloadDict['ruleTag'] = 'staticRouteNoSnat' + payloadDict['ruleTag']
-                            staticNoSnatPayloadDict['action'] = 'NO_SNAT'
-                            staticNoSnatPayloadDict['snatDestinationAddresses'] = eachNetwork
-                            allSnatPayloadList.append(staticNoSnatPayloadDict)
-                    if noSnatDestSubnetList is not None and isinstance(bgpDetails, dict) and \
-                            bgpDetails['enabled'] == 'true' and ifbgpRouterIdAddress == False:
-                        for eachExtNetwork in noSnatDestSubnetList:
-                            bgpNoSnatPayloadDict = copy.deepcopy(payloadDict)
-                            bgpNoSnatPayloadDict['ruleId'] = ''
-                            bgpNoSnatPayloadDict['ruleTag'] = 'bgpNoSnat-' + payloadDict['ruleTag']
-                            bgpNoSnatPayloadDict['action'] = 'NO_SNAT'
-                            bgpNoSnatPayloadDict['snatDestinationAddresses'] = eachExtNetwork
-                            allSnatPayloadList.append(bgpNoSnatPayloadDict)
+            if defaultEdgeGateway:
+                for eachIpRange in defaultEdgeGateway['ipRanges']:
+                    startAddr, endAddr = eachIpRange.split('-')
+                    # if translated IP address belongs to default gateway Ip range return True
+                    ipInSuAllocatedStatus = self.ifIpBelongsToIpRange(sourceNATRule['translatedAddress'],
+                                                                      startAddr, endAddr)
+                    if ipInSuAllocatedStatus:
+                        if staticRoutesList:
+                            for eachNetwork in staticRoutesList:
+                                staticNoSnatPayloadDict = copy.deepcopy(payloadDict)
+                                staticNoSnatPayloadDict['ruleId'] = ''
+                                staticNoSnatPayloadDict['ruleTag'] = 'staticRouteNoSnat' + payloadDict['ruleTag']
+                                staticNoSnatPayloadDict['action'] = 'NO_SNAT'
+                                staticNoSnatPayloadDict['snatDestinationAddresses'] = eachNetwork
+                                allSnatPayloadList.append(staticNoSnatPayloadDict)
+                        if noSnatDestSubnetList is not None and isinstance(bgpDetails, dict) and \
+                                bgpDetails['enabled'] == 'true' and ifbgpRouterIdAddress == False:
+                            for eachExtNetwork in noSnatDestSubnetList:
+                                bgpNoSnatPayloadDict = copy.deepcopy(payloadDict)
+                                bgpNoSnatPayloadDict['ruleId'] = ''
+                                bgpNoSnatPayloadDict['ruleTag'] = 'bgpNoSnat-' + payloadDict['ruleTag']
+                                bgpNoSnatPayloadDict['action'] = 'NO_SNAT'
+                                bgpNoSnatPayloadDict['snatDestinationAddresses'] = eachExtNetwork
+                                allSnatPayloadList.append(bgpNoSnatPayloadDict)
             # iftranslated IP address does not belongs to default gateway update snatDestinationAddresses
             if not payloadDict['snatDestinationAddresses'] and ipInSuAllocatedStatus == False and destinationIpDict != {}:
                 networkAddr = ipaddress.ip_network('{}/{}'.format(destinationIpDict['gateway'],
