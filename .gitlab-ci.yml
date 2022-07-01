@@ -1,0 +1,102 @@
+image: python:3.8
+
+# Change pip's cache directory to be inside the project directory since we can
+# only cache local items.
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+# Pip's cache doesn't store the python packages
+# https://pip.pypa.io/en/stable/reference/pip_install/#caching
+#
+# If you want to also cache the installed packages, you have to install
+# them in a virtualenv and cache it as well.
+cache:
+  paths:
+    - .cache/pip
+    - venv/
+
+before_script:
+  # Prepare Python virtualenv
+  - python --version
+  - pip install virtualenv
+  - virtualenv venv
+  - source venv/bin/activate
+  - pip install -r ./provenanceData/requirements.txt
+
+  # Download the SRP CLI which we use to create source provenance
+  - mkdir /srp-tools
+  - wget --quiet --output-document /srp-tools/srp  https://artifactory.eng.vmware.com/artifactory/helix-docker-local/cli/srpcli/0.2.20220610114718-f3587c2-16.1/linux/srp
+  - chmod +x /srp-tools/srp
+  - /srp-tools/srp --version
+
+stages:
+  - generate-provenance
+
+provenance:
+  stage: generate-provenance
+  script:
+    # create local auth configuration using variables from the CICD
+    - /srp-tools/srp config auth --client-id=${SRP_CLIENT_ID} --client-secret=${SRP_CLIENT_SECRET}
+    # force an update to the srpcli
+    - /srp-tools/srp update --yes
+
+    # Start SRP provenance generation and submission
+    - export CURRENT_TIME_STRING=`date +%Y%m%d%H%M%S`
+    - export BUILD_VERSION=`grep 'Build' src/release.yml | awk '{print substr($2, 2)}'`
+    - export BUILD_ID="${CI_PIPELINE_ID}"
+    - export OBJ_UID="uid.obj.build.gitlab(namespace='${CI_PROJECT_NAMESPACE}',project='${CI_PROJECT_NAME}',pipeline_id='${CI_PIPELINE_ID}')"
+    - export PROVENANCE_FRAGMENT_UID="uid.mtd.provenance_2_5.fragment(obj_uid=${OBJ_UID},revision='${CURRENT_TIME_STRING}')"
+
+    - echo "SRP_UID=${OBJ_UID}"
+    - echo "PROVENANCE_FRAGMENT_UID=${PROVENANCE_FRAGMENT_UID}"
+    # This app pulls dependencies from a gitlab project with private access.  In order to do that, you must put
+    # credentials into the ~/.netrc file as described in
+    # https://gitlab.eng.vmware.com/srp/helix/core/srpclient/-/blob/main/README.md#development-environment-setup
+    - echo "machine gitlab.eng.vmware.com login $CI_REGISTRY_USER password $CI_REGISTRY_PASSWORD" > ~/.netrc
+
+    # RUN srp cli command to generate basic source provenance for this git clone
+    - mkdir -p provenance
+    - |
+      /srp-tools/srp provenance source \
+      --scm-type git \
+      --name "VMware NSX Migration for VMware Cloud Director" \
+      --path ./ \
+      --saveto ./provenance/source.json \
+      --comp-uid "$OBJ_UID" \
+      --build-number "$BUILD_ID" \
+      --version $BUILD_VERSION \
+      --all-ephemeral true \
+      --build-type release
+
+    - echo "------------------ SOURCE PROVENANCE -----------------------------------"
+    - cat ./provenance/source.json
+    - echo "------------------------------------------------------------------------"
+
+    - echo "Fetching all dependencies under the observer"
+    - python ./provenanceData/generateProvenanceData.py
+    - mv ./provenanceData/network_provenance_data.json ./provenance/network.json
+
+    - echo "------------------ NETWORK PROVENANCE ---------------------------------"
+    -  cat ./provenance/network.json
+    - echo "-----------------------------------------------------------------------"
+
+    # merge the source and network provenance documents
+    - |
+      /srp-tools/srp provenance merge \
+      --source ./provenance/source.json \
+      --network ./provenance/network.json \
+      --saveto ./provenance/merged.json
+
+    - echo "------------------ MERGED PROVENANCE ----------------------------------"
+    - cat ./provenance/merged.json
+    - echo "-----------------------------------------------------------------------"
+
+    # submit the merged provenance to SRP
+    - |
+      /srp-tools/srp metadata submit \
+      --uid "$PROVENANCE_FRAGMENT_UID" \
+      --path ./provenance/merged.json
+
+  artifacts:
+    paths:
+      - ./provenance/merged.json
