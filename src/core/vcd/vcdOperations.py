@@ -2734,6 +2734,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         try:
             orgId, sourceOrgVDCResponseDict, orgCatalogs, sourceOrgVDCCatalogDetails = self.getOrgVDCPublishedCatalogs(sourceOrgVDCId, orgName, Migration=True)
 
+            if not orgCatalogs:
+                logger.debug("No Catalogs exist in Organization")
+                return
+
             # getting the target storage profile details
             targetOrgVDCId = targetOrgVDCId.split(':')[-1]
             # url to get target org vdc details
