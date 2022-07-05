@@ -1159,8 +1159,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         portGroup['network'].split('/')[-1] in networkIdMapping.keys() and \
                         portGroup['network'].split('/')[-1] not in portGroupDict:
                     orgVdcNetworkData = networkIdMapping[portGroup['network'].split('/')[-1]]
+                    # Checking for routed Internal network only as it is connected to internal interfaces of edge gateway (MAX ALLOWED - 9)
                     if orgVdcNetworkData["networkType"] == "NAT_ROUTED" and \
-                        orgVdcNetworkData["connection"]["connectionType"] != "DISTRIBUTED":
+                        orgVdcNetworkData["connection"]["connectionType"] not in ["DISTRIBUTED", "SUBINTERFACE"]:
+                        # Distributed network is skipped as the network is connected to an internal interface of a distributed router that is exclusively associated with this gateway
+                        # Subiterface network is skipped as it is connected to the edge gateway's internal trunk interface
                         edgeGatewayId = orgVdcNetworkData["connection"]["routerRef"]["id"].split(':')[-1]
 
                         for nicDetail in interfaceDetails[edgeGatewayId]:
