@@ -593,7 +593,7 @@ class NSXTOperations():
                 transportZoneId = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName, usePolicyApi=True)["unique_id"]
             else:
                 transportZoneId = self.getNsxtComponentIdByName(nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API, transportZoneName)
-            transportZonePath = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME, usePolicyApi=True)['path']
+            transportZonePath = self.getTransportZoneData(transportZoneId)
             if transportZonePath is None:
                 transportZonePath = nsxtConstants.TRANSPORT_ZONE_PATH.format(transportZoneId)
 
