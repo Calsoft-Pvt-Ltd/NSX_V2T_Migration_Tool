@@ -590,7 +590,7 @@ class NSXTOperations():
             # Get transport Zone /infra/sites path.
             transportZoneName = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME
             if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
-                transportZoneId = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName, usePolicyApi=True)["unique_id"]
+                transportZoneId = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName, usePolicyApi=True)["id"]
             else:
                 transportZoneId = self.getNsxtComponentIdByName(nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API, transportZoneName)
             transportZonePath = self.getTransportZoneData(transportZoneId)
