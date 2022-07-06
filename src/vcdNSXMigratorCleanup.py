@@ -163,7 +163,6 @@ class VMwareCloudDirectorNSXMigratorCleanup():
         sourceExternalNetworkData = self.vcdObj.rollback.apiData.get('sourceExternalNetwork', [])
 
         # getting the source edge gateway details
-        # TODO check with granular edge gateway
         edgeGatewayDetails = self.vcdObj.rollback.apiData.get('sourceEdgeGateway')
 
         # getting the target organization vdc details from the above organization

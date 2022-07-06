@@ -44,7 +44,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         """
         Description :   Configure the  service to the Target Gateway
         Parameters  :   nsxvObj - NSXVOperations class object
-                        orgVDCDict - Org VDC Input Dict (DICT)
         """
         try:
             # Setting thread name as vdc name

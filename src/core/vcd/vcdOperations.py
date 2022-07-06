@@ -3029,8 +3029,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             self.createMetaDataInOrgVDC(targetOrgVDCId, metadataDict=metadata, domain='general')
 
             # copying system metadata to target vdc
-            metadata = vcdObj.getOrgVDCMetadata(sourceOrgVDCId, domain='system')
-            vcdObj.createMetaDataInOrgVDC(targetOrgVDCId, metadataDict=metadata, domain='system')
+            metadata = self.getOrgVDCMetadata(sourceOrgVDCId, domain='system')
+            self.createMetaDataInOrgVDC(targetOrgVDCId, metadataDict=metadata, domain='system')
         except Exception as e:
             logger.error(f'Exception occurred while copying metadata to target vdc: {e}')
             raise
