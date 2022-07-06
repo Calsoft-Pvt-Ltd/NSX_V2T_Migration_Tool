@@ -172,6 +172,12 @@ class ConfigurationError(Exception):
     """
     pass
 
+class VDCNotFoundError(Exception):
+    """
+    Raise this exception when requesting object is not found in precheck, pre-migration validation or assessment mode
+    """
+    pass
+
 
 class VCDMigrationValidation:
     """
@@ -509,7 +515,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def deleteMetadata(self, orgVDCId, entity='Org VDC'):
+    def deleteMetadata(self, orgVDCId, entity='source'):
         """
             Description :   Delete Metadata from the specified Organization VDC
             Parameters  :   orgVDCId    -   Id of the Organization VDC (STRING)
@@ -519,7 +525,7 @@ class VCDMigrationValidation:
             orgVDCId = orgVDCId.split(':')[-1]
             metadata = self.getOrgVDCMetadata(orgVDCId, entity=entity, wholeData=True)
             if metadata:
-                logger.info(f"Rollback: Deleting metadata from source {entity}")
+                logger.info(f"Deleting metadata from {entity} Org VDC")
                 for key in metadata.keys():
                     # spawn thread for deleting metadata key api call
                     self.thread.spawnThread(self.deleteMetadataApiCall, key, orgVDCId, entity)
@@ -760,7 +766,7 @@ class VCDMigrationValidation:
                         orgVDCUrl = response['@href']
                         logger.debug('Organization VDC {} url {} retrieved successfully'.format(orgVDCName, orgVDCUrl))
                 if not orgVDCUrl:
-                    raise Exception('Org VDC {} does not belong to this organization {}'.format(orgVDCName, orgUrl))
+                    raise VDCNotFoundError('Org VDC {} does not belong to this organization {}'.format(orgVDCName, orgUrl))
                 return orgVDCUrl
             raise Exception("Failed to retrieve Organization VDC {} url".format(orgVDCName))
         except Exception:
@@ -1590,61 +1596,78 @@ class VCDMigrationValidation:
         return sourceEdgeGatewayIdList
 
     @isSessionExpired
-    def getEdgeGatewayAdminApiDetails(self, edgeGatewayId, staticRouteDetails = None, returnDefaultGateway = False):
+    def getEdgeGatewayAdminApiDetails(self, edgeGatewayId):
         """
             Description :   Get details of edge gateway from admin API
             Parameters  :   edgeGatewayId   -   Edge Gateway ID  (STRING)
-                            staticRouteDetails  -   Destails of static routes
-                            returnDefaultGateway    -   Flag if default gateway details are to be returned
             Returns     :   Details of edge gateway
         """
-        try:
-            defaultGatewayDict= dict()
-            noSnatList = list()
-            allnonDefaultGatewaySubnetList = list()
-            logger.debug('Getting Edge Gateway Admin API details')
-            url = '{}{}'.format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
-            headers = {'Authorization': self.headers['Authorization'],
-                       'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
-            response = self.restClientObj.get(url, headers)
-            if response.status_code == requests.codes.ok:
-                responseDict = response.json()
-                for eachGatewayInterface in responseDict['configuration']['gatewayInterfaces']['gatewayInterface']:
-                    for eachSubnetParticipant in eachGatewayInterface['subnetParticipation']:
-                        # gather data of default gateway
-                        if eachSubnetParticipant['useForDefaultRoute'] == True:
-                            defaultGatewayDict['gateway'] = eachSubnetParticipant['gateway']
-                            defaultGatewayDict['netmask'] = eachSubnetParticipant['netmask']
-                            defaultGatewayDict['subnetPrefixLength'] = eachSubnetParticipant['subnetPrefixLength']
-                            defaultGatewayDict['ipRanges'] = list()
-                            if eachSubnetParticipant['ipRanges'] is not None:
-                                for eachIpRange in eachSubnetParticipant['ipRanges']['ipRange']:
-                                    defaultGatewayDict['ipRanges'].append('{}-{}'.format(eachIpRange['startAddress'],
-                                                                                         eachIpRange['endAddress']))
-                            # if ip range is not present assign ip address as ipRange
-                            elif eachSubnetParticipant['ipRanges'] is None:
-                                defaultGatewayDict['ipRanges'].append('{}-{}'.format(eachSubnetParticipant['ipAddress'],
-                                                                                     eachSubnetParticipant['ipAddress']))
-                            else:
-                                return ['Failed to get default gateway sub allocated IPs\n']
-                        else:
-                            if eachGatewayInterface['interfaceType'] == 'uplink':
-                                allnonDefaultGatewaySubnetList.extend(eachGatewayInterface['subnetParticipation'])
-                            if staticRouteDetails is not None:
-                                # if current interface has static routes
-                                if eachGatewayInterface['name'] in staticRouteDetails.keys():
-                                    noSnatList.append(staticRouteDetails[eachGatewayInterface['name']]['network'])
-                if defaultGatewayDict == {} and returnDefaultGateway is True:
-                    return ['Default Gateway not configured on Edge Gateway\n']
-                if returnDefaultGateway is False and noSnatList is not []:
-                    return allnonDefaultGatewaySubnetList, defaultGatewayDict, noSnatList
+        logger.debug('Getting Edge Gateway Admin API details')
+        url = '{}{}'.format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                            vcdConstants.UPDATE_EDGE_GATEWAY_BY_ID.format(edgeGatewayId))
+        headers = {'Authorization': self.headers['Authorization'],
+                   'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
+        response = self.restClientObj.get(url, headers)
+        if response.status_code == requests.codes.ok:
+            return response.json()
+
+        logger.debug(response.json())
+        raise Exception('Failed to get edge gateway admin api response')
+
+    def getEdgeGatewayNoSnatStaticRoute(self, edgeGatewayId, staticRouteDetails=None):
+        """
+            Description :   Get NOSNAT subnets to be configures id static route is configured
+            Parameters  :   edgeGatewayId   -   Edge Gateway ID  (STRING)
+                            staticRouteDetails  -   Details of static routes
+        """
+        staticRouteDetails = staticRouteDetails or {}
+        defaultGatewayDict = {}
+        noSnatList = []
+        allnonDefaultGatewaySubnetList = []
+
+        edgeGatewayData = self.getEdgeGatewayAdminApiDetails(edgeGatewayId)
+        for eachGatewayInterface in edgeGatewayData['configuration']['gatewayInterfaces']['gatewayInterface']:
+            for eachSubnetParticipant in eachGatewayInterface['subnetParticipation']:
+                # gather data of default gateway
+                if eachSubnetParticipant['useForDefaultRoute'] == True:
+                    defaultGatewayDict['gateway'] = eachSubnetParticipant['gateway']
+                    defaultGatewayDict['netmask'] = eachSubnetParticipant['netmask']
+                    defaultGatewayDict['subnetPrefixLength'] = eachSubnetParticipant['subnetPrefixLength']
+                    defaultGatewayDict['ipRanges'] = list()
+
+                    if eachSubnetParticipant['ipRanges'] is not None:
+                        for eachIpRange in eachSubnetParticipant['ipRanges']['ipRange']:
+                            defaultGatewayDict['ipRanges'].append(
+                                '{}-{}'.format(eachIpRange['startAddress'], eachIpRange['endAddress']))
+                    else:
+                        # if ip range is not present assign ip address as ipRange
+                        defaultGatewayDict['ipRanges'].append(
+                            '{}-{}'.format(
+                                eachSubnetParticipant['ipAddress'], eachSubnetParticipant['ipAddress']))
                 else:
-                    return defaultGatewayDict
-            else:
-                return ['Failed to get edge gateway admin api response\n']
-        except Exception:
-            raise
+                    if eachGatewayInterface['interfaceType'] == 'uplink':
+                        allnonDefaultGatewaySubnetList.extend(eachGatewayInterface['subnetParticipation'])
+
+                    # if non default gateway interface has static routes
+                    if eachGatewayInterface['name'] in staticRouteDetails.keys():
+                        for staticRoute in staticRouteDetails[eachGatewayInterface['name']]:
+                            noSnatList.append(staticRoute['network'])
+
+        return allnonDefaultGatewaySubnetList, defaultGatewayDict, noSnatList
+
+    def getEdgeGatewayDefaultGateway(self, edgeGatewayId):
+        """
+            Description :   Get Default Gateway of edge gateway from admin API
+            Parameters  :   edgeGatewayId   -   Edge Gateway ID  (STRING)
+            Returns     :   Default Gateway of edge gateway
+        """
+        edgeGatewayData = self.getEdgeGatewayAdminApiDetails(edgeGatewayId)
+        for eachGatewayInterface in edgeGatewayData['configuration']['gatewayInterfaces']['gatewayInterface']:
+            for eachSubnetParticipant in eachGatewayInterface['subnetParticipation']:
+                if eachSubnetParticipant['useForDefaultRoute']:
+                    return eachSubnetParticipant['gateway']
+
+        logger.debug(f"Default gateway is not configured on {edgeGatewayId}")
 
     @isSessionExpired
     def getEdgesExternalNetworkDetails(self, edgeGatewayId):
@@ -1684,15 +1707,15 @@ class VCDMigrationValidation:
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
                 if responseDict['staticRoutes'] != {}:
-                    edgesEternalNetworkList = self.getEdgesExternalNetworkDetails(edgeGatewayId)
+                    edgesExternalNetworkList = self.getEdgesExternalNetworkDetails(edgeGatewayId)
                     allStaticRoutes = responseDict['staticRoutes']['staticRoutes']
-                    for eachStaticRoute in allStaticRoutes:
-                        if eachStaticRoute.get('vnic'):
-                            for eachExternalNetworkInEdges in edgesEternalNetworkList:
+                    for eachExternalNetworkInEdges in edgesExternalNetworkList:
+                        allStaticRouteDict[eachExternalNetworkInEdges['name']] = list()
+                        for eachStaticRoute in allStaticRoutes:
+                            if eachStaticRoute.get('vnic'):
                                 if int(eachStaticRoute['vnic']) == eachExternalNetworkInEdges['index']:
-                                    allStaticRouteDict[eachExternalNetworkInEdges['name']] = eachStaticRoute
-                                    break
-                    return allStaticRouteDict
+                                    allStaticRouteDict[eachExternalNetworkInEdges['name']].append(eachStaticRoute)
+                    return {extNetworkName: value for extNetworkName, value in allStaticRouteDict.items() if value != []}
                 else:
                     logger.debug('No static routes present')
                     return None
@@ -2599,16 +2622,17 @@ class VCDMigrationValidation:
                 syslogErrorList = self.thread.returnValues['getEdgeGatewaySyslogConfig']
                 sshErrorList = self.thread.returnValues['getEdgeGatewaySSHConfig']
                 greTunnelErrorList = self.thread.returnValues['getEdgeGatewayGreTunnel']
+
                 if bgpStatus is True and edgeGatewayCount > 1:
                     bgpErrorList.append('BGP is enabled on: {} and more than 1 edge gateway present'.format(gatewayName))
+
                 currentErrorList = currentErrorList + dhcpErrorList + dhcpRelayErrorList + firewallErrorList + natErrorList + ipsecErrorList \
                                + bgpErrorList + routingErrorList + loadBalancingErrorList + L2VpnErrorList \
                                + SslVpnErrorList + dnsErrorList + syslogErrorList + sshErrorList + greTunnelErrorList
-                defaultGatewayDetails = self.getEdgeGatewayAdminApiDetails(gatewayId, returnDefaultGateway=True)
-                if isinstance(defaultGatewayDetails, list):
-                    currentErrorList = currentErrorList + defaultGatewayDetails
                 if len(currentErrorList) > 1:
                     allErrorList = allErrorList + currentErrorList
+
+                _, defaultGatewayDetails, _ = self.getEdgeGatewayNoSnatStaticRoute(gatewayId)
                 if preCheckMode is False and isinstance(defaultGatewayDetails, dict):
                     ifRouterIdInDefaultGateway = False
                     ifSnatOnDefaultGateway = False
@@ -4868,6 +4892,10 @@ class VCDMigrationValidation:
             # validating cross vdc networking
             logger.info('Validating Cross VDC Networking is enabled or not')
             self.validateCrossVdcNetworking(sourceOrgVDCId)
+
+            # validating published catalogs
+            logger.info("Validating published catalogs")
+            self.getOrgVDCPublishedCatalogs(sourceOrgVDCId, inputDict['VCloudDirector']['Organization']['OrgName'])
         except:
             # Enabling source Org VDC if premigration validation fails
             if disableOrgVDC:
@@ -5392,6 +5420,80 @@ class VCDMigrationValidation:
             return resultList
         except Exception:
             raise
+
+    @isSessionExpired
+    def getOrgVDCPublishedCatalogs(self, sourceOrgVDCId, orgName, v2tAssessmentMode=False, Migration=False):
+        """
+        Description : Method that checks whether catalog publish status
+        Parameters  : sourceOrgVDCId - ID of org vdc for which the validation is to be performed
+        """
+        errorList = list()
+        sourceOrgVDCId = sourceOrgVDCId.split(':')[-1]
+        # url to get the details of source org vdc
+        url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
+                            vcdConstants.ORG_VDC_BY_ID.format(sourceOrgVDCId))
+        # get api call to retrieve the source org vdc details
+        sourceOrgVDCResponse = self.restClientObj.get(url, self.headers)
+        sourceOrgVDCResponseDict = self.vcdUtils.parseXml(sourceOrgVDCResponse.content)
+
+        # sourceStorageProfileIDsList holds list the IDs of the source org vdc storage profiles
+        sourceStorageProfileIDsList = []
+        # sourceStorageProfilesList holds the list of dictionaries of details of each source org vdc storage profile
+        sourceStorageProfilesList = []
+        storageProfiles = sourceOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles'][
+            'VdcStorageProfile'] if isinstance(
+            sourceOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'], list) else [
+            sourceOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile']]
+        for storageProfile in storageProfiles:
+            sourceStorageProfilesList.append(storageProfile)
+            sourceStorageProfileIDsList.append(storageProfile['@id'])
+
+        # get api call to retrieve the organization details
+        orgUrl = self.getOrgUrl(orgName)
+        orgResponse = self.restClientObj.get(orgUrl, headers=self.headers)
+        orgResponseDict = self.vcdUtils.parseXml(orgResponse.content)
+        # retrieving the organization ID
+        orgId = orgResponseDict['AdminOrg']['@id'].split(':')[-1]
+
+        # if no catalogs exist
+        if not orgResponseDict['AdminOrg'].get("Catalogs"):
+            logger.debug("No Catalogs exist in Organization")
+            return orgId, sourceOrgVDCResponseDict, None, None
+
+        # orgCatalogs contains list of all catalogs in the organization
+        # each org catalog in orgCatalogs is of type dict which has keys {'@href', '@name', '@type'}
+        orgCatalogs = orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"] if isinstance(
+            orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"], list) else [
+            orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"]]
+
+        # sourceOrgVDCCatalogDetails will hold list of only catalogs present in the source org vdc
+        sourceOrgVDCCatalogDetails = []
+        # iterating over all the organization catalogs
+        for catalog in orgCatalogs:
+            # get api call to retrieve the catalog details
+            catalogResponse = self.restClientObj.get(catalog['@href'], headers=self.headers)
+            catalogResponseDict = self.vcdUtils.parseXml(catalogResponse.content)
+            if catalogResponseDict['AdminCatalog'].get('CatalogStorageProfiles'):
+                # checking if catalogs storage profile is same from source org vdc storage profile by matching the ID of storage profile
+                if catalogResponseDict['AdminCatalog']['CatalogStorageProfiles']['VdcStorageProfile']['@id'] in sourceStorageProfileIDsList:
+                    # creating the list of catalogs from source org vdc
+                    sourceOrgVDCCatalogDetails.append(catalogResponseDict['AdminCatalog'])
+            else:
+                # skipping the organization level catalogs(i.e catalogs that doesnot belong to any org vdc) while are handled in the for-else loop
+                logger.debug("Skipping the catalog '{}' since catalog doesnot belong to any org vdc".format(
+                    catalog['@name']))
+
+        for srcCatalog in sourceOrgVDCCatalogDetails:
+            if srcCatalog.get('PublishExternalCatalogParams', {}).get('IsPublishedExternally'):
+                errorList.append(
+                    "Published Catalog {} exists in org hence needs to be published again after migration.".format(
+                        srcCatalog.get('@name')))
+                logger.warning(f"Published Catalog {srcCatalog.get('@name')} exists in org hence needs to be"
+                            " published again after migration.")
+        if v2tAssessmentMode and errorList:
+                raise ValidationError(',\n'.join(errorList))
+        if Migration:
+            return orgId, sourceOrgVDCResponseDict, orgCatalogs, sourceOrgVDCCatalogDetails
 
     @isSessionExpired
     def disableSourceAffinityRules(self):

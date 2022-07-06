@@ -117,13 +117,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if sourceEdgeGatewayDict['name'] in targetEdgeGatewayNames:
                 continue
 
-            # Checking if default edge gateway is configured on edge gateway
             sourceEdgeGatewayId = sourceEdgeGatewayDict['id'].split(':')[-1]
-            defaultGatewayData = self.getEdgeGatewayAdminApiDetails(sourceEdgeGatewayId, returnDefaultGateway=True)
-            if isinstance(defaultGatewayData, list):
-                raise Exception(
-                    'Default gateway is not configured on edge gateway - {}'.format(sourceEdgeGatewayDict['name']))
-            defaultGateway = defaultGatewayData.get('gateway')
 
             # Prepare payload for edgeGatewayUplinks->dedicated
             bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
@@ -138,22 +132,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # Prepare payload for edgeGatewayUplinks->subnets->values
             subnetData = []
             for uplink in sourceEdgeGatewayDict['edgeGatewayUplinks']:
-                # TODO pranshu: multiple T0 - this can be removed.
-                #  Check self.rollback.apiData['sourceEdgeGateway'] in older versions
-                # for subnet in uplink['subnets']['values']:
-                #     networkAddress = ipaddress.ip_network(
-                #         '{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
-                #         strict=False
-                #     )
-                #     # adding primary ip to sub allocated ip pool
-                #     primaryIp = subnet.get('primaryIp')
-                #     if primaryIp and ipaddress.ip_address(primaryIp) in networkAddress:
-                #         subnet['ipRanges']['values'].extend(
-                #             [{'startAddress': primaryIp, 'endAddress': primaryIp}]
-                #         )
                 subnetData += uplink['subnets']['values']
 
-            # Setting primary ip to be used for edge gateway creation
+            # Checking if default edge gateway is configured on edge gateway
+            # and Setting primary ip to be used for edge gateway creation
+            defaultGateway = self.getEdgeGatewayDefaultGateway(sourceEdgeGatewayId)
             for subnet in subnetData:
                 if subnet['gateway'] != defaultGateway:
                     subnet['primaryIp'] = None
@@ -515,8 +498,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         tcpPortName, tcpPortId = self._searchApplicationPortProfile(applicationPortProfileList, 'tcp', '53')
         udpPortName, udpPortId = self._searchApplicationPortProfile(applicationPortProfileList, 'udp', '53')
 
-        # get taregt OrgVDC Network details.
-        orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
+        # get target OrgVDC Network details.
+        # We are not creating DNAT rules for shared network for non-DR, bcz of the VCD issue on lower versions.
+        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_3):
+            orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
+        else:
+            orgvdcNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', sharedNetwork=True,
+                                                    saveResponse=False)
         sourceEdgeGateway = copy.deepcopy(self.rollback.apiData['sourceEdgeGateway'])
 
         # iterate over the OrgVDC networks and configure DNAT rule. Each non-distributed routed networks will
@@ -1162,8 +1150,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         portGroup['network'].split('/')[-1] in networkIdMapping.keys() and \
                         portGroup['network'].split('/')[-1] not in portGroupDict:
                     orgVdcNetworkData = networkIdMapping[portGroup['network'].split('/')[-1]]
+                    # Checking for routed Internal network only as it is connected to internal interfaces of edge gateway (MAX ALLOWED - 9)
                     if orgVdcNetworkData["networkType"] == "NAT_ROUTED" and \
-                        orgVdcNetworkData["connection"]["connectionType"] != "DISTRIBUTED":
+                        orgVdcNetworkData["connection"]["connectionType"] not in ["DISTRIBUTED", "SUBINTERFACE"]:
+                        # Distributed network is skipped as the network is connected to an internal interface of a distributed router that is exclusively associated with this gateway
+                        # Subiterface network is skipped as it is connected to the edge gateway's internal trunk interface
                         edgeGatewayId = orgVdcNetworkData["connection"]["routerRef"]["id"].split(':')[-1]
 
                         for nicDetail in interfaceDetails[edgeGatewayId]:
@@ -1598,8 +1589,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     if eachComputePolicy["name"] != 'System Default':
                         # iterating over the source compute policies
                         for computePolicy in sourceComputePolicyList:
-                            if computePolicy['@name'] == eachComputePolicy['name'] and eachComputePolicy['name'] != \
-                                    data['targetOrgVDC']['DefaultComputePolicy']['@name']:
+                            if computePolicy['@name'] == eachComputePolicy['name'] and eachComputePolicy['id'] != \
+                                    data['sourceOrgVDC']['DefaultComputePolicy']['@id']:
                                 # get api call to retrieve compute policy details
                                 response = self.restClientObj.get(computePolicy['@href'], self.headers)
                                 if response.status_code == requests.codes.ok:
@@ -2701,7 +2692,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 "route_redistribution_types": advertisedSubnets
             }
             for rule in routeRedistributionRules:
-                if rule["name"] == "SYSTEM-VCD-EDGE-SERVICES-REDISTRIBUTION":
+                if rule.get("name") == "SYSTEM-VCD-EDGE-SERVICES-REDISTRIBUTION":
                     rule["route_redistribution_types"] = rule["route_redistribution_types"] + advertisedSubnets
                     break
             else:
@@ -2709,7 +2700,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if advertisedSubnets:
                 nsxtObj.createRouteRedistributionRule(vrfData, t0Gateway, routeRedistributionRules)
 
-    def migrateCatalogItems(self, sourceOrgVDCId, targetOrgVDCId, orgUrl):
+    def migrateCatalogItems(self, sourceOrgVDCId, targetOrgVDCId, orgName):
         """
         Description : Migrating Catalog Items - vApp Templates and Media & deleting catalog thereafter
         Parameters  :   sourceOrgVDCId  - source Org VDC id (STRING)
@@ -2717,60 +2708,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         orgUrl          - Organization url (STRING)
         """
         try:
-            sourceOrgVDCId = sourceOrgVDCId.split(':')[-1]
-            # url to get the details of source org vdc
-            url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
-                                vcdConstants.ORG_VDC_BY_ID.format(sourceOrgVDCId))
-            # get api call to retrieve the source org vdc details
-            sourceOrgVDCResponse = self.restClientObj.get(url, self.headers)
-            sourceOrgVDCResponseDict = self.vcdUtils.parseXml(sourceOrgVDCResponse.content)
+            orgId, sourceOrgVDCResponseDict, orgCatalogs, sourceOrgVDCCatalogDetails = self.getOrgVDCPublishedCatalogs(sourceOrgVDCId, orgName, Migration=True)
 
-            # sourceStorageProfileIDsList holds list the IDs of the source org vdc storage profiles
-            sourceStorageProfileIDsList = []
-            # sourceStorageProfilesList holds the list of dictionaries of details of each source org vdc storage profile
-            sourceStorageProfilesList = []
-            storageProfiles = sourceOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles'][
-                'VdcStorageProfile'] if isinstance(
-                sourceOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'], list) else [
-                sourceOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile']]
-            for storageProfile in storageProfiles:
-                sourceStorageProfilesList.append(storageProfile)
-                sourceStorageProfileIDsList.append(storageProfile['@id'])
-
-            # get api call to retrieve the organization details
-            orgResponse = self.restClientObj.get(orgUrl, headers=self.headers)
-            orgResponseDict = self.vcdUtils.parseXml(orgResponse.content)
-            # retrieving the organization ID
-            orgId = orgResponseDict['AdminOrg']['@id'].split(':')[-1]
-
-            # if no catalogs exist
-            if not orgResponseDict['AdminOrg'].get("Catalogs"):
+            if not orgCatalogs:
                 logger.debug("No Catalogs exist in Organization")
                 return
-
-            # orgCatalogs contains list of all catalogs in the organization
-            # each org catalog in orgCatalogs is of type dict which has keys {'@href', '@name', '@type'}
-            orgCatalogs = orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"] if isinstance(
-                orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"], list) else [
-                orgResponseDict['AdminOrg']["Catalogs"]["CatalogReference"]]
-
-            # sourceOrgVDCCatalogDetails will hold list of only catalogs present in the source org vdc
-            sourceOrgVDCCatalogDetails = []
-            # iterating over all the organization catalogs
-            for catalog in orgCatalogs:
-                # get api call to retrieve the catalog details
-                catalogResponse = self.restClientObj.get(catalog['@href'], headers=self.headers)
-                catalogResponseDict = self.vcdUtils.parseXml(catalogResponse.content)
-                if catalogResponseDict['AdminCatalog'].get('CatalogStorageProfiles'):
-                    # checking if catalogs storage profile is same from source org vdc storage profile by matching the ID of storage profile
-                    if catalogResponseDict['AdminCatalog']['CatalogStorageProfiles']['VdcStorageProfile'][
-                        '@id'] in sourceStorageProfileIDsList:
-                        # creating the list of catalogs from source org vdc
-                        sourceOrgVDCCatalogDetails.append(catalogResponseDict['AdminCatalog'])
-                else:
-                    # skipping the organization level catalogs(i.e catalogs that doesnot belong to any org vdc) while are handled in the for-else loop
-                    logger.debug("Skipping the catalog '{}' since catalog doesnot belong to any org vdc".format(
-                        catalog['@name']))
 
             # getting the target storage profile details
             targetOrgVDCId = targetOrgVDCId.split(':')[-1]
@@ -3069,6 +3011,28 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # save No of vApp in Source OrgVdc to metadata.
             self.rollback.apiData['sourceOrgVDC']['NoOfvApp'] = len(vAppList)
         except:
+            raise
+
+    @description("Copying source org vdc metadata to target org vdc")
+    @remediate
+    def copyMetadatatToTargetVDC(self):
+        """
+        It copies source org vdc metadata to target org vdc metadata
+        """
+        try:
+            # fetching source and target org vdc id from metadata
+            sourceOrgVDCId = self.rollback.apiData.get('sourceOrgVDC', {}).get('@id')
+            targetOrgVDCId = self.rollback.apiData.get('targetOrgVDC', {}).get('@id')
+
+            # copying general metadata to target vdc
+            metadata = self.getOrgVDCMetadata(sourceOrgVDCId, domain='general')
+            self.createMetaDataInOrgVDC(targetOrgVDCId, metadataDict=metadata, domain='general')
+
+            # copying system metadata to target vdc
+            metadata = vcdObj.getOrgVDCMetadata(sourceOrgVDCId, domain='system')
+            vcdObj.createMetaDataInOrgVDC(targetOrgVDCId, metadataDict=metadata, domain='system')
+        except Exception as e:
+            logger.error(f'Exception occurred while copying metadata to target vdc: {e}')
             raise
 
     def dumpEndStateLog(self):
@@ -3642,66 +3606,74 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
-    def updateSourceExternalNetwork(self, networkName, edgeGatewaySubnetDict):
+    def updateSourceExternalNetwork(self, networkData, edgeGatewaySubnetDict, targetOrgVDCId):
         """
         Description : Update Source External Network sub allocated ip pools
         Parameters : networkName: source external network name (STRING)
                      edgeGatewaySubnetDict: source edge gateway sub allocated ip pools (DICT)
         """
-        response = self.getExternalNetworkByName(networkName)
-        # getting the external network sub allocated pools
-        for index, subnet in enumerate(response['subnets']['values']):
-            externalRanges = subnet['ipRanges']['values']
-            externalRangeList = []
-            externalNetworkSubnet = ipaddress.ip_network(
-                '{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
-                strict=False)
-            # creating range of source external network pool range
-            for externalRange in externalRanges:
-                externalRangeList.extend(
-                    self.createIpRange(externalNetworkSubnet, externalRange['startAddress'], externalRange['endAddress']))
-            subIpPools = edgeGatewaySubnetDict.get(externalNetworkSubnet)
-            # If no ipPools are used from corresponding network then skip the iteration
-            if not subIpPools:
-                continue
-            # Raise exception if target ext network subnet has only one IP and EmptyPoolOverride flag is False
-            if subnet["totalIpCount"] == 1:
-                if self.orgVdcInput.get("EmptyIPPoolOverride", False):
-                    logger.warning("Skipping removing '{}' IP from source external network - '{}'".format(externalRanges[0]["startAddress"], networkName))
+        if not networkData:
+            return
+        networkMetadata = copy.deepcopy(networkData)
+        for network in networkData:
+            networkName = network['name']
+            response = self.getExternalNetworkByName(networkName)
+            # getting the external network sub allocated pools
+            for index, subnet in enumerate(response['subnets']['values']):
+                externalRanges = subnet['ipRanges']['values']
+                externalRangeList = []
+                externalNetworkSubnet = ipaddress.ip_network(
+                    '{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
+                    strict=False)
+                # creating range of source external network pool range
+                for externalRange in externalRanges:
+                    externalRangeList.extend(
+                        self.createIpRange(externalNetworkSubnet, externalRange['startAddress'], externalRange['endAddress']))
+                subIpPools = edgeGatewaySubnetDict.get(externalNetworkSubnet)
+                # If no ipPools are used from corresponding network then skip the iteration
+                if not subIpPools:
                     continue
-                else:
-                    raise Exception("External Network subnet has only one IP address which cannot be removed. EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
+                # Raise exception if target ext network subnet has only one IP and EmptyPoolOverride flag is False
+                if subnet["totalIpCount"] == 1:
+                    if self.orgVdcInput.get("EmptyIPPoolOverride", False):
+                        logger.warning("Skipping removing '{}' IP from source external network - '{}'".format(externalRanges[0]["startAddress"], networkName))
+                        continue
+                    else:
+                        raise Exception("External Network subnet has only one IP address which cannot be removed. EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
 
-            # creating range of source edge gateway sub allocated pool range
-            subIpRangeList = []
-            for ipRange in subIpPools:
-                subIpRangeList.extend(
-                    self.createIpRange(externalNetworkSubnet, ipRange['startAddress'], ipRange['endAddress']))
-            # removing the sub allocated ip pools of source edge gateway from source external network
-            for ip in subIpRangeList:
-                if ip in externalRangeList:
-                    externalRangeList.remove(ip)
-            # getting the source edge gateway sub allocated ip pool after removing used ips i.e source edge gateway
-            result = self.createExternalNetworkSubPoolRangePayload(externalRangeList)
-            response['subnets']['values'][index]['ipRanges']['values'] = result
+                # creating range of source edge gateway sub allocated pool range
+                subIpRangeList = []
+                for ipRange in subIpPools:
+                    subIpRangeList.extend(
+                        self.createIpRange(externalNetworkSubnet, ipRange['startAddress'], ipRange['endAddress']))
+                # removing the sub allocated ip pools of source edge gateway from source external network
+                for ip in subIpRangeList:
+                    if ip in externalRangeList:
+                        externalRangeList.remove(ip)
+                # getting the source edge gateway sub allocated ip pool after removing used ips i.e source edge gateway
+                result = self.createExternalNetworkSubPoolRangePayload(externalRangeList)
+                response['subnets']['values'][index]['ipRanges']['values'] = result
 
-        # API call to update external network details
-        payloadData = json.dumps(response)
-        # TODO pranshu: multiple T0 - cleanup - update source network pool
-        url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                               vcdConstants.ALL_EXTERNAL_NETWORKS, response['id'])
-        # put api call to update the external networks ip allocation
-        self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-        apiResponse = self.restClientObj.put(url, self.headers, data=payloadData)
-        if apiResponse.status_code == requests.codes.accepted:
-            taskUrl = apiResponse.headers['Location']
-            # checking the status of the creating org vdc network task
-            self._checkTaskStatus(taskUrl=taskUrl)
-            logger.debug('Updating external network sub allocated ip pool {}'.format(networkName))
-        else:
-            errorDict = apiResponse.json()
-            raise Exception("Failed to update source external network '{}': {}".format(
-                    networkName, errorDict['message']))
+            # API call to update external network details
+            payloadData = json.dumps(response)
+            # TODO pranshu: multiple T0 - cleanup - update source network pool
+            url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                   vcdConstants.ALL_EXTERNAL_NETWORKS, response['id'])
+            # put api call to update the external networks ip allocation
+            self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+            apiResponse = self.restClientObj.put(url, self.headers, data=payloadData)
+            if apiResponse.status_code == requests.codes.accepted:
+                taskUrl = apiResponse.headers['Location']
+                # checking the status of the creating org vdc network task
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug('Updating external network sub allocated ip pool {}'.format(networkName))
+                # save source extenal network metadata in target org vdc
+                networkMetadata.remove(network)
+                self.createMetaDataInOrgVDC(targetOrgVDCId, metadataDict={"sourceExternalNetwork": networkMetadata})
+            else:
+                errorDict = apiResponse.json()
+                raise Exception("Failed to update source external network '{}': {}".format(
+                        networkName, errorDict['message']))
 
     @isSessionExpired
     def syncOrgVDCGroup(self, OrgVDCGroupID):
@@ -4511,7 +4483,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # iterating over the org vdc compute policies
                 for eachComputPolicy in orgVDCComputePolicesList:
                     if eachComputPolicy["name"] == data['sourceOrgVDC']['DefaultComputePolicy']['@name'] and \
-                            eachComputPolicy["pvdcId"] == data['targetProviderVDC']['@id']:
+                            (eachComputPolicy["pvdcId"] == data['targetProviderVDC']['@id'] or not eachComputPolicy["pvdcId"]):
+                        if not eachComputPolicy["pvdcId"] and not eachComputPolicy['id'] == data['sourceOrgVDC']['DefaultComputePolicy']['@id']:
+                            continue
                         href = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                 vcdConstants.VDC_COMPUTE_POLICIES,
                                                 eachComputPolicy["id"])
