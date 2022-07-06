@@ -1674,7 +1674,6 @@ class VCDMigrationValidation:
                         defaultGatewayDict['ipRanges'].append(
                             '{}-{}'.format(
                                 eachSubnetParticipant['ipAddress'], eachSubnetParticipant['ipAddress']))
-
                 else:
                     if eachGatewayInterface['interfaceType'] == 'uplink':
                         allnonDefaultGatewaySubnetList.extend(eachGatewayInterface['subnetParticipation'])
@@ -1682,9 +1681,9 @@ class VCDMigrationValidation:
                     # if non default gateway interface has static routes
                     if eachGatewayInterface['name'] in staticRouteDetails.keys():
                         for staticRoute in staticRouteDetails[eachGatewayInterface['name']]:
-                                        noSnatList.append(staticRoute['network'])
+                            noSnatList.append(staticRoute['network'])
 
-            return allnonDefaultGatewaySubnetList, defaultGatewayDict, noSnatList
+        return allnonDefaultGatewaySubnetList, defaultGatewayDict, noSnatList
 
     def getEdgeGatewayDefaultGateway(self, edgeGatewayId):
         """
