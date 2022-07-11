@@ -5107,7 +5107,7 @@ class VCDMigrationValidation:
 
                 # 2. Validation for edgeGateways on particular Org VDC.
                 sourceEdgeGatewayNameList = [
-                    edgeGateway
+                    edgeGateway['name']
                     for edgeGateway in self.rollback.apiData['sourceEdgeGateway']
                     if self.orgVdcInput['EdgeGateways'][edgeGateway['name']]['Tier0Gateways'] == externalNetworkName
                 ]
