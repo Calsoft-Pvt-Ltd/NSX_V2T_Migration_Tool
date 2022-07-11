@@ -575,13 +575,13 @@ class VMwareCloudDirectorNSXMigrator():
                 # Fetch target ord vdc id in case of cleanup
                 try:
                     # During cleanup before removing '-v2t' suffix from target org vdc name(Ord VDC name will be -v2t suffixed)
-                    orgVDCId = vcdObj.getOrgVDCDetails(orgUrl, vcdObj.orgVdcInpu["OrgVDCName"] + '-v2t', 'targetOrgVDC', saveResponse=False)
+                    orgVDCId = vcdObj.getOrgVDCDetails(orgUrl, vcdObj.orgVdcInput["OrgVDCName"] + '-v2t', 'targetOrgVDC', saveResponse=False)
                 except VDCNotFoundError:
                     # During cleanup after removing '-v2t' suffix from target org vdc name(Ord VDC name will not be -v2t suffixed)
-                    orgVDCId = vcdObj.getOrgVDCDetails(orgUrl, vcdObj.orgVdcInpu["OrgVDCName"], 'targetOrgVDC', saveResponse=False)
+                    orgVDCId = vcdObj.getOrgVDCDetails(orgUrl, vcdObj.orgVdcInput["OrgVDCName"], 'targetOrgVDC', saveResponse=False)
             else:
                 # Fetch source ord vdc id in case of precheck, migration and rollback
-                orgVDCId = vcdObj.getOrgVDCDetails(orgUrl, vcdObj.orgVdcInpu["OrgVDCName"], 'sourceOrgVDC')
+                orgVDCId = vcdObj.getOrgVDCDetails(orgUrl, vcdObj.orgVdcInput["OrgVDCName"], 'sourceOrgVDC')
 
             self.orgVDCData[vcdObj.orgVdcInput["OrgVDCName"]]["id"] = orgVDCId
 
