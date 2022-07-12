@@ -96,6 +96,8 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                       threadObj - Object of threading class (OBJECT)
         """
         try:
+            vcdValidationObj.updateEdgeGatewayInputDict(sourceOrgVDCId)
+
             getSourceExternalNetworkDesc = 'Getting NSX-V backed Provider VDC External network details'
             getTargetExternalNetworkDesc = 'Getting NSX-T backed Provider VDC External network details'
             getDummyExternalNetworkDesc = 'Getting NSX-V backed Provider VDC External network {} details'
