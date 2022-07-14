@@ -3781,7 +3781,7 @@ class VCDMigrationValidation:
             responseDict['VApp']['Children']['Vm']]
         # iterating over the vms in the vapp
         for vm in vmList:
-            if vm["@status"] == "3" or vm["@status"] == "21":
+            if vm["@status"] not in ['4', '8']:
                 self.suspendedVMList.append(vm['@name'])
 
     def validateSourceSuspendedVMsInVapp(self, sourceOrgVDCId):
@@ -3803,7 +3803,7 @@ class VCDMigrationValidation:
                 raise Exception("Failed to validate vapp for suspended VM. Check log file for errors")
             if self.suspendedVMList:
                 raise ValidationError(
-                    "VMs: {} are in suspended state, Unable to migrate".format(','.join(self.suspendedVMList)))
+                    "VMs: {} are in suspended/unresolved state, Unable to migrate".format(','.join(self.suspendedVMList)))
             logger.debug("Validated Successfully, No Suspended VMs in Source Vapps")
         except Exception:
             raise
@@ -4244,7 +4244,7 @@ class VCDMigrationValidation:
             return
 
         for vm in listify(responseDict['VApp']['Children']['Vm']):
-            for disk in listify(vm['VmSpecSection'].get('DiskSection', {}).get('DiskSettings')):
+            for disk in listify(vm.get('VmSpecSection', {}).get('DiskSection', {}).get('DiskSettings')):
                 if disk.get('Disk') and disk['StorageProfile']['@id'] != vm.get('StorageProfile', {}).get('@id'):
                     unsupportedVms['vm'].append(vm['@name'])
                     break
