@@ -5050,7 +5050,10 @@ class VCDMigrationValidation:
                 continue
 
             # Check at edge GW level
-            for egw in vdc.get('EdgeGateways', {}):
+            if not isinstance(vdc.get('EdgeGateways', {}), dict):
+                continue
+
+            for egw in vdc.get('EdgeGateways', {}).values():
                 if egw.get('Tier0Gateways') == externalNetworkName:
                     orgVdcNameList.append(vdc['OrgVDCName'])
                     break
