@@ -40,8 +40,6 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         # Steps to perform for migration
         self.executeList = executeList
         self.threadCount = inputDict["Common"].get("MaxThreadCount", 75)
-        # Fetching edge cluster name to be used for bridging from sampleInput
-        self.EdgeClusterName = inputDict["NSXT"].get('EdgeClusterName', None)
         self.NSXTProviderVDCImportedNeworkTransportZone = inputDict["VCloudDirector"].get("ImportedNetworkTransportZone", None)
         self.vcdObjList = vcdObjList
         self.nsxtObjList = nsxtObjList
@@ -222,11 +220,9 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             if filteredList:
                 self.consoleLogger.info("Performing checks related to bridging components")
                 checksMapping = {
-                    'Validating NSX-T Bridge Uplink Profile does not exist': [nsxtObj.validateBridgeUplinkProfile],
-                    'Validating Edge Cluster exists in NSX-T and Edge Transport Nodes are not in use': [nsxtObj.validateEdgeNodesNotInUse, self.EdgeClusterName],
-                    'Validating whether the edge transport nodes are accessible via ssh or not': [nsxtObj.validateIfEdgeTransportNodesAreAccessibleViaSSH, self.EdgeClusterName],
-                    'Validating whether the edge transport nodes are deployed on v-cluster or not': [nsxtObj.validateEdgeNodesDeployedOnVCluster, self.EdgeClusterName, self.vcenterObj, vxlanBackingPresent],
-                    'Validating OrgVDC Network and Edge transport Nodes': [nsxtObj.validateOrgVdcNetworksAndEdgeTransportNodes, self.EdgeClusterName, filteredList],
+                    'Validating Edge Cluster exists in NSX-T and Edge Transport Nodes are not in use': [nsxtObj.validateEdgeNodesNotInUse, self.inputDict, filteredList, self.vcdObjList, True],
+                    'Validating whether the edge transport nodes are accessible via ssh or not': [nsxtObj.validateIfEdgeTransportNodesAreAccessibleViaSSH],
+                    'Validating whether the edge transport nodes are deployed on v-cluster or not': [nsxtObj.validateEdgeNodesDeployedOnVCluster, self.vcenterObj, vxlanBackingPresent],
                     'Validating the max limit of bridge endpoint profiles in NSX-T': [nsxtObj.validateLimitOfBridgeEndpointProfile, filteredList],
                     'Validating MAC Address of the NSX-T Virtual Distributed Router': [nsxtObj.validateDlrMacAddress]
                 }

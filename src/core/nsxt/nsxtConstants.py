@@ -60,6 +60,9 @@ CREATE_BRIDGE_EDGE_PROFILE_COMPONENT_NAME = 'createBridgeEdgeProfile'
 # nsx-t component name used in the template.json
 COMPONENT_NAME = 'NSXT'
 
+# migration tag scope name
+MIGRATION_TAG_SCOPE = 'V2T-Migration'
+
 # nsx-t transport node uri
 TRANSPORT_NODE_API = "api/v1/transport-nodes"
 
