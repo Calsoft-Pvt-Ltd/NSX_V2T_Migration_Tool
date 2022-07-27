@@ -8,6 +8,7 @@ Description: NSXT Module which performs the Bridging Operations
 
 import copy
 import traceback
+import uuid
 from functools import wraps
 import inspect
 import logging
@@ -24,7 +25,7 @@ import src.core.nsxt.nsxtConstants as nsxtConstants
 from src.constants import rootDir
 from src.commonUtils.sshUtils import SshUtils
 from src.commonUtils.restClient import RestAPIClient
-from src.commonUtils.utils import Utilities
+from src.commonUtils.utils import Utilities, listify
 from src.core.vcd.vcdValidations import description
 
 
@@ -77,7 +78,7 @@ class NSXTOperations():
     """
     Description: Class that performs the NSXT bridging Operations
     """
-    def __init__(self, ipAddress, username, password, rollback, vcdObj, verify):
+    def __init__(self, ipAddress, username, password, rollback, vcdObj, verify, edgeClusterNameList):
         """
         Description :   Initializer method of NSXT Operations
         Parameters  :   ipAddress   -   ipaddress of the nsxt (STRING)
@@ -93,6 +94,7 @@ class NSXTOperations():
         self.rollback = rollback
         self.vcdObj = vcdObj
         self.apiVersion = None
+        self.edgeClusterNameList = edgeClusterNameList
 
     def getComponentData(self, componentApi, componentName=None, usePolicyApi=False):
         """
@@ -245,7 +247,7 @@ class NSXTOperations():
 
     @description("creation of Bridge Endpoint Profile", threadName="Bridging")
     @remediate
-    def createBridgeEndpointProfile(self, edgeClusterNameList, portgroupList):
+    def createBridgeEndpointProfile(self, portgroupList, vcdObj):
         """
         Description : Create Bridge Endpoint Profile for the members of edge Cluster
         Parameters  : edgeClusterNameList   -   List of names of the edge cluster participating in bridging (LIST)
@@ -255,10 +257,10 @@ class NSXTOperations():
             logger.info('Configuring NSXT Bridging.')
             logger.info('Creating Bridge Endpoint Profile.')
             bridgeEndpointProfileList = []
-            logger.debug("Retrieving ID of edge cluster/s: {}".format(', '.join(edgeClusterNameList)))
+            logger.debug("Retrieving ID of edge cluster/s: {}".format(', '.join(self.edgeClusterNameList)))
 
             edgeClusterMembers = []
-            for edgeClusterName in edgeClusterNameList:
+            for edgeClusterName in self.edgeClusterNameList:
                 # checks API version for Interoperability.
                 if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                     edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API, edgeClusterName, usePolicyApi=True)
@@ -271,8 +273,9 @@ class NSXTOperations():
                         responseData = json.loads(response.content)
                         resultData = responseData['results']
                         for edgeNodeData in resultData:
-                            edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
-                                                       'member_index': edgeNodeData['member_index'], 'edgePath': edgeNodeData['path']})
+                            if edgeNodeData['nsx_id'] in vcdObj.rollback.apiData['taggedNodesList']:
+                                edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
+                                                           'member_index': edgeNodeData['member_index'], 'edgePath': edgeNodeData['path']})
                     else:
                         raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
                 else:
@@ -283,11 +286,13 @@ class NSXTOperations():
                                  edgeClusterData['members']))
                         edgeClusterMembers += edgeClusterData['members'] if isinstance(edgeClusterData['members'], list)\
                             else [edgeClusterData['members']]
+                        edgeClusterMembers = [member for member in edgeClusterMembers
+                                              if member['transport_node_id'] in vcdObj.rollback.apiData['taggedNodesList']]
                     else:
                         raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
 
             filePath = os.path.join(nsxtConstants.NSXT_ROOT_DIRECTORY, 'template.json')
-            logger.debug("Successfully retrieved edge Cluster data of {}".format(', '.join(edgeClusterNameList)))
+            logger.debug("Successfully retrieved edge Cluster data of {}".format(', '.join(self.edgeClusterNameList)))
             # taking only the edge transport nodes which match the count of source portgroup details
             edgeNodePortgroupList = zip(edgeClusterMembers, portgroupList)
             for data, _ in edgeNodePortgroupList:
@@ -337,20 +342,22 @@ class NSXTOperations():
 
     @description("creation of Bridge Uplink Host Profile", threadName="Bridging")
     @remediate
-    def createUplinkProfile(self):
+    def createUplinkProfile(self, vcdObj):
         """
         Description : Creates a uplink profile
         Returns     : uplinkProfileId   -   ID of the uplink profile created (STRING)
         """
         try:
             logger.info('Creating Bridge Uplink Host Profile.')
+            data = vcdObj.rollback.apiData
             filePath = os.path.join(nsxtConstants.NSXT_ROOT_DIRECTORY, 'template.json')
+            bridgeUplinkProfile = nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME + str(uuid.uuid4())
             if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
                 if not self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                             componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME, usePolicyApi=True):
+                                             componentName=bridgeUplinkProfile, usePolicyApi=True):
                     url = "{}{}/{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                                                                 nsxtConstants.HOST_SWITCH_PROFILE_API, nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
-                    payloadDict = {'uplinkProfileName': nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME,
+                                                                 nsxtConstants.HOST_SWITCH_PROFILE_API, bridgeUplinkProfile)
+                    payloadDict = {'uplinkProfileName': bridgeUplinkProfile,
                                    'resource_type': "PolicyUplinkHostSwitchProfile"}
                     # create payload for host profile creation
                     payload = self.nsxtUtils.createPayload(filePath=filePath, fileType="json",
@@ -364,24 +371,23 @@ class NSXTOperations():
                     response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payload,
                                                       auth=self.restClientObj.auth)
                     if response.status_code == requests.codes.ok:
-                        logger.debug("Successfully created uplink profile {}".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME))
+                        logger.debug("Successfully created uplink profile {}".format(bridgeUplinkProfile))
                         uplinkProfileId = json.loads(response.content)["unique_id"]
                         logger.info('Successfully created Bridge Uplink Host Profile.')
+                        data['BridgingStatus']['UplinkProfileName'] = bridgeUplinkProfile
                         return uplinkProfileId
-                    msg = "Failed to create uplink profile {}.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                    msg = "Failed to create uplink profile {}.".format(bridgeUplinkProfile)
                     logger.error(msg)
                     raise Exception(msg, response.status_code)
-                msg = "Uplink {} already exists.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                msg = "Uplink {} already exists.".format(bridgeUplinkProfile)
                 logger.error(msg)
                 raise Exception(msg)
             else:
-                logger.info('Creating Bridge Uplink Host Profile.')
-                filePath = os.path.join(nsxtConstants.NSXT_ROOT_DIRECTORY, 'template.json')
                 if not self.getComponentData(componentApi=nsxtConstants.DEPRECATED_HOST_SWITCH_PROFILE_API,
-                                             componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME):
+                                             componentName=bridgeUplinkProfile):
                     url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
                                                                  nsxtConstants.DEPRECATED_HOST_SWITCH_PROFILE_API)
-                    payloadDict = {'uplinkProfileName': nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME,
+                    payloadDict = {'uplinkProfileName': bridgeUplinkProfile,
                                    'resource_type': "UplinkHostSwitchProfile"}
                     # create payload for host profile creation
                     payload = self.nsxtUtils.createPayload(filePath=filePath, fileType="json",
@@ -395,14 +401,15 @@ class NSXTOperations():
                     response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payload,
                                                        auth=self.restClientObj.auth)
                     if response.status_code == requests.codes.created:
-                        logger.debug("Successfully created uplink profile {}".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME))
+                        logger.debug("Successfully created uplink profile {}".format(bridgeUplinkProfile))
                         uplinkProfileId = json.loads(response.content)["id"]
                         logger.info('Successfully created Bridge Uplink Host Profile.')
+                        data['BridgingStatus']['UplinkProfileName'] = bridgeUplinkProfile
                         return uplinkProfileId
-                    msg = "Failed to create uplink profile {}.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                    msg = "Failed to create uplink profile {}.".format(bridgeUplinkProfile)
                     logger.error(msg)
                     raise Exception(msg, response.status_code)
-                msg = "Uplink {} already exists.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                msg = "Uplink {} already exists.".format(bridgeUplinkProfile)
                 logger.error(msg)
                 raise Exception(msg)
         except Exception:
@@ -410,34 +417,36 @@ class NSXTOperations():
 
     @description("addition of Bridge Transport Zone to Bridge Edge Transport Nodes", threadName="Bridging")
     @remediate
-    def updateEdgeTransportNodes(self, edgeClusterNameList, portgroupList):
+    def updateEdgeTransportNodes(self, portgroupList, vcdObj):
         """
         Description: Update Edge Transport Node
         Parameters:  edgeClusterNameList    - List of names of the edge cluster participating in bridging (LIST)
                      portgroupList          - List containing details of vxlan backed logical switch (LIST)
         """
         try:
-            transportZoneName = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME
+            data = vcdObj.rollback.apiData
+            transportZoneName = data['BridgingStatus']['TransportZone']
+            bridgeUplinkProfile = data['BridgingStatus']['UplinkProfileName']
             logger.info('Adding Bridge Transport Zone to Bridge Edge Transport Nodes.')
             if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
                 uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                                          componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME, usePolicyApi=True)
+                                                          componentName=bridgeUplinkProfile, usePolicyApi=True)
 
                 transportZoneData = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName,  usePolicyApi=True)
 
                 id_key = "unique_id"
             else:
                 uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.DEPRECATED_HOST_SWITCH_PROFILE_API,
-                                                          componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                                                          componentName=bridgeUplinkProfile)
 
                 transportZoneData = self.getComponentData(nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API, transportZoneName)
 
                 id_key = "id"
 
 
-            logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(edgeClusterNameList)))
+            logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(self.edgeClusterNameList)))
             edgeClusterMembers = []
-            for edgeClusterName in edgeClusterNameList:
+            for edgeClusterName in self.edgeClusterNameList:
                 # checks API version for Interoperability.
                 if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                     edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API, edgeClusterName, usePolicyApi=True)
@@ -450,8 +459,9 @@ class NSXTOperations():
                         responseData = json.loads(response.content)
                         resultData = responseData['results']
                         for edgeNodeData in resultData:
-                            edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
-                                                       'member_index': edgeNodeData['member_index'], 'edgePath': edgeNodeData['path']})
+                            if edgeNodeData['nsx_id'] in vcdObj.rollback.apiData['taggedNodesList']:
+                                edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
+                                                           'member_index': edgeNodeData['member_index'], 'edgePath': edgeNodeData['path']})
                     else:
                         raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
                 else:
@@ -460,6 +470,8 @@ class NSXTOperations():
                     if edgeClusterData:
                         edgeClusterMembers += edgeClusterData['members'] if isinstance(edgeClusterData['members'], list) \
                             else [edgeClusterData['members']]
+                        edgeClusterMembers = [member for member in edgeClusterMembers
+                                              if member['transport_node_id'] in vcdObj.rollback.apiData['taggedNodesList']]
                     else:
                         raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
             edgeNodePortgroupList = zip(edgeClusterMembers, portgroupList)
@@ -547,7 +559,7 @@ class NSXTOperations():
 
     @description("attaching bridge endpoint profile to Logical Switch", threadName="Bridging")
     @remediate
-    def attachBridgeEndpointSegment(self, edgeClusterNameList, portgroupList, targetOrgVDCNetworks):
+    def attachBridgeEndpointSegment(self, portgroupList, targetOrgVDCNetworks, vcdObj):
         """
         Description : Attach Bridge Endpoint to logical segments
         Parameters  : edgeClusterNameList - List of names of the edge cluster participating in bridging (LIST)
@@ -555,6 +567,7 @@ class NSXTOperations():
         """
         try:
             logger.info('Attaching bridge endpoint profile to Logical Switch.')
+            data = vcdObj.rollback.apiData
 
             switchList = []
             for orgVdcNetwork in targetOrgVDCNetworks:
@@ -588,7 +601,7 @@ class NSXTOperations():
             filePath = os.path.join(nsxtConstants.NSXT_ROOT_DIRECTORY, 'template.json')
 
             # Get transport Zone /infra/sites path.
-            transportZoneName = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME
+            transportZoneName = data['BridgingStatus']['TransportZone']
             if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
                 transportZoneId = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName, usePolicyApi=True)["id"]
             else:
@@ -598,9 +611,9 @@ class NSXTOperations():
                 transportZonePath = nsxtConstants.TRANSPORT_ZONE_PATH.format(transportZoneId)
 
             edgeNodeList = []
-            logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(edgeClusterNameList)))
+            logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(self.edgeClusterNameList)))
             edgeClusterMembers = []
-            for edgeClusterName in edgeClusterNameList:
+            for edgeClusterName in self.edgeClusterNameList:
                 # checks API version for Interoperability.
                 if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
                     edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API, edgeClusterName, usePolicyApi=True)
@@ -614,9 +627,10 @@ class NSXTOperations():
                         responseData = json.loads(response.content)
                         resultData = responseData['results']
                         for edgeNodeData in resultData:
-                            edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
-                                                       'member_index': edgeNodeData['member_index'],
-                                                       'edgePath': edgeNodeData['path']})
+                            if edgeNodeData['nsx_id'] in vcdObj.rollback.apiData['taggedNodesList']:
+                                edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
+                                                           'member_index': edgeNodeData['member_index'],
+                                                           'edgePath': edgeNodeData['path']})
                     else:
                         raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
                 else:
@@ -625,6 +639,8 @@ class NSXTOperations():
                     if edgeClusterData:
                         edgeClusterMembers += edgeClusterData['members'] if isinstance(edgeClusterData['members'], list)\
                             else [edgeClusterData['members']]
+                        edgeClusterMembers = [member for member in edgeClusterMembers
+                                              if member['transport_node_id'] in vcdObj.rollback.apiData['taggedNodesList']]
                     else:
                         raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
 
@@ -809,7 +825,7 @@ class NSXTOperations():
             # Restoring paramiko log level
             logging.getLogger("paramiko").setLevel(logging.INFO)
 
-    def clearBridging(self, edgeClusterNameList, orgVDCNetworkList, rollback=False):
+    def clearBridging(self, orgVDCNetworkList, vcdObj, rollback=False):
         """
         Description :   Remove Logical switch ports, Bridge Endpoint, Bridge Endpoint Profiles, edge transport nodes etc
         Parameters  :   orgVDCNetworkList     - List containing org vdc network details (LIST)
@@ -822,7 +838,7 @@ class NSXTOperations():
             threading.current_thread().name = "MainThread"
 
             orgVDCNetworkList = list(filter(lambda network: network['networkType'] != 'DIRECT' and network['networkType'] != 'OPAQUE', orgVDCNetworkList))
-            transportZoneName = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME
+            transportZoneName = vcdObj.rollback.apiData['BridgingStatus']['TransportZone']
             if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
                 transportZoneId = self.getComponentData(nsxtConstants.TRANSPORT_ZONE_API, transportZoneName, usePolicyApi=True)["unique_id"]
             else:
@@ -981,24 +997,27 @@ class NSXTOperations():
 
             # Fetching edge transport nodes from edge cluster passed in input file
             edgeTransportNodeList = []
-            for edgeClusterName in edgeClusterNameList:
+            for edgeClusterName in self.edgeClusterNameList:
                 edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
                                                         edgeClusterName)
                 if edgeClusterData:
                     edgeTransportNodeList += edgeClusterData['members'] if isinstance(edgeClusterData['members'],
                                                                                       list) \
                         else [edgeClusterData['members']]
+                    edgeTransportNodeList = [member for member in edgeTransportNodeList
+                                             if member['transport_node_id'] in vcdObj.rollback.apiData['taggedNodesList']]
                 else:
                     raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
 
             # Fetching uplink profile data
+            bridgeUplinkProfile = vcdObj.rollback.apiData['BridgingStatus'].get('UplinkProfileName')
             if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
                 uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                                          componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME, usePolicyApi=True)
+                                                          componentName=bridgeUplinkProfile, usePolicyApi=True)
                 id_key = "unique_id"
             else:
                 uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.DEPRECATED_HOST_SWITCH_PROFILE_API,
-                                                          componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                                                          componentName=bridgeUplinkProfile)
                 id_key = "id"
             # updating the transport node details inside edgeTransportNodeList
             for edgeTransportNode in edgeTransportNodeList:
@@ -1029,6 +1048,7 @@ class NSXTOperations():
                     edgeNodeData["host_switch_spec"]["host_switches"] = hostSwitchSpec
                     edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config'][
                         'data_network_ids'] = dataNetworkList
+                    edgeNodeData['tags'] = [tag for tag in edgeNodeData['tags'] if nsxtConstants.MIGRATION_TAG_SCOPE not in tag["scope"]]
                     del edgeNodeData['_create_time']
                     del edgeNodeData['_last_modified_user']
                     del edgeNodeData['_last_modified_time']
@@ -1055,13 +1075,16 @@ class NSXTOperations():
                     logger.error(msg)
                     raise Exception(msg)
 
+            vcdObj.deleteMetadataApiCall(key='taggedNodesList-v2t',
+                                                orgVDCId=vcdObj.rollback.apiData.get('sourceOrgVDC', {}).get('@id'))
+
             # getting the host switch profile details
             if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
                 hostSwitchProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
-                                                            componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME, usePolicyApi=True)
+                                                            componentName=bridgeUplinkProfile, usePolicyApi=True)
             else:
                 hostSwitchProfileData = self.getComponentData(componentApi=nsxtConstants.DEPRECATED_HOST_SWITCH_PROFILE_API,
-                                                            componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
+                                                            componentName=bridgeUplinkProfile)
             if hostSwitchProfileData:
                 if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
                     hostSwitchProfileId = hostSwitchProfileData['unique_id']
@@ -1082,7 +1105,7 @@ class NSXTOperations():
                     msg = 'Failed to delete Host Switch Profile {} - {}'.format(hostSwitchProfileId, responseData['error_message'])
                     raise Exception(msg)
             # Deleting Bridge Transport Zone after the bridging is cleared
-            self.deleteTransportZone()
+            self.deleteTransportZone(vcdObj)
         except Exception:
             raise
         else:
@@ -1121,7 +1144,7 @@ class NSXTOperations():
             return responseDict.get('node_version')
         raise Exception('Failed to retrieve to NSX-T version due to error - {}'.format(responseDict['error_message']))
 
-    def rollbackBridging(self, edgeClusterNameList, vcdObjList):
+    def rollbackBridging(self, vcdObjList):
         """
             Description : Clear Bridging if configured as a part of migration
             Parameters  : vcdObjList - list of objects of vcd operations class (LIST)
@@ -1139,7 +1162,7 @@ class NSXTOperations():
                         bridgedNetworksList += vcdObject.retrieveNetworkListFromMetadata(
                             vcdObject.rollback.apiData.get('targetOrgVDC', {}).get('@id'), orgVDCType='target',
                             dfwStatus=dfw)
-                self.clearBridging(edgeClusterNameList, bridgedNetworksList, rollback=True)
+                self.clearBridging(bridgedNetworksList, vcdObjList[0], rollback=True)
         except:
             raise
         else:
@@ -1150,7 +1173,7 @@ class NSXTOperations():
             # Restoring thread name
             threading.current_thread().name = "MainThread"
 
-    def configureNSXTBridging(self, edgeClusterNameList, vcdObjList):
+    def configureNSXTBridging(self, vcdObjList):
         """
         Description :   Configure NSXT bridging
         Parameters  :   edgeClusterNameList  - List of NSX-T edge cluster names required for bridging (STRING)
@@ -1178,42 +1201,24 @@ class NSXTOperations():
             if filteredList:
 
                 # create bridge transport zone
-                self.createTransportZone()
+                self.createTransportZone(vcdObjList[0])
 
                 # create bridge endpoint profile
-                self.createBridgeEndpointProfile(edgeClusterNameList, portGroupList)
+                self.createBridgeEndpointProfile(portGroupList, vcdObjList[0])
 
                 # create host uplink profile for bridge n-vds
-                self.createUplinkProfile()
+                self.createUplinkProfile(vcdObjList[0])
 
                 # add bridge transport to bridge edge transport nodes
-                self.updateEdgeTransportNodes(edgeClusterNameList, portGroupList)
+                self.updateEdgeTransportNodes(portGroupList, vcdObjList[0])
 
                 # attach bridge endpoint profile to logical switch
-                self.attachBridgeEndpointSegment(edgeClusterNameList, portGroupList, targetOrgVdcNetworkList)
+                self.attachBridgeEndpointSegment(portGroupList, targetOrgVdcNetworkList, vcdObjList[0])
         except:
             raise
         finally:
             # Resetting thread name
             threading.current_thread().name = "MainThread"
-
-    def validateBridgeUplinkProfile(self):
-        """
-        Description :   Validates that the bridge-uplink-profile doesnot already exists
-                        If exists raises exception
-        """
-        try:
-            if not self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API
-                                        if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2)
-                                        else nsxtConstants.DEPRECATED_HOST_SWITCH_PROFILE_API,
-                                         componentName=nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME,
-                                         usePolicyApi=version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2)):
-                logger.debug("Validated successfully that the {} does not exist".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME))
-            else:
-                msg = "Host Switch Profile uplink - '{}' already exists.".format(nsxtConstants.BRDIGE_UPLINK_PROFILE_NAME)
-                raise Exception(msg)
-        except Exception:
-            raise
 
     def validateLimitOfBridgeEndpointProfile(self, orgVdcNetworkList):
         """
@@ -1260,7 +1265,7 @@ class NSXTOperations():
                 'https://docs.vmware.com/en/VMware-NSX-T-Data-Center/3.2/migration/GUID-538774C2-DE66-4F24-B9B7-537CA2FA87E9.html '
             )
 
-    def validateEdgeNodesDeployedOnVCluster(self, edgeClusterNameList, vcenterObj, vxlanBackingPresent=True):
+    def validateEdgeNodesDeployedOnVCluster(self, vcenterObj, vxlanBackingPresent=True):
         """
         Description :   Validates whether the edge transport nodes are accessible via ssh or not
         Parameters  :   edgeClusterNameList     -   List of names of the cluster (STRING)
@@ -1283,10 +1288,10 @@ class NSXTOperations():
             logger.debug(f"CLUSTER RESOURCE-POOL MAPPING: {clusterResourcePoolMapping}")
 
             logger.debug("Retrieving data of edge transport nodes present in edge cluster: {}".format(
-                ', '.join(edgeClusterNameList)))
+                ', '.join(self.edgeClusterNameList)))
             edgeTransportNodeList = []
             edgeClusterNotFound = []
-            for edgeClusterName in edgeClusterNameList:
+            for edgeClusterName in self.edgeClusterNameList:
                 edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
                                                         edgeClusterName)
                 if not edgeClusterData:
@@ -1330,7 +1335,7 @@ class NSXTOperations():
         except:
             raise
 
-    def validateIfEdgeTransportNodesAreAccessibleViaSSH(self, edgeClusterNameList):
+    def validateIfEdgeTransportNodesAreAccessibleViaSSH(self):
         """
         Description :   Validates whether the edge transport nodes are accessible via ssh or not
         Parameters  :   edgeClusterNameList     -   List of names of the cluster (STRING)
@@ -1338,10 +1343,10 @@ class NSXTOperations():
         try:
             #Suppressing paramiko transport logs
             logging.getLogger("paramiko").setLevel(logging.WARNING)
-            logger.debug("Retrieving data of edge transport nodes present in edge cluster: {}".format(', '.join(edgeClusterNameList)))
+            logger.debug("Retrieving data of edge transport nodes present in edge cluster: {}".format(', '.join(self.edgeClusterNameList)))
             edgeTransportNodeList = []
             edgeClusterNotFound = []
-            for edgeClusterName in edgeClusterNameList:
+            for edgeClusterName in self.edgeClusterNameList:
                 edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
                                                         edgeClusterName)
                 if not edgeClusterData:
@@ -1377,37 +1382,6 @@ class NSXTOperations():
         finally:
             #Restoring log level of paramiko transport logs
             logging.getLogger("paramiko").setLevel(logging.INFO)
-
-    def validateOrgVdcNetworksAndEdgeTransportNodes(self, edgeClusterNameList, orgVdcNetworkList):
-        """
-        Description :   Validates the number of networks in source Org Vdc match with the number of Edge Transport Nodes in the specified cluster name
-        Parameters  :   edgeClusterNameList     -   List of names of the cluster (STRING)
-                        orgVdcNetworkList   -   Source Org VDC Network List (LIST)
-        """
-        try:
-            logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(edgeClusterNameList)))
-            edgeTransportNodeList = []
-            edgeClusterNotFound = []
-            for edgeClusterName in edgeClusterNameList:
-                edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
-                                                        edgeClusterName)
-                if not edgeClusterData:
-                    edgeClusterNotFound.append(edgeClusterName)
-                else:
-                    edgeTransportNodeList += edgeClusterData['members'] \
-                        if isinstance(edgeClusterData['members'], list) else [edgeClusterData['members']]
-
-            if edgeClusterNotFound:
-                raise Exception(
-                    "Edge Cluster '{}' do not exist in NSX-T, so can't validate org VDC networks and transport nodes".format(
-                        ', '.join(edgeClusterNotFound)))
-            orgVdcNetworkList = [network for network in orgVdcNetworkList if network['networkType'] != 'DIRECT']
-            if len(orgVdcNetworkList) <= len(edgeTransportNodeList):
-                logger.debug("Validated successfully the number of source Org VDC networks are equal/less than the number of Edge Transport Nodes in the cluster {}".format(edgeClusterNameList))
-            else:
-                raise Exception("Number of Source Org VDC Networks should always be equal/less than the number of Edge Transport Nodes in the cluster {}".format(edgeClusterNameList))
-        except Exception:
-            raise
 
     def fetchEdgeClusterIdForTier0Gateway(self, tier0GatewayName):
         """
@@ -1448,17 +1422,23 @@ class NSXTOperations():
         except:
             raise
 
-    def validateEdgeNodesNotInUse(self, edgeClusterNameList):
+    def validateEdgeNodesNotInUse(self, inputDict, orgVdcNetworkList, vcdObjList, precheck=False):
         """
         Description :   Validates that None Edge Transport Nodes are in use in the specified Edge Cluster
         Parameters  :   edgeClusterNameList -   List of names of the cluster (STRING)
         """
         try:
-            hostSwitchNameList = list()
-            logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(edgeClusterNameList)))
+            usedNode = bool()
             edgeTransportNodeList = []
             edgeClusterNotFound = []
-            for edgeClusterName in edgeClusterNameList:
+            freeTransportNodesList = []
+            usedNodeList = []
+            bridgeEndpointProfileNodeList = []
+            taggedNodesList = []
+            migrationId = inputDict['VCloudDirector']['Organization']['OrgName'] + '-' \
+                          + inputDict['VCloudDirector']['SourceOrgVDC'][0]['OrgVDCName']
+            logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(self.edgeClusterNameList)))
+            for edgeClusterName in self.edgeClusterNameList:
                 edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
                                                         edgeClusterName)
                 if not edgeClusterData:
@@ -1472,27 +1452,145 @@ class NSXTOperations():
                     "Edge Cluster '{}' do not exist in NSX-T, so can't validate org VDC networks and transport nodes".format(
                         ', '.join(edgeClusterNotFound)))
 
-            for tranportNode in edgeTransportNodeList:
+            # fetching bridge endpoint profile list
+            bridgeEndpointProfileList = self.getComponentData(nsxtConstants.CREATE_BRIDGE_ENDPOINT_PROFILE)
+
+            for transportNode in edgeTransportNodeList:
                 url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
-                                                             nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(tranportNode['transport_node_id']))
+                                                             nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(transportNode['transport_node_id']))
                 response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
                 if response.status_code == requests.codes.ok:
                     responseDict = response.json()
+                    freeTransportNodesList.append(responseDict)
+                    usedNode = False
+                    # edge transport node is added to freeTransportNodesList after successful GET call
+                    # edge transport node is popped out of freeTransportNodesList and loop is skipped in case if -
+                    # 1. Host switch named 'Bridge-nvds-v2t' exists on node
+                    # 2. Bridge endpoint profile exists on node
+                    # 3. edge node is already tagged with migration Id
+                    hostSwitchFlag = False
                     if responseDict.get('host_switch_spec'):
                         hostSwitchSpec = responseDict["host_switch_spec"]["host_switches"]
                         for hostSwitch in hostSwitchSpec:
                             if hostSwitch["host_switch_name"] == "Bridge-nvds-v2t":
-                                hostSwitchNameList.append(responseDict['display_name'])
+                                hostSwitchFlag = True
                     else:
                         raise Exception('Host switch specification not available')
+                    if hostSwitchFlag:
+                        usedNodeList.append({"name": responseDict["display_name"], "id": responseDict["node_id"]})
+                        usedNode = True
+                    if any([responseDict["node_id"] in bridgeEndpointProfile["display_name"] for bridgeEndpointProfile in bridgeEndpointProfileList]):
+                        bridgeEndpointProfileNodeList.append({"name": responseDict["display_name"], "id": responseDict["node_id"]})
+                        usedNode = True
+                    if any([tag["scope"] == nsxtConstants.MIGRATION_TAG_SCOPE and tag["tag"] != migrationId for tag in responseDict.get("tags", [])]):
+                        taggedNodesList.append({"name": responseDict["display_name"], "id": responseDict["node_id"]})
+                        usedNode = True
+                    if usedNode:
+                        freeTransportNodesList.pop()
                 else:
-                    raise Exception('Failed to fetch transport node details')
-            if hostSwitchNameList:
-                raise Exception("Transport Node: {} already in use".format(','.join(hostSwitchNameList)))
+                    raise Exception('Failed to fetch transport node details with error - {}'.format(responseDict["error_message"]))
+
+            logger.debug(
+                "freeTransportNodesList = {}".format(
+                    [{"name": freeNode["display_name"], "id": freeNode["node_id"]} for freeNode in freeTransportNodesList]))
+            logger.debug(
+                "usedTransportNodesList = {}".format(usedNodeList))
+            logger.debug(
+                "bridgeEndpointProfileNodeList = {}".format(bridgeEndpointProfileNodeList))
+            logger.debug(
+                "taggedNodesList = {}".format(taggedNodesList))
+
+            if len(orgVdcNetworkList) > len(edgeTransportNodeList):
+                raise Exception(
+                    "Number of Source Org VDC Networks should always be equal/less than the number of Edge Transport "
+                    "Nodes in the cluster {}".format(self.edgeClusterNameList))
+            if len(orgVdcNetworkList) <= len(freeTransportNodesList):
+                logger.debug("Validated org vdc networks against free nodes in edge cluster/s {}".format(
+                    ', '.join(self.edgeClusterNameList)))
+                if not precheck:
+                    self.tagEdgeTransportNodes(vcdObjList, freeTransportNodesList[0:len(orgVdcNetworkList)], migrationId)
             else:
-                logger.debug("Validated successfully that any of Transport Nodes from cluster/s {} are not in use".format(', '.join(edgeClusterNameList)))
+                exception = ""
+                if usedNodeList:
+                    exception = exception + "Transport Nodes {} already in use\n".format(
+                        ','.join([node["name"] for node in usedNodeList]))
+                if bridgeEndpointProfileNodeList:
+                    exception = exception + "Transport Nodes {} has bridge endpoint profile\n".format(
+                        ','.join([node["name"] for node in bridgeEndpointProfileNodeList]))
+                if taggedNodesList:
+                    exception = exception + "Transport Nodes {} are already tagged".format(
+                        ','.join([node["name"] for node in taggedNodesList]))
+                raise Exception(exception)
         except Exception:
             raise
+
+    def tagEdgeTransportNodes(self, vcdObjList, transportNodesList, migrationId):
+        """
+        Description :   Tags the available edge transport nodes with migration Id
+        Parameters  :   freeTransportNodesList -   List of edge nodes available for bridging (LIST)
+        """
+        logger.info("Tagging edge transport nodes")
+        data = vcdObjList[0].rollback.apiData
+        tags = (nsxtConstants.MIGRATION_TAG_SCOPE, migrationId)
+        logger.debug("taggedNodesList = {}".format(
+            self.updateEdgeTransportNodesTags([node["node_id"] for node in transportNodesList], tagToAdd=tags)))
+        data['taggedNodesList'] = [transportNode["node_id"] for transportNode in transportNodesList]
+
+    def untagEdgeTransportNodes(self, vcdObjList, inputDict, transportNodesIdList):
+        """
+        Description :   Untags the available edge transport nodes tagged with migration Id
+        Parameters  :   freeTransportNodesList -   List of edge nodes id available for bridging (LIST)
+        """
+        logger.info("Removing migration tag from edge transport nodes")
+        migrationId = inputDict['VCloudDirector']['Organization']['OrgName'] + '-' \
+                      + inputDict['VCloudDirector']['SourceOrgVDC'][0]['OrgVDCName']
+        logger.debug("untaggedNodesList = {}".format(
+            self.updateEdgeTransportNodesTags(transportNodesIdList, tagToRemove=(nsxtConstants.MIGRATION_TAG_SCOPE, migrationId))))
+        vcdObjList[0].deleteMetadataApiCall(key='taggedNodesList-v2t',
+                                            orgVDCId=vcdObjList[0].rollback.apiData.get('sourceOrgVDC', {}).get('@id'))
+
+    def updateEdgeTransportNodesTags(self, transportNodesIdList, tagToAdd=None, tagToRemove=None):
+        """
+        Description :   Update the edge transport node tags
+        Parameters  :   transportNodesList -   Transport nodes ID list (LIST)
+                        tagToAdd - List of tags to add (LIST of TUPLES)
+                        tagToRemove - List of tags to remove (LIST of TUPLES)
+        """
+        logger.debug("Updating edge transport nodes tags")
+        transportNodeList = list()
+        for node in transportNodesIdList:
+
+            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                         nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(node))
+            response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
+                                              auth=self.restClientObj.auth)
+            if response.status_code == requests.codes.ok:
+                responseDict = response.json()
+            else:
+                raise Exception(
+                    'Failed to fetch transport node details with error - {}'.format(responseDict["error_message"]))
+            if not responseDict.get('tags'):
+                responseDict['tags'] = []
+            responseDict['tags'] = [tag for tag in responseDict['tags'] for removeTag in listify(tagToRemove)
+                                    if tag["scope"] != removeTag[0] and tag["tag"] != removeTag[1]] + \
+                                   [{"scope": tag[0], "tag": tag[1]} for tag in listify(tagToAdd)]
+
+            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                         nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(node))
+            payloadDict = json.dumps(responseDict)
+            response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payloadDict,
+                                              auth=self.restClientObj.auth)
+            responseDict = response.json()
+            if response.status_code == requests.codes.ok:
+                logger.debug(
+                    "Successfully updated edge transport node {} tags".format(responseDict['display_name']))
+                transportNodeList.append({"name": responseDict["display_name"], "id": responseDict["node_id"]})
+            else:
+                msg = "Failed to update Edge Transport node {} with error {}.".format(responseDict['display_name'],
+                                                                                          response.json()['error_message'])
+                logger.error(msg)
+                raise Exception(msg)
+        return transportNodeList
 
     def validateTransportZoneExistsInNSXT(self, transportZoneName, returnData=False):
         """
@@ -1520,20 +1618,22 @@ class NSXTOperations():
         except Exception:
             raise
 
-    def createTransportZone(self):
+    def createTransportZone(self, vcdObj):
         """
         Description :   Created bridge transport zone if it is not present in NSX-T
         """
+        TransportZone = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME + str(uuid.uuid4())
         try:
             # Validating whether the bridge transport zone exists or not
-            self.validateTransportZoneExistsInNSXT(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME)
+            self.validateTransportZoneExistsInNSXT(TransportZone)
         except Exception:
+            data = vcdObj.rollback.apiData
             if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
                 # Url to create transport zone
                 url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                                       nsxtConstants.TRANSPORT_ZONE_PATH.format(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME))
+                                       nsxtConstants.TRANSPORT_ZONE_PATH.format(TransportZone))
                 payloadData = {
-                    "display_name": nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME,
+                    "display_name": TransportZone,
                     "tz_type": "VLAN_BACKED",
                     "description": "Transport zone to be used for bridging"
                 }
@@ -1542,14 +1642,15 @@ class NSXTOperations():
                                                    auth=self.restClientObj.auth,
                                                    data=payloadData)
                 if response.status_code == requests.codes.ok:
-                    logger.debug('Bridge Transport Zone {} created successfully.'.format(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME))
+                    logger.debug('Bridge Transport Zone {} created successfully.'.format(TransportZone))
+                    data['BridgingStatus'] = {"TransportZone": TransportZone}
                 else:
                     raise Exception('Failed to create Bridge Transport Zone. Errors {}.'.format(response.content))
             else:
                 # Url to create transport zone
                 url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API)
                 payloadData = {
-                            "display_name": nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME,
+                            "display_name": TransportZone,
                             "transport_type": "VLAN",
                             "host_switch_name": nsxtConstants.BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME,
                             "description": "Transport zone to be used for bridging"
@@ -1558,22 +1659,24 @@ class NSXTOperations():
                 response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth,
                                                    data=payloadData)
                 if response.status_code == requests.codes.created:
-                    logger.debug('Bridge Transport Zone {} created successfully.'.format(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME))
+                    logger.debug('Bridge Transport Zone {} created successfully.'.format(TransportZone))
+                    data['BridgingStatus'] = {"TransportZone": TransportZone}
                 else:
                     raise Exception('Failed to create Bridge Transport Zone. Errors {}.'.format(response.content))
         else:
-            logger.debug(f'Bridge Transport Zone {nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME} is already present in NSX-T')
+            logger.debug(f'Bridge Transport Zone {TransportZone} is already present in NSX-T')
 
-    def deleteTransportZone(self):
+    def deleteTransportZone(self, vcdObj):
         """
         Description :   Delete bridge transport zone from NSX-T
         """
         try:
             try:
+                TransportZone = vcdObj.rollback.apiData['BridgingStatus']['TransportZone']
                 # Validating whether the bridge transport zone exists or not
-                bridgeTransportZoneData = self.validateTransportZoneExistsInNSXT(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME, returnData=True)
+                bridgeTransportZoneData = self.validateTransportZoneExistsInNSXT(TransportZone, returnData=True)
             except Exception:
-                logger.debug(f'Bridge Transport Zone {nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME} does not exist in NSX-T')
+                logger.debug(f'Bridge Transport Zone {TransportZone} does not exist in NSX-T')
                 logger.debug(traceback.format_exc())
                 return
             if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
@@ -1586,10 +1689,10 @@ class NSXTOperations():
             response = self.restClientObj.delete(url=url, headers=nsxtConstants.NSXT_API_HEADER,
                                                  auth=self.restClientObj.auth)
             if response.status_code == requests.codes.ok:
-                logger.debug('Successfully deleted Bridge Transport Zone - "{}"'.format(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME))
+                logger.debug('Successfully deleted Bridge Transport Zone - "{}"'.format(TransportZone))
             else:
                 responseData = json.loads(response.content)
-                msg = 'Failed to Bridge Transport Zone - "{}" due to error - {}'.format(nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME,
+                msg = 'Failed to delete Bridge Transport Zone - "{}" due to error - {}'.format(TransportZone,
                                                                                         responseData['error_message'])
                 raise Exception(msg)
         except:

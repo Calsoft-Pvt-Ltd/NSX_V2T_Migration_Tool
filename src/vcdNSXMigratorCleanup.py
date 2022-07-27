@@ -129,7 +129,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
                         bridgedNetworksList += vcdObject.retrieveNetworkListFromMetadata(
                             vcdObject.rollback.apiData.get('targetOrgVDC', {}).get('@id'), orgVDCType='target',
                             dfwStatus=dfw)
-                nsxtObj.clearBridging(self.inputDict["NSXT"]["EdgeClusterName"], bridgedNetworksList)
+                nsxtObj.clearBridging(bridgedNetworksList, vcdObjList[0])
         except:
             raise
         else:

@@ -4738,7 +4738,7 @@ class VCDMigrationValidation:
 
     @description("Checking Bridging Components")
     @remediate
-    def checkBridgingComponents(self, orgVDCIDList, edgeClusterNameList, nsxtObj, vcenterObj, vcdObjList):
+    def checkBridgingComponents(self, orgVDCIDList, inputDict, nsxtObj, vcenterObj, vcdObjList):
         """
         Description : Pre migration validation tasks related to bridging
         Parameters  : orgVDCIDList  -  List of URN of all the org vdc undergoing migration (LIST)
@@ -4760,28 +4760,21 @@ class VCDMigrationValidation:
                                            for vcdObj in vcdObjList])
                 threading.current_thread().name = "BridgingChecks"
                 logger.info("Checking for Bridging Components")
-                logger.info('Validating NSX-T Bridge Uplink Profile does not exist')
-                nsxtObj.validateBridgeUplinkProfile()
-
-                if edgeClusterNameList:
-                    logger.info('Validating Edge Cluster Exists in NSX-T and Edge Transport Nodes are not in use')
-                    nsxtObj.validateEdgeNodesNotInUse(edgeClusterNameList)
-                else:
-                    raise Exception("EdgeClusterName is not provided")
-
-                nsxtObj.validateOrgVdcNetworksAndEdgeTransportNodes(edgeClusterNameList, orgVdcNetworkList)
 
                 logger.info("Validating whether the edge transport nodes are accessible via ssh or not")
-                nsxtObj.validateIfEdgeTransportNodesAreAccessibleViaSSH(edgeClusterNameList)
+                nsxtObj.validateIfEdgeTransportNodesAreAccessibleViaSSH()
 
                 logger.info("Validating whether the edge transport nodes are deployed on v-cluster or not")
-                nsxtObj.validateEdgeNodesDeployedOnVCluster(edgeClusterNameList, vcenterObj, vxlanBackingPresent)
+                nsxtObj.validateEdgeNodesDeployedOnVCluster(vcenterObj, vxlanBackingPresent)
 
                 logger.info("Validating the max limit of bridge endpoint profiles in NSX-T")
                 nsxtObj.validateLimitOfBridgeEndpointProfile(orgVdcNetworkList)
 
                 logger.info("Validating MAC Address of the NSX-T Virtual Distributed Router")
                 nsxtObj.validateDlrMacAddress()
+
+                logger.info('Validating Edge Cluster Exists in NSX-T and Edge Transport Nodes are not in use')
+                nsxtObj.validateEdgeNodesNotInUse(inputDict, orgVdcNetworkList, vcdObjList)
                 logger.info("Successfully completed checks for Bridging Components")
 
         except:
