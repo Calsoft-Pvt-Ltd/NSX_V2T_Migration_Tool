@@ -2525,7 +2525,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 self.rollback.apiData['targetOrgVDCNetworks'] = {}
 
             # Check if services are to be configured and API version is compatible or not
-            if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS) and configureServices:
+            if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
 
                 # Variable to set that the thread has reached here
                 self.__done__ = True
@@ -2539,8 +2539,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 time.sleep(5)
                 delattr(self, '__done__')
 
-                # creating orgVdcGroups
-                self.createOrgvDCGroup(sourceOrgVDCName, vcdObjList)
+                if configureServices:
+                    # creating orgVdcGroups
+                    self.createOrgvDCGroup(sourceOrgVDCName, vcdObjList)
 
                 # Variable to set that the thread has reached here
                 self.__done__ = True
