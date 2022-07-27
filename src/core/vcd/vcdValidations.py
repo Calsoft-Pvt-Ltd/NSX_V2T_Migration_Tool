@@ -5507,6 +5507,12 @@ class VCDMigrationValidation:
                         srcCatalog.get('@name')))
                 logger.warning(f"Published Catalog {srcCatalog.get('@name')} exists in org hence needs to be"
                             " published again after migration.")
+            if srcCatalog.get('ExternalCatalogSubscriptionParams', {}).get('SubscribeToExternalFeeds'):
+                if not Migration:
+                    logger.warning(
+                        f"Org VDC contains subscribed Catalog {srcCatalog.get('@name')} that can't be migrated. Please remove the catalog before cleanup.")
+                else:
+                    raise Exception(f"Org VDC contains subscribed Catalog {srcCatalog.get('@name')} that can't be migrated. Please remove the catalog before cleanup.")
         if v2tAssessmentMode and errorList:
                 raise ValidationError(',\n'.join(errorList))
         if Migration:
