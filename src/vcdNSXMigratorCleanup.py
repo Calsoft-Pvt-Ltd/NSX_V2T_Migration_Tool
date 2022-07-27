@@ -52,7 +52,9 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             ["'Validating whether target Org VDC is enabled'",
                 "self.vcdObj.validateTargetOrgVDCState(self.targetOrgVDCId)"],
             ["'Validating whether media is attached to any vApp VMs'",
-                "self.vcdObj.validateVappVMsMediaNotConnected(self.targetOrgVDCId, raiseError=True)"]
+                "self.vcdObj.validateVappVMsMediaNotConnected(self.targetOrgVDCId, raiseError=True)"],
+            ["'Validating whether Subscribed Catalog exists in Source Org VDC'",
+                "self.vcdObj.getOrgVDCPublishedCatalogs(sourceOrgVDCId, self.inputDict['VCloudDirector']['Organization']['OrgName'], Migration=True)"]
         ]
         self.cleanupTask = [
             ["'Validating whether source Org VDC is NSX-V backed'",
@@ -87,7 +89,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             threading.current_thread().name = self.orgvdcdict["OrgVDCName"]
 
             self.targetOrgVDCId = self.vcdObj.rollback.apiData.get('targetOrgVDC', {}).get('@id')
-
+            sourceOrgVDCId = self.vcdObj.rollback.apiData.get('sourceOrgVDC', {}).get('@id')
             targetProviderVDCId, isNSXTbacked = self.vcdObj.getProviderVDCId(self.orgvdcdict['NSXTProviderVDCName'])
 
             for validationTask in self.cleanupValidationTask:
