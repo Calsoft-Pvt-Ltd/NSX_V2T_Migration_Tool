@@ -1045,12 +1045,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             sourceOrgVDCId = self.rollback.apiData.get('sourceOrgVDC', {}).get('@id', str())
 
             # Fetching subnets of all the routed network connected to source edge gateway
-            allRoutedNetworkSubnets = [
-                str(ipaddress.ip_network(f"{subnet['gateway']}/{subnet['prefixLength']}", strict=False))
-                for network in self.retrieveNetworkListFromMetadata(sourceOrgVDCId)
-                for subnet in network["subnets"]["values"]
-                if network["networkType"] == "NAT_ROUTED" and
-                network["connection"]["routerRef"]["id"].split(':')[-1] == sourceEdgeGatewayId.split(':')[-1]]
+            allRoutedNetworkSubnets = list()
+            for network in self.retrieveNetworkListFromMetadata(sourceOrgVDCId):
+                for subnet in network["subnets"]["values"]:
+                    if network["networkType"] == "NAT_ROUTED" and network["connection"]["routerRef"]["id"].split(':')[-1] == sourceEdgeGatewayId.split(':')[-1]:
+                        allRoutedNetworkSubnets.append(str(ipaddress.ip_network(f"{subnet['gateway']}/{subnet['prefixLength']}", strict=False)))
 
             # Flag to decide whether to enable route advertisement or not
             enableRouteAdvertisment = True
@@ -1096,7 +1095,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 "enable": enableRouteAdvertisment,
                 "subnets": list(set(subnetsToAdvertise))
             })
-
             # URL to configure Route Advertisement in target edge gateway
             routeAdvertisementUrl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                           vcdConstants.ALL_EDGE_GATEWAYS,
