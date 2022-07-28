@@ -40,21 +40,14 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         vcdConstants.GENERAL_JSON_ACCEPT_HEADER = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
         vcdConstants.OPEN_API_CONTENT_TYPE = vcdConstants.OPEN_API_CONTENT_TYPE.format(self.version)
 
-    def configureServices(self, nsxvObj, orgVDCDict):
+    def configureServices(self, nsxvObj):
         """
         Description :   Configure the  service to the Target Gateway
         Parameters  :   nsxvObj - NSXVOperations class object
-                        orgVDCDict - Org VDC Input Dict (DICT)
         """
         try:
             # Setting thread name as vdc name
             threading.current_thread().name = self.vdcName
-
-            noSnatDestSubnet = orgVDCDict.get('NoSnatDestinationSubnet')
-            # Fetching load balancer vip configuration subnet from user input file
-            loadBalancerVIPSubnet = orgVDCDict.get('LoadBalancerVIPSubnet')
-            # Fetching service engine group name from sampleInput
-            serviceEngineGroupName = orgVDCDict.get('ServiceEngineGroupName')
 
             if not self.rollback.apiData['targetEdgeGateway']:
                 logger.info('Skipping services configuration as edge gateway does '
@@ -67,7 +60,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # Configuring target IPSEC
             self.configTargetIPSEC(nsxvObj)
             # Configuring target NAT
-            self.configureTargetNAT(noSnatDestSubnet)
+            self.configureTargetNAT()
             # Configuring firewall
             self.configureFirewall(networktype=False, configureIPSET=True)
             # Configuring BGP
@@ -77,7 +70,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # Configuring DNS
             self.configureDNS()
             # configuring loadbalancer
-            self.configureLoadBalancer(nsxvObj, serviceEngineGroupName, loadBalancerVIPSubnet)
+            self.configureLoadBalancer(nsxvObj)
             logger.debug("Edge Gateway services configured successfully")
         except:
             logger.error(traceback.format_exc())
@@ -774,10 +767,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
     @description("configuration of Target NAT")
     @remediate
-    def configureTargetNAT(self, noSnatDestSubnet=None):
+    def configureTargetNAT(self):
         """
         Description :   Configure the NAT service to the Target Gateway
-        Parameters  :   noSnatDestSubnet    -   destimation subnet address (OPTIONAL)
         """
         try:
             targetEdgeGateway = copy.deepcopy(self.rollback.apiData['targetEdgeGateway'])
@@ -787,6 +779,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
                 t1gatewayId = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'], targetEdgeGateway))[0]['id']
                 data = self.getEdgeGatewayNatConfig(sourceEdgeGatewayId, validation=False)
+                # reassigning noSnatDestSub from the particular EGW list in userinput file if mentioned else deafult
+                noSnatDestSubnet = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['NoSnatDestinationSubnet']
                 # checking whether NAT rule is enabled or present in the source org vdc
                 if not data or not data['enabled']:
                     logger.debug('NAT is not configured or enabled on Source Edge Gateway - {}'.format(sourceEdgeGateway['name']))
@@ -1088,8 +1082,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         subnetsToAdvertise += [subnet['network'] for subnet in ipPrefix['prefixes']
                                                if subnet['action'] == 'PERMIT']
                         break
-            elif self.orgVdcDict['AdvertiseRoutedNetworks'].get(
-                    sourceEdgeGateway['name'], self.orgVdcDict['AdvertiseRoutedNetworks']['default']):
+            elif self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['AdvertiseRoutedNetworks']:
                 # If advertiseRoutedNetworks param is True,
                 # advertise all routed networks subnets connected to this edge gateway
                 subnetsToAdvertise += allRoutedNetworkSubnets
@@ -2748,12 +2741,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
     @description("configuration of LoadBalancer")
     @remediate
-    def configureLoadBalancer(self, nsxvObj, ServiceEngineGroupName, loadBalancerVIPSubnet):
+    def configureLoadBalancer(self, nsxvObj):
         """
         Description :   Configure LoadBalancer service target edge gateway
         Params      :   nsxvObj - NSXVOperations class object
-                        ServiceEngineGroupName - Name of service engine group for load balancer configuration (STRING)
-                        loadBalancerVIPSubnet - Subnet for loadbalancer virtual service VIP configuration
         """
         try:
             if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
@@ -2783,11 +2774,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                              raise Exception('Service Engine Group does not exist.')
 
                         logger.debug("Configuring LoadBalancer Services in Target Edge Gateway - {}".format(sourceEdgeGateway['name']))
+                        serviceEngineGroupName = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['ServiceEngineGroupName']
                         serviceEngineGroupDetails = [serviceEngineGroup for serviceEngineGroup in
                                                      serviceEngineGroupResultList if
-                                                     serviceEngineGroup['name'] == ServiceEngineGroupName]
+                                                     serviceEngineGroup['name'] == serviceEngineGroupName]
                         if not serviceEngineGroupDetails:
-                            raise Exception("Service Engine Group {} is not present in Avi.".format(ServiceEngineGroupName))
+                            raise Exception("Service Engine Group {} is not present in Avi.".format(serviceEngineGroupName))
+
                         self.serviceEngineGroupName = serviceEngineGroupDetails[0]['name']
                         self.serviceEngineGroupId = serviceEngineGroupDetails[0]['id']
                         # enable load balancer service
@@ -2797,7 +2790,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         # creating pools
                         self.createLoadBalancerPools(sourceEdgeGatewayId, targetEdgeGatewayId, targetEdgeGatewayName, nsxvObj)
                         # creating load balancer virtual server
-                        self.createLoadBalancerVirtualService(sourceEdgeGatewayId, targetEdgeGatewayId, targetEdgeGatewayName, loadBalancerVIPSubnet)
+                        self.createLoadBalancerVirtualService(sourceEdgeGatewayId, targetEdgeGatewayId, targetEdgeGatewayName)
                     else:
                         logger.debug("LoadBalancer Service is in disabled state in Source Edge Gateway - {}".format(sourceEdgeGateway['name']))
                 else:
@@ -2872,13 +2865,12 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         except:
             raise
 
-    def createLoadBalancerVirtualService(self, sourceEdgeGatewayId, targetEdgeGatewayId, targetEdgeGatewayName, loadBalancerVIPSubnet):
+    def createLoadBalancerVirtualService(self, sourceEdgeGatewayId, targetEdgeGatewayId, targetEdgeGatewayName):
         """
             Description :   Configure LoadBalancer virtual service on target edge gateway
             Params      :   sourceEdgeGatewayId - ID of source edge gateway (STRING)
                             targetEdgeGatewayId - ID of target edge gateway (STRING)
                             targetEdgeGatewayName - Name of target edge gateway (STRING)
-                            loadBalancerVIPSubnet - Subnet for loadbalancer virtual service VIP configuration (STRING)
         """
         try:
             # Fetching virtual service configured on edge gateway
@@ -2931,7 +2923,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 [virtualServersData['loadBalancer']['virtualServer']]
 
             # if subnet is not provided in user input use default subnet
-            loadBalancerVIPSubnet = loadBalancerVIPSubnet if loadBalancerVIPSubnet else '192.168.255.128/28'
+            loadBalancerVIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName]['LoadBalancerVIPSubnet']
 
             # Creating a list of hosts in a subnet
             hostsListInSubnet = list(ipaddress.ip_network(loadBalancerVIPSubnet, strict=False).hosts())

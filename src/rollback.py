@@ -63,28 +63,26 @@ class Rollback:
             'vcdObj.deleteNsxTBackedOrgVDCEdgeGateways(targetOrgVDCId)',
             'vcdObj.enableSourceAffinityRules()',
             'vcdObj.deleteOrgVDC(targetOrgVDCId, rollback=True)',
-            'vcdObj.resetTargetExternalNetwork(targetExternalNetwork, orgVDCDict)',
+            'vcdObj.resetTargetExternalNetwork()',
             'vcdObj.disconnectSourceOrgVDCNetwork(orgVDCNetworkList, sourceEdgeGatewayId, rollback=True)',
             'vcdObj.dhcpRollBack()',
             'vcdObj.ipsecRollBack()',
             'vcdObj.reconnectOrDisconnectSourceEdgeGateway(sourceEdgeGatewayId, connect=True)',
             'vcdObj.connectUplinkSourceEdgeGateway(sourceEdgeGatewayId, rollback=True)']
 
-    def perform(self, orgVDCDict, vcdObj, nsxtObj, vcdObjList, rollbackTasks=None):
+    def perform(self, vcdObj, nsxtObj, vcdObjList, rollbackTasks=None):
         """
             Description : Method that performs the rollback of setup during a failure
-            Parameters  : orgVDCDict - Dictionary holding input related to org vdc (DICT)
-                          vcdObj - object of vcdOperations (object)
+            Parameters  : vcdObj - object of vcdOperations (object)
                           nsxtObj - object of nsxtOperations (object)
                           rollbackTasks - List to tasks to be performed for rollback (LIST)
         """
         sourceOrgVDCId, orgVDCNetworkList, targetOrgVDCId, sourceEdgeGatewayId, targetNetworkList = str(), list(), str(), str(), list()
         try:
             timeout = self.timeoutForVappMigration
-            targetExternalNetwork = orgVDCDict.get("Tier0Gateways", {})
 
             # Performing rollback task
-            threading.current_thread().name = orgVDCDict["OrgVDCName"]
+            threading.current_thread().name = vcdObj.orgVdcInput["OrgVDCName"]
             # getting the source org vdc urn
             sourceOrgVDCId = self.apiData.get('sourceOrgVDC', {}).get('@id', str())
 
@@ -119,7 +117,7 @@ class Rollback:
                 # Iterating over the list of rollback tasks corresponding the rollback key
                 for rollbackTask in listOfRollbackTasks:
                     # Performing rollback task
-                    threading.current_thread().name = orgVDCDict["OrgVDCName"]
+                    threading.current_thread().name = vcdObj.orgVdcInput["OrgVDCName"]
 
                     eval(rollbackTask)
                     # Removing task from rollback tasks left list after the task has been performed successfully
@@ -145,13 +143,12 @@ class Rollback:
             vcdObj.deleteMetadata(sourceOrgVDCId)
             self.logger.info("Rollback completed successfully.")
 
-    def performDfwRollback(self, orgVDCDict, vcdObj):
+    def performDfwRollback(self, vcdObj):
         """
             Description : Method that performs the rollback of setup during a failure
-            Parameters  : orgVDCDict - Dictionary holding input related to org vdc (DICT)
-                          vcdObj - object of vcdOperations (object)
+            Parameters  : vcdObj - object of vcdOperations (object)
         """
-        threading.current_thread().name = orgVDCDict["OrgVDCName"]
+        threading.current_thread().name = vcdObj.orgVdcInput["OrgVDCName"]
         sourceOrgVDCId = self.apiData.get('sourceOrgVDC', {}).get('@id', str())
         # List of tasks to be performed as part of rollback
         rollbackTasksDfw = self.metadata.get('rollbackTasksDfw')
@@ -167,7 +164,7 @@ class Rollback:
         try:
             for rollbackTask in listOfRollbackTasks:
                 # Performing rollback task
-                threading.current_thread().name = orgVDCDict["OrgVDCName"]
+                threading.current_thread().name = vcdObj.orgVdcInput["OrgVDCName"]
                 eval(rollbackTask)
 
                 # Removing task from rollback tasks left list after the task has been performed successfully and

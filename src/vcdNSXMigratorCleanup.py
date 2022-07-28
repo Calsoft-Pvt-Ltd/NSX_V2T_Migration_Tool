@@ -72,7 +72,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             ["'Renaming target Org VDC.'",
                 "self.vcdObj.renameOrgVDC(sourceOrgVDCName, self.targetOrgVDCId)"],
             ["'Updating the source External network.'",
-                "self.vcdObj.updateSourceExternalNetwork(sourceExternalNetworkData, edgeGatewaySubnetDict, self.orgvdcdict, self.targetOrgVDCId)"],
+                "self.vcdObj.updateSourceExternalNetwork(sourceExternalNetworkData, edgeGatewaySubnetDict, self.targetOrgVDCId)"],
             ["'Syncing DC Groups created'",
                 "self.vcdObj.syncOrgVDCGroup(self.vcdObj.rollback.apiData.get('OrgVDCGroupID', {}))"]]
 
