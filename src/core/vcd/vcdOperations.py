@@ -168,6 +168,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     }
                 ],
                 'distributedRoutingEnabled': False,
+                'serviceNetworkDefinition': self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']]['serviceNetworkDefinition'],
                 'orgVdc': {
                     'name': data['targetOrgVDC']['@name'],
                     'id': data['targetOrgVDC']['@id'],
@@ -490,6 +491,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
             return
 
+        if not self.rollback.apiData['targetEdgeGateway']:
+            logger.info('Skipping target DNAT configuration for DNS as edge gateway does '
+                        'not exists')
+            return
+
         targetOrgVDCId = self.rollback.apiData['targetOrgVDC']['@id']
         logger.debug('DNAT rules are getting configured for Non-Distributed networks.')
 
@@ -516,6 +522,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     and network['connection']['connectionTypeValue'] == 'NON_DISTRIBUTED'):
                 logger.debug(f"{network['name']} is not distributed")
                 continue
+
 
             # add DNAT rules for non distributed routed networks.
             edgeGatewayId = network['connection']['routerRef']['id']

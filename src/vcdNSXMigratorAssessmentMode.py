@@ -163,6 +163,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating Target NSX-T backed Network Pools': [vcdValidationObj.validateTargetPvdcNetworkPools, orgVDCDict.get('NSXTNetworkPoolName', None)],
                 'Validating Cross VDC Networking is enabled or not': [vcdValidationObj.validateCrossVdcNetworking, sourceOrgVDCId],
                 'Validating published catalogs in source org VDC': [vcdValidationObj.getOrgVDCPublishedCatalogs, sourceOrgVDCId, self.inputDict['VCloudDirector']['Organization']['OrgName']],
+                'Validating service network definition for edge gateway services': [vcdValidationObj.validateServiceNetworkDefinition]
             }
             # Perform these validations only if vapps are to be migrated
             if mainConstants.MOVEVAPP_KEYWORD in self.executeList:
