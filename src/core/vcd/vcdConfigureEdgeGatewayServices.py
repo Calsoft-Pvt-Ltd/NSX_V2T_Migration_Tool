@@ -1814,7 +1814,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         if self.rollback.apiData.get(firewallGroupDict['name']):
                             continue
                         firewallGroupDict['edgeGatewayRef'] = {'id': edgeGatewayId}
-                        firewallGroupDict['members'] = [member]
+                        firewallGroupDict['members'] = []
                         firewallGroupDict['type'] = vcdConstants.SECURITY_GROUP
                         firewallGroupData = json.dumps(firewallGroupDict)
                         # url to create firewall group
@@ -1827,10 +1827,36 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             # successful creation of firewall group
                             taskUrl = response.headers['Location']
                             firewallGroupId = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
-                            self.rollback.apiData[firewallGroupDict['name']] = True
                             logger.debug('Successfully configured security group for firewall {}.'.format(firewallRule['id']))
                             # appending the new firewall group id
                             newFirewallGroupIds.append('urn:vcloud:firewallGroup:{}'.format(firewallGroupId))
+                            # getting target org vdc network
+                            networkUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(member['id']))
+                            networkResponse = self.restClientObj.get(networkUrl, self.headers)
+                            if networkResponse.status_code == requests.codes.ok:
+                                networkDict = networkResponse.json()
+                                if not networkDict.get("securityGroups"):
+                                    networkDict["securityGroups"] = []
+                                networkDict["securityGroups"].append({
+                                                                        "name": firewallGroupDict['name'],
+                                                                        "id": "urn:vcloud:firewallGroup:" + firewallGroupId
+                                                                    })
+                            else:
+                                responseDict = response.json()
+                                raise Exception(
+                                    'Failed to get Org VDC network details due to: {}'.format(responseDict['message']))
+                            payLoadDict = json.dumps(networkDict)
+                            putResponse = self.restClientObj.put(networkUrl, self.headers, data=payLoadDict)
+
+                            if putResponse.status_code == requests.codes.accepted:
+                                # successful addition of network to firewall group
+                                taskUrl = putResponse.headers['Location']
+                                self._checkTaskStatus(taskUrl=taskUrl)
+                                self.rollback.apiData[firewallGroupDict['name']] = True
+                                logger.debug("Successfully added network '{}' to security group '{}'".format(member["name"], firewallGroupDict['name']))
+                            else:
+                                raise Exception("Failed to add network to security group")
                         else:
                             # failure in creation of firewall group
                             response = response.json()
