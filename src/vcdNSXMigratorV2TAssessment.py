@@ -67,7 +67,7 @@ EDGE_GW_SERVICES_VALIDATIONS = {
     'NAT: Range of IPs or network in DNAT rule': 1,
     'IPsec: Route based session type': 2,
     'IPsec: Unsupported Encryption Algorithm': 1,
-    'IPsec: DNAT rules not supported with Policy-based session type': 2,
+    'IPsec: DNAT rules not supported with Policy-based session type': 1,
     'OSPF routing protocol': 2,
     'User-defined Static Routes': 1,
     'LoadBalancer: Transparent Mode': 2,
