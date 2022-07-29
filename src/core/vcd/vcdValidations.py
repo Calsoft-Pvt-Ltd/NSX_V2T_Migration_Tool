@@ -3528,9 +3528,8 @@ class VCDMigrationValidation:
                             else:
                                 translatedAddress = natrule['translatedAddress'].split('/')[0]
                             if ipaddress.ip_address(translatedAddress) in ipaddress.ip_network(subnet, strict=False):
-                                errorList.append(
-                                    'DNAT configured with translated IP {} is not supported on a tier-1 gateway where policy-based IPSec VPN is configured with local subnet {}.\n'.format(
-                                        natrule['translatedAddress'], subnet))
+                                logger.warning('The tier-1 gateway has policy based IPsec VPN configured with local subnet {} that overlaps DNAT rule with translated IP {} . This configuration is supported only with NSX-T 4.0 or later.\n'.format(
+                                        subnet,natrule['translatedAddress']))
                                 break
             else:
                 errorList.append(
