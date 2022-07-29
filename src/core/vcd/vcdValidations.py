@@ -4981,51 +4981,6 @@ class VCDMigrationValidation:
 
     def updateEdgeGatewayInputDict(self, sourceOrgVDCId):
 
-        # validation for NoSnatDestinationSubnet at Org level.
-        if self.orgVdcInput.get('NoSnatDestinationSubnet'):
-            if isinstance(self.orgVdcInput.get('NoSnatDestinationSubnet'), list):
-                for NoSnatDestAddr in self.orgVdcInput.get('NoSnatDestinationSubnet'):
-                    if self.orgVdcInput.get('NoSnatDestinationSubnet'):
-                        try:
-                            ipaddress.ip_network(NoSnatDestAddr)
-                        except:
-                            raise logger.error("Invalid NoSnatDestinationSubnet address in the org")
-            else:
-                raise logger.error("NoSnatDestinationSubnet is in invalid format, please provide in the list formate")
-
-        # validation for LoadBalancerVIPSubnet at Org level.
-
-        if self.orgVdcInput.get('LoadBalancerVIPSubnet'):
-            try:
-                ipaddress.ip_network(self.orgVdcInput.get('LoadBalancerVIPSubnet'))
-            except ValueError:
-                raise logger.error("Invalid load balancer")
-
-        # validation for AdvertiseRoutedNetworks at Org level.
-
-        if self.orgVdcInput.get('AdvertiseRoutedNetworks'):
-            if isinstance(self.orgVdcInput['AdvertiseRoutedNetworks'], bool):
-                self.orgVdcInput['AdvertiseRoutedNetworks'] = {
-                    'default': self.orgVdcInput['AdvertiseRoutedNetworks']
-                }
-            else:
-                logger.error("AdvertiseRoutedNetworks is in invalid format, please provide in the Boolean formate .")
-        else:
-             self.orgVdcInput['AdvertiseRoutedNetworks'] = {
-                               'default': False}
-
-        # validation for NonDistributedNetworks at Org level.
-
-        if isinstance(self.orgVdcInput.get('NonDistributedNetworks'), bool):
-            self.orgVdcInput['NonDistributedNetworks'] = {
-                'default': self.orgVdcInput['NonDistributedNetworks']
-            }
-        else:
-            logger.error(
-                "NonDistributedNetwork is in invalid format , please provide in the Boolean formate .")
-
-        # Validation at org level has done here
-
         edgeGwInputs = {
             'Tier0Gateways': self.orgVdcInput.get('Tier0Gateways'),
             'NoSnatDestinationSubnet': self.orgVdcInput.get('NoSnatDestinationSubnet'),
@@ -5049,40 +5004,95 @@ class VCDMigrationValidation:
         logger.warning(self.orgVdcInput['EdgeGateways'])
 
         # TODO pranshu: add validation for EdgeGateways
+        # validations at org vdc level
+        # validation for NoSnatDestinationSubnet
+        errorList = list()
+        if self.orgVdcInput.get('NoSnatDestinationSubnet'):
+            if isinstance(self.orgVdcInput.get('NoSnatDestinationSubnet'), list):
+                for NoSnatDestAddr in self.orgVdcInput.get('NoSnatDestinationSubnet'):
+                    if self.orgVdcInput.get('NoSnatDestinationSubnet'):
+                        try:
+                            ipaddress.ip_network(NoSnatDestAddr)
+                        except ValueError as e:
+                            errorList.append(
+                                "NoSnatDestinationSubnet value  for {} is not in proper CIDR format. {}".format(
+                                    self.orgVdcInput.get("OrgVDCName"), e))
+            else:
+                errorList.append(
+                    "NoSnatDestinationSubnet value  for {} is not in valid format, please provide in the list format".format(
+                        self.orgVdcInput.get("OrgVDCName")))
 
-        # validation for NoSnatDestinationSubnet at edge gateway level
-
-        NoSnatDestinationSubnet = self.orgVdcInput['EdgeGateways']['EdgeGateway1']['NoSnatDestinationSubnet']
-        if isinstance(NoSnatDestinationSubnet,list):
-            for NoSnatDestAddr in NoSnatDestinationSubnet:
-                if NoSnatDestinationSubnet:
-                    try:
-                        ipaddress.ip_network(NoSnatDestAddr)
-                    except:
-                        raise logger.error("Invalid NoSnatDestinationSubnet address in the edge gatway .")
-        else:
-            raise logger.error("NoSnatDestinationSubnet is in invalid format, please provide in the list formate .")
-
-        # validation for LoadBalancerVIPSubnet at Edgegateway level
-        LoadBalancerVIPSubnet = self.orgVdcInput['EdgeGateways']['EdgeGateway1']['LoadBalancerVIPSubnet']
-        if LoadBalancerVIPSubnet:
+        # validation for LoadBalancerVIPSubnet
+        if self.orgVdcInput.get('LoadBalancerVIPSubnet'):
             try:
-                ipaddress.ip_network(LoadBalancerVIPSubnet)
-            except ValueError:
-                raise logger.error("Invalid load balancer address in edge gateway")
+                ipaddress.ip_network(self.orgVdcInput.get('LoadBalancerVIPSubnet'))
+            except ValueError as e:
+                errorList.append("LoadBalancerVIPSubnet value  for {} is not in proper CIDR format. {}".format(
+                    self.orgVdcInput.get("OrgVDCName"), e))
 
-        # validation for AdvertiseRoutedNetworks at Edge gateway level
-        AdvertiseRoutedNetworks = self.orgVdcInput['EdgeGateways']['EdgeGateway1']['AdvertiseRoutedNetworks']
-        if not isinstance(AdvertiseRoutedNetworks, bool):
-            logger.error(
-                "AdvertiseRoutedNetworks is in invalid format in the edge gateway, please provide in the Boolean formate .")
+        # validation for AdvertiseRoutedNetworks
+        if self.orgVdcInput.get('AdvertiseRoutedNetworks'):
+            if isinstance(self.orgVdcInput['AdvertiseRoutedNetworks'], bool):
+                self.orgVdcInput['AdvertiseRoutedNetworks'] = {
+                    'default': self.orgVdcInput['AdvertiseRoutedNetworks']
+                }
+            else:
+                errorList.append(
+                    "AdvertiseRoutedNetworks for org vdc {} is not in valid format, please provide it in the Boolean format.".format(
+                        self.orgVdcInput.get('OrgVDCName')))
 
-        # validation for NonDistributedNetworks at Edge gateway level.
-        NonDistributedNetworks = self.orgVdcInput['EdgeGateways']['EdgeGateway1']['NonDistributedNetworks']
-        if not isinstance(NonDistributedNetworks, bool):
-            logger.error(
-                "NonDistributedNetwork is in invalid format in the edge gateway, please provide in the Boolean formate .")
+        # validation for NonDistributedNetworks
+        if isinstance(self.orgVdcInput.get('NonDistributedNetworks'), bool):
+            self.orgVdcInput['NonDistributedNetworks'] = {
+                'default': self.orgVdcInput['NonDistributedNetworks']
+            }
+        else:
+            errorList.append(
+                "NonDistributedNetwork for org vdc {} is not in valid format, please provide it in the Boolean format".format(
+                    self.orgVdcInput.get('OrgVDCName')))
 
+        # Validation for org level has done here
+
+        # validations at edge gateway level
+        for EdgeGateway, value in self.orgVdcInput["EdgeGateways"].items():
+            # validation for NoSnatDestinationSubnet
+            if value['NoSnatDestinationSubnet']:
+                if isinstance(value['NoSnatDestinationSubnet'], list):
+                    for NoSnatDestAddr in value['NoSnatDestinationSubnet']:
+                        if value['NoSnatDestinationSubnet']:
+                            try:
+                                ipaddress.ip_network(NoSnatDestAddr)
+                            except ValueError as e:
+                                errorList.append(
+                                    "NoSnatDestinationSubnet value  for {} is not in proper CIDR format. {}".format(
+                                        EdgeGateway, e))
+                else:
+                    errorList.append(
+                        "NoSnatDestinationSubnet is in invalid format, please provide in the list formate .")
+
+            # validation for LoadBalancerVIPSubnet
+            if value['LoadBalancerVIPSubnet']:
+                try:
+                    ipaddress.ip_network(value['LoadBalancerVIPSubnet'])
+                except ValueError as e:
+                    errorList.append(
+                        "LoadBalancerVIPSubnet value  for {} is not in proper CIDR format. {}".format(
+                            EdgeGateway, e))
+
+            # validation for AdvertiseRoutedNetworks
+            if not isinstance(value['AdvertiseRoutedNetworks'], bool):
+                errorList.append(
+                    "AdvertiseRoutedNetworks for {} is not in valid format, please provide it in the Boolean format".format(
+                        EdgeGateway))
+
+            # validation for NonDistributedNetworks
+            if not isinstance(value['NonDistributedNetworks'], bool):
+                errorList.append(
+                    "NonDistributedNetwork for {} is not in valid format, please provide it in the Boolean format".format(
+                        EdgeGateway))
+        if errorList:
+            logger.error(errorList)
+            raise ValidationError
 
 
     def preMigrationValidation(self, inputDict, sourceOrgVDCId, nsxtObj, nsxvObj, validateVapp=False, validateServices=False):
