@@ -23,6 +23,7 @@ VCloudDirector:
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
       AdvertiseRoutedNetworks: True #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
       NonDistributedNetworks: False # (optional) Option to enable the non-distributed routing for routed OrgVDC network.
+      serviceNetworkDefinition: 192.168.255.225/27 # (Optional) Option to set serviceNetworkDefinition for edgeGateway.
       EdgeGateways:
         EdgeGateway1:
           Tier0Gateways: tpm-externalnetwork
@@ -34,6 +35,7 @@ VCloudDirector:
           EdgeGatewayDeploymentEdgeCluster: Edge-cluster1
           AdvertiseRoutedNetworks: True
           NonDistributedNetworks: False
+          serviceNetworkDefinition: 192.168.255.225/27
     - OrgVDCName: Acme-2-vdc # Name of the source organization VDC
       NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
       NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
@@ -49,6 +51,7 @@ VCloudDirector:
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
       AdvertiseRoutedNetworks: False #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
       NonDistributedNetworks: False # (optional) Option to enable the non-distributed routing for routed OrgVDC network.
+      serviceNetworkDefinition: 192.168.255.225/27 # (Optional) Option to set serviceNetworkDefinition for edgeGateway.
   ImportedNetworkTransportZone: Direct-TZ # NSX-T VLAN transport zone used for segment creation for imported networks
   DummyExternalNetwork: Dummy-ext # Name of the dummy external network which will be temporarily attached to source edge gateway during network disconnection.
   CloneOverlayIds: False # (optional) Flag that instructs migration tool to clone the overlay id's of org vdc networks
