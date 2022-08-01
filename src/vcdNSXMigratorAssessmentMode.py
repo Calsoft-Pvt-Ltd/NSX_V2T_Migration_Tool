@@ -160,6 +160,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating whether the source NSX-V Segment ID Pool is subset of target NSX-T VNI pool or not': [vcdValidationObj.validateVniPoolRanges, nsxtObj, self.nsxvObj, self.inputDict["VCloudDirector"].get("CloneOverlayIds")],
                 'Validating Target NSX-T backed Network Pools': [vcdValidationObj.validateTargetPvdcNetworkPools, orgVDCDict.get('NSXTNetworkPoolName', None)],
                 'Validating Cross VDC Networking is enabled or not': [vcdValidationObj.validateCrossVdcNetworking, sourceOrgVDCId],
+                'Validating service network definition for edge gateway services': [vcdValidationObj.validateServiceNetworkDefinition],
                 'Validating published/subscribed catalogs in source org VDC': [vcdValidationObj.getOrgVDCPublishedCatalogs, sourceOrgVDCId, self.inputDict['VCloudDirector']['Organization']['OrgName']],
             }
             # Perform these validations only if vapps are to be migrated
