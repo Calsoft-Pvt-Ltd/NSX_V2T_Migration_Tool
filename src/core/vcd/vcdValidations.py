@@ -4888,6 +4888,10 @@ class VCDMigrationValidation:
             # validating published catalogs
             logger.info("Validating published/subscribed catalogs")
             self.getOrgVDCPublishedCatalogs(sourceOrgVDCId, inputDict['VCloudDirector']['Organization']['OrgName'])
+
+            # Validating service network definition for edge gateway services
+            logger.info('Validating service network definition for edge gateway services')
+            self.validateServiceNetworkDefinition()
         except:
             # Enabling source Org VDC if premigration validation fails
             if disableOrgVDC:
@@ -4980,6 +4984,7 @@ class VCDMigrationValidation:
             # 'EdgeGatewayDeploymentEdgeCluster': self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'),
             'AdvertiseRoutedNetworks': self.orgVdcInput.get('AdvertiseRoutedNetworks', False),
             'NonDistributedNetworks': self.orgVdcInput.get('NonDistributedNetworks', False),
+            'serviceNetworkDefinition': self.orgVdcInput.get('serviceNetworkDefinition', '192.168.255.255/27'),
         }
         for egw in self.getOrgVDCEdgeGateway(sourceOrgVDCId):
             self.orgVdcInput.setdefault('EdgeGateways', {})
@@ -4992,8 +4997,7 @@ class VCDMigrationValidation:
                 self.orgVdcInput['EdgeGateways'][egw['name']] = {
                     **edgeGwInputs
                 }
-
-        logger.warning(self.orgVdcInput['EdgeGateways'])
+        logger.warning(self.orgVdcInput.get('EdgeGateways'))
 
         # TODO pranshu: add validation for EdgeGateways
 
@@ -6368,6 +6372,27 @@ class VCDMigrationValidation:
                 raise ValidationError(
                     "Cross VDC Networking enabled and OrgVdc uses Cross VDC network {}, which is not supported on migration tool.".format(
                         orgVdcNetwork['name']))
+
+    def validateServiceNetworkDefinition(self):
+        """
+        Description : Method that validates service network definition parameter from input YAML
+        Parameters  : orgVdcId - ID of org vdc for which the validation is to be performed
+        """
+        logger.info("Validating Service network defination.")
+        errorList = list()
+        for gateway in self.orgVdcInput['EdgeGateways']:
+            serviceNetworkDefinitionData = self.orgVdcInput['EdgeGateways'][gateway]['serviceNetworkDefinition']
+            ipAddress = serviceNetworkDefinitionData.split('/')[0]
+            try:
+                ip = ipaddress.ip_address(ipAddress)
+            except ValueError:
+                errorList.append("IP address {}, configured in service network definition field is not valid IPv4".format(ipAddress))
+
+            subnetPrefixLength = int(serviceNetworkDefinitionData.split('/')[1])
+            if subnetPrefixLength != 27:
+                errorList.append("ServiceNetworkDefinition parameters configured in user YAML is incorrect, subnet prefix length should be 27.")
+            if errorList:
+                raise Exception('\n'.join(errorList))
 
     @isSessionExpired
     def getEdgeGatewayGreTunnel(self, edgeGatewayId):
