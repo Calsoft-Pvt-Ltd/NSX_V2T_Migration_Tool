@@ -4886,7 +4886,7 @@ class VCDMigrationValidation:
             self.validateCrossVdcNetworking(sourceOrgVDCId)
 
             # validating published catalogs
-            logger.info("Validating published catalogs")
+            logger.info("Validating published/subscribed catalogs")
             self.getOrgVDCPublishedCatalogs(sourceOrgVDCId, inputDict['VCloudDirector']['Organization']['OrgName'])
         except:
             # Enabling source Org VDC if premigration validation fails
@@ -5481,10 +5481,10 @@ class VCDMigrationValidation:
         for srcCatalog in sourceOrgVDCCatalogDetails:
             if srcCatalog.get('PublishExternalCatalogParams', {}).get('IsPublishedExternally'):
                 errorList.append(
-                    "Published Catalog {} exists in org hence needs to be published again after migration.".format(
+                    "Published Catalog {} exists in Org VDC. This should be published manually after cleanup.".format(
                         srcCatalog.get('@name')))
-                logger.warning(f"Published Catalog {srcCatalog.get('@name')} exists in org hence needs to be"
-                            " published again after migration.")
+                logger.warning(f"Published Catalog {srcCatalog.get('@name')} exists in Org VDC. "
+                               f"This should be published manually after cleanup.")
             if srcCatalog.get('ExternalCatalogSubscriptionParams', {}).get('SubscribeToExternalFeeds'):
                 if not Migration:
                     logger.warning(
