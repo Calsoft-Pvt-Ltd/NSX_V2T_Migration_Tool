@@ -27,6 +27,7 @@ cwd = os.getcwd()
 parentDir = os.path.abspath(os.path.join(cwd, os.pardir))
 sys.path.append(parentDir)
 from src.commonUtils.threadUtils import Thread, waitForThreadToComplete
+from src.commonUtils.passwordUtils import PasswordUtilities
 
 # Status codes are assigned to each orgVDC after completion of its assessment
 # e. g.: if any single validations from 'Blocking' category failed, status will be
@@ -114,15 +115,17 @@ class VMwareCloudDirectorNSXMigratorV2T:
     """
     Description :   The class has methods which does v2t-Assessment tasks from NSX-V to NSX-T
     """
-    def __init__(self, inputDict, buildVersion=None):
+    def __init__(self, inputDict, buildVersion=None, passfile=None):
         """
         Description : This method initializes the basic configurations reqired to run Assessment mode
         Parameter: inputDict - dictionary that holds all the input file values (DICT)
                    vCloudDirectorPassword - password of VMware vCloud Director (STRING)
         """
         self.consoleLogger = logging.getLogger("consoleLogger")
-
+        self.passfile = passfile
         self.logger = logging.getLogger("mainLogger")
+
+        self.passwordUtils = PasswordUtilities()
 
         # Build version
         self.buildVersion = buildVersion
@@ -153,7 +156,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
             utils.Utilities().updateRequestsPemCert(certPath)
 
         # Getting password of VMware vCloud Director
-        vCloudDirectorPassword = self._getVcloudDirectorPassword()
+        vCloudDirectorPassword = self._getVcloudDirectorPassword(self.passfile)
 
         threadObj = Thread(maxNumberOfThreads=self.threadCount)
 
@@ -180,14 +183,33 @@ class VMwareCloudDirectorNSXMigratorV2T:
         if not os.path.exists(self.reportBasePath):
             os.mkdir(self.reportBasePath)
 
-    def _getVcloudDirectorPassword(self):
+    def _getVcloudDirectorPassword(self, AssessmentpassFile):
         """
         Description :   getting VMware Cloud Director password from user
         """
-        vCloudDirectorPassword = getpass.getpass(prompt="Please enter VMware Cloud Director Password: ")
-        if not vCloudDirectorPassword:
-            raise ValueError("VMware Cloud Director password must be provided")
-        return vCloudDirectorPassword
+        if AssessmentpassFile:
+            # Reading master key and passwords from file
+            if os.path.exists(AssessmentpassFile):
+                masterKey,vCloudDirectorPassword = self.passwordUtils.readPassFile(AssessmentpassFile, v2tpassfile=True)
+                # generating the decryption key
+                decryptionKey = self.passwordUtils.generateKey(masterKey)
+                # Decrypting passwords using the decrypting key
+                vCloudDirectorPassword = self.passwordUtils.decrypt(decryptionKey, vCloudDirectorPassword.encode())
+                return vCloudDirectorPassword
+            else:
+                raise Exception("Incorrect password file path")
+
+        else:
+            vCloudDirectorPassword = getpass.getpass(prompt="Please enter VMware Cloud Director Password: ")
+            if not vCloudDirectorPassword:
+                raise ValueError("VMware Cloud Director password must be provided")
+            # generating the master key
+            masterKey = self.passwordUtils.generateMasterKey()
+            # generating the encryption key
+            encryptionKey = self.passwordUtils.generateKey(masterKey)
+            encryptedPassword = self.passwordUtils.encrpyt(encryptionKey, vCloudDirectorPassword).decode()
+            self.passwordUtils.writePassFile(masterKey + '\n' + encryptedPassword, "passfilev2tAssessment")
+            return vCloudDirectorPassword
 
     def inputValidation(self):
         """
