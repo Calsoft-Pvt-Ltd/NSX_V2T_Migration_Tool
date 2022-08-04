@@ -26,6 +26,7 @@ from src.commonUtils.utils import listify, urn_id
 from src.core.vcd.vcdValidations import (
     isSessionExpired, description, remediate, remediate_threaded, getSession)
 from src.core.vcd.vcdConfigureEdgeGatewayServices import ConfigureEdgeGatewayServices
+from pkg_resources._vendor.packaging import version
 logger = logging.getLogger('mainLogger')
 endStateLogger = logging.getLogger("endstateLogger")
 
@@ -2652,8 +2653,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # reconnecting target org vdc edge gateway from T0
             self.reconnectTargetEdgeGateway()
 
-            # updating route redistribution rules on tier-0 routers
-            self.updateRouteRedistributionRules(nsxtObj)
+            # updating route redistribution rules on tier-0 routers for rules
+            if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+                self.updateRouteRedistributionRules(nsxtObj)
 
             # Configure DNAT rules for non-distributed network if implicit condition is met
             if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
