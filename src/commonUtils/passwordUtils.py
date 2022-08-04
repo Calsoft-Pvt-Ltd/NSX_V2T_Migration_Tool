@@ -28,7 +28,7 @@ class PasswordUtilities():
         masterKey = ''.join(randomGenerator.choices(string.digits + string.ascii_letters + string.punctuation, k=length))
         return masterKey
 
-    def readPassFile(self, fileName):
+    def readPassFile(self, fileName, v2tpassfile=False):
         """
             Description :   Read the encrypted passwords and master key from file
             Parameters: fileName to be read
@@ -37,7 +37,11 @@ class PasswordUtilities():
         with open(fileName, 'r') as f:
             passList = f.read().split('\n')
             # passfile holds 4 values encrypted - 1. master key, 2. vcd password, 3. nsx-t password, 4. vcenter password, 5. nsx-v password
-            if len(passList) != 5:
+
+            if v2tpassfile and len(passList) != 2:
+                raise Exception("Invalid password file")
+
+            if not v2tpassfile and len(passList) != 5:
                 raise Exception("Invalid password file")
             return passList
 

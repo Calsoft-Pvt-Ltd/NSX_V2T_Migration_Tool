@@ -152,7 +152,6 @@ class VMwareCloudDirectorNSXMigrator():
             (args.preCheck and args.rollback) or \
             (args.cleanupValue and args.v2tAssessment) or \
             (args.v2tAssessment and not args.filePath) or \
-            (args.v2tAssessment and args.passwordFilePath) or \
             (args.preCheck and args.v2tAssessment) or \
             (args.skip and args.execute) or \
             (args.v2tAssessment and (args.cleanupValue or args.preCheck or args.rollback)) or \
@@ -650,7 +649,7 @@ class VMwareCloudDirectorNSXMigrator():
             Utilities.renderInputDict(self.inputDict)
 
     def runV2tAssessment(self):
-        V2TAssessmentModeObj = VMwareCloudDirectorNSXMigratorV2T(self.inputDict, buildVersion=self.buildVersion)
+        V2TAssessmentModeObj = VMwareCloudDirectorNSXMigratorV2T(self.inputDict, buildVersion=self.buildVersion, passfile=self.passFile)
         self.consoleLogger.info('Starting V2T-Assessment mode for NSX-V migration to NSX-T')
 
         # Executing v2t-Assessment mode
