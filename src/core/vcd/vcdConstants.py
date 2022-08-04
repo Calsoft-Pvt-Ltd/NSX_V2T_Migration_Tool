@@ -16,6 +16,9 @@ VCD_API_HEADER = 'application/*;version={}'
 # vcd admin operations legacy api url
 XML_ADMIN_API_URL = "https://{}/api/admin/"
 
+# API version for Betelgeuse builds
+API_VERSION_BETELGEUSE_10_4 = "37.0"
+
 # API version for Andromeda builds
 API_VERSION_ANDROMEDA = "36.0"
 API_VERSION_ANDROMEDA_10_3_1 = "36.1"
