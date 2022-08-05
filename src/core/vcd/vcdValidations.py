@@ -6380,7 +6380,8 @@ class VCDMigrationValidation:
         """
         logger.info("Validating Service network defination.")
         errorList = list()
-        for gateway in self.orgVdcInput['EdgeGateways']:
+
+        for gateway in self.orgVdcInput.get('EdgeGateways', {}):
             serviceNetworkDefinitionData = self.orgVdcInput['EdgeGateways'][gateway]['serviceNetworkDefinition']
             ipAddress = serviceNetworkDefinitionData.split('/')[0]
             try:
