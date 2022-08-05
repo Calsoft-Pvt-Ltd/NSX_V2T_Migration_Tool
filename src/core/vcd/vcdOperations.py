@@ -2137,6 +2137,73 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
+    def getPools(self, start, end, ipToBeRemove):
+        """
+            Description : Get the Splitted DHCP pool.
+        """
+        ipRangeAddresses = [str(ipaddress.IPv4Address(ip)) for ip in
+                            range(int(ipaddress.IPv4Address(start)),
+                                  int(ipaddress.IPv4Address(end) + 1))]
+        splittedDhcpPool = [{'startAddress': '', 'endAddress': ''}]
+
+        if ipToBeRemove not in ipRangeAddresses:
+            return None
+
+        if start == ipToBeRemove:
+            del ipRangeAddresses[0]
+            if ipRangeAddresses:
+                splittedDhcpPool[0]['startAddress'] = ipRangeAddresses[0]
+        elif end == ipToBeRemove:
+            del ipRangeAddresses[-1]
+            if ipRangeAddresses:
+                splittedDhcpPool[0]['endAddress'] = ipRangeAddresses[-1]
+        else:
+            ipIndex = ipRangeAddresses.index(ipToBeRemove)
+            splittedDhcpPool[0]['startAddress'] = ipRangeAddresses[0]
+            splittedDhcpPool[0]['endAddress'] = ipRangeAddresses[ipIndex - 1]
+            del ipRangeAddresses[ipIndex]
+            remainingIpPool = ipRangeAddresses[ipIndex:]
+            if len(remainingIpPool) > 0:
+                splittedDhcpPool.extend([{'startAddress': remainingIpPool[0], 'endAddress': remainingIpPool[-1]}])
+        return splittedDhcpPool
+
+    def getNewDHCPPool(self, start, end, staticBinding):
+        """
+            Description : Get the New dhcp pool by splitting existing DHCP pool by binding IP.
+                            if the DHCP binding IP belongs to DHCP pool.
+        """
+        ipRangeAddresses = [str(ipaddress.IPv4Address(ip)) for ip in
+                            range(int(ipaddress.IPv4Address(start)),
+                                  int(ipaddress.IPv4Address(end) + 1))]
+        dhcpPoolData = list()
+        # sort the binding Ips in ascending order.
+        staticBindingIps = sorted(staticBinding, key=lambda x: [int(m) for m in re.findall("\d+", x)])
+        if len(ipRangeAddresses) == 1:
+            return None
+        else:
+            dhcpPools = self.getPools(start, end, staticBindingIps[0])
+            if dhcpPools:
+                dhcpPoolData.append(dhcpPools[0])
+            if len(staticBindingIps) == 1 and len(dhcpPools) > 1:
+                dhcpPoolData.append(dhcpPools[1])
+                return dhcpPoolData
+            start = dhcpPools[1]['startAddress']
+            end = dhcpPools[1]['endAddress']
+            del staticBindingIps[0]
+            # create the new dhcp pool by splitting original dhcp pool by removing binding ip if present.
+            for staticBinding in staticBindingIps:
+                # get the new pool by splitting existing dhcp pool by dhcp binsing ip.
+                dhcpPools = self.getPools(start, end, staticBinding)
+                if dhcpPools:
+                    dhcpPoolData.append(dhcpPools[0])
+                    if len(dhcpPools) > 1:
+                        start = dhcpPools[1]['startAddress']
+                        end = dhcpPools[1]['endAddress']
+            else:
+                if len(dhcpPools) > 1:
+                    dhcpPoolData.append(dhcpPools[1])
+            return dhcpPoolData
+
     @description("Configuration of DHCP on Target Org VDC Networks")
     @remediate
     def configureDHCP(self, targetOrgVDCId, edgeGatewayDeploymentEdgeCluster=None, nsxtObj=None):
@@ -2147,6 +2214,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         try:
             logger.debug("Configuring DHCP on Target Org VDC Networks")
             data = self.rollback.apiData
+            sourceStaticBindingInfo = dict()
             targetOrgVdcNetworks = self.retrieveNetworkListFromMetadata(targetOrgVDCId, orgVDCType='target')
             for sourceEdgeGatewayDHCP in data['sourceEdgeGatewayDHCP'].values():
                 # checking if dhcp is enabled on source edge gateway
@@ -2155,7 +2223,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 else:
                     # retrieving the dhcp rules of the source edge gateway
                     sourceDhcpPools = listify(sourceEdgeGatewayDHCP['ipPools'].get('ipPools'))
-
+                    # Retrieving the source DHCP static binding if present
+                    if sourceEdgeGatewayDHCP.get('staticBindings'):
+                        sourceStaticBindings = listify(sourceEdgeGatewayDHCP['staticBindings']['staticBindings'])
+                        for staticBinding in sourceStaticBindings:
+                            if staticBinding.get('defaultGateway'):
+                                sourceStaticBindingInfo.setdefault(staticBinding['defaultGateway'], []).append(staticBinding['ipAddress'])
                     # iterating over the source edge gateway dhcp rules
                     for iprange in sourceDhcpPools:
                         # if configStatus flag is already set means that the dhcp rule is already configured,
@@ -2165,6 +2238,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
                         start = iprange['ipRange'].split('-')[0]
                         end = iprange['ipRange'].split('-')[-1]
+                        ipRangeAddresses = [str(ipaddress.IPv4Address(ip)) for ip in
+                                            range(int(ipaddress.IPv4Address(start)),
+                                                  int(ipaddress.IPv4Address(end) + 1))]
+
+                        # get the list of Ips which are used for DHCP binding belongs to DHCP pool.
+                        staticBindingBelongsToPool = [staticBindingIp for staticBindingIp in sourceStaticBindingInfo.get(iprange['defaultGateway']) if staticBindingIp in ipRangeAddresses]
                         # iterating over the target org vdc networks
                         for vdcNetwork in targetOrgVdcNetworks:
                             # handling only the routed networks
@@ -2196,14 +2275,30 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                     dhcpIpAddress = end
                                     dhcpPoolEndAddress = str(ipaddress.ip_address(end) - 1)
 
-                                newDhcpPools = [{
-                                    "enabled": "true" if sourceEdgeGatewayDHCP['enabled'] else "false",
-                                    "ipRange": {
-                                        "startAddress": start,
-                                        "endAddress": dhcpPoolEndAddress or end
-                                    },
-                                    "defaultLeaseTime": 0
-                                }]
+                                # If DHCP static binding IPs are from DHCP pool then split the existing pool by
+                                # removing static binding IPs from the pool.
+                                if staticBindingBelongsToPool:
+                                    newDhcpPools = []
+                                    newDhcpPoolsData = self.getNewDHCPPool(start, dhcpPoolEndAddress or end, staticBindingBelongsToPool)
+                                    if newDhcpPoolsData:
+                                        for dhcpPoolInfo in newDhcpPoolsData:
+                                            newDhcpPools.append({
+                                            "enabled": "true" if sourceEdgeGatewayDHCP['enabled'] else "false",
+                                            "ipRange": {
+                                                "startAddress": dhcpPoolInfo['startAddress'],
+                                                "endAddress": dhcpPoolInfo['endAddress']
+                                            },
+                                            "defaultLeaseTime": 0})
+                                else:
+                                    # CREATE NEW POOL
+                                    newDhcpPools = [{
+                                        "enabled": "true" if sourceEdgeGatewayDHCP['enabled'] else "false",
+                                        "ipRange": {
+                                            "startAddress": start,
+                                             "endAddress": dhcpPoolEndAddress or end
+                                        },
+                                        "defaultLeaseTime": 0
+                                    }]
                                 newLeaseTime = 4294967295 if iprange['leaseTime'] == "infinite" else iprange['leaseTime']
 
                                 payload = {
