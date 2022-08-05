@@ -4976,6 +4976,13 @@ class VCDMigrationValidation:
             return True
 
     def updateEdgeGatewayInputDict(self, sourceOrgVDCId):
+        """
+        Description : Validation for edgeGwInputs.
+        Parameters  : sourceOrgVDCId -  ID of source org vdc (STRING)
+        """
+        # validations at org vdc level
+        errorList = self.validateEdgeGatewayInputFields(self.orgVdcInput, self.orgVdcInput.get("OrgVDCName"))
+
         edgeGwInputs = {
             'Tier0Gateways': self.orgVdcInput.get('Tier0Gateways'),
             'NoSnatDestinationSubnet': self.orgVdcInput.get('NoSnatDestinationSubnet'),
@@ -4988,7 +4995,7 @@ class VCDMigrationValidation:
         }
         for egw in self.getOrgVDCEdgeGateway(sourceOrgVDCId):
             self.orgVdcInput.setdefault('EdgeGateways', {})
-            if egw['name'] in self.orgVdcInput['EdgeGateways']:
+            if egw['name'] in self.orgVdcInput.get('EdgeGateways', {}):
                 self.orgVdcInput['EdgeGateways'][egw['name']] = {
                     **edgeGwInputs,
                     **self.orgVdcInput['EdgeGateways'].get(egw['name'], {})
@@ -4999,7 +5006,55 @@ class VCDMigrationValidation:
                 }
         logger.warning(self.orgVdcInput.get('EdgeGateways'))
 
-        # TODO pranshu: add validation for EdgeGateways
+        # validations at EdgeGateway level
+        for EdgeGateway, value in self.orgVdcInput["EdgeGateways"].items():
+            errorList= errorList + self.validateEdgeGatewayInputFields(value, EdgeGateway)
+        if errorList:
+            logger.error(errorList)
+            raise ValidationError('Invalid data in user input file ')
+    def validateEdgeGatewayInputFields (self, edgeGatewayFields, entity):
+        """
+        Description: Validates org VDC and Granular edge gateway input fields
+        Parameters: edgeGatewayFields: EdgeGateway field
+                    entity: Name OrgVDC/EdgeGateway
+        """
+        errorList = list()
+        # validation for NoSnatDestinationSubnet
+        if edgeGatewayFields['NoSnatDestinationSubnet']:
+            if isinstance(edgeGatewayFields['NoSnatDestinationSubnet'], list):
+                for NoSnatDestAddr in edgeGatewayFields['NoSnatDestinationSubnet']:
+                    if edgeGatewayFields['NoSnatDestinationSubnet']:
+                        try:
+                            ipaddress.ip_network(NoSnatDestAddr)
+                        except ValueError as e:
+                            errorList.append(
+                                "NoSnatDestinationSubnet value  for {} is not in proper CIDR format. {}".format(
+                                    entity, e))
+            else:
+                errorList.append(
+                    "NoSnatDestinationSubnet value  for {} is not in valid format, please provide in the list format".format(
+                        entity))
+
+        # validation for LoadBalancerVIPSubnet
+        if edgeGatewayFields['LoadBalancerVIPSubnet']:
+            try:
+                ipaddress.ip_network(edgeGatewayFields['LoadBalancerVIPSubnet'])
+            except ValueError as e:
+                errorList.append("LoadBalancerVIPSubnet value  for {} is not in proper CIDR format. {}".format(
+                    entity, e))
+
+        # validation for AdvertiseRoutedNetworks
+        if not isinstance(edgeGatewayFields['AdvertiseRoutedNetworks'], bool):
+            errorList.append(
+                "AdvertiseRoutedNetworks for {} is not in valid format, please provide it in the Boolean format".format(
+                    entity))
+
+        # validation for NonDistributedNetworks
+        if not isinstance(edgeGatewayFields['NonDistributedNetworks'], bool):
+            errorList.append(
+                "NonDistributedNetwork for {} is not in valid format, please provide it in the Boolean format".format(
+                    entity))
+        return errorList
 
     def preMigrationValidation(self, inputDict, sourceOrgVDCId, nsxtObj, nsxvObj, validateVapp=False, validateServices=False):
         """
@@ -6378,7 +6433,7 @@ class VCDMigrationValidation:
         Description : Method that validates service network definition parameter from input YAML
         Parameters  : orgVdcId - ID of org vdc for which the validation is to be performed
         """
-        logger.info("Validating Service network defination.")
+        logger.info("Validating Service network definition.")
         errorList = list()
 
         for gateway in self.orgVdcInput.get('EdgeGateways', {}):
