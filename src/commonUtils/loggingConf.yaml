@@ -24,20 +24,20 @@ handlers:
     class: logging.FileHandler
     level: DEBUG
     formatter: simple
-    filename: VCD-NSX-Migrator-{}.log
+    filename: "{orgName}VCD-NSX-Migrator-{mode}-{timestamp}.log"
     encoding: utf-8
 
   pre-assessment:
     class: logging.FileHandler
     level: INFO
-    filename: VCD-NSX-Migrator-preCheck-Summary.log
+    filename: "{orgName}-VCD-NSX-Migrator-{mode}-Summary-{timestamp}.log"
     encoding: utf-8
 
   end-state-log:
     class: logging.FileHandler
     level: DEBUG
     formatter: simple
-    filename: VCD-NSX-Migrator-Statelog-{}.log
+    filename: "{orgName}-VCD-NSX-Migrator-Statelog-{mode}-{timestamp}.log"
     encoding: utf-8
 
 loggers:

@@ -142,7 +142,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
         # List the holds the data of the v2tAssessment
         self.reportData = []
         self.summaryColumnLength = None
-        self.reportBasePath = os.path.join(constants.parentRootDir, "reports")
+        self.vcdBasePath = os.path.join(constants.parentRootDir, "reports", "VCD-" + self.inputDict["VCloudDirector"]["ipAddress"])
 
         # logging the certificate validation warning in case of verify set to False
         if not self.inputDict['VCloudDirector']['verify']:
@@ -180,8 +180,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
         self.initialTime = datetime.datetime.now()
 
         # Create reports directory if it is not present
-        if not os.path.exists(self.reportBasePath):
-            os.mkdir(self.reportBasePath)
+        os.makedirs(self.vcdBasePath, exist_ok=True)
 
     def _getVcloudDirectorPassword(self, AssessmentpassFile):
         """
@@ -829,8 +828,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
         try:
             # Writing detailed assessment report
             # Filename of detailed report file
-            detailedReportfilename = os.path.join(self.reportBasePath,
-                                                  f'{self.vcdUUID}-v2tAssessmentReport-{self.currentDateTime}.csv')
+            detailedReportfilename = os.path.join(self.vcdBasePath,
+                                                  f'v2tAssessmentReport-{self.currentDateTime}.csv')
 
             # Writing data to detailed report csv
             with open(detailedReportfilename, "w", newline='') as f:
@@ -840,8 +839,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
             # Writing summary data report
             # Filename of summary report file
-            summaryReportfilename = os.path.join(self.reportBasePath,
-                                                 f'{self.vcdUUID}-v2tAssessmentReport-Summary-{self.currentDateTime}.csv')
+            summaryReportfilename = os.path.join(self.vcdBasePath,
+                                                 f'v2tAssessmentReport-Summary-{self.currentDateTime}.csv')
 
             # Adding "Summary" block headers to report file rows
             summaryData = [["Summary", "Org VDCs", "VMs", "ORG VDC RAM (MB)"]]
