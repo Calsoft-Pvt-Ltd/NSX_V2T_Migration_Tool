@@ -133,8 +133,10 @@ class VMwareCloudDirectorNSXMigrator():
         # if rollback argument is provided then rollback is retried from its last failed state
         self.retryRollback = args.rollback
 
+        self.renderInputFile()
+
         # Initialize logger object with the migrator execution mode
-        self.loggerObj = Logger(self.executionMode)
+        self.loggerObj = Logger(self.executionMode, self.inputDict)
         self.consoleLogger = logging.getLogger("consoleLogger")
         self.mainLogfile = logging.getLogger('mainLogger').handlers[0].baseFilename
 
@@ -972,8 +974,6 @@ class VMwareCloudDirectorNSXMigrator():
             # read release version
             self.releaseVersion()
             self.consoleLogger.warning("Log Filepath: {}".format(self.mainLogfile))
-
-            self.renderInputFile()
 
             # Execute v2tAssessment
             if self.v2tAssessment:
