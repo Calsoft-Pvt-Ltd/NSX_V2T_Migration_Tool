@@ -224,6 +224,7 @@ class VCDMigrationValidation:
         self.rollback = rollback
         self.version = self._getAPIVersion()
         self.nsxVersion = None
+        self.vcdVersion = None
         self.nsxManagerId = None
         self.networkProviderScope = None
         self.l3DfwRules = None
@@ -1690,7 +1691,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getStaticRoutesDetails(self, edgeGatewayId):
+    def getStaticRoutesDetails(self, edgeGatewayId, Migration=False):
         """
             Description :   Get details of static routes connected to edge gateway
             Parameters  :   edgeGatewayId   -   Edge Gateway ID  (STRING)
@@ -1706,6 +1707,8 @@ class VCDMigrationValidation:
             response = self.restClientObj.get(url, headers)
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
+                if Migration:
+                    return responseDict
                 if responseDict['staticRoutes'] != {}:
                     edgesExternalNetworkList = self.getEdgesExternalNetworkDetails(edgeGatewayId)
                     allStaticRoutes = responseDict['staticRoutes']['staticRoutes']
@@ -1723,6 +1726,25 @@ class VCDMigrationValidation:
                 raise Exception('Failed to get static routing configuration')
         except Exception:
             raise
+
+    def getTargetStaticRouteDetails(self, edgeGatewayID, edgeGatewayName):
+        """
+        Description :   Get details of static routes connected to target edge gateway
+        Parameters  :   edgeGatewayId   -   Target Edge Gateway ID  (STRING)
+        Returns     :   details of static routes (DICT)
+        """
+        url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                vcdConstants.ALL_EDGE_GATEWAYS,
+                                vcdConstants.TARGET_STATIC_ROUTE.format(edgeGatewayID))
+        headers = {'Authorization': self.headers['Authorization'],
+                    'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+        response = self.restClientObj.get(url, headers)
+        responseDict = response.json()
+        if response.status_code == requests.codes.ok:
+            logger.debug("Successfully retrieved static routes on target edge gateway {}".format(edgeGatewayName))
+            return responseDict['values']
+        else:
+            raise Exception('Failed to get static routing configuration of target edge gateway {}'.format(edgeGatewayName))
 
     @isSessionExpired
     def retrieveNetworkListFromMetadata(self, orgVdcId, orgVDCType='source', dfwStatus=False):
@@ -3358,35 +3380,71 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def isStaticRouteAutoCreated(self, edgeGatewayID, nextHopeIp):
+    def staticRouteCheck(self, edgeGatewayID, edgeGatewayName, staticRoutes, routeType):
         """
                 Description :   Gets the Static Routing Configuration details on the Edge Gateway
                                 whether static routes are auto created by vcd for distributed routing or
                                 user defined static routes.
+                                whether the static routes are internal routes within org VDC.
                 Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
                 """
         try:
+            staticRoutesData = self.rollback.apiData.get('sourceStaticRoutes') or dict()
             # url to retrieve the routing config info
             url = "{}{}/{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                                   vcdConstants.NETWORK_EDGES, edgeGatewayID, vcdConstants.VNIC)
             # get api call to retrieve the edge gateway config info
             response = self.restClientObj.get(url, self.headers)
-            subnetMask = None
-            primaryAddress = None
             if response.status_code == requests.codes.ok:
                 responseDict = self.vcdUtils.parseXml(response.content)
                 vNicsDetails = responseDict['vnics']['vnic']
-
-                for vnicData in vNicsDetails:
-                    if "portgroupName" in vnicData.keys() and "DLR_to_EDGE" in vnicData['portgroupName']:
+            else:
+                raise Exception("Failed to get edge gateway {} vnic details".format(edgeGatewayID))
+            internalStaticRoutes = list()
+            externalStaticRoutes = list()
+            for staticRoute in staticRoutes:
+                nextHopIp = staticRoute['nextHop']
+                vnic = staticRoute.get('vnic')
+                if not vnic:
+                    # When static route interface is set to none i.e vnic is none
+                    for vnicData in vNicsDetails:
+                        if "portgroupName" not in vnicData.keys():
+                            continue
                         primaryAddress = vnicData['addressGroups']['addressGroup']['primaryAddress']
                         subnetMask = vnicData['addressGroups']['addressGroup']['subnetMask']
-                        break
+                        if subnetMask and ipaddress.ip_address(nextHopIp) in ipaddress.ip_network(
+                            '{}/{}'.format(primaryAddress, subnetMask), strict=False):
+                            # Checking next hop IP in internal Org VDC network
+                            if vnicData["type"] == "internal":
+                                staticRoute['interface'] = None
+                                internalStaticRoutes.append(staticRoute)
+                            # Checking next hop IP in external network
+                            if vnicData["type"] == "uplink":
+                                externalStaticRoutes.append(staticRoute)
+                else:
+                    # When static route interface is set as external/orgVDC network
+                    for vnicData in vNicsDetails:
+                        # Checking whether edge gateway interface is internal
+                        if vnicData["index"] == vnic and vnicData["type"] == "internal":
+                            # Checking whether the static route is auto plumbed or DLR is used as interface
+                            if "portgroupName" in vnicData.keys() and "DLR_to_EDGE_" + edgeGatewayName != vnicData['portgroupName']:
+                                staticRoute['interface'] = vnicData["portgroupName"]
+                                internalStaticRoutes.append(staticRoute)
+                        # Checking whether the edge gateway interface is external
+                        if vnicData["index"] == vnic and vnicData["type"] == "uplink":
+                            externalStaticRoutes.append(staticRoute)
+            logger.debug("Internal Static Routes - {}".format(internalStaticRoutes))
+            logger.debug("External Static Routes - {}".format(externalStaticRoutes))
 
-            if subnetMask and ipaddress.ip_address(nextHopeIp) in ipaddress.ip_network('{}/{}'.format(primaryAddress, subnetMask), strict=False):
-                logger.debug("Next hop IP {} belongs to network of {}.".format(nextHopeIp, ipaddress.ip_network('{}/{}'.format(primaryAddress, subnetMask), strict=False)))
-                return True
-            return False
+            staticRoutesData[edgeGatewayName] = internalStaticRoutes
+            self.rollback.apiData['sourceStaticRoutes'] = staticRoutesData
+
+            if routeType == 'internal':
+                return internalStaticRoutes
+            if routeType == 'external':
+                return externalStaticRoutes
+            if routeType == '':
+                return internalStaticRoutes + externalStaticRoutes
         except:
             raise
 
@@ -3415,21 +3473,24 @@ class VCDMigrationValidation:
                 # If Pre-Check then raise error, or else raise warning.
                 try:
                     if responseDict['routing']['staticRouting']['staticRoutes']:
-                        for staticRoute in listify(
-                                responseDict['routing']['staticRouting']['staticRoutes']['route']):
-                            nextHopIp = staticRoute['nextHop']
-                            if not self.isStaticRouteAutoCreated(edgeGatewayId, nextHopIp):
-                                if not precheck:
-                                    logger.warning(
-                                        f"Source OrgVDC EdgeGateway {edgeGatewayName} has static routes configured. "
-                                        "These static route will not be migrated. Please configure equivalent rules "
-                                        "directly on external network Tier-0/VRF.\n")
-                                else:
-                                    errorList.append(
-                                        f"WARNING : Source OrgVDC EdgeGateway {edgeGatewayName} has static routes "
-                                        "configured. These static route will not be migrated.Please configure "
-                                        "equivalent rules directly on external network Tier-0/VRF.\n")
-                                break
+                        staticRoutes = listify(responseDict['routing']['staticRouting']['staticRoutes']['route'])
+                        if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+                            routeType = ''
+                            staticRoutesList = self.staticRouteCheck(edgeGatewayId, edgeGatewayName, staticRoutes, routeType=routeType)
+                        else:
+                            routeType = 'external'
+                            staticRoutesList = self.staticRouteCheck(edgeGatewayId, edgeGatewayName, staticRoutes, routeType=routeType)
+                        if staticRoutesList:
+                            if not precheck:
+                                logger.warning(
+                                    f"Source OrgVDC EdgeGateway {edgeGatewayName} has {routeType} static routes configured. "
+                                    "These static route will not be migrated. Please configure equivalent rules "
+                                    "directly on external network Tier-0/VRF in NSX-T.\n")
+                            else:
+                                errorList.append(
+                                    f"WARNING : Source OrgVDC EdgeGateway {edgeGatewayName} has {routeType} static routes "
+                                    "configured. These static route will not be migrated.Please configure "
+                                    "equivalent rules directly on external network Tier-0/VRF in NSX-T.\n")
                 except KeyError:
                     logger.debug('Static routes not present in edgeGateway configuration.\n')
                 # checking if routing is enabled, if so raising exception
@@ -3654,6 +3715,48 @@ class VCDMigrationValidation:
                 timeout += vcdConstants.VCD_CREATION_INTERVAL
             raise Exception('Task {}{} could not complete in the allocated time.'.format(
                 responseDict["operationName"], entityName))
+        except:
+            raise
+
+    @isSessionExpired
+    def _checkJobStatus(self, taskUrl, timeoutForTask=vcdConstants.VCD_CREATION_TIMEOUT, entityName=''):
+        """
+        Description : Checks status of a task in VDC
+        Parameters  : taskUrl   - Url of the task monitored (STRING)
+                      timeOutForTask - Timeout value to check the task status (INT)
+        """
+        taskUrl = "{}{}".format("https://{}".format(self.ipAddress), taskUrl)
+
+        if self.headers.get("Content-Type", None):
+            del self.headers['Content-Type']
+
+        if entityName:
+            entityName = f" for {entityName}"
+
+        timeout = 0.0
+
+        try:
+            while timeout < timeoutForTask:
+                headers = {'Authorization': self.headers['Authorization'],
+                           'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
+                response = self.restClientObj.get(url=taskUrl, headers=headers)
+                if response.status_code == requests.codes.ok:
+                    responseDict = response.json()
+                    logger.debug("Checking status for task : {}{}".format(responseDict["message"], entityName))
+                    if responseDict["status"] == "COMPLETED":
+                        logger.debug("Successfully completed task : {}{}".format(
+                            responseDict["message"], entityName))
+                        return
+                    if responseDict["status"] == "FAILED":
+                        logger.error("Task {}{} is in Error state {}".format(
+                            responseDict["message"], entityName, responseDict['details']))
+                        raise Exception(responseDict['details'])
+                    msg = "Task {}{} is in running state".format(responseDict["message"], entityName)
+                    logger.debug(msg)
+                time.sleep(vcdConstants.VCD_CREATION_INTERVAL)
+                timeout += vcdConstants.VCD_CREATION_INTERVAL
+            raise Exception('Task {}{} could not complete in the allocated time.'.format(
+                responseDict["message"], entityName))
         except:
             raise
 
@@ -4003,7 +4106,7 @@ class VCDMigrationValidation:
 
         # Routed vapp support is added from VCD build 10.3.2.19442122. As API version is same for 10.3.2 and this build,
         # we are comparing VCD version directly.
-        if version.parse(self.getVCDVersion()) < version.parse(vcdConstants.VCD_10_3_2_1_BUILD) and not v2tAssessmentMode:
+        if version.parse(self.vcdVersion) < version.parse(vcdConstants.VCD_10_3_2_1_BUILD) and not v2tAssessmentMode:
             # iterating over the source vapps
             vAppNetworkList = []
             self.vAppNetworkDict = {}
@@ -4292,9 +4395,11 @@ class VCDMigrationValidation:
             if not vCDVersion:
                 raise Exception("Not able to fetch vCD version due to API response difference")
             elif version.parse(vCDVersion) < version.parse("10.3"):
+                self.vcdVersion = vCDVersion
                 logger.warning("VCD {} is not supported with current migration tool. Some features may not work as expected.".format(vCDVersion))
                 return vCDVersion
             else:
+                self.vcdVersion = vCDVersion
                 return vCDVersion
         else:
             raise Exception(

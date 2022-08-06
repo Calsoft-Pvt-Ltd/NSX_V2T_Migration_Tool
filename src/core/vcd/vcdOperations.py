@@ -925,7 +925,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         orgVDCNetworksErrorList = []
 
         try:
-            # Check if source org vdc network disconenction was performed
+            # Check if source org vdc network disconnection was performed
             if rollback and (self.rollback.metadata.get("configureTargetVDC") == None and self.rollback.executionResult.get("configureTargetVDC") == None):
                 return
 
@@ -992,6 +992,65 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 self.disconnectSourceOrgVDCNetwork(networkDisconnectedList, sourceEdgeGatewayId, rollback=True)
                 self.dhcpRollBack(networkDisconnectedList)
             raise exception
+
+    @description("Setting source edge gateway static route interfaces to None")
+    @remediate
+    def setStaticRoutesInterfaces(self, rollback=False):
+        """
+        Description : Set the interfaces of source edge gateway static routes to None before disconnecting any org vdc network
+        """
+        if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+            return
+        filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
+        staticRoutes = self.rollback.apiData.get('sourceStaticRoutes')
+        for sourceEdgeGateway in self.rollback.apiData.get('sourceEdgeGateway', []):
+            internalStaticRoutes = staticRoutes.get(sourceEdgeGateway['name'])
+            if not internalStaticRoutes:
+                continue
+            sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
+            staticRouteConfig = self.getStaticRoutesDetails(sourceEdgeGatewayId, Migration=True)
+            edgeGatewayStaticRouteDict = staticRouteConfig["staticRoutes"].get("staticRoutes", [])
+            # url to retrieve the routing config info
+            url = "{}{}/{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                     vcdConstants.NETWORK_EDGES, sourceEdgeGatewayId, vcdConstants.VNIC)
+            # get api call to retrieve the edge gateway config info
+            response = self.restClientObj.get(url, self.headers)
+            if response.status_code == requests.codes.ok:
+                responseDict = self.vcdUtils.parseXml(response.content)
+                vNicsDetails = responseDict['vnics']['vnic']
+            else:
+                raise Exception("Failed to get edge gateway {} vnic details".format(sourceEdgeGatewayId))
+            for internalStaticRoute in internalStaticRoutes:
+                for edgeGatewayStaticRoute in edgeGatewayStaticRouteDict:
+                    if internalStaticRoute.get('network') == edgeGatewayStaticRoute.get('network') and \
+                            internalStaticRoute.get('nextHop') == edgeGatewayStaticRoute.get('nextHop'):
+                        if not rollback:
+                            edgeGatewayStaticRoute.pop('vnic', None)
+                        else:
+                            for vnicData in vNicsDetails:
+                                if "portgroupName" in vnicData.keys() and vnicData.get('portgroupName') == internalStaticRoute.get('interface'):
+                                    edgeGatewayStaticRoute['vnic'] = vnicData["index"]
+            url = '{}{}?async=true'.format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                vcdConstants.STATIC_ROUTING_CONFIG.format(sourceEdgeGatewayId))
+            payloadData = self.vcdUtils.createPayload(
+                                filePath,
+                                payloadDict={'staticRouteConfig': staticRouteConfig},
+                                fileType='yaml',
+                                componentName=vcdConstants.COMPONENT_NAME,
+                                templateName=vcdConstants.STATIC_ROUTE_INTERFACE_TEMPLATE
+                        )
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Content-Type': vcdConstants.GENERAL_XML_CONTENT_TYPE}
+            response = self.restClientObj.put(url, headers, data=json.loads(payloadData))
+            if response.status_code == requests.codes.accepted:
+                taskUrl = response.headers['Location']
+                self._checkJobStatus(taskUrl=taskUrl)
+                if not rollback:
+                    logger.debug(f'Successfully removed static routes interface of {sourceEdgeGateway["name"]}')
+                else:
+                    logger.debug(f'Successfully restored static routes interface of {sourceEdgeGateway["name"]}')
+            else:
+                raise Exception("Failed to set interface of static route to None")
 
     @description("disconnection of source Edge gateway from external network")
     @remediate
@@ -1945,6 +2004,56 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except Exception:
             raise
 
+    @description("Setting target edge gateway static routes scopes")
+    @remediate
+    def setStaticRoutesScope(self, rollback=False):
+        """
+        Description :   Sets target edge gateway static routes scopes
+        """
+        if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+            return
+        # getting the org vdc networks info from metadata
+        OrgVDCNetworkList = self.rollback.apiData.get('targetOrgVDCNetworks')
+        sourceStaticRoutes = self.rollback.apiData.get('sourceStaticRoutes')
+        for targetEdgeGateway in self.rollback.apiData.get('targetEdgeGateway', []):
+            edgeGatewayID = targetEdgeGateway['id']
+            edgeGatewayName = targetEdgeGateway['name']
+            targetStaticRoutes = self.getTargetStaticRouteDetails(edgeGatewayID, edgeGatewayName)
+            for targetStaticRoute in targetStaticRoutes:
+                for sourceStaticRoute in sourceStaticRoutes.get(edgeGatewayName):
+                    if targetStaticRoute["networkCidr"] == sourceStaticRoute["network"]:
+                        if sourceStaticRoute.get('interface'):
+                            targetStaticRouteID = targetStaticRoute["id"]
+                            payloadData = {
+                                "name": targetStaticRoute["name"],
+                                "description": targetStaticRoute["description"],
+                                "networkCidr": targetStaticRoute["networkCidr"],
+                                "nextHops": [
+                                    {   "ipAddress": targetStaticRoute["nextHops"][0]["ipAddress"],
+                                        "adminDistance": targetStaticRoute["nextHops"][0]["adminDistance"],
+                                        "scope": {
+                                                    "name": sourceStaticRoute['interface'] + '-v2t',
+                                                    "id": OrgVDCNetworkList[sourceStaticRoute['interface'] + '-v2t']['id'],
+                                                    "scopeType": "NETWORK"
+                                        } if not rollback else None
+                                    }
+                                ]
+                            }
+                            url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                  vcdConstants.ALL_EDGE_GATEWAYS,
+                                                  vcdConstants.TARGET_STATIC_ROUTE_BY_ID.format(edgeGatewayID, targetStaticRouteID))
+                            headers = {'Authorization': self.headers['Authorization'],
+                                       'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+                            payloadDict = json.dumps(payloadData)
+                            response = self.restClientObj.put(url, headers, data=payloadDict)
+                            if response.status_code == requests.codes.accepted:
+                                taskUrl = response.headers['Location']
+                                self._checkTaskStatus(taskUrl=taskUrl)
+                                logger.debug("Scope set for static route {} on target edge gateway {}".format(targetStaticRouteID, targetEdgeGateway['name']))
+                            else:
+                                raise Exception('Failed to set scope of static route')
+                            break
+
     @isSessionExpired
     def disableDistributedRoutingOnOrgVdcEdgeGateway(self, orgVDCEdgeGatewayId):
         """
@@ -2691,6 +2800,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             # edgeGatewayId = copy.deepcopy(data['targetEdgeGateway']['id'])
             if orgVdcNetworkList:
+                # Setting static route interfaces to None
+                self.setStaticRoutesInterfaces()
+
                 # disconnecting source org vdc networks from edge gateway
                 self.disconnectSourceOrgVDCNetwork(orgVdcNetworkList, sourceEdgeGatewayIdList)
 
@@ -2703,6 +2815,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if targetOrgVDCNetworkList:
                 # reconnecting target Org VDC networks
                 self.reconnectOrgVDCNetworks(sourceOrgVDCId, targetOrgVDCId, source=False)
+
+                # set static route scopes
+                self.setStaticRoutesScope()
 
             # configuring firewall security groups
             self.configureFirewall(networktype=True)

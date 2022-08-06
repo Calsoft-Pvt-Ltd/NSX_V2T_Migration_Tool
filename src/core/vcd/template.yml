@@ -406,3 +406,33 @@ vCloudDirector:
       </root:NetworkConfig>
       {% endfor %} {# for network in networkConfig \#}
     </root:NetworkConfigSection>
+  staticRouteInterfaceConfig:
+    <staticRouting>
+      {% if 'defaultRoute' in staticRouteConfig %}
+      <defaultRoute>
+        <vnic>{{staticRouteConfig.defaultRoute.vnic}}</vnic>
+        <gatewayAddress>{{staticRouteConfig.defaultRoute.gatewayAddress}}</gatewayAddress>
+        <mtu>{{staticRouteConfig.defaultRoute.mtu}}</mtu>
+        <adminDistance>{{staticRouteConfig.defaultRoute.adminDistance}}</adminDistance>
+      </defaultRoute>
+      {% endif %}
+      <staticRoutes>
+        {% if 'staticRoutes' in staticRouteConfig.staticRoutes %}
+        {% for route in staticRouteConfig.staticRoutes.staticRoutes %}
+        <route>
+          {% if 'mtu' in route %}
+          <mtu>{{route.mtu}}</mtu>
+          {% endif %}
+          <description>{{route.description}}</description>
+          {% if 'vnic' in route %}
+          <vnic>{{route.vnic}}</vnic>
+          {% endif %}
+          <network>{{route.network}}</network>
+          <nextHop>{{route.nextHop}}</nextHop>
+          <type>{{route.type}}</type>
+          <adminDistance>{{route.adminDistance}}</adminDistance>
+        </route>
+        {% endfor %} {# for setting in route in static route \#}
+        {% endif %}
+      </staticRoutes>
+    </staticRouting>

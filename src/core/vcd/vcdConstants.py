@@ -432,6 +432,12 @@ MOVE_CATALOG = 'catalog/{}/action/move'
 # static routing config uri
 STATIC_ROUTING_CONFIG = 'edges/{}/routing/config/static'
 
+# static route create url
+TARGET_STATIC_ROUTE = '/{}/routing/staticRoutes'
+
+# target static route update url
+TARGET_STATIC_ROUTE_BY_ID = '/{}/routing/staticRoutes/{}'
+
 # external network of edges uri
 EDGES_EXTERNAL_NETWORK = 'edges/{}/vdcNetworks?includeDistributed=false'
 
@@ -562,6 +568,9 @@ MOVE_VAPP_VM_PLACEMENT_POLICY_TEMPLATE = 'moveVappVmpWithPlacementPolicy'
 
 # move vapp with vm sizing policy
 MOVE_VAPP_VM_SIZING_POLICY_TEMPLATE = 'moveVappVmWithSizingPolicy'
+
+# adding/removing static route interfaces
+STATIC_ROUTE_INTERFACE_TEMPLATE = 'staticRouteInterfaceConfig'
 
 # move vApp in specified org vdc uri
 MOVE_VAPP_IN_ORG_VDC = "vdc/{}/action/moveVApp"
