@@ -69,6 +69,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             self.configureRouteAdvertisement()
             # Configuring DNS
             self.configureDNS()
+            # configuring static routes
+            self.configStaticRoutes()
             # configuring loadbalancer
             self.configureLoadBalancer(nsxvObj)
             logger.debug("Edge Gateway services configured successfully")
@@ -944,6 +946,86 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                  f"are not configured on source edge gateway {sourceEdgeGateway['name']}")
         except Exception:
             raise
+
+    @description("configuration of static routes")
+    @remediate
+    def configStaticRoutes(self):
+        """
+        Description :   Configure static routes on the Target Edge Gateway
+        """
+        if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+            return
+        logger.debug('Static Routes is getting configured')
+        # Fetching source org vdc id
+        orgVDCStaticRoutes = self.rollback.apiData.get('sourceStaticRoutes')
+        for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
+            logger.debug("Configuring Static Routes in Target Edge Gateway - {}".format(sourceEdgeGateway['name']))
+            sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
+            edgeGatewayData = list(filter(
+                lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
+                self.rollback.apiData['targetEdgeGateway']))
+            edgeGatewayID = edgeGatewayData[0]['id']
+            edgeGatewayName = edgeGatewayData[0]['name']
+
+            # Fetching edge Gateway static routes from Org VDC static route metadata
+            edgeGatewayStaticRoutes = orgVDCStaticRoutes.get(sourceEdgeGateway['name'])
+            # Creating static routes on target edge gateway
+            self.createTargetEdgeGatewayStaticRoutes(edgeGatewayStaticRoutes, edgeGatewayName, edgeGatewayID)
+            # saving metadata of static route creation on edge gateway
+            self.saveMetadataInOrgVdc()
+        logger.info('Static Routes got configured successfully.')
+
+    @isSessionExpired
+    def createTargetEdgeGatewayStaticRoutes(self, edgeGatewayStaticRoutes, edgeGatewayName, edgeGatewayID):
+        """
+        Description :   Create static routes on the Target Edge Gateway
+        Parameters:     internalStaticRoutesList - list of internal static routes on corresponding source edge gateway (LIST)
+                        edgeGatewayName - target edge gateway name (STRING)
+                        edgeGatewayID - target edge gateway ID (STRING)
+        """
+        targetStaticRoutes = self.rollback.apiData.get('targetStaticRoutes') or dict()
+        if targetStaticRoutes.get(edgeGatewayName):
+            return
+        alreadyCreatedStaticRoutes = self.getTargetStaticRouteDetails(edgeGatewayID, edgeGatewayName)
+        targetEdgeGatewayStaticRoutesDict = dict()
+        for staticRoute in edgeGatewayStaticRoutes:
+            if staticRoute["network"] in targetEdgeGatewayStaticRoutesDict:
+                targetEdgeGatewayStaticRoutesDict[staticRoute["network"]]["nextHops"].append({
+                            "ipAddress": staticRoute["nextHop"],
+                            "adminDistance": staticRoute["adminDistance"],
+                })
+            else:
+                targetEdgeGatewayStaticRoutesDict[staticRoute["network"]] = {
+                    "name": "User-defined",
+                    "description": staticRoute["description"],
+                    "networkCidr": staticRoute["network"],
+                    "nextHops": [
+                        {
+                            "ipAddress": staticRoute["nextHop"],
+                            "adminDistance": staticRoute["adminDistance"]
+                        }
+                    ]
+                }
+        for networkCidr, targetStaticRoute in targetEdgeGatewayStaticRoutesDict.items():
+            if any([createdRoute['networkCidr'] == networkCidr for createdRoute in alreadyCreatedStaticRoutes]):
+                continue
+            url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                  vcdConstants.ALL_EDGE_GATEWAYS,
+                                  vcdConstants.TARGET_STATIC_ROUTE.format(edgeGatewayID))
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+            staticRoutepayLoad = json.dumps(targetStaticRoute)
+            response = self.restClientObj.post(url, headers, data=staticRoutepayLoad)
+            if response.status_code == requests.codes.accepted:
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug(f'Successfully created static route on target edge gateway {edgeGatewayName}')
+            else:
+                raise Exception("Failed to create static route on target edge gateway {}".format(edgeGatewayName))
+
+        targetStaticRoutes[edgeGatewayName] = list(targetEdgeGatewayStaticRoutesDict.values())
+        self.rollback.apiData['targetStaticRoutes'] = targetStaticRoutes
+        logger.debug("Successfully configured static routes on target edge gateway {}".format(edgeGatewayName))
 
     @isSessionExpired
     def getTargetEdgeGatewayIpPrefixData(self, targetEdgeGatewayId):
