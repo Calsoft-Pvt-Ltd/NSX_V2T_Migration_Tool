@@ -1002,9 +1002,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
             return
         filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
-        staticRoutes = self.rollback.apiData.get('sourceStaticRoutes')
+        staticRoutes = self.rollback.apiData.get('sourceStaticRoutes', {})
         for sourceEdgeGateway in self.rollback.apiData.get('sourceEdgeGateway', []):
-            internalStaticRoutes = staticRoutes.get(sourceEdgeGateway['name'])
+            internalStaticRoutes = staticRoutes.get(sourceEdgeGateway['name'], [])
             if not internalStaticRoutes:
                 continue
             sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
@@ -2014,7 +2014,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             return
         # getting the org vdc networks info from metadata
         OrgVDCNetworkList = self.rollback.apiData.get('targetOrgVDCNetworks')
-        sourceStaticRoutes = self.rollback.apiData.get('sourceStaticRoutes')
+        sourceStaticRoutes = self.rollback.apiData.get('sourceStaticRoutes', {})
         for targetEdgeGateway in self.rollback.apiData.get('targetEdgeGateway', []):
             edgeGatewayID = targetEdgeGateway['id']
             edgeGatewayName = targetEdgeGateway['name']
