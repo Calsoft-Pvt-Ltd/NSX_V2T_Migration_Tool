@@ -957,7 +957,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             return
         logger.debug('Static Routes is getting configured')
         # Fetching source org vdc id
-        orgVDCStaticRoutes = self.rollback.apiData.get('sourceStaticRoutes')
+        orgVDCStaticRoutes = self.rollback.apiData.get('sourceStaticRoutes', {})
         for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
             logger.debug("Configuring Static Routes in Target Edge Gateway - {}".format(sourceEdgeGateway['name']))
             sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
@@ -968,12 +968,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             edgeGatewayName = edgeGatewayData[0]['name']
 
             # Fetching edge Gateway static routes from Org VDC static route metadata
-            edgeGatewayStaticRoutes = orgVDCStaticRoutes.get(sourceEdgeGateway['name'])
-            # Creating static routes on target edge gateway
-            self.createTargetEdgeGatewayStaticRoutes(edgeGatewayStaticRoutes, edgeGatewayName, edgeGatewayID)
-            # saving metadata of static route creation on edge gateway
-            self.saveMetadataInOrgVdc()
-        logger.info('Static Routes got configured successfully.')
+            edgeGatewayStaticRoutes = orgVDCStaticRoutes.get(sourceEdgeGateway['name'], [])
+
+            if edgeGatewayStaticRoutes:
+                # Creating static routes on target edge gateway
+                self.createTargetEdgeGatewayStaticRoutes(edgeGatewayStaticRoutes, edgeGatewayName, edgeGatewayID)
+                # saving metadata of static route creation on edge gateway
+                self.saveMetadataInOrgVdc()
 
     @isSessionExpired
     def createTargetEdgeGatewayStaticRoutes(self, edgeGatewayStaticRoutes, edgeGatewayName, edgeGatewayID):
