@@ -208,6 +208,10 @@ class VMwareCloudDirectorNSXMigratorV2T:
             encryptionKey = self.passwordUtils.generateKey(masterKey)
             encryptedPassword = self.passwordUtils.encrpyt(encryptionKey, vCloudDirectorPassword).decode()
             self.passwordUtils.writePassFile(masterKey + '\n' + encryptedPassword, "passfilev2tAssessment")
+            if not self.passfile:
+                self.consoleLogger.warning(
+                    'Password file is saved at location: {}'.format(
+                        os.path.join(os.path.dirname(os.path.abspath('passfilev2tAssessment')), 'passfilev2tAssessment')))
             return vCloudDirectorPassword
 
     def inputValidation(self):
