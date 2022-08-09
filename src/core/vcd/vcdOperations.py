@@ -2352,7 +2352,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                   int(ipaddress.IPv4Address(end) + 1))]
 
                         # get the list of Ips which are used for DHCP binding belongs to DHCP pool.
-                        staticBindingBelongsToPool = [staticBindingIp for staticBindingIp in sourceStaticBindingInfo.get(iprange['defaultGateway']) if staticBindingIp in ipRangeAddresses]
+                        staticBindingBelongsToPool = [staticBindingIp for staticBindingIp in sourceStaticBindingInfo.get(iprange['defaultGateway'], []) if staticBindingIp in ipRangeAddresses]
                         # iterating over the target org vdc networks
                         for vdcNetwork in targetOrgVdcNetworks:
                             # handling only the routed networks
