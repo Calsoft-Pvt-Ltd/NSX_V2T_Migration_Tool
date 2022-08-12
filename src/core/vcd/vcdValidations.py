@@ -5093,6 +5093,14 @@ class VCDMigrationValidation:
         # validations at org vdc level
         errorList = self.validateEdgeGatewayInputFields(self.orgVdcInput, self.orgVdcInput.get("OrgVDCName"))
 
+        # validations at EdgeGateway level
+        for EdgeGateway, value in self.orgVdcInput.get('EdgeGateways', {}).items():
+            errorList.extend(self.validateEdgeGatewayInputFields(value, EdgeGateway))
+
+        if errorList:
+            logger.error('\n'.join(errorList))
+            raise ValidationError('Invalid data in user input file')
+
         edgeGwInputs = {
             'Tier0Gateways': self.orgVdcInput.get('Tier0Gateways'),
             'NoSnatDestinationSubnet': self.orgVdcInput.get('NoSnatDestinationSubnet'),
@@ -5116,13 +5124,8 @@ class VCDMigrationValidation:
                 }
         logger.warning(self.orgVdcInput.get('EdgeGateways'))
 
-        # validations at EdgeGateway level
-        for EdgeGateway, value in self.orgVdcInput["EdgeGateways"].items():
-            errorList= errorList + self.validateEdgeGatewayInputFields(value, EdgeGateway)
-        if errorList:
-            logger.error(errorList)
-            raise ValidationError('Invalid data in user input file ')
-    def validateEdgeGatewayInputFields (self, edgeGatewayFields, entity):
+    @staticmethod
+    def validateEdgeGatewayInputFields(edgeGatewayFields, entity):
         """
         Description: Validates org VDC and Granular edge gateway input fields
         Parameters: edgeGatewayFields: EdgeGateway field
@@ -5130,10 +5133,10 @@ class VCDMigrationValidation:
         """
         errorList = list()
         # validation for NoSnatDestinationSubnet
-        if edgeGatewayFields['NoSnatDestinationSubnet']:
-            if isinstance(edgeGatewayFields['NoSnatDestinationSubnet'], list):
-                for NoSnatDestAddr in edgeGatewayFields['NoSnatDestinationSubnet']:
-                    if edgeGatewayFields['NoSnatDestinationSubnet']:
+        if edgeGatewayFields.get('NoSnatDestinationSubnet'):
+            if isinstance(edgeGatewayFields.get('NoSnatDestinationSubnet'), list):
+                for NoSnatDestAddr in edgeGatewayFields.get('NoSnatDestinationSubnet'):
+                    if edgeGatewayFields.get('NoSnatDestinationSubnet'):
                         try:
                             ipaddress.ip_network(NoSnatDestAddr)
                         except ValueError as e:
@@ -5146,21 +5149,21 @@ class VCDMigrationValidation:
                         entity))
 
         # validation for LoadBalancerVIPSubnet
-        if edgeGatewayFields['LoadBalancerVIPSubnet']:
+        if edgeGatewayFields.get('LoadBalancerVIPSubnet'):
             try:
-                ipaddress.ip_network(edgeGatewayFields['LoadBalancerVIPSubnet'])
+                ipaddress.ip_network(edgeGatewayFields.get('LoadBalancerVIPSubnet'))
             except ValueError as e:
                 errorList.append("LoadBalancerVIPSubnet value  for {} is not in proper CIDR format. {}".format(
                     entity, e))
 
         # validation for AdvertiseRoutedNetworks
-        if not isinstance(edgeGatewayFields['AdvertiseRoutedNetworks'], bool):
+        if not isinstance(edgeGatewayFields.get('AdvertiseRoutedNetworks',False), bool):
             errorList.append(
                 "AdvertiseRoutedNetworks for {} is not in valid format, please provide it in the Boolean format".format(
                     entity))
 
         # validation for NonDistributedNetworks
-        if not isinstance(edgeGatewayFields['NonDistributedNetworks'], bool):
+        if not isinstance(edgeGatewayFields.get('NonDistributedNetworks',False), bool):
             errorList.append(
                 "NonDistributedNetwork for {} is not in valid format, please provide it in the Boolean format".format(
                     entity))
