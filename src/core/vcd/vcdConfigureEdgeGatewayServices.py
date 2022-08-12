@@ -3285,11 +3285,14 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
                     payloadData['healthMonitors'] = healthMonitorsForPayload
 
+
                 # Adding certificates in pool payload if https config is present
                 if healthMonitorUsedInPool and healthMonitorUsedInPool[0]['type'] == 'https':
                     lbCertificates = self.getCertificatesFromTenant()
                     certificatePayload = [{'name': objectId, 'id': lbCertificates[objectId]}for objectId in objectIdsOfCertificates]
                     payloadData["caCertificateRefs"] = certificatePayload
+                    if self.version >= vcdConstants.API_VERSION_BETELGEUSE_10_4:
+                        payloadData["sslEnabled"] = True
                 else:
                     payloadData["caCertificateRefs"] = None
 
