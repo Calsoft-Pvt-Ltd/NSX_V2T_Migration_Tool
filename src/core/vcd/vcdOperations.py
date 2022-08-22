@@ -2079,7 +2079,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     natRuleList = responseDict["values"]
                     for natRule in natRuleList:
                         if natRule["name"] in data["internalNatRules"].get(sourceEdgeGatewayId, {}):
-                            putUrl = "{}{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                            putUrl = "{}{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.ALL_EDGE_GATEWAYS,
                                                         vcdConstants.T1_ROUTER_NAT_CONFIG.format(t1gatewayId),
                                                         natRule["id"])
@@ -2105,7 +2105,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             if response.status_code == requests.codes.accepted:
                                 taskUrl = response.headers['Location']
                                 self._checkTaskStatus(taskUrl=taskUrl)
-                                logger.debug("Target NAT rule {} applied to {}".format(natRule["name"], targetOrgVDCNetwork))
+                                logger.debug("Target NAT rule '{}' on target edge gateway '{}' updated successfully".format(natRule["name"], t1gatewayId))
                             else:
                                 raise Exception('Failed to update NAT rule {} on target edge gateway {}'.format(natRule["name"], t1gatewayId))
 
