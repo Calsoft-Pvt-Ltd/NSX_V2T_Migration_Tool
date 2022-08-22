@@ -817,7 +817,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         if not self.rollback.apiData.get("internalNatRules"):
                             self.rollback.apiData["internalNatRules"] = {}
                         if not self.rollback.apiData["internalNatRules"].get(sourceEdgeGatewayId):
-                            self.rollback.apiData["internalNatRules"][sourceEdgeGatewayId] = []
+                            self.rollback.apiData["internalNatRules"][sourceEdgeGatewayId] = {}
                         for sourceNATRule in userDefinedNAT:
                             destinationIpDict = dict()
                             # checking whether 'ConfigStatus' key is present or not if present skipping that rule while remediation
