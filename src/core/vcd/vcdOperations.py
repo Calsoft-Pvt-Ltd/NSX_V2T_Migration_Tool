@@ -2079,9 +2079,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     natRuleList = responseDict["values"]
                     for natRule in natRuleList:
                         if natRule["name"] in data["internalNatRules"].get(sourceEdgeGatewayId, {}):
-                            targetOrgVDCNetwork = filter(lambda OrgVDCNetwork: OrgVDCNetwork == data["internalNatRules"]
-                                                        [sourceEdgeGatewayId][natRule["name"]] + '-v2t',
-                                                         data["targetOrgVDCNetworks"].keys())
                             putUrl = "{}{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                         vcdConstants.ALL_EDGE_GATEWAYS,
                                                         vcdConstants.T1_ROUTER_NAT_CONFIG.format(t1gatewayId),
@@ -2096,7 +2093,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 "logging": natRule.get("logging"),
                                 "priority": natRule.get("priority"),
                                 "firewallMatch": natRule.get("firewallMatch"),
-                                "appliedTo": {"id": data["targetOrgVDCNetworks"][targetOrgVDCNetwork]["id"]},
+                                "appliedTo": {"id": data["targetOrgVDCNetworks"][data["internalNatRules"][sourceEdgeGatewayId][natRule["name"]] + '-v2t']["id"]},
                                 "applicationPortProfile": natRule.get("applicationPortProfile"),
                                 "dnatExternalPort": natRule.get("dnatExternalPort"),
                                 "id": natRule.get("id")
