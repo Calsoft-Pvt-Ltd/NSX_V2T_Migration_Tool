@@ -2078,7 +2078,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     responseDict = response.json()
                     natRuleList = responseDict["values"]
                     for natRule in natRuleList:
-                        if any(natRule["name"] == rule for rule in data.get["internalNatRules"][sourceEdgeGatewayId]):
+                        if natRule["name"] in data.get["internalNatRules"].get(sourceEdgeGatewayId, {}):
                             targetOrgVDCNetwork = filter(lambda OrgVDCNetwork: OrgVDCNetwork == data["internalNatRules"]
                                                         [sourceEdgeGatewayId][natRule["name"]] + '-v2t',
                                                          data["targetOrgVDCNetworks"].keys())
