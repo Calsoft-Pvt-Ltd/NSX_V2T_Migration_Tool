@@ -796,6 +796,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     routingConfigDetails = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId,
                                                                             sourceEdgeGateway['name'],
                                                                             validation=False)
+                    # get details of edge gateway vnics
+                    vNicsDetails = self.getEdgeGatewayVnicDetails(sourceEdgeGatewayId)
                     # get details of all Non default gateway subnet, default gateway and noSnatRules
                     allnonDefaultGatewaySubnetList, defaultGatewayDict, noSnatRulesList = self.getEdgeGatewayNoSnatStaticRoute(
                         sourceEdgeGatewayId, staticRoutingConfig)
@@ -812,6 +814,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     statusForNATConfiguration = self.rollback.apiData.get('NATstatus', {})
                     rulesConfigured = statusForNATConfiguration.get(t1gatewayId, [])
                     if data['enabled'] == 'true':
+                        if not self.rollback.apiData.get("internalNatRules"):
+                            self.rollback.apiData["internalNatRules"] = {}
+                        if not self.rollback.apiData["internalNatRules"].get(sourceEdgeGatewayId):
+                            self.rollback.apiData["internalNatRules"][sourceEdgeGatewayId] = []
                         for sourceNATRule in userDefinedNAT:
                             destinationIpDict = dict()
                             # checking whether 'ConfigStatus' key is present or not if present skipping that rule while remediation
@@ -838,7 +844,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                         'netmask': eachParticipant['netmask']}
                                     break
 
-                            payloadData = self.createNATPayloadData(sourceNATRule, applicationPortProfilesList, version,
+                            payloadData = self.createNATPayloadData(sourceEdgeGatewayId, sourceNATRule, vNicsDetails, applicationPortProfilesList, version,
                                                                     defaultGatewayDict, destinationIpDict, noSnatRulesList,
                                                                     bgpConfigDetails, routingConfigDetails, noSnatDestSubnetList=noSnatDestSubnet)
                             payloadData = payloadData if isinstance(payloadData, list) else [payloadData]
@@ -2060,7 +2066,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         except Exception:
             raise
 
-    def createNATPayloadData(self, sourceNATRule, applicationPortProfilesList, version,
+    def createNATPayloadData(self, sourceEdgeGatewayId, sourceNATRule, vNicsDetails, applicationPortProfilesList, version,
                              defaultEdgeGateway, destinationIpDict, staticRoutesList, bgpDetails,
                              routingConfigDetails, noSnatDestSubnetList=None):
         """
@@ -2080,6 +2086,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
         # fetching NSX-T manager id
         nsxtManagerId = self.getNsxtManagerId(tpvdcName)
+
+        # checking whether nat rule interface is internal and updating metadata respectively
+        for vnicData in vNicsDetails:
+            if sourceNATRule["vnic"] == vnicData["index"] and vnicData["type"] == "internal":
+                if vnicData["portgroupName"] in self.rollback.apiData["sourceOrgVDCNetworks"]:
+                    self.rollback.apiData["internalNatRules"][sourceEdgeGatewayId][sourceNATRule['ruleTag']] = vnicData["portgroupName"]
+                break
 
         # creating common payload dict for both DNAT AND SNAT
         payloadDict = {

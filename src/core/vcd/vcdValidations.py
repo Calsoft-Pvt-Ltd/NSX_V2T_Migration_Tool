@@ -3449,6 +3449,25 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
+    def getEdgeGatewayVnicDetails(self, edgeGatewayId):
+        """
+        Description :   Gets the vnic details of the Edge Gateway
+        Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
+        """
+        # url to retrieve the routing config info
+        url = "{}{}/{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                 vcdConstants.NETWORK_EDGES,
+                                 edgeGatewayId, vcdConstants.VNIC)
+        # get api call to retrieve the edge gateway config info
+        response = self.restClientObj.get(url, self.headers)
+        if response.status_code == requests.codes.ok:
+            responseDict = self.vcdUtils.parseXml(response.content)
+            vNicsDetails = responseDict['vnics']['vnic']
+            return vNicsDetails
+        else:
+            raise Exception("Failed to get edge gateway {} vnic details".format(sourceEdgeGatewayId))
+
+    @isSessionExpired
     def getEdgeGatewayRoutingConfig(self, edgeGatewayId, edgeGatewayName, validation=True, precheck=False):
         """
         Description :   Gets the Routing Configuration details on the Edge Gateway
@@ -6639,5 +6658,27 @@ class VCDMigrationValidation:
                 if dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns:
                     implicitGateways.add(sourceOrgVDCNetwork['connection']['routerRef']['name'])
                     implicitNetworks.add(sourceOrgVDCNetwork['id'])
+
+                if sourceOrgVDCNetwork['id'] in implicitNetworks:
+                    continue
+                # fetching NAT rules configured on edge to which source org vdc network is connected
+                natRules = self.getEdgeGatewayNatConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
+                                                        split(':')[-1], validation=False)
+                # return in case of no rules
+                if not natRules['natRules']:
+                    continue
+                # fetching edge gateway vnic details
+                vNicsDetails = self.getEdgeGatewayVnicDetails(sourceOrgVDCNetwork['connection']['routerRef']['id'].split(':')[-1])
+                # fetching index of NIC to which source org vdc network is connected
+                for vnicData in vNicsDetails:
+                    if sourceOrgVDCNetwork["name"] == vnicData.get("portgroupName"):
+                        vnic = vnicData["index"]
+                        # checking whether nat rule is configured on internal interface to which source org vdc network is connected
+                        for natRule in listify(natRules.get('natRules', {}).get('natRule', [])):
+                            if vnic == natRule["vnic"]:
+                                implicitGateways.add(sourceOrgVDCNetwork['connection']['routerRef']['name'])
+                                implicitNetworks.add(sourceOrgVDCNetwork['id'])
+                                break
+                        break
 
         return implicitGateways, implicitNetworks

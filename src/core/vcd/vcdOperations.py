@@ -2054,6 +2054,64 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 raise Exception('Failed to set scope of static route')
                             break
 
+    @description("Updating target Edge Gateway NAT rules")
+    @remediate
+    def updateNATRules(self):
+        """
+        Description :   Updates the NAT rules created on internal interfaces of source edge gateway
+        """
+        data = self.rollback.apiData
+        if not data.get("internalNatRules"):
+            return
+        targetEdgeGateway = copy.deepcopy(data['targetEdgeGateway'])
+        for sourceEdgeGateway in data['sourceEdgeGateway']:
+            sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
+            if self.rollback.apiData.get("internalNatRules", {}).get(sourceEdgeGatewayId):
+                t1gatewayId = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
+                                           targetEdgeGateway))[0]['id']
+                url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                       vcdConstants.ALL_EDGE_GATEWAYS,
+                                       vcdConstants.T1_ROUTER_NAT_CONFIG.format(t1gatewayId))
+                # rest api call to retrive target edge nat config
+                response = self.restClientObj.get(url, headers=self.headers)
+                if response.status_code == requests.codes.ok:
+                    responseDict = response.json()
+                    natRuleList = responseDict["values"]
+                    for natRule in natRuleList:
+                        if any(natRule["name"] == rule for rule in data.get["internalNatRules"][sourceEdgeGatewayId]):
+                            targetOrgVDCNetwork = filter(lambda OrgVDCNetwork: OrgVDCNetwork == data["internalNatRules"]
+                                                        [sourceEdgeGatewayId][natRule["name"]] + '-v2t',
+                                                         data["targetOrgVDCNetworks"].keys())
+                            putUrl = "{}{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                        vcdConstants.ALL_EDGE_GATEWAYS,
+                                                        vcdConstants.T1_ROUTER_NAT_CONFIG.format(t1gatewayId),
+                                                        natRule["id"])
+                            payLoad = {
+                                "name": natRule.get("name"),
+                                "description": natRule.get("description"),
+                                "enabled": natRule.get("enabled"),
+                                "type": natRule.get("type"),
+                                "externalAddresses": natRule.get("externalAddresses"),
+                                "internalAddresses": natRule.get("internalAddresses"),
+                                "logging": natRule.get("logging"),
+                                "priority": natRule.get("priority"),
+                                "firewallMatch": natRule.get("firewallMatch"),
+                                "appliedTo": {"id": data["targetOrgVDCNetworks"][targetOrgVDCNetwork]["id"]},
+                                "applicationPortProfile": natRule.get("applicationPortProfile"),
+                                "dnatExternalPort": natRule.get("dnatExternalPort"),
+                                "id": natRule.get("id")
+                            }
+                            headers = {'Authorization': self.headers['Authorization'],
+                                       'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+                            payloadDict = json.dumps(payLoad)
+                            response = self.restClientObj.put(putUrl, headers, data=payloadDict)
+                            if response.status_code == requests.codes.accepted:
+                                taskUrl = response.headers['Location']
+                                self._checkTaskStatus(taskUrl=taskUrl)
+                                logger.debug("Target NAT rule {} applied to {}".format(natRule["name"], targetOrgVDCNetwork))
+                            else:
+                                raise Exception('Failed to update NAT rule {} on target edge gateway {}'.format(natRule["name"], t1gatewayId))
+
     @isSessionExpired
     def disableDistributedRoutingOnOrgVdcEdgeGateway(self, orgVDCEdgeGatewayId):
         """
@@ -2818,6 +2876,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
                 # set static route scopes
                 self.setStaticRoutesScope()
+
+                # update NAT rules in internal interfaces
+                self.updateNATRules()
 
             # configuring firewall security groups
             self.configureFirewall(networktype=True)
