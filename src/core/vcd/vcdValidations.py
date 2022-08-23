@@ -3612,6 +3612,13 @@ class VCDMigrationValidation:
             if v2tAssessmentMode:
                 return [], False
 
+            if self.orgVdcInput.get("SkipBGPMigration", False):
+                logger.warning("Skipping BGP configuration as per parameter provided in input file")
+                if validation:
+                    return[], False
+                return{'enabled': 'false'}
+
+
             # Get external network details mapped to edgeGateway
             targetExternalNetwork = self.getExternalNetworkMappedToEdgeGateway(edgeGatewayId)
             sourceEdgeGatewayName = list(
@@ -5091,11 +5098,11 @@ class VCDMigrationValidation:
         Parameters  : sourceOrgVDCId -  ID of source org vdc (STRING)
         """
         # validations at org vdc level
-        errorList = self.validateEdgeGatewayInputFields(self.orgVdcInput, self.orgVdcInput.get("OrgVDCName"))
+        errorList = self.validateEdgeGatewayInputFields(self.orgVdcInput, self.orgVdcInput.get("OrgVDCName"), skipbgpinput=self.orgVdcInput.get("SkipBGPMigration", False))
 
         # validations at EdgeGateway level
         for EdgeGateway, value in self.orgVdcInput.get('EdgeGateways', {}).items():
-            errorList.extend(self.validateEdgeGatewayInputFields(value, EdgeGateway))
+            errorList.extend(self.validateEdgeGatewayInputFields(value, EdgeGateway, skipbgpinput=self.orgVdcInput.get("SkipBGPMigration", False)))
 
         if errorList:
             logger.error('\n'.join(errorList))
@@ -5125,7 +5132,7 @@ class VCDMigrationValidation:
         logger.warning(self.orgVdcInput.get('EdgeGateways'))
 
     @staticmethod
-    def validateEdgeGatewayInputFields(edgeGatewayFields, entity):
+    def validateEdgeGatewayInputFields(edgeGatewayFields, entity, skipbgpinput=False):
         """
         Description: Validates org VDC and Granular edge gateway input fields
         Parameters: edgeGatewayFields: EdgeGateway field
@@ -5148,6 +5155,11 @@ class VCDMigrationValidation:
                     "NoSnatDestinationSubnet value  for {} is not in valid format, please provide in the list format".format(
                         entity))
 
+        if skipbgpinput and edgeGatewayFields.get("AdvertiseRoutedNetworks", False):
+            errorList.append(
+                "SkipBGPMigration and AdvertisedRoutedNetworks both cannot be TRUE incase of skip bgp for Edge Gateway {}".format(
+                    entity))
+
         # validation for LoadBalancerVIPSubnet
         if edgeGatewayFields.get('LoadBalancerVIPSubnet'):
             try:
@@ -5160,6 +5172,12 @@ class VCDMigrationValidation:
         if not isinstance(edgeGatewayFields.get('AdvertiseRoutedNetworks',False), bool):
             errorList.append(
                 "AdvertiseRoutedNetworks for {} is not in valid format, please provide it in the Boolean format".format(
+                    entity))
+
+        # validation for SkipBGPMigration
+        if not isinstance(edgeGatewayFields.get('SkipBGPMigration', False), bool):
+            errorList.append(
+                "SkipBGPMigration for {} is not in valid format, please provide it in the Boolean format".format(
                     entity))
 
         # validation for NonDistributedNetworks
@@ -5239,6 +5257,9 @@ class VCDMigrationValidation:
 
             if 'targetExternalNetwork' not in data.keys():
                 raise Exception('Target External Network not present')
+
+            if self.orgVdcInput.get("SkipBGPMigration", False):
+                return
 
             for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
                 sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]

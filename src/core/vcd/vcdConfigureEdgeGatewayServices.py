@@ -63,10 +63,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             self.configureTargetNAT()
             # Configuring firewall
             self.configureFirewall(networktype=False, configureIPSET=True)
-            # Configuring BGP
-            self.configBGP()
-            # Configuring Route Advertisement
-            self.configureRouteAdvertisement()
+            if not self.orgVdcInput.get("SkipBGPMigration", False):
+                # Configuring BGP
+                self.configBGP()
+                # Configuring Route Advertisement
+                self.configureRouteAdvertisement()
             # Configuring DNS
             self.configureDNS()
             # configuring static routes
@@ -1036,6 +1037,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         """
         logger.debug(f"Fetching IP Prefix data from target edge gateway {targetEdgeGatewayId}")
         # Fetching IpPrefix data from target edge gateway
+        if self.orgVdcInput.get("SkipBGPMigration", False):
+            logger.debug("Skipping IP Prefix Data because SkipBGPMigration is set to True in userInput File")
+            return
         ipPrefixUrl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                       vcdConstants.ALL_EDGE_GATEWAYS,
                                       vcdConstants.CREATE_PREFIX_LISTS_BGP.format(targetEdgeGatewayId))

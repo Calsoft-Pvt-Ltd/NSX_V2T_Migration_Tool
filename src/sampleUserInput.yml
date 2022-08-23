@@ -21,9 +21,10 @@ VCloudDirector:
       ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
       LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
-      AdvertiseRoutedNetworks: True #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
+      AdvertiseRoutedNetworks: False #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
       NonDistributedNetworks: False # (optional) Option to enable the non-distributed routing for routed OrgVDC network.
       serviceNetworkDefinition: 192.168.255.225/27 # (Optional) Option to set serviceNetworkDefinition for edgeGateway.
+      SkipBGPMigration: False # (Optional) Option to skip bgp migration
       EdgeGateways:
         EdgeGateway1:
           Tier0Gateways: tpm-externalnetwork
@@ -33,7 +34,7 @@ VCloudDirector:
           ServiceEngineGroupName: Tenant1
           LoadBalancerVIPSubnet: 192.168.255.128/28
           EdgeGatewayDeploymentEdgeCluster: Edge-cluster1
-          AdvertiseRoutedNetworks: True
+          AdvertiseRoutedNetworks: False
           NonDistributedNetworks: False
           serviceNetworkDefinition: 192.168.255.225/27
     - OrgVDCName: Acme-2-vdc # Name of the source organization VDC
@@ -52,6 +53,7 @@ VCloudDirector:
       AdvertiseRoutedNetworks: False #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
       NonDistributedNetworks: False # (optional) Option to enable the non-distributed routing for routed OrgVDC network.
       serviceNetworkDefinition: 192.168.255.225/27 # (Optional) Option to set serviceNetworkDefinition for edgeGateway.
+      SkipBGPMigration: False # (Optional) Option to skip bgp migration
   ImportedNetworkTransportZone: Direct-TZ # NSX-T VLAN transport zone used for segment creation for imported networks
   DummyExternalNetwork: Dummy-ext # Name of the dummy external network which will be temporarily attached to source edge gateway during network disconnection.
   CloneOverlayIds: False # (optional) Flag that instructs migration tool to clone the overlay id's of org vdc networks
