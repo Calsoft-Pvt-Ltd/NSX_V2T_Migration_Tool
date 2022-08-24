@@ -2263,10 +2263,7 @@ class VCDMigrationValidation:
                                 l3ServiceCnt += 1
                         else:
                             if eachRuleService['protocolName'] == 'TCP' or eachRuleService['protocolName'] == 'UDP':
-                                if not eachRuleService.get('sourcePort') or not eachRuleService.get('destinationPort'):
-                                    InvalidRuleDict[eachRule['name']].add("{}:{}".format(eachRuleService['protocolName'], 'Any'))
-                                else:
-                                    l3ServiceCnt += 1
+                                l3ServiceCnt += 1
                         # if l3ServiceCnt >= 1 and l7ServiceCnt > 1:
                         #     msg = 'More than one Layer7 service present along with one or more layer3 service'
                         #     if msg not in InvalidRuleDict[eachRule['name']]:
@@ -3115,10 +3112,6 @@ class VCDMigrationValidation:
                         if firewall.get('application'):
                             if firewall['application'].get('service'):
                                 services = firewall['application']['service'] if isinstance(firewall['application']['service'], list) else [firewall['application']['service']]
-                                for service in services:
-                                    if service['protocol'] == "tcp" or service['protocol'] == "udp":
-                                        if service['port'] == "any":
-                                            errorList.append("Any as a TCP/UDP port present in the firewall rule '{}'\n".format(firewall['name']))
                         if firewall.get('source'):
                             if firewall['source'].get('vnicGroupId'):
                                 errorList.append("vNicGroupId '{}' is present in the source of firewall rule '{}'\n".format(firewall['source']['vnicGroupId'], firewall['name']))
