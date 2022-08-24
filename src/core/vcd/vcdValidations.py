@@ -5972,7 +5972,18 @@ class VCDMigrationValidation:
                 for dfwRuleNetwork, origin in dfwRuleNetworks:
                     orgVdcNetwork = orgVdcNetworks[dfwRuleNetwork]
                     if orgVdcNetwork['networkType'] == "DIRECT" and orgVdcNetwork['parentNetworkId']['name'] == dfwRuleNetwork:
-                        errorList.append("Rule: {} has invalid objects: {}.".format(rule['name'], dfwRuleNetwork))
+                        # url to retrieve the networks with external network id
+                        url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                              vcdConstants.ALL_ORG_VDC_NETWORKS,
+                                              vcdConstants.QUERY_EXTERNAL_NETWORK.format(orgVdcNetwork['parentNetworkId']['id']))
+                        # get api call to retrieve the networks with external network id
+                        response = self.restClientObj.get(url, self.headers)
+                        responseDict = response.json()
+                        if response.status_code == requests.codes.ok:
+                            if int(responseDict['resultTotal']) > 1:
+                                errorList.append("Rule: {} has invalid objects: {}.".format(rule['name'], dfwRuleNetwork))
+                        else:
+                            raise Exception("Failed to get external network details.")
                     elif orgVdcNetwork['name'] == dfwRuleNetwork and orgVdcNetwork['networkType'] == 'NAT_ROUTED':
                         key = f"{dfwRuleNetwork}({origin})" if origin else dfwRuleNetwork
                         sourceDFWNetworkDict[key] = orgVdcNetwork['connection']['routerRef']['id']

@@ -3635,12 +3635,28 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 return
 
             # sourceToTargetOrgNetIds and targetEntitiesToDcGroupMap is required to identify scope of rule
-            sourceToTargetOrgNetIds = {
-                vcdObj.rollback.apiData["sourceOrgVDCNetworks"][
-                    targetNet[:-4] if targetNet.endswith('-v2t') else targetNet]['id']: targetNetMetadata['id']
-                for vcdObj in vcdObjList
-                for targetNet, targetNetMetadata in vcdObj.rollback.apiData["targetOrgVDCNetworks"].items()
-            }
+            sourceToTargetOrgNetIds = dict()
+            for vcdObj in vcdObjList:
+                for targetNet, targetNetMetadata in vcdObj.rollback.apiData["targetOrgVDCNetworks"].items():
+                    if targetNet.endswith("-v2t"):
+                        # if the network of type imported on target side then get parentNetwork Id for direct network.
+                        if targetNetMetadata["networkType"] == "OPAQUE":
+                            sourceOrgvdcNetwork = vcdObj.rollback.apiData["sourceOrgVDCNetworks"][targetNet[:-4]]
+                            # retieve source network information.
+                            url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(sourceOrgvdcNetwork["id"]))
+                            # retrieve info of source orgVDC network.
+                            response = self.restClientObj.get(url, self.headers)
+                            if response.status_code != requests.codes.ok:
+                                raise Exception("Failed to get OrgVDC details.")
+                            responseDict = response.json()
+                            if responseDict["networkType"] == "DIRECT":
+                                sourceToTargetOrgNetIds[responseDict["parentNetworkId"]["id"]] = targetNetMetadata["id"]
+                        else:
+                            sourceToTargetOrgNetIds[vcdObj.rollback.apiData["sourceOrgVDCNetworks"][targetNet[:-4]]["id"]] = targetNetMetadata["id"]
+                    else:
+                        sourceToTargetOrgNetIds[vcdObj.rollback.apiData["sourceOrgVDCNetworks"][targetNet]["id"]] = targetNetMetadata["id"]
+
             targetEntitiesToDcGroupMap = self.getTargetEntitiesToDcGroupMap()
 
             logger.debug(f'sourceToTargetOrgNetIds {sourceToTargetOrgNetIds}')
