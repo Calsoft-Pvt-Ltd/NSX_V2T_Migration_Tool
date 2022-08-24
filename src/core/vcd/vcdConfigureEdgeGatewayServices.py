@@ -140,7 +140,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                               vcdConstants.T1_ROUTER_FIREWALL_CONFIG.format(edgeGatewayId))
                 if not networktype:
                     # retrieving the application port profiles
-                    applicationPortProfilesList = self.getApplicationPortProfiles()
                     url = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                                         vcdConstants.GET_IPSET_GROUP_BY_ID.format(
                                             vcdConstants.IPSET_SCOPE_URL.format(vcdid)))
@@ -168,6 +167,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     firstTime = True
                     # iterating over the source edge gateway firewall rules
                     for firewallRule in sourceFirewallRules:
+                        # retrieving the application port profiles
+                        applicationPortProfilesList = self.getApplicationPortProfiles()
                         # if configStatus flag is already set means that the firewall rule is already configured, if so then skipping the configuring of same rule and moving to the next firewall rule
                         if self.rollback.apiData.get(firewallRule['id']) and not networktype:
                             if self.rollback.apiData[firewallRule['id']] == sourceEdgeGatewayId:
@@ -449,7 +450,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                         {'name': protocol_name, 'id': port_id})
                                                     payloadDict["applicationPortProfiles"] = applicationServicesList
                                         else:
-                                        # protocol is not icmp
+                                            # protocol is not icmp
                                             protocol_name, port_id = self._searchApplicationPortProfile(
                                                 applicationPortProfilesList,
                                                 applicationService['protocol'],
@@ -807,13 +808,14 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                           vcdConstants.ALL_EDGE_GATEWAYS,
                                           vcdConstants.T1_ROUTER_NAT_CONFIG.format(t1gatewayId))
                     version = data['version']
-                    applicationPortProfilesList = self.getApplicationPortProfiles()
+                    # applicationPortProfilesList = self.getApplicationPortProfiles()
                     userDefinedNAT = [natrule for natrule in sourceNATRules if natrule['ruleType'] == 'user']
                     # if source NAT is enabled NAT rule congiguration starts
                     statusForNATConfiguration = self.rollback.apiData.get('NATstatus', {})
                     rulesConfigured = statusForNATConfiguration.get(t1gatewayId, [])
                     if data['enabled'] == 'true':
                         for sourceNATRule in userDefinedNAT:
+                            applicationPortProfilesList = self.getApplicationPortProfiles()
                             destinationIpDict = dict()
                             # checking whether 'ConfigStatus' key is present or not if present skipping that rule while remediation
                             if sourceNATRule['ruleId'] in rulesConfigured or sourceNATRule['ruleTag'] in rulesConfigured:
@@ -2120,7 +2122,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 payloadData["firewallMatch"] = "MATCH_EXTERNAL_ADDRESS"
 
             # if protocol and port is not equal to any search or creating new application port profiles
-            if sourceNATRule['protocol'] != "any" and sourceNATRule['translatedPort'] != "any":
+            if sourceNATRule['protocol'] != "any" and sourceNATRule['protocol'] != "icmp":
                 protocol_port_name, protocol_port_id = self._searchApplicationPortProfile(
                     applicationPortProfilesList, sourceNATRule['protocol'], sourceNATRule['translatedPort'])
                 payloadData["applicationPortProfile"] = {"name": protocol_port_name, "id": protocol_port_id}
@@ -3642,7 +3644,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             logger.debug(f'sourceToTargetOrgNetIds {sourceToTargetOrgNetIds}')
 
             # Collect pre-configured DFW objects.
-            applicationPortProfilesList = self.getApplicationPortProfiles()
+            # applicationPortProfilesList = self.getApplicationPortProfiles()
             sourceDfwSecurityGroups = self.getSourceDfwSecurityGroups()
             allFirewallGroups = self.fetchFirewallGroupsByDCGroup()
             self.getTargetSecurityTags()
@@ -3715,9 +3717,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         firewallRules = l3rule['services']['service'] if isinstance(l3rule['services']['service'], list) else [l3rule['services']['service']]
                         # iterating over the application services
                         for applicationService in firewallRules:
+                            # Collect pre-configured DFW objects.
+                            applicationPortProfilesList = self.getApplicationPortProfiles()
                             for service in layer3AppServices:
                                 if applicationService.get('protocolName'):
                                     if applicationService['protocolName'] == 'TCP' or applicationService['protocolName'] == 'UDP':
+                                        if not applicationService.get('destinationPort'):
+                                            applicationService['destinationPort'] = 'any'
                                         protocol_name, port_id = self._searchApplicationPortProfile(
                                             applicationPortProfilesList, applicationService['protocolName'],
                                             applicationService['destinationPort'])
