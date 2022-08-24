@@ -5069,98 +5069,129 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 allTargetOrgVDCNetworks += vcdObj.retrieveNetworkListFromMetadata(
                     self.rollback.apiData['targetOrgVDC']['@id'], dfwStatus=False, orgVDCType='target')
 
-            # Handling corner case for shared isolated networks with no conflicts
-            if [network for network in orgVdcNetworks if network['shared']]:
-                orgId = self.rollback.apiData['Organization']['@id']
-                targetOrgVDCNameList = [vcdObj.vdcName + "-v2t" for vcdObj in vcdObjList]
+            orgId = self.rollback.apiData['Organization']['@id']
+            targetOrgVDCNameList = [vcdObj.vdcName + "-v2t" for vcdObj in vcdObjList]
 
-                for targetNetwork in targetOrgVDCNetworks:
-                    # Finding all vdc groups linked to the org vdc's to be parallely migrated
-                    vdcGroups = [dcGroup for dcGroup in self.getOrgVDCGroup() if
-                                 dcGroup['orgId'] == orgId and [vdc for vdc in dcGroup['participatingOrgVdcs'] if
-                                                                vdc['vdcRef']['name'] in targetOrgVDCNameList]]
+            for targetNetwork in targetOrgVDCNetworks:
+                # Finding all vdc groups linked to the org vdc's to be parallely migrated
+                vdcGroups = [dcGroup for dcGroup in self.getOrgVDCGroup() if
+                             dcGroup['orgId'] == orgId and [vdc for vdc in dcGroup['participatingOrgVdcs'] if
+                                                            vdc['vdcRef']['name'] in targetOrgVDCNameList]]
 
-                    # Finding shared dc group
-                    sharedDCGroup = [dcGroup for dcGroup in vdcGroups if
-                                     len(dcGroup['participatingOrgVdcs']) == len(vcdObjList)]
 
-                    for network in orgVdcNetworks:
-                        if targetNetwork['name'] == network['name'] + '-v2t':
-                            # Handle datacenter group scenario for imported shared network use case
-                            if network["networkType"] == "DIRECT" and network["shared"] and \
-                                    targetNetwork["networkType"] == "OPAQUE" and \
-                                    network[
-                                        "backingNetworkType"] == vcdConstants.DIRECT_NETWORK_CONNECTED_TO_PG_BACKED_EXT_NET and \
-                                    targetNetwork['id'] not in self.rollback.apiData.get('OrgVDCGroupID', {}):
+                # Finding shared dc group
+                sharedDCGroup = [dcGroup for dcGroup in vdcGroups if
+                                 len(dcGroup['participatingOrgVdcs']) == len(vcdObjList)]
 
-                                # Searching for shared dc group having no conflicts with the imported network
-                                edgeGatewayNetworkMapping = dict()
-                                isolatedNetworksList = []
-                                for ntw in allTargetOrgVDCNetworks:
-                                    if ntw["networkType"] == "NAT_ROUTED":
-                                        if ntw["connection"]["routerRef"]["id"] in self.rollback.apiData.get(
-                                                'OrgVDCGroupID', {}) and self.rollback.apiData['OrgVDCGroupID'][
-                                            ntw["connection"]["routerRef"]["id"]] in [group['id'] for group in
-                                                                                      sharedDCGroup]:
-                                            if ntw["connection"]["routerRef"]["id"] not in edgeGatewayNetworkMapping:
-                                                edgeGatewayNetworkMapping[ntw["connection"]["routerRef"]["id"]] = [
-                                                    ntw]
-                                            else:
-                                                edgeGatewayNetworkMapping[ntw["connection"]["routerRef"]["id"]].append(
-                                                    ntw)
-                                    if ntw["networkType"] == "ISOLATED":
-                                        if ntw["id"] in self.rollback.apiData.get(
-                                                'OrgVDCGroupID', {}) and self.rollback.apiData['OrgVDCGroupID'][
-                                           ntw["id"]] in [group['id'] for group in sharedDCGroup]:
-                                            isolatedNetworksList.append(ntw)
+                # Finding Non-shared dc group
+                nonSharedDCGroup = [dcGroup for dcGroup in vdcGroups if
+                                 len(dcGroup['participatingOrgVdcs']) == 1]
 
-                                dcGroupName = sourceOrgVDCName + '-Group-' + network['name']
+                for network in orgVdcNetworks:
+                    if targetNetwork['name'] == network['name'] + '-v2t':
+                        # Handle datacenter group scenario for imported Shared/non-Shared network use case.
+                        if network["networkType"] == "DIRECT" and \
+                                targetNetwork["networkType"] == "OPAQUE" and \
+                                network[
+                                    "backingNetworkType"] == vcdConstants.DIRECT_NETWORK_CONNECTED_TO_PG_BACKED_EXT_NET and \
+                                targetNetwork['id'] not in self.rollback.apiData.get('OrgVDCGroupID', {}):
 
-                                dcGroupId = None
-                                # Finding if the routed networks conflict with the imported network
-                                for gatewayId, networkList in edgeGatewayNetworkMapping.items():
-                                    for ntw in networkList:
-                                        for subnet in ntw['subnets']['values']:
-                                            networkAddress = ipaddress.ip_network(f"{subnet['gateway']}/"
-                                                                                  f"{subnet['prefixLength']}",
-                                                                                  strict=False)
-                                            networkToCheckAddress = ipaddress.ip_network(
-                                                f"{targetNetwork['subnets']['values'][0]['gateway']}/"
-                                                f"{targetNetwork['subnets']['values'][0]['prefixLength']}",
-                                                strict=False)
-                                            if networkAddress.overlaps(networkToCheckAddress):
-                                                break
+                            # Searching for dc group having no conflicts with the imported network
+                            edgeGatewayNetworkMapping = dict()
+                            isolatedNetworksList = []
+                            for ntw in allTargetOrgVDCNetworks:
+                                # Check in case of shared imported networks.
+                                if ntw["networkType"] == "NAT_ROUTED" and network["shared"]:
+                                    if ntw["connection"]["routerRef"]["id"] in self.rollback.apiData.get(
+                                            'OrgVDCGroupID', {}) and self.rollback.apiData['OrgVDCGroupID'][
+                                        ntw["connection"]["routerRef"]["id"]] in [group['id'] for group in
+                                                                                  sharedDCGroup]:
+                                        if ntw["connection"]["routerRef"]["id"] not in edgeGatewayNetworkMapping:
+                                            edgeGatewayNetworkMapping[ntw["connection"]["routerRef"]["id"]] = [
+                                                ntw]
                                         else:
-                                            continue
-                                        break
+                                            edgeGatewayNetworkMapping[ntw["connection"]["routerRef"]["id"]].append(
+                                                ntw)
+
+                                # Check in case of non-shared imported networks.
+                                if ntw["networkType"] == "NAT_ROUTED" and not network["shared"]:
+                                    if ntw["connection"]["routerRef"]["id"] in self.rollback.apiData.get(
+                                            'OrgVDCGroupID', {}) and self.rollback.apiData['OrgVDCGroupID'][
+                                        ntw["connection"]["routerRef"]["id"]] in [group['id'] for group in
+                                                                                  nonSharedDCGroup]:
+                                        if ntw["connection"]["routerRef"]["id"] not in edgeGatewayNetworkMapping:
+                                            edgeGatewayNetworkMapping[ntw["connection"]["routerRef"]["id"]] = [
+                                                ntw]
+                                        else:
+                                            edgeGatewayNetworkMapping[ntw["connection"]["routerRef"]["id"]].append(
+                                                ntw)
+
+                                # Check in case of shared imported networks.
+                                if ntw["networkType"] == "ISOLATED" and network["shared"]:
+                                    if ntw["id"] in self.rollback.apiData.get(
+                                            'OrgVDCGroupID', {}) and self.rollback.apiData['OrgVDCGroupID'][
+                                       ntw["id"]] in [group['id'] for group in sharedDCGroup]:
+                                        isolatedNetworksList.append(ntw)
+
+                                # Check in case of non shared imported networks.
+                                if ntw["networkType"] == "ISOLATED" and not network["shared"]:
+                                    if ntw["id"] in self.rollback.apiData.get(
+                                            'OrgVDCGroupID', {}) and self.rollback.apiData['OrgVDCGroupID'][
+                                       ntw["id"]] in [group['id'] for group in nonSharedDCGroup]:
+                                        isolatedNetworksList.append(ntw)
+
+                            dcGroupName = sourceOrgVDCName + '-Group-' + network['name']
+
+                            dcGroupId = None
+                            # Finding if the routed networks conflict with the imported network
+                            for gatewayId, networkList in edgeGatewayNetworkMapping.items():
+                                for ntw in networkList:
+                                    for subnet in ntw['subnets']['values']:
+                                        networkAddress = ipaddress.ip_network(f"{subnet['gateway']}/"
+                                                                              f"{subnet['prefixLength']}",
+                                                                              strict=False)
+                                        networkToCheckAddress = ipaddress.ip_network(
+                                            f"{targetNetwork['subnets']['values'][0]['gateway']}/"
+                                            f"{targetNetwork['subnets']['values'][0]['prefixLength']}",
+                                            strict=False)
+                                        if networkAddress.overlaps(networkToCheckAddress):
+                                            break
                                     else:
-                                        dcGroupId = self.rollback.apiData['OrgVDCGroupID'][gatewayId]
-                                        break
+                                        continue
+                                    break
+                                else:
+                                    dcGroupId = self.rollback.apiData['OrgVDCGroupID'][gatewayId]
+                                    break
 
-                                # Finding if isolated shared networks conflicts with the imported network
-                                if not dcGroupId:
-                                    for ntw in isolatedNetworksList:
-                                        for subnet in ntw['subnets']['values']:
-                                            networkAddress = ipaddress.ip_network(f"{subnet['gateway']}/"
-                                                                                  f"{subnet['prefixLength']}",
-                                                                                  strict=False)
-                                            networkToCheckAddress = ipaddress.ip_network(
-                                                f"{targetNetwork['subnets']['values'][0]['gateway']}/"
-                                                f"{targetNetwork['subnets']['values'][0]['prefixLength']}",
-                                                strict=False)
-                                            if networkAddress.overlaps(networkToCheckAddress):
-                                                break
-                                        else:
-                                            dcGroupId = self.rollback.apiData['OrgVDCGroupID'][ntw['id']]
+                            # Finding if isolated shared networks conflicts with the imported network
+                            if not dcGroupId:
+                                for ntw in isolatedNetworksList:
+                                    for subnet in ntw['subnets']['values']:
+                                        networkAddress = ipaddress.ip_network(f"{subnet['gateway']}/"
+                                                                              f"{subnet['prefixLength']}",
+                                                                              strict=False)
+                                        networkToCheckAddress = ipaddress.ip_network(
+                                            f"{targetNetwork['subnets']['values'][0]['gateway']}/"
+                                            f"{targetNetwork['subnets']['values'][0]['prefixLength']}",
+                                            strict=False)
+                                        if networkAddress.overlaps(networkToCheckAddress):
+                                            break
+                                    else:
+                                        dcGroupId = self.rollback.apiData['OrgVDCGroupID'][ntw['id']]
 
-                                # If shared dc group id without any conflicts is present use that
-                                # Else create a new shared dc group for this network
-                                if not dcGroupId:
+                            # If sdc group id without any conflicts is present use that
+                            # Else create a new shared/non-shared dc group for this network
+                            if not dcGroupId:
+                                if network["shared"]:
                                     dcGroupId = self.createDCgroup(dcGroupName, sharedGroup=True,
                                                                    orgVdcIdList=orgVDCIDList)
-                                ownerIds.update({targetNetwork['id']: dcGroupId})
-                                self.rollback.apiData['OrgVDCGroupID'] = ownerIds
-                            break
+                                else:
+                                    dcGroupId = self.createDCgroup(dcGroupName)
+                            ownerIds.update({targetNetwork['id']: dcGroupId})
+                            self.rollback.apiData['OrgVDCGroupID'] = ownerIds
+                        break
+                logger.info("self.rollback.apiData['OrgVDCGroupID'] : {}".format(self.rollback.apiData['OrgVDCGroupID']))
+
         except:
             raise
         finally:
