@@ -707,6 +707,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                          ' and port retrieved successfully')
                             return value['name'], value['id']
                     elif value['scope'] == 'TENANT' and isinstance(value.get('orgRef'), dict) and value['orgRef']['id'] == data['Organization']['@id']:
+                        if not value['applicationPorts'][0]['destinationPorts']:
+                            value['applicationPorts'][0]['destinationPorts'] = ['any']
                         if value['applicationPorts'][0]['protocol'] == protocol and value['applicationPorts'][0]['destinationPorts'][0] == port:
                             logger.debug('Application Port Profile for the specific protocol'
                                          ' and port retrieved successfully')
