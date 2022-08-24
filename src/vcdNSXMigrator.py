@@ -509,6 +509,7 @@ class VMwareCloudDirectorNSXMigrator():
 
                 # If bridging is configured do rollback
                 self.nsxtObjList[0].rollbackBridging(self.vcdObjList)
+                self.nsxtObjList[0].deleteTransportZone(self.vcdObjList[0], rollback=True)
 
                 # untag the used nodes in bridging if remaining
                 if self.vcdObjList[0].rollback.apiData.get('taggedNodesList'):
