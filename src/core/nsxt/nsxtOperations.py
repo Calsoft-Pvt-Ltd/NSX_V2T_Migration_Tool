@@ -373,7 +373,7 @@ class NSXTOperations():
                     if response.status_code == requests.codes.ok:
                         logger.debug("Successfully created uplink profile {}".format(bridgeUplinkProfile))
                         uplinkProfileId = json.loads(response.content)["unique_id"]
-                        logger.info('Successfully created Bridge Uplink Host Profile.')
+                        logger.info('Successfully created Bridge Uplink Host Profile {}'.format(bridgeUplinkProfile))
                         data['BridgingStatus']['UplinkProfileName'] = bridgeUplinkProfile
                         return uplinkProfileId
                     msg = "Failed to create uplink profile {}.".format(bridgeUplinkProfile)
@@ -403,7 +403,7 @@ class NSXTOperations():
                     if response.status_code == requests.codes.created:
                         logger.debug("Successfully created uplink profile {}".format(bridgeUplinkProfile))
                         uplinkProfileId = json.loads(response.content)["id"]
-                        logger.info('Successfully created Bridge Uplink Host Profile.')
+                        logger.info('Successfully created Bridge Uplink Host Profile {}'.format(bridgeUplinkProfile))
                         data['BridgingStatus']['UplinkProfileName'] = bridgeUplinkProfile
                         return uplinkProfileId
                     msg = "Failed to create uplink profile {}.".format(bridgeUplinkProfile)
@@ -1075,8 +1075,8 @@ class NSXTOperations():
                     logger.error(msg)
                     raise Exception(msg)
 
-            vcdObj.deleteMetadataApiCall(key='taggedNodesList-v2t',
-                                                orgVDCId=vcdObj.rollback.apiData.get('sourceOrgVDC', {}).get('@id'))
+            # setting taggedNodesList to empty after removing tags
+            vcdObj.rollback.apiData['taggedNodesList'] = []
 
             # getting the host switch profile details
             if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
@@ -1104,8 +1104,6 @@ class NSXTOperations():
                     responseData = json.loads(response.content)
                     msg = 'Failed to delete Host Switch Profile {} - {}'.format(hostSwitchProfileId, responseData['error_message'])
                     raise Exception(msg)
-            # Deleting Bridge Transport Zone after the bridging is cleared
-            self.deleteTransportZone(vcdObj)
         except Exception:
             raise
         else:
@@ -1571,8 +1569,7 @@ class NSXTOperations():
                     'Failed to fetch transport node details with error - {}'.format(responseDict["error_message"]))
             if not responseDict.get('tags'):
                 responseDict['tags'] = []
-            responseDict['tags'] = [tag for tag in responseDict['tags'] for removeTag in listify(tagToRemove)
-                                    if tag["scope"] != removeTag[0] and tag["tag"] != removeTag[1]] + \
+            responseDict['tags'] = [tag for tag in responseDict['tags'] if (tag["scope"], tag["tag"]) not in listify(tagToRemove)] + \
                                    [{"scope": tag[0], "tag": tag[1]} for tag in listify(tagToAdd)]
 
             url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
@@ -1623,56 +1620,55 @@ class NSXTOperations():
         Description :   Created bridge transport zone if it is not present in NSX-T
         """
         TransportZone = nsxtConstants.BRIDGE_TRANSPORT_ZONE_NAME + str(uuid.uuid4())
-        try:
-            # Validating whether the bridge transport zone exists or not
-            self.validateTransportZoneExistsInNSXT(TransportZone)
-        except Exception:
-            data = vcdObj.rollback.apiData
-            if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
-                # Url to create transport zone
-                url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                                       nsxtConstants.TRANSPORT_ZONE_PATH.format(TransportZone))
-                payloadData = {
-                    "display_name": TransportZone,
-                    "tz_type": "VLAN_BACKED",
-                    "description": "Transport zone to be used for bridging"
-                }
-                payloadData = json.dumps(payloadData)
-                response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER,
-                                                   auth=self.restClientObj.auth,
-                                                   data=payloadData)
-                if response.status_code == requests.codes.ok:
-                    logger.debug('Bridge Transport Zone {} created successfully.'.format(TransportZone))
-                    data['BridgingStatus'] = {"TransportZone": TransportZone}
-                else:
-                    raise Exception('Failed to create Bridge Transport Zone. Errors {}.'.format(response.content))
+        data = vcdObj.rollback.apiData
+        if data.get("BridgingStatus", {}).get("TransportZone"):
+            return
+        if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+            # Url to create transport zone
+            url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                                nsxtConstants.TRANSPORT_ZONE_PATH.format(TransportZone))
+            payloadData = {
+                "display_name": TransportZone,
+                "tz_type": "VLAN_BACKED",
+                "description": "Transport zone to be used for bridging"
+            }
+            payloadData = json.dumps(payloadData)
+            response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth,
+                                                data=payloadData)
+            if response.status_code == requests.codes.ok:
+                logger.info('Bridge Transport Zone {} created successfully.'.format(TransportZone))
+                data['BridgingStatus'] = {"TransportZone": TransportZone}
+                vcdObj.saveMetadataInOrgVdc(force=True)
             else:
-                # Url to create transport zone
-                url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API)
-                payloadData = {
-                            "display_name": TransportZone,
-                            "transport_type": "VLAN",
-                            "host_switch_name": nsxtConstants.BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME,
-                            "description": "Transport zone to be used for bridging"
-                          }
-                payloadData = json.dumps(payloadData)
-                response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth,
-                                                   data=payloadData)
-                if response.status_code == requests.codes.created:
-                    logger.debug('Bridge Transport Zone {} created successfully.'.format(TransportZone))
-                    data['BridgingStatus'] = {"TransportZone": TransportZone}
-                else:
-                    raise Exception('Failed to create Bridge Transport Zone. Errors {}.'.format(response.content))
+                raise Exception('Failed to create Bridge Transport Zone. Errors {}.'.format(response.content))
         else:
-            logger.debug(f'Bridge Transport Zone {TransportZone} is already present in NSX-T')
+            # Url to create transport zone
+            url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.DEPRECATED_TRANSPORT_ZONE_API)
+            payloadData = {
+                        "display_name": TransportZone,
+                        "transport_type": "VLAN",
+                        "host_switch_name": nsxtConstants.BRIDGE_TRANSPORT_ZONE_HOST_SWITCH_NAME,
+                        "description": "Transport zone to be used for bridging"
+                        }
+            payloadData = json.dumps(payloadData)
+            response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth,
+                                                data=payloadData)
+            if response.status_code == requests.codes.created:
+                logger.info('Bridge Transport Zone {} created successfully.'.format(TransportZone))
+                data['BridgingStatus'] = {"TransportZone": TransportZone}
+                vcdObj.saveMetadataInOrgVdc(force=True)
+            else:
+                raise Exception('Failed to create Bridge Transport Zone. Errors {}.'.format(response.content))
 
-    def deleteTransportZone(self, vcdObj):
+    def deleteTransportZone(self, vcdObj, rollback=False):
         """
         Description :   Delete bridge transport zone from NSX-T
         """
         try:
             try:
-                TransportZone = vcdObj.rollback.apiData['BridgingStatus']['TransportZone']
+                TransportZone = vcdObj.rollback.apiData.get('BridgingStatus', {}).get('TransportZone')
+                if not TransportZone:
+                    return
                 # Validating whether the bridge transport zone exists or not
                 bridgeTransportZoneData = self.validateTransportZoneExistsInNSXT(TransportZone, returnData=True)
             except Exception:
@@ -1690,6 +1686,9 @@ class NSXTOperations():
                                                  auth=self.restClientObj.auth)
             if response.status_code == requests.codes.ok:
                 logger.debug('Successfully deleted Bridge Transport Zone - "{}"'.format(TransportZone))
+                if rollback:
+                    vcdObj.deleteMetadataApiCall(key='BridgingStatus-v2t',
+                                                        orgVDCId=vcdObj.rollback.apiData.get('sourceOrgVDC', {}).get('@id'))
             else:
                 responseData = json.loads(response.content)
                 msg = 'Failed to delete Bridge Transport Zone - "{}" due to error - {}'.format(TransportZone,

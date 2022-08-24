@@ -130,6 +130,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
                             vcdObject.rollback.apiData.get('targetOrgVDC', {}).get('@id'), orgVDCType='target',
                             dfwStatus=dfw)
                 nsxtObj.clearBridging(bridgedNetworksList, vcdObjList[0])
+                nsxtObj.deleteTransportZone(vcdObjList[0])
         except:
             raise
         else:
