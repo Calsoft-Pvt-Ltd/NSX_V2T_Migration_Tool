@@ -623,6 +623,16 @@ VAPP_ITEM_LIST = 'vAppItems'
 # changed vcd login url
 OPEN_LOGIN_URL = "sessions/provider"
 
+# vApp status
+VAPP_STATUS = {
+    'FAILED_CREATION': '-1',
+    'UNRESOLVED': '0',
+    'POWERED_ON': '4',
+    'UNRECOGNIZED': '7',
+    'POWERED_OFF': '8',
+    'INCONSISTENT_STATE': '9'
+}
+
 #ipset scope url
 IPSET_SCOPE_URL = 'scope/{}'
 

@@ -166,9 +166,9 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             # Perform these validations only if vapps are to be migrated
             if mainConstants.MOVEVAPP_KEYWORD in self.executeList:
                 vcdValidationMapping.update({
-                    'Validating if empty vApps do not exist in source org VDC': [vcdValidationObj.validateNoEmptyVappsExistInSourceOrgVDC, sourceOrgVDCId],
+                    'Validating if empty vApps or vApps in failed creation/unresolved/unrecognized/inconsistent state do not exist in source org VDC': [vcdValidationObj.validateNoEmptyVappsExistInSourceOrgVDC, sourceOrgVDCId],
                     'Validating if fencing is enabled on vApps in source OrgVDC': [vcdValidationObj.validateVappFencingMode, sourceOrgVDCId],
-                    'Validating VMs in suspended state do not exists any source vApps': [vcdValidationObj.validateSourceSuspendedVMsInVapp, sourceOrgVDCId],
+                    'Validating VMs in suspended or partially suspended state do not exists any source vApps': [vcdValidationObj.validateSourceSuspendedVMsInVapp, sourceOrgVDCId],
                     'Validating VMs in vApp are not connected to media': [vcdValidationObj.validateVappVMsMediaNotConnected, sourceOrgVDCId, True],
                     'Validating routed vApp networks': [vcdValidationObj.validateRoutedVappNetworks, sourceOrgVDCId, False, nsxtObj],
                     'Validating vApps isolated vApp networks with DHCP enabled': [vcdValidationObj.validateDHCPOnIsolatedvAppNetworks, sourceOrgVDCId, edgeGatewayDeploymentEdgeCluster, nsxtObj],

@@ -3846,9 +3846,14 @@ class VCDMigrationValidation:
         vmList = responseDict['VApp']['Children']['Vm'] if isinstance(responseDict['VApp']['Children']['Vm'],
                                                                       list) else [
             responseDict['VApp']['Children']['Vm']]
+        vApp_state = [
+            code for state, code in vcdConstants.VAPP_STATUS.items()
+            if state in ['FAILED_CREATION', 'UNRESOLVED', 'POWERED_ON', 'UNRECOGNIZED', 'POWERED_OFF',
+                         'INCONSISTENT_STATE']
+        ]
         # iterating over the vms in the vapp
         for vm in vmList:
-            if vm["@status"] not in ['4', '8']:
+            if vm["@status"] not in vApp_state:
                 self.suspendedVMList.append(vm['@name'])
 
     def validateSourceSuspendedVMsInVapp(self, sourceOrgVDCId):
@@ -3870,8 +3875,8 @@ class VCDMigrationValidation:
                 raise Exception("Failed to validate vapp for suspended VM. Check log file for errors")
             if self.suspendedVMList:
                 raise ValidationError(
-                    "VMs: {} are in suspended/unresolved state, Unable to migrate".format(','.join(self.suspendedVMList)))
-            logger.debug("Validated Successfully, No Suspended VMs in Source Vapps")
+                    "VMs: {} are in state like (suspended, partially suspended) which are not supported by migration".format(','.join(self.suspendedVMList)))
+            logger.debug("Validated Successfully, No unspported VMs (suspended, partially suspended etc.) in Source Vapps")
         except Exception:
             raise
 
@@ -5045,7 +5050,7 @@ class VCDMigrationValidation:
         """
         try:
             # validating whether there are empty vapps in source org vdc
-            logger.info("Validating no empty vapps exist in source org VDC")
+            logger.info('Validating if empty vApps or vApps in failed creation/unresolved/unrecognized/inconsistent state do not exist in source org VDC')
             self.validateNoEmptyVappsExistInSourceOrgVDC(sourceOrgVDCId)
 
             # validating the source org vdc does not have any suspended state vms in any of the vapps
@@ -5419,9 +5424,12 @@ class VCDMigrationValidation:
             vAppResponse = self.restClientObj.get(vApp['@href'], self.headers)
             responseDict = self.vcdUtils.parseXml(vAppResponse.content)
             if vAppResponse.status_code == requests.codes.ok:
-                # checking if the vapp has vms present in it
+                # checking if the vapp has vms present in it and different states of vApp
                 if 'VApp' in responseDict.keys():
-                    if not responseDict['VApp'].get('Children'):
+                    if not responseDict['VApp'].get('Children') or responseDict['VApp']["@status"] in [
+                        code for state, code in vcdConstants.VAPP_STATUS.items()
+                        if state in ['FAILED_CREATION', 'UNRESOLVED', 'UNRECOGNIZED', 'INCONSISTENT_STATE']
+                    ]:
                         return True
                 else:
                     raise Exception(f"Failed to get vApp {vApp['@name']} details.")
@@ -5454,9 +5462,11 @@ class VCDMigrationValidation:
                 if status == True:
                     emptyvAppList.append(vAppName)
             if emptyvAppList:
-                raise ValidationError('No VM exist in vApp: {}'.format(','.join(emptyvAppList)))
+                logger.warning('vApp: {} is either empty or in failed '
+                               'creation/unresolved/unrecognized/inconsistent state'.format(','.join(emptyvAppList)))
             else:
-                logger.debug("Validated successfully, no empty vapps exist in Source Org VDC")
+                logger.debug("Validated successfully, No vApp is in empty, failed creation, unresolved, unrecognized "
+                             "or inconsistent state exist in Source Org VDC")
         except Exception:
             raise
 

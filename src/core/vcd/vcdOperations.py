@@ -4212,7 +4212,16 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         responseDict = self.vcdUtils.parseXml(sourceVapp)
         if response.status_code != requests.codes.ok:
             raise Exception(f"Failed to get vApp details: {responseDict['Error']['@message']}")
-
+        if not responseDict['VApp'].get('Children'):
+            logger.info('vApp {} is not moved as vApp does not have any VMs'.format(vApp['@name']))
+            return
+            # skip moving vApp in case of unsupported states
+        if responseDict['VApp']["@status"] in [
+            code for state, code in vcdConstants.VAPP_STATUS.items()
+            if state in ['FAILED_CREATION', 'UNRESOLVED', 'UNRECOGNIZED', 'INCONSISTENT_STATE']
+        ]:
+            logger.warning('vApp {} is not moved as vApp is in FAILED_CREATION/UNRESOLVED/UNRECOGNIZED/INCONSISTENT_STATE state'.format(vApp['@name']))
+            return
         vAppData = responseDict['VApp']
         # self.updateRoutedOrgVdcNetworkStaticIpPool(vAppData)
         payloadDict = {
