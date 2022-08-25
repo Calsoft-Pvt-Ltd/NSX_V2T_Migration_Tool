@@ -3856,6 +3856,9 @@ class VCDMigrationValidation:
             if vm["@status"] not in vApp_state:
                 self.suspendedVMList.append(vm['@name'])
 
+        if responseDict['VApp'].get('InMaintenanceMode') == 'true':
+            self.maintenanceModeVAppList.append(responseDict['VApp']['@name'])
+
     def validateSourceSuspendedVMsInVapp(self, sourceOrgVDCId):
         """
         Description :   Validates that there exists no VMs in suspended state in Source Org VDC
@@ -3863,6 +3866,7 @@ class VCDMigrationValidation:
         """
         try:
             self.suspendedVMList = list()
+            self.maintenanceModeVAppList = list()
             sourceVappsList = self.getOrgVDCvAppsList(sourceOrgVDCId)
             if not sourceVappsList:
                 return
@@ -3876,6 +3880,9 @@ class VCDMigrationValidation:
             if self.suspendedVMList:
                 raise ValidationError(
                     "VMs: {} are in state like (suspended, partially suspended) which are not supported by migration".format(','.join(self.suspendedVMList)))
+            if self.maintenanceModeVAppList:
+                raise ValidationError(
+                    "vApp {} is in maintenance mode which are not supported by migration".format(','.join(self.maintenanceModeVAppList)))
             logger.debug("Validated Successfully, No unspported VMs (suspended, partially suspended etc.) in Source Vapps")
         except Exception:
             raise
@@ -5054,7 +5061,8 @@ class VCDMigrationValidation:
             self.validateNoEmptyVappsExistInSourceOrgVDC(sourceOrgVDCId)
 
             # validating the source org vdc does not have any suspended state vms in any of the vapps
-            logger.info('Validating suspended state VMs does not exist in any of the Source vApps')
+            logger.info('Validating VMs/vApps in suspended/partially suspended state or '
+                        'in maintenance mode do not exists in source OrgVDC')
             self.validateSourceSuspendedVMsInVapp(sourceOrgVDCId)
 
             # Validating if fencing is enabled on vApps in source OrgVDC
