@@ -95,8 +95,7 @@ DFW_VALIDATIONS = {
 }
 
 VALIDATION_CLASSIFICATION = {
-    'Empty vApps': 1,
-    'Suspended VMs': 1,
+    'Unsupported (Suspended) VMs': 1,
     'Unsupported Routed vApp Network Configuration': 1,
     'Fencing enabled on vApps': 1,
     'VM with Independent disks having different storage policies and fast provisioning enabled': 1,
@@ -284,8 +283,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
             # Validation methods reference
             self.vcdValidationMapping = {
-                'Empty vApps': [self.vcdValidationObj.validateNoEmptyVappsExistInSourceOrgVDC, vdcId],
-                'Suspended VMs': [self.vcdValidationObj.validateSourceSuspendedVMsInVapp, vdcId],
+                'Unsupported (Suspended) VMs': [self.vcdValidationObj.validateSourceSuspendedVMsInVapp, vdcId],
                 'Unsupported Routed vApp Network Configuration': [self.vcdValidationObj.validateRoutedVappNetworks, vdcId, True, None],
                 'Fencing enabled on vApps': [self.vcdValidationObj.validateVappFencingMode, vdcId],
                 'No free interface on edge gateways': [self.vcdValidationObj.validateEdgeGatewayUplinks,
