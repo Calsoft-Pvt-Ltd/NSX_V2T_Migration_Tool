@@ -168,7 +168,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 vcdValidationMapping.update({
                     'Validating if empty vApps or vApps in failed creation/unresolved/unrecognized/inconsistent state do not exist in source org VDC': [vcdValidationObj.validateNoEmptyVappsExistInSourceOrgVDC, sourceOrgVDCId],
                     'Validating if fencing is enabled on vApps in source OrgVDC': [vcdValidationObj.validateVappFencingMode, sourceOrgVDCId],
-                    'Validating VMs in suspended or partially suspended state do not exists any source vApps': [vcdValidationObj.validateSourceSuspendedVMsInVapp, sourceOrgVDCId],
+                    'Validating VMs/vApps in suspended/partially suspended state or in maintenance mode do not exists in source OrgVDC': [vcdValidationObj.validateSourceSuspendedVMsInVapp, sourceOrgVDCId],
                     'Validating VMs in vApp are not connected to media': [vcdValidationObj.validateVappVMsMediaNotConnected, sourceOrgVDCId, True],
                     'Validating routed vApp networks': [vcdValidationObj.validateRoutedVappNetworks, sourceOrgVDCId, False, nsxtObj],
                     'Validating vApps isolated vApp networks with DHCP enabled': [vcdValidationObj.validateDHCPOnIsolatedvAppNetworks, sourceOrgVDCId, edgeGatewayDeploymentEdgeCluster, nsxtObj],
