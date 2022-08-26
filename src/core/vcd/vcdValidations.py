@@ -3395,6 +3395,7 @@ class VCDMigrationValidation:
                 raise Exception("Failed to get edge gateway {} vnic details".format(edgeGatewayID))
             internalStaticRoutes = list()
             externalStaticRoutes = list()
+            staticRouteMetadataList = list()
             for staticRoute in staticRoutes:
                 nextHopIp = staticRoute['nextHop']
                 vnic = staticRoute.get('vnic')
@@ -3411,6 +3412,7 @@ class VCDMigrationValidation:
                             if vnicData["type"] == "internal":
                                 staticRoute['interface'] = None
                                 internalStaticRoutes.append(staticRoute)
+                                staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"]})
                             # Checking next hop IP in external network
                             if vnicData["type"] == "uplink":
                                 externalStaticRoutes.append(staticRoute)
@@ -3423,13 +3425,14 @@ class VCDMigrationValidation:
                             if "portgroupName" in vnicData.keys() and "DLR_to_EDGE_" + edgeGatewayName != vnicData['portgroupName']:
                                 staticRoute['interface'] = vnicData["portgroupName"]
                                 internalStaticRoutes.append(staticRoute)
+                                staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"], "interface": staticRoute["interface"]})
                         # Checking whether the edge gateway interface is external
                         if vnicData["index"] == vnic and vnicData["type"] == "uplink":
                             externalStaticRoutes.append(staticRoute)
             logger.debug("Internal Static Routes - {}".format(internalStaticRoutes))
             logger.debug("External Static Routes - {}".format(externalStaticRoutes))
 
-            staticRoutesData[edgeGatewayName] = internalStaticRoutes
+            staticRoutesData[edgeGatewayName] = staticRouteMetadataList
             self.rollback.apiData['sourceStaticRoutes'] = staticRoutesData
 
             if routeType == 'internal':
