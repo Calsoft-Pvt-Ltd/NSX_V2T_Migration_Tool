@@ -5111,12 +5111,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             edgeGatewayNetworkMapping = dict()
                             isolatedNetworksList = []
                             for ntw in allTargetOrgVDCNetworks:
-                                # Check in case of shared imported networks.
-                                if ntw["networkType"] == "NAT_ROUTED" and network["shared"]:
+                                # Check in case of shared/non-shared imported networks.
+                                dcGroupData = sharedDCGroup if network["shared"] else nonSharedDCGroup
+                                if ntw["networkType"] == "NAT_ROUTED":
                                     if ntw["connection"]["routerRef"]["id"] in self.rollback.apiData.get(
                                             'OrgVDCGroupID', {}) and self.rollback.apiData['OrgVDCGroupID'][
                                         ntw["connection"]["routerRef"]["id"]] in [group['id'] for group in
-                                                                                  sharedDCGroup]:
+                                                                                  dcGroupData]:
                                         if ntw["connection"]["routerRef"]["id"] not in edgeGatewayNetworkMapping:
                                             edgeGatewayNetworkMapping[ntw["connection"]["routerRef"]["id"]] = [
                                                 ntw]
@@ -5124,31 +5125,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                             edgeGatewayNetworkMapping[ntw["connection"]["routerRef"]["id"]].append(
                                                 ntw)
 
-                                # Check in case of non-shared imported networks.
-                                if ntw["networkType"] == "NAT_ROUTED" and not network["shared"]:
-                                    if ntw["connection"]["routerRef"]["id"] in self.rollback.apiData.get(
-                                            'OrgVDCGroupID', {}) and self.rollback.apiData['OrgVDCGroupID'][
-                                        ntw["connection"]["routerRef"]["id"]] in [group['id'] for group in
-                                                                                  nonSharedDCGroup]:
-                                        if ntw["connection"]["routerRef"]["id"] not in edgeGatewayNetworkMapping:
-                                            edgeGatewayNetworkMapping[ntw["connection"]["routerRef"]["id"]] = [
-                                                ntw]
-                                        else:
-                                            edgeGatewayNetworkMapping[ntw["connection"]["routerRef"]["id"]].append(
-                                                ntw)
-
-                                # Check in case of shared imported networks.
-                                if ntw["networkType"] == "ISOLATED" and network["shared"]:
+                                # Check in case of shared/non-shared isolated networks.
+                                if ntw["networkType"] == "ISOLATED":
                                     if ntw["id"] in self.rollback.apiData.get(
                                             'OrgVDCGroupID', {}) and self.rollback.apiData['OrgVDCGroupID'][
-                                       ntw["id"]] in [group['id'] for group in sharedDCGroup]:
-                                        isolatedNetworksList.append(ntw)
-
-                                # Check in case of non shared imported networks.
-                                if ntw["networkType"] == "ISOLATED" and not network["shared"]:
-                                    if ntw["id"] in self.rollback.apiData.get(
-                                            'OrgVDCGroupID', {}) and self.rollback.apiData['OrgVDCGroupID'][
-                                       ntw["id"]] in [group['id'] for group in nonSharedDCGroup]:
+                                       ntw["id"]] in [group['id'] for group in dcGroupData]:
                                         isolatedNetworksList.append(ntw)
 
                             dcGroupName = sourceOrgVDCName + '-Group-' + network['name']
@@ -5201,8 +5182,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             ownerIds.update({targetNetwork['id']: dcGroupId})
                             self.rollback.apiData['OrgVDCGroupID'] = ownerIds
                         break
-                logger.info("self.rollback.apiData['OrgVDCGroupID'] : {}".format(self.rollback.apiData['OrgVDCGroupID']))
-
         except:
             raise
         finally:
