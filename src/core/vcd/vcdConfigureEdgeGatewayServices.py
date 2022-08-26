@@ -962,24 +962,24 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             return
         logger.debug('Static Routes is getting configured')
         # Fetching source org vdc id
-        orgVDCStaticRoutes = self.rollback.apiData.get('sourceStaticRoutes', {})
         for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
             logger.debug("Configuring Static Routes in Target Edge Gateway - {}".format(sourceEdgeGateway['name']))
             sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
+            sourceEdgeGatewayName = sourceEdgeGateway['name']
             edgeGatewayData = list(filter(
                 lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
                 self.rollback.apiData['targetEdgeGateway']))
             edgeGatewayID = edgeGatewayData[0]['id']
             edgeGatewayName = edgeGatewayData[0]['name']
 
-            # Fetching edge Gateway static routes from Org VDC static route metadata
-            edgeGatewayStaticRoutes = orgVDCStaticRoutes.get(sourceEdgeGateway['name'], [])
+            # Fetching edge Gateway internal static routes
+            staticRouteConfig = self.getStaticRoutesDetails(sourceEdgeGatewayId, Migration=True)
+            edgeGatewayStaticRouteDict = staticRouteConfig["staticRoutes"].get("staticRoutes", [])
+            edgeGatewayStaticRoutes = self.staticRouteCheck(sourceEdgeGatewayId, sourceEdgeGatewayName, edgeGatewayStaticRouteDict, routeType='internal')
 
             if edgeGatewayStaticRoutes:
                 # Creating static routes on target edge gateway
                 self.createTargetEdgeGatewayStaticRoutes(edgeGatewayStaticRoutes, edgeGatewayName, edgeGatewayID)
-                # saving metadata of static route creation on edge gateway
-                self.saveMetadataInOrgVdc()
 
     @isSessionExpired
     def createTargetEdgeGatewayStaticRoutes(self, edgeGatewayStaticRoutes, edgeGatewayName, edgeGatewayID):
@@ -989,10 +989,15 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         edgeGatewayName - target edge gateway name (STRING)
                         edgeGatewayID - target edge gateway ID (STRING)
         """
-        targetStaticRoutes = self.rollback.apiData.get('targetStaticRoutes') or dict()
-        if targetStaticRoutes.get(edgeGatewayName):
+        # Fetching static routes created on target edge gateway
+        targetStaticRoutes = self.getTargetStaticRouteDetails(edgeGatewayID, edgeGatewayName)
+        # checking number of static routes on source and target and skipping creation if they are equal
+        if len(edgeGatewayStaticRoutes) == len(targetStaticRoutes):
+            # multiple static routes on NSX-V edge having same network can be created as a single static route on NSX-T
+            # But we don't migrate static routes having same network so source static routes(internal) and target static routes must be equal in number
+            # Skipping creation of static routes on target if length of both is same which means all the internal static routes are already created
             return
-        alreadyCreatedStaticRoutes = self.getTargetStaticRouteDetails(edgeGatewayID, edgeGatewayName)
+
         targetEdgeGatewayStaticRoutesDict = dict()
         for staticRoute in edgeGatewayStaticRoutes:
             if staticRoute["network"] in targetEdgeGatewayStaticRoutesDict:
@@ -1013,7 +1018,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     ]
                 }
         for networkCidr, targetStaticRoute in targetEdgeGatewayStaticRoutesDict.items():
-            if any([createdRoute['networkCidr'] == networkCidr for createdRoute in alreadyCreatedStaticRoutes]):
+            if any([createdRoute['networkCidr'] == networkCidr for createdRoute in targetStaticRoutes]):
                 continue
             url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                   vcdConstants.ALL_EDGE_GATEWAYS,
@@ -1028,9 +1033,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 logger.debug(f'Successfully created static route on target edge gateway {edgeGatewayName}')
             else:
                 raise Exception("Failed to create static route on target edge gateway {}".format(edgeGatewayName))
-
-        targetStaticRoutes[edgeGatewayName] = list(targetEdgeGatewayStaticRoutesDict.values())
-        self.rollback.apiData['targetStaticRoutes'] = targetStaticRoutes
         logger.debug("Successfully configured static routes on target edge gateway {}".format(edgeGatewayName))
 
     @isSessionExpired
