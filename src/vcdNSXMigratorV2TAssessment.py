@@ -60,7 +60,6 @@ EDGE_GW_SERVICES_VALIDATIONS = {
     'DHCP Binding: Binding IP addresses overlaps with static IP Pool range': 1,
     'DHCP Relay: Domain names are configured': 1,
     'DHCP Relay: More than 8 DHCP servers configured': 1,
-    'Gateway Firewall: Any as TCP/UDP port': 1,
     'Gateway Firewall: Gateway Interfaces in rule': 1,
     'Gateway Firewall: Networks connected to different edge gateway used': 1,
     'Gateway Firewall: Unsupported grouping object': 1,
@@ -95,12 +94,12 @@ DFW_VALIDATIONS = {
 }
 
 VALIDATION_CLASSIFICATION = {
-    'Unsupported (Suspended) VMs': 1,
+    'Unsupported vApps/VMs': 1,
     'Unsupported Routed vApp Network Configuration': 1,
     'Fencing enabled on vApps': 1,
     'VM with Independent disks having different storage policies and fast provisioning enabled': 1,
     'No free interface on edge gateways': 1,
-    'Published Catalog': 1,
+    'Published/Subscribed Catalog': 1,
     'Shared Independent Disks': 2,
     'Cross VDC Networking': 2,
     **EDGE_GW_SERVICES_VALIDATIONS,
@@ -283,12 +282,12 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
             # Validation methods reference
             self.vcdValidationMapping = {
-                'Unsupported (Suspended) VMs': [self.vcdValidationObj.validateSourceSuspendedVMsInVapp, vdcId],
+                'Unsupported vApps/VMs': [self.vcdValidationObj.validateSourceSuspendedVMsInVapp, vdcId],
                 'Unsupported Routed vApp Network Configuration': [self.vcdValidationObj.validateRoutedVappNetworks, vdcId, True, None],
                 'Fencing enabled on vApps': [self.vcdValidationObj.validateVappFencingMode, vdcId],
                 'No free interface on edge gateways': [self.vcdValidationObj.validateEdgeGatewayUplinks,
                                                      vdcId, self.edgeGatewayIdList, False],
-                'Published Catalog': [self.vcdValidationObj.getOrgVDCPublishedCatalogs, vdcId, orgName, True],
+                'Published/Subscribed Catalog': [self.vcdValidationObj.getOrgVDCPublishedCatalogs, vdcId, orgName, True],
                 'Shared Independent Disks': [self.vcdValidationObj.validateIndependentDisks, vdcId, OrgId, True],
                 'VM with Independent disks having different storage policies and fast provisioning enabled': [self.vcdValidationObj.validateNamedDiskWithFastProvisioned, vdcId],
                 'Validating Source Edge gateway services': [self.vcdValidationObj.getEdgeGatewayServices, None, None, None, True, True],
@@ -712,10 +711,6 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                             else:
                                                 orgVDCResult["SSLVPN service"] = False
                                         if serviceName == "Firewall":
-                                            if "Any as a TCP/UDP port present" in ''.join(result):
-                                                orgVDCResult["Gateway Firewall: Any as TCP/UDP port"] = True
-                                            else:
-                                                orgVDCResult["Gateway Firewall: Any as TCP/UDP port"] = False
                                             if "vNicGroupId" in ''.join(result):
                                                 orgVDCResult["Gateway Firewall: Gateway Interfaces in rule"] = True
                                             else:

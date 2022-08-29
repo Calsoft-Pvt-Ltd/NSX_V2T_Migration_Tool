@@ -5694,6 +5694,8 @@ class VCDMigrationValidation:
                                f"This should be published manually after cleanup.")
             if srcCatalog.get('ExternalCatalogSubscriptionParams', {}).get('SubscribeToExternalFeeds'):
                 if not Migration:
+                    errorList.append(f"Org VDC contains subscribed Catalog {srcCatalog.get('@name')} "
+                                     f"that can't be migrated. Please remove the catalog before cleanup.")
                     logger.warning(
                         f"Org VDC contains subscribed Catalog {srcCatalog.get('@name')} that can't be migrated. Please remove the catalog before cleanup.")
                 else:
