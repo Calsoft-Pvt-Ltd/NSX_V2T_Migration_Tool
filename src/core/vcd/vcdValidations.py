@@ -5138,7 +5138,7 @@ class VCDMigrationValidation:
                 self.orgVdcInput['EdgeGateways'][egw['name']] = {
                     **edgeGwInputs
                 }
-        logger.warning(self.orgVdcInput.get('EdgeGateways'))
+        logger.debug(self.orgVdcInput.get('EdgeGateways'))
 
     @staticmethod
     def validateEdgeGatewayInputFields(edgeGatewayFields, entity, skipbgpinput=False):
