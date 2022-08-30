@@ -2858,6 +2858,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 # Disabling load balacer service from target edge gateway
                 self.enableLoadBalancerService(edgeGatewayId, edgeGateway['name'], rollback=True)
 
+                # Disabling DHCPv6 service from target edge gateway
+                if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+                    self.enableDHCPv6InSlaccMode(edgeGatewayId, edgeGateway['name'], rollback=True)
+
                 # Deleting certificates from vCD tenant portal
                 # Getting certificates from org vdc tenant portal
                 lbCertificates = self.getCertificatesFromTenant()
@@ -2921,6 +2925,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 self.rollback.apiData['targetEdgeGateway']))[0]['id']
                 targetEdgeGatewayName = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
                                 self.rollback.apiData['targetEdgeGateway']))[0]['name']
+                LoadBalancerIPv6VIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get('LoadBalancerIPv6VIPSubnet', None)
 
                 # url to retrieve the load balancer config info
                 url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
@@ -2950,6 +2955,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         self.serviceEngineGroupId = serviceEngineGroupDetails[0]['id']
                         # enable load balancer service
                         self.enableLoadBalancerService(targetEdgeGatewayId, targetEdgeGatewayName)
+                        # enable DHCPv6 in SLACC mode if the LoadBalancerIPv6VIPSubnet is configured.
+                        if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and LoadBalancerIPv6VIPSubnet:
+                            self.enableDHCPv6InSlaccMode(targetEdgeGatewayId, targetEdgeGatewayName)
                         # service engine group assignment to target edge gateway
                         self.assignServiceEngineGroup(targetEdgeGatewayId, targetEdgeGatewayName, serviceEngineGroupDetails[0])
                         # creating pools
@@ -3088,29 +3096,42 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 [virtualServersData['loadBalancer']['virtualServer']]
 
             # if subnet is not provided in user input use default subnet
-            loadBalancerVIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName]['LoadBalancerVIPSubnet']
+            loadBalancerVIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get('LoadBalancerVIPSubnet')
+            loadBalancerIPV6VIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get('LoadBalancerIPv6VIPSubnet')
 
             # Creating a list of hosts in a subnet
-            hostsListInSubnet = list(ipaddress.ip_network(loadBalancerVIPSubnet, strict=False).hosts())
+            hostsListInSubnet = []
+            if loadBalancerVIPSubnet:
+                hostsListInSubnet = list(ipaddress.ip_network(loadBalancerVIPSubnet, strict=False).hosts())
 
-            if len(hostsListInSubnet) < len(virtualServersData):
+            if loadBalancerVIPSubnet and len(hostsListInSubnet) < len(virtualServersData):
                 raise Exception("Number of hosts in network - {} if less than the number of virtual server in edge gateway{}".format(loadBalancerVIPSubnet, targetEdgeGatewayName))
 
             for virtualServer in virtualServersData:
                 # IP address to be used for VIP in virtual service
-                virtualIpAddress = hostsListInSubnet.pop(0)
+                ipv4VirtualIpAddress = None
+                ipv6VirtualIpAddress = None
+
+                # configure ipv4 virtual ip address, based on YAML parameter and IP address used in NSX-V virtual service.
+                if loadBalancerVIPSubnet and isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv4Address):
+                    ipv4VirtualIpAddress = hostsListInSubnet.pop(0)
+
+                # configure ipv6 virtual ip address, based on YAML parameter.
+                if loadBalancerIPV6VIPSubnet and isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv6Address):
+                    ipv6VirtualIpAddress = virtualServer['ipAddress']
 
                 # If virtual service is already created on target then skip it
                 if virtualServer['name'] in [service['name'] for service in virtualServices]:
                     logger.debug(f'Virtual service {virtualServer["name"]} already created on target edge gateway {targetEdgeGatewayName}')
-                    # Incrementing the IP address for next virtual service
-                    hostsListInSubnet.pop(0)
+                    # Incrementing the IPV4 address for next virtual service
+                    if loadBalancerVIPSubnet and hostsListInSubnet:
+                        hostsListInSubnet.pop(0)
+
                     continue
                 payloadDict = {
                     'virtualServiceName': virtualServer['name'],
                     'description': virtualServer.get('description', ''),
                     'enabled': virtualServer['enabled'],
-                    'ipAddress': str(virtualIpAddress),
                     'poolName': poolNameIdDict[virtualServer['defaultPoolId']][0],
                     'poolId': poolNameIdDict[virtualServer['defaultPoolId']][1],
                     'gatewayName': targetEdgeGatewayName,
@@ -3164,6 +3185,15 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 }
                 payloadData['applicationProfile'] = applicationProfilePayload
 
+                # Add ipv4 virtual IP address.
+                if loadBalancerVIPSubnet and ipv4VirtualIpAddress:
+                    payloadData['virtualIpAddress'] = str(ipv4VirtualIpAddress)
+                # Add ipv6 virtual IP address.
+                if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and \
+                        loadBalancerIPV6VIPSubnet and \
+                        ipv6VirtualIpAddress:
+                    payloadData['ipv6VirtualIpAddress'] = str(ipv6VirtualIpAddress)
+
                 payloadData = json.dumps(payloadData)
                 url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.EDGE_GATEWAY_LOADBALANCER_VIRTUAL_SERVER)
                 self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
@@ -3179,8 +3209,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     # Name of DNAT rule to be created for load balancer virtual service
                     DNATRuleName = f'{virtualServer["name"]}-DNAT-RULE'
                     # Creating DNAT rule for virtual service
-                    self.createDNATRuleForLoadBalancer(targetEdgeGatewayId, DNATRuleName, str(virtualIpAddress),
-                                                       virtualServer['ipAddress'], virtualServer['port'])
+                    if ipv4VirtualIpAddress:
+                        self.createDNATRuleForLoadBalancer(targetEdgeGatewayId, DNATRuleName, str(ipv4VirtualIpAddress),
+                                                           virtualServer['ipAddress'], virtualServer['port'])
                 else:
                     errorResponseData = response.json()
                     raise Exception(
@@ -3415,7 +3446,21 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 logger.debug('Load Balancer already enabled on target Edge Gateway-{}'.format(targetEdgeGatewayName))
                 return
 
-                # put api call to enable load balancer on target edge gateway
+            # if the LoadBalancerIPv6VIPSubnet is configured then configure respective IPV6 service engine group.
+            LoadBalancerIPv4VIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get('LoadBalancerVIPSubnet', None)
+            LoadBalancerIPv6VIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get('LoadBalancerIPv6VIPSubnet', None)
+            payloadData = json.loads(payloadData)
+            if not rollback:
+                # use default service network for IPV4
+                if LoadBalancerIPv4VIPSubnet:
+                    payloadData["serviceNetworkDefinition"] = "192.168.255.1/25"
+
+                # use service network for IPV6 from YAML
+                if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and LoadBalancerIPv6VIPSubnet:
+                    payloadData["ipv6ServiceNetworkDefinition"] = LoadBalancerIPv6VIPSubnet
+            payloadData = json.dumps(payloadData)
+
+            # put api call to enable load balancer on target edge gateway
             response = self.restClientObj.put(url, self.headers, data=payloadData)
             if response.status_code == requests.codes.accepted:
                 taskUrl = response.headers['Location']
@@ -3433,6 +3478,77 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             targetEdgeGatewayName, errorResponseData['message']))
                 else:
                     raise Exception('Failed to enable LoadBalancer service on target Edge Gateway-{} with error-{}'.format(targetEdgeGatewayName, errorResponseData['message']))
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def enableDHCPv6InSlaccMode(self, targetEdgeGatewayId, targetEdgeGatewayName, rollback=False):
+        """
+            Description :   Enabling DHCPv6 service In Slacc Mode on target edge gateway
+            Params      :   targetEdgeGatewayId - ID of target edge gateway (STRING)
+                            targetEdgeGatewayName - Name of target edge gateway (STRING)
+                            rollback - flag to decide whether to disable or enable load balancer(BOOL)
+        """
+        # interop handler.
+        if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+            return
+
+        try:
+            if rollback:
+                logger.debug('Disabling DHCPv6 service In Slacc Mode on target Edge Gateway-{} as a part of rollback'.format(
+                    targetEdgeGatewayName))
+            else:
+                logger.debug('Enabling DHCPv6 service In Slacc Mode on target Edge Gateway-{}'.format(targetEdgeGatewayName))
+
+            # url to enable loadbalancer service on target edge gateway
+            url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                   vcdConstants.ALL_EDGE_GATEWAYS,
+                                   vcdConstants.DHCPV6_SLACC_ENABLE_URI.format(targetEdgeGatewayId))
+            self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+
+            # get api call to fetch load balancer service status from edge gateaway
+            response = self.restClientObj.get(url, self.headers)
+            if response.status_code == requests.codes.ok:
+                responseData = response.json()
+            else:
+                errorResponseData = response.json()
+                raise Exception(
+                    'Failed to fetch DHCPV6 service data from target Edge Gateway-{} with error-{}'.format(
+                        targetEdgeGatewayName, errorResponseData['message']))
+
+            dhcpv6ServiceStatus = responseData['enabled']
+            if rollback and not dhcpv6ServiceStatus:
+                logger.debug('DHCPV6 service already disabled on target Edge Gateway-{}'.format(targetEdgeGatewayName))
+                return
+
+            if not rollback and dhcpv6ServiceStatus:
+                logger.debug('DHCPV6 already enabled on target Edge Gateway-{}'.format(targetEdgeGatewayName))
+                return
+
+            responseData["mode"] = "SLAAC"
+            responseData["enabled"] = True
+            payloadData = json.dumps(responseData)
+            # put api call to enable load balancer on target edge gateway
+            response = self.restClientObj.put(url, self.headers, data=payloadData)
+            if response.status_code == requests.codes.accepted:
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl)
+                if rollback:
+                    logger.debug('Successfully disabled DHCPV6 service on target Edge Gateway-{}'.format(
+                        targetEdgeGatewayName))
+                else:
+                    logger.debug('Successfully enabled DHCPV6 service on target Edge Gateway-{}'.format(
+                        targetEdgeGatewayName))
+            else:
+                errorResponseData = response.json()
+                if rollback:
+                    raise Exception(
+                        'Failed to disable DHCPV6 service on target Edge Gateway-{} with error-{}'.format(
+                            targetEdgeGatewayName, errorResponseData['message']))
+                else:
+                    raise Exception(
+                        'Failed to enable DHCPV6 service on target Edge Gateway-{} with error-{}'.format(
+                            targetEdgeGatewayName, errorResponseData['message']))
         except Exception:
             raise
 

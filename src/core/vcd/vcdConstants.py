@@ -666,6 +666,9 @@ SERVICE_ENGINE_GROUP_PAGE_SIZE = 25
 # loadbalancer enable uri
 LOADBALANCER_ENABLE_URI = '{}/loadBalancer'
 
+# DHCPV6 enable in SLACC Mode
+DHCPV6_SLACC_ENABLE_URI = '{}/slaacProfile'
+
 # enable loadbalancer task name
 LOADBALANCER_ENABLE_TASK_NAME = 'gatewayLoadBalancerConfigUpdate'
 
