@@ -129,6 +129,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                      self.rollback.apiData['targetEdgeGateway']))[0]['id']
 
                 data = self.getEdgeGatewayFirewallConfig(sourceEdgeGatewayId, validation=False)
+                # Checking NAT IP matching with firewall destination field
+                self.checkNatIpFirewallMatching(sourceEdgeGatewayId, edgeGatewayId, data)
                 # retrieving list instance of firewall rules from source edge gateway
                 sourceFirewallRules = data if isinstance(data, list) else [data]
                 # getting vcd id
@@ -484,6 +486,52 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # Saving metadata in org VDC
             self.saveMetadataInOrgVdc()
             raise
+
+    def checkNatIpFirewallMatching(self, sourceEdgeGatewayId, targetEdgeGatewayId, userDefinedFirewallRules):
+        """
+        Description :   Gets the Firewall Configuration details of the specified Edge Gateway
+        Parameters  :   sourceEdgeGatewayId   -   Id of the Edge Gateway  (STRING)
+                        userDefinedFirewallRules - user defined firewall rules on edge gateway (LIST)
+        """
+        # fetching the nat rules of source edge gateway
+        natRules = self.getEdgeGatewayNatConfig(sourceEdgeGatewayId, validation=False)
+        # fetching target org vdc networks
+        orgvdcNetworks = self.getOrgVDCNetworks(self.rollback.apiData["targetOrgVDC"]["@id"], 'targetOrgVDCNetworks',
+                                                saveResponse=False)
+        # making a list of non-distributed routed networks connected to target edge gateway
+        NonDistributedNetWorkList = [targetnetwork for targetnetwork in orgvdcNetworks for _, network in self.rollback.apiData["targetOrgVDCNetworks"].items()
+                                     if network["networkType"] == "NAT_ROUTED" and
+                                     network.get("connection", {}).get("routerRef", {}).get("id") == targetEdgeGatewayId and
+                                     network.get("connection", {}).get("connectionTypeValue") == "NON_DISTRIBUTED" and
+                                     targetnetwork["id"] == network["id"]]
+
+        if not natRules['natRules'] or not NonDistributedNetWorkList:
+            return
+
+        additionalFirewallRuleList = list()
+        for firewallRule in userDefinedFirewallRules:
+            for natRule in listify(natRules.get('natRules', {}).get('natRule', [])):
+                if natRule['action'] == 'dnat' and natRule['originalAddress'] in firewallRule.get('destination', {}).get('ipAddress', []):
+                    if any([network for network in NonDistributedNetWorkList if ipaddress.ip_address(natRule['translatedAddress'])
+                            in ipaddress.ip_network('{}/{}'.format(network['subnets']['values'][0]['gateway'], network['subnets']['values'][0]['prefixLength']), strict=False)]):
+                        serviceList = listify(firewallRule.get("application", {}).get("service", []))
+                        if any([natRule["protocol"] == service.get("protocol") and (natRule["originalPort"] == service.get("port") or service.get("port") == "any")
+                                for service in serviceList]) or not serviceList:
+                            additionalFirewallRule = copy.deepcopy(firewallRule)
+                            additionalFirewallRule["id"] = str(random.randint(100000,999999))
+                            additionalFirewallRule["ruleTag"] = additionalFirewallRule["id"]
+                            additionalFirewallRule["name"] = firewallRule["name"] + '-NAT-' + firewallRule["id"]
+                            additionalFirewallRule["destination"]["ipAddress"] = natRule["translatedAddress"]
+                            additionalFirewallRule["destination"]["exclude"] = firewallRule["destination"]["exclude"]
+                            if natRule["protocol"] != "any":
+                                additionalFirewallRule["application"] = {"service": {}}
+                                additionalFirewallRule["application"]["service"]["protocol"] = natRule["protocol"]
+                                additionalFirewallRule["application"]["service"]["sourcePort"] = "any"
+                                additionalFirewallRule["application"]["service"]["port"] = natRule["translatedPort"]
+                            additionalFirewallRuleList.append(additionalFirewallRule)
+
+        for rule in additionalFirewallRuleList:
+            userDefinedFirewallRules.append(rule)
 
     def createCertificatesInTarget(self, nsxv, nsxvCertificateStore, vcdCertificateStore, certName, ca=False):
         """
