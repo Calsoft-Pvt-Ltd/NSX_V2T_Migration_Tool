@@ -20,6 +20,7 @@ VCloudDirector:
         - 10.101.0.0/16
       ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
       LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
+      LoadBalancerIPv6VIPSubnet: #fd0c:2fb3:9a78:d746:0000:0000:0000:0000/112 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service.
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
       AdvertiseRoutedNetworks: False #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
       NonDistributedNetworks: False # (optional) Option to enable the non-distributed routing for routed OrgVDC network.
@@ -33,6 +34,7 @@ VCloudDirector:
             - 10.103.0.0/16
           ServiceEngineGroupName: Tenant1
           LoadBalancerVIPSubnet: 192.168.255.128/28
+          LoadBalancerIPv6VIPSubnet: #fd0c:2fb3:9a78:d746:0000:0000:0000:0000/112
           EdgeGatewayDeploymentEdgeCluster: Edge-cluster1
           AdvertiseRoutedNetworks: False
           NonDistributedNetworks: False
@@ -49,6 +51,7 @@ VCloudDirector:
         - 10.103.0.1/16
       ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
       LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
+      LoadBalancerIPv6VIPSubnet: #fd0c:2fb3:9a78:d746::1/64 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service.
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
       AdvertiseRoutedNetworks: False #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
       NonDistributedNetworks: False # (optional) Option to enable the non-distributed routing for routed OrgVDC network.

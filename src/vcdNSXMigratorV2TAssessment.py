@@ -74,7 +74,6 @@ EDGE_GW_SERVICES_VALIDATIONS = {
     'LoadBalancer: Application Rules': 2,
     'LoadBalancer: Custom monitor': 1,
     'LoadBalancer: Default pool not configured': 1,
-    'LoadBalancer: IPv6 Virtual Server Address': 2,
     'LoadBalancer: Unsupported persistence': 1,
     'LoadBalancer: Unsupported algorithm': 1,
     'LoadBalancer: Application profile is not added': 1,
@@ -636,10 +635,6 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 orgVDCResult["LoadBalancer: Default pool not configured"] = True
                                             else:
                                                 orgVDCResult["LoadBalancer: Default pool not configured"] = False
-                                            if "IPV6 Address used as VIP" in ''.join(result):
-                                                orgVDCResult["LoadBalancer: IPv6 Virtual Server Address"] = True
-                                            else:
-                                                orgVDCResult["LoadBalancer: IPv6 Virtual Server Address"] = False
                                             if "Unsupported persistence" in ''.join(result):
                                                 orgVDCResult["LoadBalancer: Unsupported persistence"] = True
                                             else:
