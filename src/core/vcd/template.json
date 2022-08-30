@@ -191,7 +191,6 @@
       "name": "{{virtualServiceName}}",
       "description": "{{description}}",
       "enabled": "{{enabled}}",
-      "virtualIpAddress": "{{ipAddress}}",
       "loadBalancerPoolRef": {
         "name": "{{poolName}}",
         "id": "{{poolId}}"

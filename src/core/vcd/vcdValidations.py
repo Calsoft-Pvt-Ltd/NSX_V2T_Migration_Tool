@@ -3318,10 +3318,11 @@ class VCDMigrationValidation:
                         if not virtualServer.get('defaultPoolId', None):
                             loadBalancerErrorList.append("Default pool is not configured in load balancer virtual server '{}'\n".format(virtualServer['name']))
 
-                    for virtualServer in virtualServersData:
-                        #check for IPV4 Address for virtual server
-                        if type(ipaddress.ip_address(virtualServer['ipAddress'])) is ipaddress.IPv6Address:
-                            loadBalancerErrorList.append("IPV6 Address used as VIP in virtual Server '{}'\n".format(virtualServer['name']))
+                    if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+                        for virtualServer in virtualServersData:
+                            # check for IPV4 Address for virtual server
+                            if type(ipaddress.ip_address(virtualServer['ipAddress'])) is ipaddress.IPv6Address:
+                                loadBalancerErrorList.append("IPV6 Address used as VIP in virtual Server '{}'\n".format(virtualServer['name']))
 
                     for virtualServer in virtualServersData:
                         if not(virtualServer.get('applicationProfileId')):
@@ -3395,6 +3396,7 @@ class VCDMigrationValidation:
                 raise Exception("Failed to get edge gateway {} vnic details".format(edgeGatewayID))
             internalStaticRoutes = list()
             externalStaticRoutes = list()
+            staticRouteMetadataList = list()
             for staticRoute in staticRoutes:
                 nextHopIp = staticRoute['nextHop']
                 vnic = staticRoute.get('vnic')
@@ -3411,6 +3413,7 @@ class VCDMigrationValidation:
                             if vnicData["type"] == "internal":
                                 staticRoute['interface'] = None
                                 internalStaticRoutes.append(staticRoute)
+                                staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"]})
                             # Checking next hop IP in external network
                             if vnicData["type"] == "uplink":
                                 externalStaticRoutes.append(staticRoute)
@@ -3423,13 +3426,14 @@ class VCDMigrationValidation:
                             if "portgroupName" in vnicData.keys() and "DLR_to_EDGE_" + edgeGatewayName != vnicData['portgroupName']:
                                 staticRoute['interface'] = vnicData["portgroupName"]
                                 internalStaticRoutes.append(staticRoute)
+                                staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"], "interface": staticRoute["interface"]})
                         # Checking whether the edge gateway interface is external
                         if vnicData["index"] == vnic and vnicData["type"] == "uplink":
                             externalStaticRoutes.append(staticRoute)
             logger.debug("Internal Static Routes - {}".format(internalStaticRoutes))
             logger.debug("External Static Routes - {}".format(externalStaticRoutes))
 
-            staticRoutesData[edgeGatewayName] = internalStaticRoutes
+            staticRoutesData[edgeGatewayName] = staticRouteMetadataList
             self.rollback.apiData['sourceStaticRoutes'] = staticRoutesData
 
             if routeType == 'internal':
@@ -5011,9 +5015,6 @@ class VCDMigrationValidation:
             logger.info("Validating published/subscribed catalogs")
             self.getOrgVDCPublishedCatalogs(sourceOrgVDCId, inputDict['VCloudDirector']['Organization']['OrgName'])
 
-            # Validating service network definition for edge gateway services
-            logger.info('Validating service network definition for edge gateway services')
-            self.validateServiceNetworkDefinition()
         except:
             # Enabling source Org VDC if premigration validation fails
             if disableOrgVDC:
@@ -5119,6 +5120,7 @@ class VCDMigrationValidation:
             'NoSnatDestinationSubnet': self.orgVdcInput.get('NoSnatDestinationSubnet'),
             'ServiceEngineGroupName': self.orgVdcInput.get('ServiceEngineGroupName'),
             'LoadBalancerVIPSubnet': self.orgVdcInput.get('LoadBalancerVIPSubnet', '192.168.255.128/28'),
+            'LoadBalancerIPv6VIPSubnet': self.orgVdcInput.get('LoadBalancerIPv6VIPSubnet', None),
             # 'EdgeGatewayDeploymentEdgeCluster': self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'),
             'AdvertiseRoutedNetworks': self.orgVdcInput.get('AdvertiseRoutedNetworks', False),
             'NonDistributedNetworks': self.orgVdcInput.get('NonDistributedNetworks', False),
@@ -5135,7 +5137,7 @@ class VCDMigrationValidation:
                 self.orgVdcInput['EdgeGateways'][egw['name']] = {
                     **edgeGwInputs
                 }
-        logger.warning(self.orgVdcInput.get('EdgeGateways'))
+        logger.debug(self.orgVdcInput.get('EdgeGateways'))
 
     @staticmethod
     def validateEdgeGatewayInputFields(edgeGatewayFields, entity, skipbgpinput=False):
@@ -5169,13 +5171,33 @@ class VCDMigrationValidation:
         # validation for LoadBalancerVIPSubnet
         if edgeGatewayFields.get('LoadBalancerVIPSubnet'):
             try:
-                ipaddress.ip_network(edgeGatewayFields.get('LoadBalancerVIPSubnet'))
+                LoadBalancerVIPSubnetData = edgeGatewayFields.get('LoadBalancerVIPSubnet')
+                # validate CIDR format
+                ipaddress.ip_network(LoadBalancerVIPSubnetData, strict=False)
+                ipAdd = LoadBalancerVIPSubnetData.split('/')[0]
+                # Validate IPV4 only.
+                if not isinstance(ipaddress.ip_address(ipAdd), ipaddress.IPv4Address):
+                    errorList.append("LoadBalancerVIPSubnetData field has invalid IPV4 IP.")
             except ValueError as e:
                 errorList.append("LoadBalancerVIPSubnet value  for {} is not in proper CIDR format. {}".format(
                     entity, e))
 
+        # validation for LoadBalancerIPv6VIPSubnet
+        if edgeGatewayFields.get('LoadBalancerIPv6VIPSubnet'):
+            try:
+                loadBalancerIPv6VIPSubnetData = edgeGatewayFields.get('LoadBalancerIPv6VIPSubnet')
+                # validate CIDR format
+                ipaddress.ip_network(loadBalancerIPv6VIPSubnetData, strict=False)
+                ipAdd = loadBalancerIPv6VIPSubnetData.split('/')[0]
+                # Validate IPV6 only.
+                if not isinstance(ipaddress.ip_address(ipAdd), ipaddress.IPv6Address):
+                    errorList.append("LoadBalancerIPv6VIPSubnet field has invalid IPV6 IP.")
+            except ValueError as e:
+                errorList.append("LoadBalancerIPv6VIPSubnet value  for {} is not in proper CIDR format. {}".format(
+                    entity, e))
+
         # validation for AdvertiseRoutedNetworks
-        if not isinstance(edgeGatewayFields.get('AdvertiseRoutedNetworks',False), bool):
+        if not isinstance(edgeGatewayFields.get('AdvertiseRoutedNetworks', False), bool):
             errorList.append(
                 "AdvertiseRoutedNetworks for {} is not in valid format, please provide it in the Boolean format".format(
                     entity))
@@ -5187,7 +5209,7 @@ class VCDMigrationValidation:
                     entity))
 
         # validation for NonDistributedNetworks
-        if not isinstance(edgeGatewayFields.get('NonDistributedNetworks',False), bool):
+        if not isinstance(edgeGatewayFields.get('NonDistributedNetworks', False), bool):
             errorList.append(
                 "NonDistributedNetwork for {} is not in valid format, please provide it in the Boolean format".format(
                     entity))
@@ -5691,6 +5713,8 @@ class VCDMigrationValidation:
                                f"This should be published manually after cleanup.")
             if srcCatalog.get('ExternalCatalogSubscriptionParams', {}).get('SubscribeToExternalFeeds'):
                 if not Migration:
+                    errorList.append(f"Org VDC contains subscribed Catalog {srcCatalog.get('@name')} "
+                                     f"that can't be migrated. Please remove the catalog before cleanup.")
                     logger.warning(
                         f"Org VDC contains subscribed Catalog {srcCatalog.get('@name')} that can't be migrated. Please remove the catalog before cleanup.")
                 else:
@@ -5840,6 +5864,11 @@ class VCDMigrationValidation:
         """
         # Find the list of ip's belonging to the ip network/subnet
         listOfIPs = list(map(str, ipaddress.ip_network(ipNetwork, strict=False).hosts()))
+        if isinstance(ipaddress.ip_address(startAddress), ipaddress.IPv6Address):
+            startAddress = str(ipaddress.ip_address(startAddress).exploded)
+            endAddress = str(ipaddress.ip_address(endAddress).exploded)
+            listOfIPs = list(
+                map(lambda x: str(ipaddress.ip_address(x).exploded), ipaddress.ip_network(ipNetwork, strict=False).hosts()))
 
         # Index of startAddress in the list
         firstIndex = listOfIPs.index(startAddress)
@@ -5847,7 +5876,7 @@ class VCDMigrationValidation:
         lastIndex = listOfIPs.index(endAddress)
 
         # Return IP range
-        return listOfIPs[firstIndex:lastIndex+1]
+        return listOfIPs[firstIndex:lastIndex + 1]
 
     def getServiceEngineGroupDetails(self):
         """
@@ -6583,28 +6612,6 @@ class VCDMigrationValidation:
                 raise ValidationError(
                     "Cross VDC Networking enabled and OrgVdc uses Cross VDC network {}, which is not supported on migration tool.".format(
                         orgVdcNetwork['name']))
-
-    def validateServiceNetworkDefinition(self):
-        """
-        Description : Method that validates service network definition parameter from input YAML
-        Parameters  : orgVdcId - ID of org vdc for which the validation is to be performed
-        """
-        logger.info("Validating Service network definition.")
-        errorList = list()
-
-        for gateway in self.orgVdcInput.get('EdgeGateways', {}):
-            serviceNetworkDefinitionData = self.orgVdcInput['EdgeGateways'][gateway]['serviceNetworkDefinition']
-            ipAddress = serviceNetworkDefinitionData.split('/')[0]
-            try:
-                ip = ipaddress.ip_address(ipAddress)
-            except ValueError:
-                errorList.append("IP address {}, configured in service network definition field is not valid IPv4".format(ipAddress))
-
-            subnetPrefixLength = int(serviceNetworkDefinitionData.split('/')[1])
-            if subnetPrefixLength != 27:
-                errorList.append("ServiceNetworkDefinition parameters configured in user YAML is incorrect, subnet prefix length should be 27.")
-            if errorList:
-                raise Exception('\n'.join(errorList))
 
     @isSessionExpired
     def getEdgeGatewayGreTunnel(self, edgeGatewayId):

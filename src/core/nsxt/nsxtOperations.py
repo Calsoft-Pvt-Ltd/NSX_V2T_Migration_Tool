@@ -1508,7 +1508,7 @@ class NSXTOperations():
                 if not precheck:
                     self.tagEdgeTransportNodes(vcdObjList, freeTransportNodesList[0:len(orgVdcNetworkList)], migrationId)
             else:
-                exception = ""
+                exception = "Insufficient free nodes on edge clusters provided. There are {} Non Direct Networks present that requires bridging while there are {} free nodes.\n".format(len(orgVdcNetworkList), len(freeTransportNodesList))
                 if usedNodeList:
                     exception = exception + "Transport Nodes {} already in use\n".format(
                         ','.join([node["name"] for node in usedNodeList]))
