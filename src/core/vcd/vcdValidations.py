@@ -5154,6 +5154,9 @@ class VCDMigrationValidation:
                     if edgeGatewayFields.get('NoSnatDestinationSubnet'):
                         try:
                             ipaddress.ip_network(NoSnatDestAddr)
+                            ipAdd = NoSnatDestAddr.split('/')[0]
+                            if not isinstance(ipaddress.ip_address(ipAdd), ipaddress.IPv4Address):
+                                errorList.append('NoSnatDestinationSubnet field has invalid IPv4 IP.')
                         except ValueError as e:
                             errorList.append(
                                 "NoSnatDestinationSubnet value  for {} is not in proper CIDR format. {}".format(
