@@ -224,7 +224,6 @@ class VCDMigrationValidation:
         self.rollback = rollback
         self.version = self._getAPIVersion()
         self.nsxVersion = None
-        self.vcdVersion = None
         self.nsxManagerId = None
         self.networkProviderScope = None
         self.l3DfwRules = None
@@ -4126,7 +4125,7 @@ class VCDMigrationValidation:
 
         # Routed vapp support is added from VCD build 10.3.2.19442122. As API version is same for 10.3.2 and this build,
         # we are comparing VCD version directly.
-        if version.parse(self.vcdVersion) < version.parse(vcdConstants.VCD_10_3_2_1_BUILD) and not v2tAssessmentMode:
+        if version.parse(self.getVCDVersion()) < version.parse(vcdConstants.VCD_10_3_2_1_BUILD) and not v2tAssessmentMode:
             # iterating over the source vapps
             vAppNetworkList = []
             self.vAppNetworkDict = {}
@@ -4415,11 +4414,9 @@ class VCDMigrationValidation:
             if not vCDVersion:
                 raise Exception("Not able to fetch vCD version due to API response difference")
             elif version.parse(vCDVersion) < version.parse("10.3"):
-                self.vcdVersion = vCDVersion
                 logger.warning("VCD {} is not supported with current migration tool. Some features may not work as expected.".format(vCDVersion))
                 return vCDVersion
             else:
-                self.vcdVersion = vCDVersion
                 return vCDVersion
         else:
             raise Exception(
