@@ -13,7 +13,7 @@ VCloudDirector:
       NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
       Tier0Gateways: tpm-externalnetwork # Name of the Tier-0 gateway to which target NSX-T edge gateways will be connected to
       LegacyDirectNetwork: False # (Optional) Option to enable legacy migration mechanism of service direct networks
-      EmptyIPPoolOverride: False # (Optional) Option to enable migration that will not remove IP address from IP Pool if it is the last one
+      EmptyIPPoolOverride: False # (Optional) Enabling this option will not remove the last available IP from the Static-IP Pool of External Network/Tier0 Gateway during rollback and cleanup
       NSXTNetworkPoolName: 2nd-t-network-pool # Name of the nsxt backed network pool which needs to be added incase of multiple network pools
       NoSnatDestinationSubnet: # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
         - 10.100.0.0/16
@@ -25,10 +25,13 @@ VCloudDirector:
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
       AdvertiseRoutedNetworks: False #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
       NonDistributedNetworks: False # (optional) Option to enable the non-distributed routing for routed OrgVDC network.
-      serviceNetworkDefinition: 192.168.255.225/27 # (Optional) Option to set serviceNetworkDefinition for edgeGateway.
-      SkipBGPMigration: False # (Optional) Option to skip bgp migration
+      serviceNetworkDefinition: 192.168.255.225/27 # (Optional) Option to set service Network Definition for edgeGateway to be used for DNS forwarding and DHCP server networking services running on Tier1 Gateway
+      SkipBGPMigration: False # (Optional) Option to skip BGP migration
       EdgeGateways:
-        EdgeGateway1:
+        # (Optional): All the following fields are optional.
+        # Provide these values only if the value provided at OrgVDC level needs to be overridden.
+        # If not provided, value provided at OrgVDC level will be used.
+        EdgeGateway1Name: # Replace `EdgeGateway1Name` with exact Edge Gateway name from the VCD
           Tier0Gateways: tpm-externalnetwork
           NoSnatDestinationSubnet:
             - 10.102.0.0/16
@@ -41,25 +44,38 @@ VCloudDirector:
           AdvertiseRoutedNetworks: False
           NonDistributedNetworks: False
           serviceNetworkDefinition: 192.168.255.225/27
-    - OrgVDCName: Acme-2-vdc # Name of the source organization VDC
-      NSXVProviderVDCName: v-pvdc # Name of the source provider VDC backed by NSX-V
-      NSXTProviderVDCName: t-pvdc # Name of the target provider VDC backed by NSX-T
-      Tier0Gateways: tpm-externalnetwork # Name of the Tier-0 gateway to which target NSX-T edge gateways will be connected to
-      LegacyDirectNetwork: False # (Optional) Option to enable legacy migration mechanism of service direct networks
-      EmptyIPPoolOverride: False # (Optional) Option to enable migration that will not remove IP address from IP Pool if it is the last one
-      NSXTNetworkPoolName: 2nd-t-network-pool # Name of the nsxt backed network pool which needs to be added incase of multiple network pools
-      NoSnatDestinationSubnet: # (optional) Prefixes that should be routed but not SNATed (used when internet and routed external networking is used at the same time)
+        EdgeGateway2Name: # Replace `EdgeGateway2Name` with exact Edge Gateway name from the VCD
+          Tier0Gateways: tpm-externalnetwork
+          NoSnatDestinationSubnet:
+            - 10.102.0.0/16
+            - 10.103.0.0/16
+          ServiceEngineGroupName: Tenant1
+          LoadBalancerVIPSubnet: 192.168.255.128/28
+          LBserviceNetworkDefinition: 192.168.155.1/25
+          LBserviceNetworkDefinitionIPv6: fd0c:2fb3:9a78:d746:0000:0000:0000:0001/120
+          EdgeGatewayDeploymentEdgeCluster: Edge-cluster1
+          AdvertiseRoutedNetworks: False
+          NonDistributedNetworks: False
+          serviceNetworkDefinition: 192.168.255.225/27
+    - OrgVDCName: Acme-2-vdc
+      NSXVProviderVDCName: v-pvdc
+      NSXTProviderVDCName: t-pvdc
+      Tier0Gateways: tpm-externalnetwork
+      LegacyDirectNetwork: False
+      EmptyIPPoolOverride: False
+      NSXTNetworkPoolName: 2nd-t-network-pool
+      NoSnatDestinationSubnet:
         - 10.102.0.0/16
         - 10.103.0.1/16
-      ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
-      LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
-      LBserviceNetworkDefinition: 192.168.155.1/25 # (optional) The IPv4 network definition in Gateway CIDR format which will be used by Load Balancer service on edge.
-      LBserviceNetworkDefinitionIPv6: fd0c:2fb3:9a78:d746:0000:0000:0000:0001/120 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service.
-      EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
-      AdvertiseRoutedNetworks: False #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
-      NonDistributedNetworks: False # (optional) Option to enable the non-distributed routing for routed OrgVDC network.
-      serviceNetworkDefinition: 192.168.255.225/27 # (Optional) Option to set serviceNetworkDefinition for edgeGateway.
-      SkipBGPMigration: False # (Optional) Option to skip bgp migration
+      ServiceEngineGroupName: Tenant1
+      LoadBalancerVIPSubnet: 192.168.255.128/28
+      LBserviceNetworkDefinition: 192.168.155.1/25
+      LBserviceNetworkDefinitionIPv6: fd0c:2fb3:9a78:d746:0000:0000:0000:0001/120
+      EdgeGatewayDeploymentEdgeCluster: Edge-cluster1
+      AdvertiseRoutedNetworks: False
+      NonDistributedNetworks: False
+      serviceNetworkDefinition: 192.168.255.225/27
+      SkipBGPMigration: False
   ImportedNetworkTransportZone: Direct-TZ # NSX-T VLAN transport zone used for segment creation for imported networks
   DummyExternalNetwork: Dummy-ext # Name of the dummy external network which will be temporarily attached to source edge gateway during network disconnection.
   CloneOverlayIds: False # (optional) Flag that instructs migration tool to clone the overlay id's of org vdc networks
