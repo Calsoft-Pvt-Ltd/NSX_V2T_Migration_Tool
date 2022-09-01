@@ -2264,6 +2264,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 for eachIpRange in defaultEdgeGateway['ipRanges']:
                     startAddr, endAddr = eachIpRange.split('-')
                     # if translated IP address belongs to default gateway Ip range return True
+                    if not isinstance(ipaddress.ip_address(startAddr), ipaddress.IPv4Address):
+                        continue
                     ipInSuAllocatedStatus = self.ifIpBelongsToIpRange(sourceNATRule['translatedAddress'],
                                                                       startAddr, endAddr)
                     if ipInSuAllocatedStatus:
@@ -2928,7 +2930,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 self.rollback.apiData['targetEdgeGateway']))[0]['id']
                 targetEdgeGatewayName = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
                                 self.rollback.apiData['targetEdgeGateway']))[0]['name']
-                LoadBalancerIPv6VIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get('LoadBalancerIPv6VIPSubnet', None)
+                LBserviceNetworkDefinition = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get(
+                    'LBserviceNetworkDefinition', None)
+                LBserviceNetworkDefinitionIPv6 = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get(
+                    'LBserviceNetworkDefinitionIPv6', None)
 
                 # url to retrieve the load balancer config info
                 url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
@@ -2958,8 +2963,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         self.serviceEngineGroupId = serviceEngineGroupDetails[0]['id']
                         # enable load balancer service
                         self.enableLoadBalancerService(targetEdgeGatewayId, targetEdgeGatewayName)
-                        # enable DHCPv6 in SLACC mode if the LoadBalancerIPv6VIPSubnet is configured.
-                        if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and LoadBalancerIPv6VIPSubnet:
+                        # enable DHCPv6 in SLACC mode if the LBserviceNetworkDefinitionIPv6 is configured.
+                        if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and LBserviceNetworkDefinitionIPv6:
                             self.enableDHCPv6InSlaccMode(targetEdgeGatewayId, targetEdgeGatewayName)
                         # service engine group assignment to target edge gateway
                         self.assignServiceEngineGroup(targetEdgeGatewayId, targetEdgeGatewayName, serviceEngineGroupDetails[0])
@@ -3100,7 +3105,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             # if subnet is not provided in user input use default subnet
             loadBalancerVIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get('LoadBalancerVIPSubnet')
-            loadBalancerIPV6VIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get('LoadBalancerIPv6VIPSubnet')
+            LBserviceNetworkDefinitionIPv6 = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get('LBserviceNetworkDefinitionIPv6')
 
             # Creating a list of hosts in a subnet
             hostsListInSubnet = []
@@ -3120,7 +3125,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     ipv4VirtualIpAddress = hostsListInSubnet.pop(0)
 
                 # configure ipv6 virtual ip address, based on YAML parameter.
-                if loadBalancerIPV6VIPSubnet and isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv6Address):
+                if LBserviceNetworkDefinitionIPv6 and isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv6Address):
                     ipv6VirtualIpAddress = virtualServer['ipAddress']
 
                 # If virtual service is already created on target then skip it
@@ -3191,9 +3196,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 # Add ipv4 virtual IP address.
                 if loadBalancerVIPSubnet and ipv4VirtualIpAddress:
                     payloadData['virtualIpAddress'] = str(ipv4VirtualIpAddress)
+
                 # Add ipv6 virtual IP address.
                 if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and \
-                        loadBalancerIPV6VIPSubnet and \
+                        LBserviceNetworkDefinitionIPv6 and \
                         ipv6VirtualIpAddress:
                     payloadData['ipv6VirtualIpAddress'] = str(ipv6VirtualIpAddress)
 
@@ -3449,18 +3455,22 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 logger.debug('Load Balancer already enabled on target Edge Gateway-{}'.format(targetEdgeGatewayName))
                 return
 
-            # if the LoadBalancerIPv6VIPSubnet is configured then configure respective IPV6 service engine group.
-            LoadBalancerIPv4VIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get('LoadBalancerVIPSubnet', None)
-            LoadBalancerIPv6VIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get('LoadBalancerIPv6VIPSubnet', None)
+            # if the LBserviceNetworkDefinitionIPv6 is configured then configure respective IPV6 service engine group.
+            LoadBalancerIPv4VIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get(
+                'LoadBalancerVIPSubnet', None)
+            LBserviceNetworkDefinition = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get(
+                'LBserviceNetworkDefinition', None)
+            LBserviceNetworkDefinitionIPv6 = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get(
+                'LBserviceNetworkDefinitionIPv6', None)
             payloadData = json.loads(payloadData)
             if not rollback:
-                # use default service network for IPV4
-                if LoadBalancerIPv4VIPSubnet:
-                    payloadData["serviceNetworkDefinition"] = "192.168.255.1/25"
+                # use service network for IPV4 from YAML
+                if LoadBalancerIPv4VIPSubnet and LBserviceNetworkDefinition:
+                    payloadData["serviceNetworkDefinition"] = LBserviceNetworkDefinition
 
                 # use service network for IPV6 from YAML
-                if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and LoadBalancerIPv6VIPSubnet:
-                    payloadData["ipv6ServiceNetworkDefinition"] = LoadBalancerIPv6VIPSubnet
+                if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and LBserviceNetworkDefinitionIPv6:
+                    payloadData["ipv6ServiceNetworkDefinition"] = LBserviceNetworkDefinitionIPv6
             payloadData = json.dumps(payloadData)
 
             # put api call to enable load balancer on target edge gateway
