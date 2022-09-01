@@ -224,7 +224,6 @@ class VCDMigrationValidation:
         self.rollback = rollback
         self.version = self._getAPIVersion()
         self.nsxVersion = None
-        self.vcdVersion = None
         self.nsxManagerId = None
         self.networkProviderScope = None
         self.l3DfwRules = None
@@ -2527,7 +2526,8 @@ class VCDMigrationValidation:
         try:
             for eachIpRange in defaultGatewayDetails['ipRanges']:
                 startIpAddr, endIpAddr = eachIpRange.split('-')
-                if self.ifIpBelongsToIpRange(natRule['translatedAddress'], startIpAddr, endIpAddr) == True:
+                if isinstance(ipaddress.ip_address(startIpAddr), ipaddress.IPv4Address) and self.ifIpBelongsToIpRange(
+                        natRule['translatedAddress'], startIpAddr, endIpAddr) == True:
                     return True
         except Exception:
             raise
@@ -2668,6 +2668,9 @@ class VCDMigrationValidation:
                             routingDetails['routingGlobalConfig'].get('routerId'):
                         for eachIpRange in defaultGatewayDetails['ipRanges']:
                             startIpAddr, endIpAddr = eachIpRange.split('-')
+                            if not isinstance(ipaddress.ip_address(startIpAddr), ipaddress.IPv4Address):
+                                continue
+
                             # check if routerId in dynamic routing config part of default gateway IP range
                             if self.ifIpBelongsToIpRange(routingDetails['routingGlobalConfig']['routerId'], startIpAddr, endIpAddr) == True:
                                 ifRouterIdInDefaultGateway = True
@@ -4122,7 +4125,7 @@ class VCDMigrationValidation:
 
         # Routed vapp support is added from VCD build 10.3.2.19442122. As API version is same for 10.3.2 and this build,
         # we are comparing VCD version directly.
-        if version.parse(self.vcdVersion) < version.parse(vcdConstants.VCD_10_3_2_1_BUILD) and not v2tAssessmentMode:
+        if version.parse(self.getVCDVersion()) < version.parse(vcdConstants.VCD_10_3_2_1_BUILD) and not v2tAssessmentMode:
             # iterating over the source vapps
             vAppNetworkList = []
             self.vAppNetworkDict = {}
@@ -4411,11 +4414,9 @@ class VCDMigrationValidation:
             if not vCDVersion:
                 raise Exception("Not able to fetch vCD version due to API response difference")
             elif version.parse(vCDVersion) < version.parse("10.3"):
-                self.vcdVersion = vCDVersion
                 logger.warning("VCD {} is not supported with current migration tool. Some features may not work as expected.".format(vCDVersion))
                 return vCDVersion
             else:
-                self.vcdVersion = vCDVersion
                 return vCDVersion
         else:
             raise Exception(
@@ -5120,7 +5121,8 @@ class VCDMigrationValidation:
             'NoSnatDestinationSubnet': self.orgVdcInput.get('NoSnatDestinationSubnet'),
             'ServiceEngineGroupName': self.orgVdcInput.get('ServiceEngineGroupName'),
             'LoadBalancerVIPSubnet': self.orgVdcInput.get('LoadBalancerVIPSubnet', '192.168.255.128/28'),
-            'LoadBalancerIPv6VIPSubnet': self.orgVdcInput.get('LoadBalancerIPv6VIPSubnet', None),
+            'LBserviceNetworkDefinition': self.orgVdcInput.get('LBserviceNetworkDefinition', None),
+            'LBserviceNetworkDefinitionIPv6': self.orgVdcInput.get('LBserviceNetworkDefinitionIPv6', None),
             # 'EdgeGatewayDeploymentEdgeCluster': self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'),
             'AdvertiseRoutedNetworks': self.orgVdcInput.get('AdvertiseRoutedNetworks', False),
             'NonDistributedNetworks': self.orgVdcInput.get('NonDistributedNetworks', False),
@@ -5154,6 +5156,9 @@ class VCDMigrationValidation:
                     if edgeGatewayFields.get('NoSnatDestinationSubnet'):
                         try:
                             ipaddress.ip_network(NoSnatDestAddr)
+                            ipAdd = NoSnatDestAddr.split('/')[0]
+                            if not isinstance(ipaddress.ip_address(ipAdd), ipaddress.IPv4Address):
+                                errorList.append('NoSnatDestinationSubnet field has invalid IPv4 IP.')
                         except ValueError as e:
                             errorList.append(
                                 "NoSnatDestinationSubnet value  for {} is not in proper CIDR format. {}".format(
@@ -5182,18 +5187,33 @@ class VCDMigrationValidation:
                 errorList.append("LoadBalancerVIPSubnet value  for {} is not in proper CIDR format. {}".format(
                     entity, e))
 
-        # validation for LoadBalancerIPv6VIPSubnet
-        if edgeGatewayFields.get('LoadBalancerIPv6VIPSubnet'):
+        # validation for LBserviceNetworkDefinition
+        if edgeGatewayFields.get('LBserviceNetworkDefinition'):
             try:
-                loadBalancerIPv6VIPSubnetData = edgeGatewayFields.get('LoadBalancerIPv6VIPSubnet')
+                LBserviceNetworkDefinitionData = edgeGatewayFields.get('LBserviceNetworkDefinition')
                 # validate CIDR format
-                ipaddress.ip_network(loadBalancerIPv6VIPSubnetData, strict=False)
-                ipAdd = loadBalancerIPv6VIPSubnetData.split('/')[0]
+                ipaddress.ip_network(LBserviceNetworkDefinitionData, strict=False)
+                ipAdd = LBserviceNetworkDefinitionData.split('/')[0]
+                # Validate IPV4 only.
+                if not isinstance(ipaddress.ip_address(ipAdd), ipaddress.IPv4Address):
+                    errorList.append("LBserviceNetworkDefinition field has invalid IPV4 IP.")
+            except ValueError as e:
+                errorList.append(
+                    "LBserviceNetworkDefinition value  for {} is not in proper CIDR format. {}".format(
+                        entity, e))
+
+        # validation for LBserviceNetworkDefinitionIPv6
+        if edgeGatewayFields.get('LBserviceNetworkDefinitionIPv6'):
+            try:
+                LBserviceNetworkDefinitionIPv6Data = edgeGatewayFields.get('LBserviceNetworkDefinitionIPv6')
+                # validate CIDR format
+                ipaddress.ip_network(LBserviceNetworkDefinitionIPv6Data, strict=False)
+                ipAdd = LBserviceNetworkDefinitionIPv6Data.split('/')[0]
                 # Validate IPV6 only.
                 if not isinstance(ipaddress.ip_address(ipAdd), ipaddress.IPv6Address):
-                    errorList.append("LoadBalancerIPv6VIPSubnet field has invalid IPV6 IP.")
+                    errorList.append("LBserviceNetworkDefinitionIPv6 field has invalid IPV6 IP.")
             except ValueError as e:
-                errorList.append("LoadBalancerIPv6VIPSubnet value  for {} is not in proper CIDR format. {}".format(
+                errorList.append("LBserviceNetworkDefinitionIPv6 value  for {} is not in proper CIDR format. {}".format(
                     entity, e))
 
         # validation for AdvertiseRoutedNetworks
@@ -5846,11 +5866,13 @@ class VCDMigrationValidation:
                             startAddr - Start address ip (IP)
                             endAddr -  End address ip (IP)
         """
+        if not isinstance(ipaddress.ip_address(startAddr), ipaddress.IPv4Address):
+            return False
         startIp = startAddr.split('.')
         endIp = endAddr.split('.')
         ip = ipAddr.split('.')
         for i in range(4):
-            if int(ip[i]) < int(startIp[i]) or int(ip[i]) > int(endIp[i]):
+            if int(float(ip[i])) < int(float(startIp[i])) or int(float(ip[i])) > int(float(endIp[i])):
                 return False
         return True
 
