@@ -508,6 +508,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         if not natRules['natRules'] or not NonDistributedNetWorkList:
             return
 
+        ruleIdList = [rule["id"] for rule in userDefinedFirewallRules]
         additionalFirewallRuleList = list()
         for firewallRule in userDefinedFirewallRules:
             for natRule in listify(natRules.get('natRules', {}).get('natRule', [])):
@@ -530,8 +531,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 additionalFirewallRule["application"]["service"]["port"] = natRule["translatedPort"]
                             additionalFirewallRuleList.append(additionalFirewallRule)
 
-        for rule in additionalFirewallRuleList:
-            userDefinedFirewallRules.append(rule)
+        additionalFirewallRuleList.reverse()
+        for additionalRule in additionalFirewallRuleList:
+            ruleId = additionalRule["name"].split("-")[-1]
+            userDefinedFirewallRules.insert(ruleIdList.index(ruleId) + 1, additionalRule)
 
     def createCertificatesInTarget(self, nsxv, nsxvCertificateStore, vcdCertificateStore, certName, ca=False):
         """
