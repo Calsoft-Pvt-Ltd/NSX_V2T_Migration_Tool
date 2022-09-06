@@ -3426,7 +3426,7 @@ class VCDMigrationValidation:
                         # Checking whether edge gateway interface is internal
                         if vnicData["index"] == vnic and vnicData["type"] == "internal":
                             # Checking whether the static route is auto plumbed or DLR is used as interface
-                            if "portgroupName" in vnicData.keys() and "DLR_to_EDGE_" + edgeGatewayName != vnicData['portgroupName']:
+                            if "portgroupName" in vnicData.keys() and "DLR_to_EDGE" not in vnicData['portgroupName']:
                                 staticRoute['interface'] = vnicData["portgroupName"]
                                 internalStaticRoutes.append(staticRoute)
                                 staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"], "interface": staticRoute["interface"]})
