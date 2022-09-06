@@ -19,9 +19,9 @@ VCloudDirector:
         - 10.100.0.0/16
         - 10.101.0.0/16
       ServiceEngineGroupName: Tenant1 # (optional) NSX ALB service engine group name to be used for load balancer configuration
-      LBserviceNetworkDefinition: 192.168.155.1/25 # (optional) The IPv4 network definition in Gateway CIDR format which will be used by Load Balancer service on edge.
-      LBserviceNetworkDefinitionIPv6: fd0c:2fb3:9a78:d746:0000:0000:0000:0001/120 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service.
       LoadBalancerVIPSubnet: 192.168.255.128/28 # (optional) Network subnet to be used for Virtual IP configuration of load balancer virtual service (Default value - 192.168.255.128/28)
+      LoadBalancerServiceNetwork: 192.168.155.1/25 # (optional) The IPv4 network definition in Gateway CIDR format which will be used by Load Balancer service on edge.
+      LoadBalancerServiceNetworkIPv6: fd0c:2fb3:9a78:d746:0000:0000:0000:0001/120 # (optional) The IPv6 network definition in Gateway CIDR format which will be used by Load Balancer service on edge.
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1 # (optional) NSX-T Edge cluster to be used for the target edge gateway (Tier-1 Gateway) deployment. Also used if DHCP is enabled on isolated vApp network.
       AdvertiseRoutedNetworks: False #  (optional) Option to advertise all the routed networks in NSX-T edge gateways
       NonDistributedNetworks: False # (optional) Option to enable the non-distributed routing for routed OrgVDC network.
@@ -38,8 +38,8 @@ VCloudDirector:
             - 10.103.0.0/16
           ServiceEngineGroupName: Tenant1
           LoadBalancerVIPSubnet: 192.168.255.128/28
-          LBserviceNetworkDefinition: 192.168.155.1/25
-          LBserviceNetworkDefinitionIPv6: fd0c:2fb3:9a78:d746:0000:0000:0000:0001/120
+          LoadBalancerServiceNetwork: 192.168.155.1/25
+          LoadBalancerServiceNetworkIPv6: fd0c:2fb3:9a78:d746:0000:0000:0000:0001/120
           EdgeGatewayDeploymentEdgeCluster: Edge-cluster1
           AdvertiseRoutedNetworks: False
           NonDistributedNetworks: False
@@ -51,8 +51,8 @@ VCloudDirector:
             - 10.103.0.0/16
           ServiceEngineGroupName: Tenant1
           LoadBalancerVIPSubnet: 192.168.255.128/28
-          LBserviceNetworkDefinition: 192.168.155.1/25
-          LBserviceNetworkDefinitionIPv6: fd0c:2fb3:9a78:d746:0000:0000:0000:0001/120
+          LoadBalancerServiceNetwork: 192.168.155.1/25
+          LoadBalancerServiceNetworkIPv6: fd0c:2fb3:9a78:d746:0000:0000:0000:0001/120
           EdgeGatewayDeploymentEdgeCluster: Edge-cluster1
           AdvertiseRoutedNetworks: False
           NonDistributedNetworks: False
@@ -69,8 +69,8 @@ VCloudDirector:
         - 10.103.0.1/16
       ServiceEngineGroupName: Tenant1
       LoadBalancerVIPSubnet: 192.168.255.128/28
-      LBserviceNetworkDefinition: 192.168.155.1/25
-      LBserviceNetworkDefinitionIPv6: fd0c:2fb3:9a78:d746:0000:0000:0000:0001/120
+      LoadBalancerServiceNetwork: 192.168.155.1/25
+      LoadBalancerServiceNetworkIPv6: fd0c:2fb3:9a78:d746:0000:0000:0000:0001/120
       EdgeGatewayDeploymentEdgeCluster: Edge-cluster1
       AdvertiseRoutedNetworks: False
       NonDistributedNetworks: False
