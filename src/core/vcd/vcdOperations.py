@@ -1398,13 +1398,17 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             "ThinProvisioned": diskSetting['ThinProvisioned'],
                             "Disk": diskSetting.get('Disk', {}).get('@href'),    # present in named disk
                             "overrideVmDefault":diskSetting['overrideVmDefault'],
-                            "iops": diskSetting['iops'],
                             "VirtualQuantityUnit": diskSetting['VirtualQuantityUnit'],
                             "resizable": diskSetting['resizable'],
                             "encrypted": diskSetting['encrypted'],
                             "shareable": diskSetting['shareable'],
                             "sharingType": diskSetting['sharingType'],
                         }
+                        if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+                            diskSettingDict["iops"] = diskSetting['iops']
+                        else:
+                            diskSettingDict["IopsAllocation"] = diskSetting['IopsAllocation']
+
                         for storagePolicy in targetStorageProfileList:
                             if storagePolicy['@name'] == diskSetting['StorageProfile']['@name']:
                                 diskSettingDict["StorageProfile"] = {"href": storagePolicy['@href'],

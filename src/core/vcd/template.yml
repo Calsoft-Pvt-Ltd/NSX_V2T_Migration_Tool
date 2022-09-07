@@ -222,7 +222,17 @@ vCloudDirector:
           {% endif %}
           <root:StorageProfile href="{{disksetting.StorageProfile.href}}" id="{{disksetting.StorageProfile.id}}" type="{{disksetting.StorageProfile.type}}" name="{{disksetting.StorageProfile.name}}"/>
           <root:overrideVmDefault>{{disksetting.overrideVmDefault}}</root:overrideVmDefault>
+          {% if 'iops' in disksetting and disksetting.iops %}
           <root:iops>{{disksetting.iops}}</root:iops>
+          {% endif %}
+          {% if 'IopsAllocation' in disksetting and disksetting.IopsAllocation %}
+          <root:IopsAllocation>
+            <root:Reservation>{{disksetting.IopsAllocation.Reservation}}</root:Reservation>
+            <root:Limit>{{disksetting.IopsAllocation.Limit}}</root:Limit>
+            <root:SharesLevel>{{disksetting.IopsAllocation.SharesLevel}}</root:SharesLevel>
+            <root:Shares>{{disksetting.IopsAllocation.Shares}}</root:Shares>
+          </root:IopsAllocation>
+          {% endif %}
           <root:VirtualQuantityUnit>{{disksetting.VirtualQuantityUnit}}</root:VirtualQuantityUnit>
           <root:resizable>{{disksetting.resizable}}</root:resizable>
           <root:encrypted>{{disksetting.encrypted}}</root:encrypted>
