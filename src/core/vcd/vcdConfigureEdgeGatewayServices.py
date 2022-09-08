@@ -1389,6 +1389,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
         # retrieve list of all IP addresses from static pool.
         ipRanges = orgVDCNetwork['subnets']['values'][0]['ipRanges']['values']
+        if not ipRanges:
+            raise Exception("Org VDC network - {}, does not have static ip pool configured.".format(orgVDCNetwork['name']))
         for ipRange in ipRanges:
             ipRangeAddresses = [str(ipaddress.IPv4Address(ip)) for ip in
                                 range(int(ipaddress.IPv4Address(ipRange['startAddress'])),

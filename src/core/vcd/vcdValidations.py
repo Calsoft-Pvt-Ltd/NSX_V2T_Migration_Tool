@@ -2843,6 +2843,8 @@ class VCDMigrationValidation:
                 ipNetwork = ipaddress.ip_network(networkSubnet, strict=False)
                 networkName = network['name']
                 if ipaddress.ip_address(bindingIp) in ipNetwork:
+                    if not ipRanges:
+                        raise Exception("Org VDC network - {}, does not have static ip pool configured.".format(networkName))
                     for ipRange in ipRanges:
                         ipRangeAddresses = [str(ipaddress.IPv4Address(ip)) for ip in
                                             range(int(ipaddress.IPv4Address(ipRange['startAddress'])),
