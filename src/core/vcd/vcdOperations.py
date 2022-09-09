@@ -530,6 +530,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # add DNAT rules for non distributed routed networks.
             edgeGatewayId = network['connection']['routerRef']['id']
             edgeGatewayName = network['connection']['routerRef']['name']
+
+            if not any([edgeGatewayId == edgeGateway["id"] for edgeGateway in self.rollback.apiData["targetEdgeGateway"]]):
+                continue
+
             # Parse Source edge gateway id
             sourceEdgeGatewayId = list(
                 filter(lambda edgeGatewayData: edgeGatewayData['name'] == edgeGatewayName,
