@@ -34,6 +34,8 @@ stages:
 
 provenance:
   stage: generate-provenance
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /v1.*/
   script:
     # create local auth configuration using variables from the CICD
     - /srp-tools/srp config auth --client-id=${SRP_CLIENT_ID} --client-secret=${SRP_CLIENT_SECRET}
