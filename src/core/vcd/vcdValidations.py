@@ -3426,7 +3426,7 @@ class VCDMigrationValidation:
                         # Checking whether edge gateway interface is internal
                         if vnicData["index"] == vnic and vnicData["type"] == "internal":
                             # Checking whether the static route is auto plumbed or DLR is used as interface
-                            if "portgroupName" in vnicData.keys() and "DLR_to_EDGE_" + edgeGatewayName != vnicData['portgroupName']:
+                            if "portgroupName" in vnicData.keys() and "DLR_to_EDGE" not in vnicData['portgroupName']:
                                 staticRoute['interface'] = vnicData["portgroupName"]
                                 internalStaticRoutes.append(staticRoute)
                                 staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"], "interface": staticRoute["interface"]})
@@ -5121,8 +5121,8 @@ class VCDMigrationValidation:
             'NoSnatDestinationSubnet': self.orgVdcInput.get('NoSnatDestinationSubnet'),
             'ServiceEngineGroupName': self.orgVdcInput.get('ServiceEngineGroupName'),
             'LoadBalancerVIPSubnet': self.orgVdcInput.get('LoadBalancerVIPSubnet', '192.168.255.128/28'),
-            'LBserviceNetworkDefinition': self.orgVdcInput.get('LBserviceNetworkDefinition', None),
-            'LBserviceNetworkDefinitionIPv6': self.orgVdcInput.get('LBserviceNetworkDefinitionIPv6', None),
+            'LoadBalancerServiceNetwork': self.orgVdcInput.get('LoadBalancerServiceNetwork', None),
+            'LoadBalancerServiceNetworkIPv6': self.orgVdcInput.get('LoadBalancerServiceNetworkIPv6', None),
             # 'EdgeGatewayDeploymentEdgeCluster': self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'),
             'AdvertiseRoutedNetworks': self.orgVdcInput.get('AdvertiseRoutedNetworks', False),
             'NonDistributedNetworks': self.orgVdcInput.get('NonDistributedNetworks', False),
@@ -5187,33 +5187,33 @@ class VCDMigrationValidation:
                 errorList.append("LoadBalancerVIPSubnet value  for {} is not in proper CIDR format. {}".format(
                     entity, e))
 
-        # validation for LBserviceNetworkDefinition
-        if edgeGatewayFields.get('LBserviceNetworkDefinition'):
+        # validation for LoadBalancerServiceNetwork
+        if edgeGatewayFields.get('LoadBalancerServiceNetwork'):
             try:
-                LBserviceNetworkDefinitionData = edgeGatewayFields.get('LBserviceNetworkDefinition')
+                LoadBalancerServiceNetworkData = edgeGatewayFields.get('LoadBalancerServiceNetwork')
                 # validate CIDR format
-                ipaddress.ip_network(LBserviceNetworkDefinitionData, strict=False)
-                ipAdd = LBserviceNetworkDefinitionData.split('/')[0]
+                ipaddress.ip_network(LoadBalancerServiceNetworkData, strict=False)
+                ipAdd = LoadBalancerServiceNetworkData.split('/')[0]
                 # Validate IPV4 only.
                 if not isinstance(ipaddress.ip_address(ipAdd), ipaddress.IPv4Address):
-                    errorList.append("LBserviceNetworkDefinition field has invalid IPV4 IP.")
+                    errorList.append("LoadBalancerServiceNetwork field has invalid IPV4 IP.")
             except ValueError as e:
                 errorList.append(
-                    "LBserviceNetworkDefinition value  for {} is not in proper CIDR format. {}".format(
+                    "LoadBalancerServiceNetwork value  for {} is not in proper CIDR format. {}".format(
                         entity, e))
 
-        # validation for LBserviceNetworkDefinitionIPv6
-        if edgeGatewayFields.get('LBserviceNetworkDefinitionIPv6'):
+        # validation for LoadBalancerServiceNetworkIPv6
+        if edgeGatewayFields.get('LoadBalancerServiceNetworkIPv6'):
             try:
-                LBserviceNetworkDefinitionIPv6Data = edgeGatewayFields.get('LBserviceNetworkDefinitionIPv6')
+                LoadBalancerServiceNetworkIPv6Data = edgeGatewayFields.get('LoadBalancerServiceNetworkIPv6')
                 # validate CIDR format
-                ipaddress.ip_network(LBserviceNetworkDefinitionIPv6Data, strict=False)
-                ipAdd = LBserviceNetworkDefinitionIPv6Data.split('/')[0]
+                ipaddress.ip_network(LoadBalancerServiceNetworkIPv6Data, strict=False)
+                ipAdd = LoadBalancerServiceNetworkIPv6Data.split('/')[0]
                 # Validate IPV6 only.
                 if not isinstance(ipaddress.ip_address(ipAdd), ipaddress.IPv6Address):
-                    errorList.append("LBserviceNetworkDefinitionIPv6 field has invalid IPV6 IP.")
+                    errorList.append("LoadBalancerServiceNetworkIPv6 field has invalid IPV6 IP.")
             except ValueError as e:
-                errorList.append("LBserviceNetworkDefinitionIPv6 value  for {} is not in proper CIDR format. {}".format(
+                errorList.append("LoadBalancerServiceNetworkIPv6 value  for {} is not in proper CIDR format. {}".format(
                     entity, e))
 
         # validation for AdvertiseRoutedNetworks
