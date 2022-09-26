@@ -33,6 +33,9 @@ stages:
   - generate-provenance
 
 provenance:
+  rules:
+    # - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH =~ /v1.*/
   stage: generate-provenance
   rules:
     - if: $CI_COMMIT_BRANCH =~ /v1.*/
