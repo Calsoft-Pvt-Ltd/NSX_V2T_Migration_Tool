@@ -5663,7 +5663,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getOrgVDCPublishedCatalogs(self, sourceOrgVDCId, orgName, v2tAssessmentMode=False, Migration=False):
+    def getOrgVDCPublishedCatalogs(self, sourceOrgVDCId, orgName, v2tAssessmentMode=False, Migration=False, cleanup=False):
         """
         Description : Method that checks whether catalog publish status
         Parameters  : sourceOrgVDCId - ID of org vdc for which the validation is to be performed
@@ -5729,14 +5729,16 @@ class VCDMigrationValidation:
                 errorList.append(
                     "Published Catalog {} exists in Org VDC. This should be published manually after cleanup.".format(
                         srcCatalog.get('@name')))
-                logger.warning(f"Published Catalog {srcCatalog.get('@name')} exists in Org VDC. "
-                               f"This should be published manually after cleanup.")
+                if not cleanup:
+                    logger.warning(f"Published Catalog {srcCatalog.get('@name')} exists in Org VDC. "
+                                   f"This should be published manually after cleanup.")
             if srcCatalog.get('ExternalCatalogSubscriptionParams', {}).get('SubscribeToExternalFeeds'):
                 if not Migration:
                     errorList.append(f"Org VDC contains subscribed Catalog {srcCatalog.get('@name')} "
                                      f"that can't be migrated. Please remove the catalog before cleanup.")
-                    logger.warning(
-                        f"Org VDC contains subscribed Catalog {srcCatalog.get('@name')} that can't be migrated. Please remove the catalog before cleanup.")
+                    if not cleanup:
+                        logger.warning(
+                            f"Org VDC contains subscribed Catalog {srcCatalog.get('@name')} that can't be migrated. Please remove the catalog before cleanup.")
                 else:
                     raise Exception(f"Org VDC contains subscribed Catalog {srcCatalog.get('@name')} that can't be migrated. Please remove the catalog before cleanup.")
         if v2tAssessmentMode and errorList:

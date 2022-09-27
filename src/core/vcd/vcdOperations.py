@@ -2938,7 +2938,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         orgUrl          - Organization url (STRING)
         """
         try:
-            orgId, sourceOrgVDCResponseDict, orgCatalogs, sourceOrgVDCCatalogDetails = self.getOrgVDCPublishedCatalogs(sourceOrgVDCId, orgName, Migration=True)
+            orgId, sourceOrgVDCResponseDict, orgCatalogs, sourceOrgVDCCatalogDetails = self.getOrgVDCPublishedCatalogs(sourceOrgVDCId, orgName, Migration=True, cleanup=True)
 
             if not orgCatalogs:
                 logger.debug("No Catalogs exist in Organization")
