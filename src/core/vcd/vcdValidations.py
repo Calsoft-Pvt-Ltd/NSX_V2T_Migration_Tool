@@ -1648,10 +1648,10 @@ class VCDMigrationValidation:
                     if eachGatewayInterface['interfaceType'] == 'uplink':
                         allnonDefaultGatewaySubnetList.extend(eachGatewayInterface['subnetParticipation'])
 
-                    # if non default gateway interface has static routes
-                    if eachGatewayInterface['name'] in staticRouteDetails.keys():
-                        for staticRoute in staticRouteDetails[eachGatewayInterface['name']]:
-                            noSnatList.append(staticRoute['network'])
+                        # if non default gateway interface has static routes
+                        if eachGatewayInterface['name'] in staticRouteDetails.keys():
+                            for staticRoute in staticRouteDetails[eachGatewayInterface['name']]:
+                                noSnatList.append(staticRoute['network'])
 
         return allnonDefaultGatewaySubnetList, defaultGatewayDict, noSnatList
 
