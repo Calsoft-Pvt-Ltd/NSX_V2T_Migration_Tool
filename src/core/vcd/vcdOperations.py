@@ -789,6 +789,56 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         'Failed to delete Organization VDC Network DHCP bindings {}.{}'.format(networkId, response.json()['message']))
 
     @isSessionExpired
+    def deleteEmptyvApp(self,orgVDCId):
+        """
+        Description : Delete empty vApp from specified OrgVDC
+        Parameters :  orgVDCId  -   Id of the Organization VDC
+        """
+        sourceVappsList = self.getOrgVDCvAppsList(orgVDCId)
+        for vApp in sourceVappsList:
+            vAppResponse = self.restClientObj.get(vApp['@href'], self.headers)
+            responseDict = self.vcdUtils.parseXml(vAppResponse.content)
+            if vAppResponse.status_code == requests.codes.ok:
+                # checking if the vapp has vms present in it.
+                if 'VApp' in responseDict.keys():
+                    if not responseDict['VApp'].get('Children'):
+                        vAppID = responseDict['VApp']["@href"].split('/')[-1]
+                        if responseDict['VApp']["@status"] == vcdConstants.VAPP_STATUS['POWERED_ON']:
+                            payloadDict = dict()
+                            payloadData = self.vcdUtils.createPayload(
+                                filePath=os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml'),
+                                payloadDict=payloadDict,
+                                fileType='yaml',
+                                componentName=vcdConstants.COMPONENT_NAME,
+                                templateName=vcdConstants.UNDEPLOY_VAPP_TEMPLATE)
+                            payloadData = json.loads(payloadData)
+                            url = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                                                vcdConstants.UNDEPLOY_VAPP_API.format(vAppID))
+                            self.headers['Content-Type'] = vcdConstants.GENERAL_XML_CONTENT_TYPE
+                            # post api call to undeploy vapp
+                            response = self.restClientObj.post(url, self.headers, data=payloadData)
+                            if response.status_code == requests.codes.accepted:
+                                task_url = response.headers['Location']
+                                self._checkTaskStatus(taskUrl=task_url)
+                            else:
+                                errorResponse = response.json()
+                                raise Exception('Failed to power off vApp  - {}'.format(errorResponse['message']))
+
+                        url = "{}vApp/{}".format(vcdConstants.XML_API_URL.format(self.ipAddress), vAppID)
+                        # delete api call to delete empty vapp
+                        response = self.restClientObj.delete(url, self.headers)
+                        if response.status_code == requests.codes.accepted:
+                            task_url = response.headers['Location']
+                            self._checkTaskStatus(taskUrl=task_url)
+                        else:
+                            errorResponse = response.json()
+                            raise Exception('Failed to delete empty vApp  - {}'.format(errorResponse['message']))
+                else:
+                    raise Exception(f"Failed to get vApp {vApp['@name']} details.")
+            else:
+                raise Exception(f"Failed to get vApp {vApp['@name']} details: {responseDict['Error']['@message']}")
+
+    @isSessionExpired
     def deleteOrgVDCNetworks(self, orgVDCId, rollback=False):
         """
         Description :   Deletes all Organization VDC Networks from the specified OrgVDC

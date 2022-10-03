@@ -446,3 +446,7 @@ vCloudDirector:
         {% endif %}
       </staticRoutes>
     </staticRouting>
+  undeployvApp:
+    <root:UndeployVAppParams xmlns:root="http://www.vmware.com/vcloud/v1.5">
+      <root:UndeployPowerAction>powerOff</root:UndeployPowerAction>
+    </root:UndeployVAppParams>

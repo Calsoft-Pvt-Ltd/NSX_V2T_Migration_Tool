@@ -51,6 +51,12 @@ FETCH_ALL_VDCS = "vdcs"
 # create org vdc metadata entry template name used in template.yml
 CREATE_ORG_VDC_METADATA_TEMPLATE = 'createOrgVDCMetadata'
 
+# undeploy vApp template
+UNDEPLOY_VAPP_TEMPLATE = 'undeployvApp'
+
+# undeploy vApp api
+UNDEPLOY_VAPP_API = 'vApp/{}/action/undeploy'
+
 # create org vdc metadata template name used in template.yml
 CREATE_ORG_VDC_METADATA_ENTRY_TEMPLATE = 'createOrgVDCMetadataEntry'
 
