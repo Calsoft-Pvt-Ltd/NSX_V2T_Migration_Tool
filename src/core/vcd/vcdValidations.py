@@ -3268,6 +3268,10 @@ class VCDMigrationValidation:
             loadBalancerErrorList = []
             supportedLoadBalancerAlgo = ['round-robin', 'leastconn']
             supportedLoadBalancerPersistence = ['cookie', 'sourceip']
+            LoadBalancerServiceNetworkIPv6 = self.orgVdcInput['EdgeGateways'][gatewayName].get(
+                'LoadBalancerServiceNetworkIPv6', None)
+            poolsWithIpv6Configured = list()
+            virtualServersWithIpv6Configured = list()
             logger.debug("Getting Load Balancer Services Configuration Details of Source Edge Gateway {}".format(edgeGatewayId))
             # url to retrieve the load balancer config info
             url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
@@ -3288,6 +3292,12 @@ class VCDMigrationValidation:
                         loadBalancerErrorList.append('Application rules are present in load balancer service but not supported in the Target\n')
 
                     for pool in listify(responseDict['loadBalancer'].get('pool')):
+                        # Check if the pool member has IPV6 configured and LoadBalancerServiceNetworkIPv6 configured or not.
+                        for member in listify(pool.get('member')):
+                            if not LoadBalancerServiceNetworkIPv6 and isinstance(ipaddress.ip_address(member['ipAddress']), ipaddress.IPv6Address):
+                                poolsWithIpv6Configured.append(pool['name'])
+                                break
+
                         for monitor in listify(responseDict['loadBalancer'].get('monitor')):
                             if pool['monitorId'] == monitor['monitorId']:
                                 if monitor['type'] in ['tcp', 'http', 'https', 'icmp']:
@@ -3299,8 +3309,10 @@ class VCDMigrationValidation:
                                         loadBalancerErrorList.append("Load balancer pool '{}' have unsupported values configured in monitor '{}'\n".format(pool['name'], monitor['name']))
                                     else:
                                         logger.warning("UDP monitor '{}' send / receive will be set based on the Avi System-UDP".format(monitor['name']))
-
-
+                    if poolsWithIpv6Configured:
+                        loadBalancerErrorList.append(
+                            "Load balancer pools : '{}', has IPV6 configured on edge gateway {}, But 'LoadBalancerServiceNetworkIPv6' field is not configured/present in user input YAML file.\n".format(
+                                ','.join(poolsWithIpv6Configured), gatewayName))
                     # url for getting edge gateway load balancer virtual servers configuration
                     url = '{}{}'.format(
                         vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
@@ -3318,18 +3330,29 @@ class VCDMigrationValidation:
                         return ['Failed to get source edge gateway load balancer virtual servers configuration with error code {} \n'.format(response.status_code)]
 
                     for virtualServer in virtualServersData:
+                        # check for default pool
                         if not virtualServer.get('defaultPoolId', None):
                             loadBalancerErrorList.append("Default pool is not configured in load balancer virtual server '{}'\n".format(virtualServer['name']))
 
-                    if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
-                        for virtualServer in virtualServersData:
-                            # check for IPV4 Address for virtual server
-                            if type(ipaddress.ip_address(virtualServer['ipAddress'])) is ipaddress.IPv6Address:
-                                loadBalancerErrorList.append("IPV6 Address used as VIP in virtual Server '{}'\n".format(virtualServer['name']))
+                        # check for IPV6 Addr for virtual server and LoadBalancerServiceNetworkIPv6 configured or not.
+                        if not LoadBalancerServiceNetworkIPv6 and isinstance(
+                                ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv6Address):
+                            virtualServersWithIpv6Configured.append(virtualServer['name'])
 
-                    for virtualServer in virtualServersData:
+                        # Check for application profile configured or not.
                         if not(virtualServer.get('applicationProfileId')):
                             loadBalancerErrorList.append("Application profile is not added in virtual Server '{}'\n".format(virtualServer['name']))
+
+                    if virtualServersWithIpv6Configured:
+                        loadBalancerErrorList.append(
+                            "Load balancer virtual server : '{}', has IPV6 configured on edge gateway {}, But 'LoadBalancerServiceNetworkIPv6' field is not configured/present in user input YAML file.\n".format(
+                                ','.join(virtualServersWithIpv6Configured), gatewayName))
+
+                    if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+                        for virtualServer in virtualServersData:
+                            # check for IPV6 Address for virtual server
+                            if type(ipaddress.ip_address(virtualServer['ipAddress'])) is ipaddress.IPv6Address:
+                                loadBalancerErrorList.append("IPV6 Address used as VIP in virtual Server '{}'\n".format(virtualServer['name']))
 
                     # Fetching application profiles data from response
                     if responseDict['loadBalancer'].get('applicationProfile'):
