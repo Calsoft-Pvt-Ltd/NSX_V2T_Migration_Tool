@@ -504,8 +504,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
         # application port profile list
         applicationPortProfileList = self.getApplicationPortProfiles()
-        tcpPortName, tcpPortId = self._searchApplicationPortProfile(applicationPortProfileList, 'tcp', '53')
-        udpPortName, udpPortId = self._searchApplicationPortProfile(applicationPortProfileList, 'udp', '53')
+        applicationPortProfileDict = self.filterApplicationPortProfiles(applicationPortProfileList)
+        tcpPortName, tcpPortId = self._searchApplicationPortProfile(applicationPortProfileDict, 'tcp', '53')
+        udpPortName, udpPortId = self._searchApplicationPortProfile(applicationPortProfileDict, 'udp', '53')
 
         # get target OrgVDC Network details.
         # We are not creating DNAT rules for shared network for non-DR, bcz of the VCD issue on lower versions.
