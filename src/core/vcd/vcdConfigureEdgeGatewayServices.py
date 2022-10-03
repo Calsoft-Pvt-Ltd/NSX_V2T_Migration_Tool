@@ -142,6 +142,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                               vcdConstants.T1_ROUTER_FIREWALL_CONFIG.format(edgeGatewayId))
                 if not networktype:
                     # retrieving the application port profiles
+                    applicationPortProfilesList = self.getApplicationPortProfiles()
+                    applicationPortProfilesDict = self.filterApplicationPortProfiles(applicationPortProfilesList)
                     url = "{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                                         vcdConstants.GET_IPSET_GROUP_BY_ID.format(
                                             vcdConstants.IPSET_SCOPE_URL.format(vcdid)))
@@ -170,7 +172,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     # iterating over the source edge gateway firewall rules
                     for firewallRule in sourceFirewallRules:
                         # retrieving the application port profiles
-                        applicationPortProfilesList = self.getApplicationPortProfiles()
                         # if configStatus flag is already set means that the firewall rule is already configured, if so then skipping the configuring of same rule and moving to the next firewall rule
                         if self.rollback.apiData.get(firewallRule['id']) and not networktype:
                             if self.rollback.apiData[firewallRule['id']] == sourceEdgeGatewayId:
@@ -454,7 +455,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                         else:
                                             # protocol is not icmp
                                             protocol_name, port_id = self._searchApplicationPortProfile(
-                                                applicationPortProfilesList,
+                                                applicationPortProfilesDict,
                                                 applicationService['protocol'],
                                                 applicationService['port'])
                                             applicationServicesList.append({'name': protocol_name, 'id': port_id})
@@ -737,11 +738,37 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         except Exception:
             raise
 
+    def filterApplicationPortProfiles(self, applicationPortProfilesList):
+        """
+        Description :   Filter Application Port Profile
+        Parameters  :   applicationPortProfilesDict - application port profiles dict (Dict)
+        """
+        applicationPortProfilesDict = {}
+        for value in applicationPortProfilesList:
+            if len(value['applicationPorts']) == 1:
+                # if the destinationPorts is getting empty or None then return 'any'
+                if not value['applicationPorts'][0]['destinationPorts']:
+                    value['applicationPorts'][0]['destinationPorts'] = ['any']
+                if value['scope'] == 'SYSTEM':
+                    applicationPortProfilesDict[
+                        'SYSTEM-{}-{}'.format(
+                            value['applicationPorts'][0]['protocol'],
+                            value['applicationPorts'][0]['destinationPorts'][0])
+                    ] = value
+                elif value['scope'] == 'TENANT' and isinstance(value.get('orgRef'), dict):
+                    applicationPortProfilesDict[
+                        'TENANT-{}-{}-{}'.format(
+                            value['orgRef']['id'],
+                            value['applicationPorts'][0]['protocol'],
+                            value['applicationPorts'][0]['destinationPorts'][0])
+                    ] = value
+        return applicationPortProfilesDict
+
     @isSessionExpired
-    def _searchApplicationPortProfile(self, applicationPortProfilesList, protocol, port):
+    def _searchApplicationPortProfile(self, applicationPortProfilesDict, protocol, port):
         """
         Description :   Search for specific Application Port Profile
-        Parameters  :   applicationPortProfilesList - application port profiles list (LIST)
+        Parameters  :   applicationPortProfilesList - application port profiles dict (Dict)
                         protocol - protocal for the Application Port profile (STRING)
                         port - Port for the application Port profile (STRING)
         """
@@ -750,23 +777,15 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # data = self.vcdUtils.readJsonData(fileName)
             data = self.rollback.apiData
             protocol = protocol.upper()
-            for value in applicationPortProfilesList:
-                if len(value['applicationPorts']) == 1:
-                    if value['scope'] == 'SYSTEM':
-                        if value['applicationPorts'][0]['protocol'] == protocol and value['applicationPorts'][0]['destinationPorts'][0] == port:
-                            logger.debug('Application Port Profile for the specific protocol'
-                                         ' and port retrieved successfully')
-                            return value['name'], value['id']
-                    elif value['scope'] == 'TENANT' and isinstance(value.get('orgRef'), dict) and value['orgRef']['id'] == data['Organization']['@id']:
-                        if not value['applicationPorts'][0]['destinationPorts']:
-                            value['applicationPorts'][0]['destinationPorts'] = ['any']
-                        if value['applicationPorts'][0]['protocol'] == protocol and value['applicationPorts'][0]['destinationPorts'][0] == port:
-                            logger.debug('Application Port Profile for the specific protocol'
-                                         ' and port retrieved successfully')
-                            return value['name'], value['id']
+            value = applicationPortProfilesDict.get(f"SYSTEM-{protocol}-{port}") or \
+                    applicationPortProfilesDict.get(f"TENANT-{data['Organization']['@id']}-{protocol}-{port}")
+            if value:
+                logger.debug(f"Application Port Profile {value['id']} for the {protocol}-{port} retrieved successfully")
+                return value['name'], value['id']
             else:
                 url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                     vcdConstants.APPLICATION_PORT_PROFILES)
+
                 payloadDict = {
                     "name": "CUSTOM-" + protocol + "-" + port,
                     "applicationPorts": [{
@@ -788,7 +807,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     portprofileID = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
                     logger.debug('Application port profile is created successfully ')
                     customID = 'urn:vcloud:applicationPortProfile:' + portprofileID
-                    return payloadDict['name'], customID
+                    payloadDict['id'] = customID
+                    applicationPortProfilesDict[
+                        'TENANT-{}-{}-{}'.format(payloadDict['orgRef']['id'], payloadDict['applicationPorts'][0]['protocol'], payloadDict['applicationPorts'][0]['destinationPorts'][0])] = payloadDict
+                    return payloadDict['name'], payloadDict['id']
                 response = response.json()
                 raise Exception('Failed to create application port profile {} '.format(response['message']))
         except Exception:
@@ -861,14 +883,15 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                           vcdConstants.ALL_EDGE_GATEWAYS,
                                           vcdConstants.T1_ROUTER_NAT_CONFIG.format(t1gatewayId))
                     version = data['version']
-                    # applicationPortProfilesList = self.getApplicationPortProfiles()
+
+                    # retrieving the application port profiles
+                    applicationPortProfilesList = self.getApplicationPortProfiles()
                     userDefinedNAT = [natrule for natrule in sourceNATRules if natrule['ruleType'] == 'user']
                     # if source NAT is enabled NAT rule congiguration starts
                     statusForNATConfiguration = self.rollback.apiData.get('NATstatus', {})
                     rulesConfigured = statusForNATConfiguration.get(t1gatewayId, [])
                     if data['enabled'] == 'true':
                         for sourceNATRule in userDefinedNAT:
-                            applicationPortProfilesList = self.getApplicationPortProfiles()
                             destinationIpDict = dict()
                             # checking whether 'ConfigStatus' key is present or not if present skipping that rule while remediation
                             if sourceNATRule['ruleId'] in rulesConfigured or sourceNATRule['ruleTag'] in rulesConfigured:
@@ -2142,6 +2165,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         # fetching NSX-T manager id
         nsxtManagerId = self.getNsxtManagerId(tpvdcName)
 
+        # Convert the application port profile list to Dict.
+        applicationPortProfilesDict = self.filterApplicationPortProfiles(applicationPortProfilesList)
+
         # creating common payload dict for both DNAT AND SNAT
         payloadDict = {
             "ruleId": sourceNATRule['ruleId'],
@@ -2179,7 +2205,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             # if protocol and port is not equal to any search or creating new application port profiles
             if sourceNATRule['protocol'] != "any" and sourceNATRule['protocol'] != "icmp":
                 protocol_port_name, protocol_port_id = self._searchApplicationPortProfile(
-                    applicationPortProfilesList, sourceNATRule['protocol'], sourceNATRule['translatedPort'])
+                    applicationPortProfilesDict, sourceNATRule['protocol'], sourceNATRule['translatedPort'])
                 payloadData["applicationPortProfile"] = {"name": protocol_port_name, "id": protocol_port_id}
             # checking the protocol is icmp
             elif sourceNATRule['protocol'] == "icmp":
@@ -3031,9 +3057,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             # Getting the application port profile list
             applicationPortProfilesList = self.getApplicationPortProfiles()
+            applicationPortProfilesDict = self.filterApplicationPortProfiles(applicationPortProfilesList)
+
             # Fetching name and id of specific application port profile for corresponding port
             protocol_port_name, protocol_port_id = self._searchApplicationPortProfile(
-                applicationPortProfilesList, 'tcp', port)
+                applicationPortProfilesDict, 'tcp', port)
             payloadData["applicationPortProfile"] = {"name": protocol_port_name, "id": protocol_port_id}
 
             # From VCD v10.2.2, firewallMatch to external address to be provided for DNAT rules
@@ -3840,8 +3868,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             logger.debug(f'sourceToTargetOrgNetIds {sourceToTargetOrgNetIds}')
 
+            # Get the application port profiles
+            applicationPortProfilesList = self.getApplicationPortProfiles()
+            applicationPortProfilesDict = self.filterApplicationPortProfiles(applicationPortProfilesList)
+
             # Collect pre-configured DFW objects.
-            # applicationPortProfilesList = self.getApplicationPortProfiles()
             sourceDfwSecurityGroups = self.getSourceDfwSecurityGroups()
             allFirewallGroups = self.fetchFirewallGroupsByDCGroup()
             self.getTargetSecurityTags()
@@ -3915,14 +3946,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         # iterating over the application services
                         for applicationService in firewallRules:
                             # Collect pre-configured DFW objects.
-                            applicationPortProfilesList = self.getApplicationPortProfiles()
                             for service in layer3AppServices:
                                 if applicationService.get('protocolName'):
                                     if applicationService['protocolName'] == 'TCP' or applicationService['protocolName'] == 'UDP':
                                         if not applicationService.get('destinationPort'):
                                             applicationService['destinationPort'] = 'any'
                                         protocol_name, port_id = self._searchApplicationPortProfile(
-                                            applicationPortProfilesList, applicationService['protocolName'],
+                                            applicationPortProfilesDict, applicationService['protocolName'],
                                             applicationService['destinationPort'])
                                         applicationServicesList.append({'name': protocol_name, 'id': port_id})
                                     else:
@@ -3938,7 +3968,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                         if applicationService['name'] != 'FTP' and applicationService['name'] != 'TFTP':
                                             if service['element']['applicationProtocol'] == 'TCP' or \
                                                     service['element']['applicationProtocol'] == 'UDP':
-                                                protocol_name, port_id = self._searchApplicationPortProfile(applicationPortProfilesList, service['element']['applicationProtocol'], service['element']['value'])
+                                                protocol_name, port_id = self._searchApplicationPortProfile(applicationPortProfilesDict, service['element']['applicationProtocol'], service['element']['value'])
                                                 applicationServicesList.append({'name': protocol_name, 'id': port_id})
                                         else:
                                             # protocol_name, port_id = [[values['name'], values['id']] for values in applicationPortProfilesList if values['name'] == 'FTP' or values['name'] == 'TFTP']
