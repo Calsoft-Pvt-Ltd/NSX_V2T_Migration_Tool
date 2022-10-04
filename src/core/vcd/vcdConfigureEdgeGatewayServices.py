@@ -182,6 +182,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         payloadDict = dict()
                         sourcefirewallGroupId = list()
                         destinationfirewallGroupId = list()
+
+                        # fetch firewall groups created on target edge gateway
+                        targetIPsetList = self.fetchFirewallGroups(urlFilter=vcdConstants.FIREWALL_GROUP_IPSET_FILTER.
+                                                                   format(edgeGatewayId))
+
                         # checking for the source key in firewallRule dictionary
                         if firewallRule.get('source', None):
                             # retrieving ip address list source edge gateway firewall rule
@@ -199,31 +204,39 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 ipsetgroups = [group for group in groups if "ipset" in group]
                                 networkgroups = [group for group in groups if "network" in group]
                             # checking if the networktype is false
+
                             if not networktype:
                                 if ipAddressList:
-                                    # creating payload data to create firewall group
-                                    firewallGroupDict = {
-                                        'name': firewallRule['name'] + '-' + 'Source-' + str(random.randint(1, 1000)),
-                                        'edgeGatewayRef': {'id': edgeGatewayId},
-                                        'ipAddresses': ipAddressList}
-                                    firewallGroupDict = json.dumps(firewallGroupDict)
-                                    # url to create firewall group
-                                    firewallGroupUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                                     vcdConstants.CREATE_FIREWALL_GROUP)
-                                    self.headers['Content-Type'] = 'application/json'
-                                    # post api call to create firewall group
-                                    response = self.restClientObj.post(firewallGroupUrl, self.headers,
-                                                                       data=firewallGroupDict)
-                                    if response.status_code == requests.codes.accepted:
-                                        # successful creation of firewall group
-                                        taskUrl = response.headers['Location']
-                                        firewallGroupId = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
-                                        sourcefirewallGroupId.append(
-                                            {'id': 'urn:vcloud:firewallGroup:{}'.format(firewallGroupId)})
-                                    else:
-                                        errorResponse = response.json()
-                                        raise Exception(
-                                            'Failed to create Firewall group - {}'.format(errorResponse['message']))
+                                    for ipAddress in ipAddressList:
+                                        groupId = list(filter(lambda targetIPset: ipAddress == targetIPset['name'],
+                                                              targetIPsetList))
+                                        if groupId:
+                                            sourcefirewallGroupId.append({'id': groupId[0]['id']})
+                                            continue
+                                        # creating payload data to create firewall group
+                                        firewallGroupDict = {
+                                            'name': ipAddress,
+                                            'edgeGatewayRef': {'id': edgeGatewayId},
+                                            'ipAddresses': [ipAddress]
+                                        }
+                                        firewallGroupDict = json.dumps(firewallGroupDict)
+                                        # url to create firewall group
+                                        firewallGroupUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                                         vcdConstants.CREATE_FIREWALL_GROUP)
+                                        self.headers['Content-Type'] = 'application/json'
+                                        # post api call to create firewall group
+                                        response = self.restClientObj.post(firewallGroupUrl, self.headers,
+                                                                           data=firewallGroupDict)
+                                        if response.status_code == requests.codes.accepted:
+                                            # successful creation of firewall group
+                                            taskUrl = response.headers['Location']
+                                            firewallGroupId = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
+                                            sourcefirewallGroupId.append(
+                                                {'id': 'urn:vcloud:firewallGroup:{}'.format(firewallGroupId)})
+                                        else:
+                                            errorResponse = response.json()
+                                            raise Exception(
+                                                'Failed to create Firewall group - {}'.format(errorResponse['message']))
                                 if ipsetgroups:
                                     # iterating all the IPSET in a firewall rule one by one
                                     for ipsetgroup in ipsetgroups:
@@ -254,7 +267,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 # get api call to retrieve firewall info of target edge gateway
                                 response = self.restClientObj.get(firewallUrl, self.headers)
                                 if response.status_code == requests.codes.ok:
-                                    userDefinedRulesList = list()
                                     # successful retrieval of firewall info
                                     responseDict = response.json()
                                     userDefinedRulesList = responseDict['userDefinedRules']
@@ -314,28 +326,33 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             # checking if networktype is false
                             if not networktype:
                                 if ipAddressList:
-                                    # creating payload data to create firewall group
-                                    firewallGroupDict = {'name': firewallRule['name'] + '-' + 'destination-' + str(
-                                        random.randint(1, 1000)), 'edgeGatewayRef': {'id': edgeGatewayId},
-                                                         'ipAddresses': ipAddressList}
-                                    firewallGroupDict = json.dumps(firewallGroupDict)
-                                    # url to create firewall group
-                                    firewallGroupUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                                                     vcdConstants.CREATE_FIREWALL_GROUP)
-                                    self.headers['Content-Type'] = 'application/json'
-                                    # post api call to create firewall group
-                                    response = self.restClientObj.post(firewallGroupUrl, self.headers,
-                                                                       data=firewallGroupDict)
-                                    if response.status_code == requests.codes.accepted:
-                                        # successful creation of firewall group
-                                        taskUrl = response.headers['Location']
-                                        firewallGroupId = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
-                                        destinationfirewallGroupId.append(
-                                            {'id': 'urn:vcloud:firewallGroup:{}'.format(firewallGroupId)})
-                                    else:
-                                        errorResponse = response.json()
-                                        raise Exception(
-                                            'Failed to create Firewall group - {}'.format(errorResponse['message']))
+                                    for ipAddress in ipAddressList:
+                                        groupId = list(filter(lambda targetIPset: ipAddress == targetIPset['name'],
+                                                              targetIPsetList))
+                                        if groupId:
+                                            destinationfirewallGroupId.append({'id': groupId[0]['id']})
+                                            continue
+                                        # creating payload data to create firewall group
+                                        firewallGroupDict = {'name': ipAddress, 'edgeGatewayRef': {'id': edgeGatewayId},
+                                                             'ipAddresses': [ipAddress]}
+                                        firewallGroupDict = json.dumps(firewallGroupDict)
+                                        # url to create firewall group
+                                        firewallGroupUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                                         vcdConstants.CREATE_FIREWALL_GROUP)
+                                        self.headers['Content-Type'] = 'application/json'
+                                        # post api call to create firewall group
+                                        response = self.restClientObj.post(firewallGroupUrl, self.headers,
+                                                                           data=firewallGroupDict)
+                                        if response.status_code == requests.codes.accepted:
+                                            # successful creation of firewall group
+                                            taskUrl = response.headers['Location']
+                                            firewallGroupId = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
+                                            destinationfirewallGroupId.append(
+                                                {'id': 'urn:vcloud:firewallGroup:{}'.format(firewallGroupId)})
+                                        else:
+                                            errorResponse = response.json()
+                                            raise Exception(
+                                                'Failed to create Firewall group - {}'.format(errorResponse['message']))
                                 if ipsetgroups:
                                     # iterating all the IPSET in a firewall rule one by one
                                     for ipsetgroup in ipsetgroups:
@@ -366,7 +383,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 # get api call to retrieve firewall info of target edge gateway
                                 response = self.restClientObj.get(firewallUrl, self.headers)
                                 if response.status_code == requests.codes.ok:
-                                    userDefinedRulesList = list()
                                     # successful retrieval of firewall info
                                     responseDict = response.json()
                                     userDefinedRulesList = responseDict['userDefinedRules']
@@ -407,7 +423,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                     response = response.json()
                                     raise Exception("Failed to retrieve firewall info - {}".format(response['message']))
                         if not networktype:
-                            userDefinedRulesList = list()
                             # get api call to retrieve firewall info of target edge gateway
                             response = self.restClientObj.get(firewallUrl, self.headers)
                             if response.status_code == requests.codes.ok:
@@ -2349,11 +2364,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 targetIpsets = self.fetchFirewallGroups(
                     urlFilter=vcdConstants.FIREWALL_GROUP_IPSET_FILTER.format(edgeGatewayId))
                 targetIpsets = {group['name'] for group in targetIpsets}
-
                 # iterating over the ipset group list
                 for ipsetgroup in ipsetgroups:
                     ipAddressList = list()
                     ipsetName = f"{sourceOrgVdcName}_{ipsetgroup['name']}"
+
                     if ipsetName in targetIpsets:
                         continue
 
@@ -4706,7 +4721,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             return f"vdc-{orgVdcId}_group-{sourceGroupId}{suffix}"
 
-        ipv4Addresses = list()
         firewallGroupObjects = defaultdict(list)
         orgVdcName = self.rollback.apiData['sourceOrgVDC']['@name']
         orgVdcId = self.rollback.apiData['sourceOrgVDC']['@id'].split(':')[-1]
@@ -4727,7 +4741,17 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         for entity in entities:
             # Collect all Ipv4Address from rule and create a single group on target side.
             if entity['type'] == 'Ipv4Address':
-                ipv4Addresses.append(entity['value'])
+                for dcGroupId in appliedToDcGroups:
+                    payload = {
+                        'name': entity['value'],
+                        'ownerRef': {'id': dcGroupId},
+                        'ipAddresses': [entity['value']]
+                    }
+                    self.thread.spawnThread(
+                        self.createDfwFirewallGroup, payload, allFirewallGroups, groupTypes.get('Ipv4Address'),
+                        firewallGroupObjects[dcGroupId])
+                # Halting the main thread till all the threads have completed their execution
+                self.thread.joinThreads()
 
             elif entity['type'] == 'IPSet':
                 ipset = self.getIpset(entity['value'])
@@ -4809,7 +4833,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                     groupTypes.get(member['type']['typeName']), firewallGroupObjects[dcGroupId])
                             # Halting the main thread till all the threads have completed their execution
                             self.thread.joinThreads()
-
                         if member['type']['typeName'] == 'Network':
                             network_id = sourceToTargetOrgNetIds.get(member['objectId'])
                             ownerRefId = list(targetEntitiesToDcGroupMap[network_id])[0]
@@ -4890,22 +4913,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 groupTypes.get('VirtualMachine'), firewallGroupObjects[dcGroupId])
                     # Halting the main thread till all the threads have completed their execution
                     self.thread.joinThreads()
-
-        if ipv4Addresses:
-            for dcGroupId in appliedToDcGroups:
-                payload = {
-                    'name': createFirewallGroupName(
-                        orgVdcName, orgVdcId, sourceGroupName=None, sourceGroupId=None, ruleId=ruleId,
-                        groupType='ip', source=source),
-                    'ownerRef': {'id': dcGroupId},
-                    'ipAddresses': ipv4Addresses
-                }
-                self.thread.spawnThread(
-                    self.createDfwFirewallGroup, payload, allFirewallGroups, groupTypes.get('Ipv4Address'),
-                    firewallGroupObjects[dcGroupId])
-            # Halting the main thread till all the threads have completed their execution
-            self.thread.joinThreads()
-
         return firewallGroupObjects
 
     def getIpset(self, ipsetId):
