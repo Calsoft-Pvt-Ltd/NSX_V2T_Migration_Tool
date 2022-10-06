@@ -89,6 +89,9 @@ TRANSPORT_ZONE_API = "/infra/sites/default/enforcement-points/default/transport-
 # nsx-t transport node by id uri
 UPDATE_TRANSPORT_NODE_API = "api/v1/transport-nodes/{}"
 
+# nsx-t transport node network interface
+TRANSPORT_NODE_NETWORK_INTERFACE = "/node/network/interfaces"
+
 # nsx-t logical switch uri
 CREATE_LOGICAL_SWITCH_API = "api/v1/logical-switches"
 

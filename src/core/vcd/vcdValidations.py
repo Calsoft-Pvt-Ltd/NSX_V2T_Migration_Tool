@@ -4884,6 +4884,8 @@ class VCDMigrationValidation:
 
                 logger.info('Validating Edge Cluster Exists in NSX-T and Edge Transport Nodes are not in use')
                 nsxtObj.validateEdgeNodesNotInUse(inputDict, orgVdcNetworkList, vcdObjList)
+                logger.info('Validating Edge Transport Nodes network interfaces')
+                nsxtObj.validateEdgeNodesIfUpgraded()
                 logger.info("Successfully completed checks for Bridging Components")
 
         except:

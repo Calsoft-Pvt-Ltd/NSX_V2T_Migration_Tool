@@ -1420,6 +1420,52 @@ class NSXTOperations():
         except:
             raise
 
+    def validateEdgeNodesIfUpgraded(self):
+        """
+        Description :   Validates that Edge Transport Nodes are upgraded from NSX pre-3.2 in the specified Edge Cluster.
+        """
+        edgeTransportNodeList = []
+        edgeClusterNotFound = []
+        upgradedNodesList = []
+        logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(self.edgeClusterNameList)))
+
+        # Check NSXT api version, if lower that 3.2 then return.
+        if version.parse(self.apiVersion) < version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+            return
+
+        # Retrieving all edge transport nodes belongs to edge cluster.
+        for edgeCluster in self.edgeClusterNameList:
+            edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API, edgeCluster)
+            if not edgeClusterData:
+                edgeClusterNotFound.append(edgeCluster)
+            else:
+                edgeTransportNodeList += edgeClusterData['members'] \
+                    if isinstance(edgeClusterData['members'], list) else [edgeClusterData['members']]
+
+        if edgeClusterNotFound:
+            raise Exception(
+                "Edge Cluster '{}' do not exist in NSX-T, so can't validate respective edge transport nodes.".format(
+                    ', '.join(edgeClusterNotFound)))
+
+        # Check no of network interfaces on transport-node and raise exception if transport node upgraded from pre-3.2.
+        for transportNode in edgeTransportNodeList:
+            url = "{}{}".format(nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
+                                                                       nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(
+                                                                           transportNode['transport_node_id'])),
+                                nsxtConstants.TRANSPORT_NODE_NETWORK_INTERFACE)
+            response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
+            if response.status_code == requests.codes.ok:
+                responseDict = response.json()
+                if responseDict['result_count'] < 5:
+                    upgradedNodesList.append(transportNode['display_name'])
+            else:
+                responseDict = response.json()
+                raise Exception('Failed to fetch transport node details with error - {}'.format(responseDict["error_message"]))
+        if upgradedNodesList:
+            raise Exception(
+                "Bridging can not be configured on Edge TransportNodes : {}, Since the edge transport nodes has less than '5' network adapters. Redeploy the edge to be able to configure the fourth data network.".format(
+                    ','.join(upgradedNodesList)))
+
     def validateEdgeNodesNotInUse(self, inputDict, orgVdcNetworkList, vcdObjList, precheck=False):
         """
         Description :   Validates that None Edge Transport Nodes are in use in the specified Edge Cluster
