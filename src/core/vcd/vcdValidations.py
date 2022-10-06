@@ -5893,13 +5893,9 @@ class VCDMigrationValidation:
         """
         if not isinstance(ipaddress.ip_address(startAddr), ipaddress.IPv4Address):
             return False
-        startIp = startAddr.split('.')
-        endIp = endAddr.split('.')
-        ip = ipAddr.split('.')
-        for i in range(4):
-            if int(float(ip[i])) < int(float(startIp[i])) or int(float(ip[i])) > int(float(endIp[i])):
-                return False
-        return True
+
+        return int(ipaddress.IPv4Address(ipAddr)) in range(int(ipaddress.IPv4Address(startAddr)),
+                                                           int(ipaddress.IPv4Address(endAddr) + 1))
 
     @staticmethod
     def createIpRange(ipNetwork, startAddress, endAddress):
