@@ -24,6 +24,8 @@ build-windows:
   stage: build
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH =~ /v1.*/
+    - if: $CI_COMMIT_BRANCH == "master"
   before_script:
 #    - choco install python --version=3.7.9 -y
 #    - $env:PATH+=";C:\Python37;C:\Python37\Scripts"
@@ -52,6 +54,8 @@ build-linux:
   stage: build
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH =~ /v1.*/
+    - if: $CI_COMMIT_BRANCH == "master"
   before_script:
     - python --version
     - pip install virtualenv
