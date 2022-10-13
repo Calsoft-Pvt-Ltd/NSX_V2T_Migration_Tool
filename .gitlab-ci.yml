@@ -22,6 +22,8 @@ stages:
 
 build-windows:
   stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   before_script:
 #    - choco install python --version=3.7.9 -y
 #    - $env:PATH+=";C:\Python37;C:\Python37\Scripts"
@@ -48,6 +50,8 @@ build-windows:
 
 build-linux:
   stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   before_script:
     - python --version
     - pip install virtualenv
@@ -75,7 +79,7 @@ build-linux:
 provenance:
   stage: generate-provenance
   rules:
-    - if: $CI_COMMIT_BRANCH =~ /v1.*/ && $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH =~ /v1.*/
   before_script:
     # Prepare Python virtualenv
     - python --version
