@@ -1,4 +1,5 @@
-image: python:3.8
+default:
+  image: python:3.8
 
 # Change pip's cache directory to be inside the project directory since we can
 # only cache local items.
@@ -14,28 +15,89 @@ cache:
   paths:
     - .cache/pip
     - venv/
-
-before_script:
-  # Prepare Python virtualenv
-  - python --version
-  - pip install virtualenv
-  - virtualenv venv
-  - source venv/bin/activate
-  - pip install -r ./provenanceData/requirements.txt
-
-  # Download the SRP CLI which we use to create source provenance
-  - mkdir /srp-tools
-  - wget --quiet --output-document /srp-tools/srp  https://artifactory.eng.vmware.com/artifactory/helix-docker-local/cli/srpcli/0.2.20220610114718-f3587c2-16.1/linux/srp
-  - chmod +x /srp-tools/srp
-  - /srp-tools/srp --version
+    - venv-prov/
 
 stages:
+  - build
   - generate-provenance
+
+build-windows:
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH =~ /v1.*/
+    - if: $CI_COMMIT_BRANCH == "master"
+  before_script:
+#    - choco install python --version=3.7.9 -y
+#    - $env:PATH+=";C:\Python37;C:\Python37\Scripts"
+#    - python -m pip install pipenv
+#    - pipenv update
+    - $Env:PATH += ";C:\Users\vmware\AppData\Local\Programs\Python\Python38\Scripts\"
+    - $Env:path
+  script:
+    - $Env:BUILD_VERSION="$Env:CI_COMMIT_BRANCH"
+    - $Env:BUILD_ID="$Env:CI_PIPELINE_ID"
+    - $Env:RELEASE_VERSION="$Env:BUILD_VERSION.$Env:BUILD_ID"
+    - echo "Build Windows package - RELEASE_VERSION=$Env:RELEASE_VERSION"
+    - $Env:WINDOWS_PACKAGE="VMware-NSX-Migration-for-VMware-Cloud-Director-$Env:RELEASE_VERSION.zip"
+    - echo "WINDOWS_PACKAGE=$Env:WINDOWS_PACKAGE"
+    - pyinstaller src\vcdNSXMigrator.spec
+    - Copy-Item -Path "C:\Program Files\OpenSSL-Win64\bin\*" -Destination "dist\vcdNSXMigrator" -PassThru -Recurse
+    - Compress-Archive -Path dist\vcdNSXMigrator -DestinationPath $Env:WINDOWS_PACKAGE
+  tags:
+    - windows
+  artifacts:
+    name: "$Env:CI_JOB_NAME-binaries"
+    paths:
+      - VMware-NSX-Migration-for-VMware-Cloud-Director-*.zip
+
+build-linux:
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH =~ /v1.*/
+    - if: $CI_COMMIT_BRANCH == "master"
+  before_script:
+    - python --version
+    - pip install virtualenv
+    - virtualenv venv
+    - source venv/bin/activate
+    - pip install -r ./requirements_build.txt
+    - pip install -r ./src/requirements.txt
+    - pip install pycrypto
+  script:
+    - export BUILD_VERSION=`grep 'Build' src/release.yml | awk '{print substr($2, 2)}'`
+    - export BUILD_ID="${CI_PIPELINE_ID}"
+    - export RELEASE_VERSION="$BUILD_VERSION.$BUILD_ID"
+    - echo "Build Linux package - RELEASE_VERSION=$RELEASE_VERSION"
+    - export LINUX_PACKAGE="VMware-NSX-Migration-for-VMware-Cloud-Director-$RELEASE_VERSION.tar.gz"
+    - echo "LINUX_PACKAGE=$LINUX_PACKAGE"
+    - python -m PyInstaller src/vcdNSXMigrator.spec
+    - tar -czvf $LINUX_PACKAGE -C dist/vcdNSXMigrator/ .
+  tags:
+    - linux
+  artifacts:
+    name: "$CI_JOB_NAME-binaries"
+    paths:
+      - VMware-NSX-Migration-for-VMware-Cloud-Director-*.tar.gz
 
 provenance:
   stage: generate-provenance
   rules:
     - if: $CI_COMMIT_BRANCH =~ /v1.*/
+  before_script:
+    # Prepare Python virtualenv
+    - python --version
+    - pip install virtualenv
+    - virtualenv venv-prov
+    - source venv-prov/bin/activate
+    - pip install -r ./provenanceData/requirements.txt
+
+    # Download the SRP CLI which we use to create source provenance
+    - mkdir /srp-tools
+    - wget --quiet --output-document /srp-tools/srp  https://artifactory.eng.vmware.com/artifactory/helix-docker-local/cli/srpcli/0.2.20220610114718-f3587c2-16.1/linux/srp
+    - chmod +x /srp-tools/srp
+    - /srp-tools/srp --version
   script:
     # create local auth configuration using variables from the CICD
     - /srp-tools/srp config auth --client-id=${SRP_CLIENT_ID} --client-secret=${SRP_CLIENT_SECRET}
@@ -93,12 +155,15 @@ provenance:
     - cat ./provenance/merged.json
     - echo "-----------------------------------------------------------------------"
 
-    # submit the merged provenance to SRP
-    - |
-      /srp-tools/srp metadata submit \
-      --uid "$PROVENANCE_FRAGMENT_UID" \
-      --path ./provenance/merged.json
+#    # submit the merged provenance to SRP
+#    - |
+#      /srp-tools/srp metadata submit \
+#      --uid "$PROVENANCE_FRAGMENT_UID" \
+#      --path ./provenance/merged.json
 
+  tags:
+    - linux
   artifacts:
+    name: "$CI_JOB_NAME-provenance"
     paths:
       - ./provenance/merged.json
