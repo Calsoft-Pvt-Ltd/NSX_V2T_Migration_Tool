@@ -15,6 +15,7 @@ cache:
   paths:
     - .cache/pip
     - venv/
+    - venv-prov/
 
 stages:
   - build
@@ -88,8 +89,8 @@ provenance:
     # Prepare Python virtualenv
     - python --version
     - pip install virtualenv
-    - virtualenv venv
-    - source venv/bin/activate
+    - virtualenv venv-prov
+    - source venv-prov/bin/activate
     - pip install -r ./provenanceData/requirements.txt
 
     # Download the SRP CLI which we use to create source provenance
