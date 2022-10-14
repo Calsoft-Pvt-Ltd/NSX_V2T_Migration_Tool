@@ -3268,8 +3268,8 @@ class VCDMigrationValidation:
             loadBalancerErrorList = []
             supportedLoadBalancerAlgo = ['round-robin', 'leastconn']
             supportedLoadBalancerPersistence = ['cookie', 'sourceip']
-            LoadBalancerServiceNetworkIPv6 = self.orgVdcInput['EdgeGateways'][gatewayName].get(
-                'LoadBalancerServiceNetworkIPv6', None)
+            loadBalancerServiceNetworkIPv6 = self.orgVdcInput['EdgeGateways'][gatewayName].get(
+                'LoadBalancerServiceNetworkIPv6', None) if not v2tAssessmentMode else None
             poolsWithIpv6Configured = list()
             virtualServersWithIpv6Configured = list()
             logger.debug("Getting Load Balancer Services Configuration Details of Source Edge Gateway {}".format(edgeGatewayId))
@@ -3292,9 +3292,11 @@ class VCDMigrationValidation:
                         loadBalancerErrorList.append('Application rules are present in load balancer service but not supported in the Target\n')
 
                     for pool in listify(responseDict['loadBalancer'].get('pool')):
-                        # Check if the pool member has IPV6 configured and LoadBalancerServiceNetworkIPv6 configured or not.
+                        # Check if the pool member has IPV6 configured and LoadBalancerServiceNetworkIPv6 configured
                         for member in listify(pool.get('member')):
-                            if not LoadBalancerServiceNetworkIPv6 and isinstance(ipaddress.ip_address(member['ipAddress']), ipaddress.IPv6Address):
+                            if not v2tAssessmentMode and \
+                                    not loadBalancerServiceNetworkIPv6 and \
+                                    isinstance(ipaddress.ip_address(member['ipAddress']), ipaddress.IPv6Address):
                                 poolsWithIpv6Configured.append(pool['name'])
                                 break
 
@@ -3335,8 +3337,9 @@ class VCDMigrationValidation:
                             loadBalancerErrorList.append("Default pool is not configured in load balancer virtual server '{}'\n".format(virtualServer['name']))
 
                         # check for IPV6 Addr for virtual server and LoadBalancerServiceNetworkIPv6 configured or not.
-                        if not LoadBalancerServiceNetworkIPv6 and isinstance(
-                                ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv6Address):
+                        if not v2tAssessmentMode and \
+                                not loadBalancerServiceNetworkIPv6 and \
+                                isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv6Address):
                             virtualServersWithIpv6Configured.append(virtualServer['name'])
 
                         # Check for application profile configured or not.
