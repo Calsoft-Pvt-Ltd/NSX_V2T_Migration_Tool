@@ -1,0 +1,53 @@
+{
+   "v2tAssessmentJsonSchema":{
+      "$schema":"http://json-schema.org/draft-04/schema#",
+      "type":"object",
+      "properties":{
+         "VCloudDirector":{
+            "type":"object",
+            "properties":{
+               "ipAddress":{
+                  "type":"string"
+               },
+               "username":{
+                  "type":"string"
+               },
+               "verify":{
+                  "type":"boolean"
+               }
+            },
+            "required":[
+               "ipAddress",
+               "username",
+               "verify"
+            ]
+         },
+         "OrgVDC":{
+
+         },
+         "Organization":{
+
+         },
+         "Common":{
+            "type":"object",
+            "properties":{
+               "CertificatePath":{
+                  "type":"string"
+               }
+            },
+            "required":[
+               "CertificatePath"
+            ]
+         }
+      },
+      "required":[
+         "VCloudDirector",
+         "OrgVDC",
+         "Organization",
+         "Common"
+      ]
+   },
+   "sampleUserInputJsonSchema": {
+
+   }
+}
