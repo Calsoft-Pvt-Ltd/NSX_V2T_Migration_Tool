@@ -506,6 +506,9 @@ class VMwareCloudDirectorNSXMigratorV2T:
             # Fetching vCD version for vCD cells data
             self.vcdVersion = self.vcdValidationObj.getVCDVersion()
 
+            # List to store Org VDC edge gateway result
+            self.edgeGatewayData = list()
+
             # Iterating over the org in the relation map
             for org in relationMap:
                 # Iterating over the org vdc's in the relation map
@@ -562,6 +565,9 @@ class VMwareCloudDirectorNSXMigratorV2T:
                         orgId = self.vcdValidationObj.getOrgId(org)
                         self.initializeV2TValidations(org, orgId, VDC, VDCId)
 
+                        # Initializing the edge Gateway Dict
+                        edgeGatewayDict = dict()
+
                         # Iterating over the validations and start executing validations one by one
                         for desc, method in self.vcdValidationMapping.items():
                             methodName = method.pop(0)
@@ -583,156 +589,98 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                         for validation in DFW_VALIDATIONS:
                                             orgVDCResult[validation] = GENERIC_EXCEPTION_TEXT
                                         continue
+                                    else:
+                                        for validation in DFW_VALIDATIONS:
+                                            orgVDCResult[validation] = False
 
                                     dfwResult = output
                                     if "has invalid objects" in ''.join(dfwResult):
                                         orgVDCResult["Distributed Firewall: Invalid objects in rule"] = True
-                                    else:
-                                        orgVDCResult["Distributed Firewall: Invalid objects in rule"] = False
-
                                     if "has invalid security group objects" in ''.join(dfwResult) and 'Security Group' in ''.join(dfwResult):
                                         orgVDCResult["Distributed Firewall: Invalid Security Group objects in rule"] = True
-                                    else:
-                                        orgVDCResult["Distributed Firewall: Invalid Security Group objects in rule"] = False
-
                                     if "provided in applied to section in rule" in ''.join(dfwResult):
                                         orgVDCResult["Distributed Firewall: Unsupported type in applied to section"] = True
-                                    else:
-                                        orgVDCResult["Distributed Firewall: Unsupported type in applied to section"] = False
-
                                     if "are connected to different edge gateways" in ''.join(dfwResult):
                                         orgVDCResult["Distributed Firewall: Networks connected to different edge gateway used"] = True
-                                    else:
-                                        orgVDCResult["Distributed Firewall: Networks connected to different edge gateway used"] = False
-
                                     if "Layer2 rule present" in ''.join(dfwResult):
                                         orgVDCResult["Distributed Firewall: Layer 2 Rule"] = True
-                                    else:
-                                        orgVDCResult["Distributed Firewall: Layer 2 Rule"] = False
-
                                 elif desc == "Validating Source Edge gateway services":
                                     if status is GENERIC_EXCEPTION_TEXT:
                                         for validation in EDGE_GW_SERVICES_VALIDATIONS:
                                             orgVDCResult[validation] = GENERIC_EXCEPTION_TEXT
                                         continue
+                                    else:
+                                        for validation in EDGE_GW_SERVICES_VALIDATIONS:
+                                            orgVDCResult[validation] = False
+                                    servicesResult = dict()
+                                    edgeGatewayDict = copy.deepcopy(output)
+                                    for edge, services in output.items():
+                                        for service, result in output[edge].items():
+                                            servicesResult[service] = servicesResult.get(service, []) + result
 
-                                    servicesResult = output
                                     for serviceName, result in servicesResult.items():
                                         if serviceName == "LoadBalancer":
                                             if "transparent mode enabled" in ''.join(result):
                                                 orgVDCResult["LoadBalancer: Transparent Mode"] = True
-                                            else:
-                                                orgVDCResult["LoadBalancer: Transparent Mode"] = False
                                             if "Application rules" in ''.join(result):
                                                 orgVDCResult["LoadBalancer: Application Rules"] = True
-                                            else:
-                                                orgVDCResult["LoadBalancer: Application Rules"] = False
                                             if "unsupported values configured" in ''.join(result):
                                                 orgVDCResult["LoadBalancer: Custom monitor"] = True
-                                            else:
-                                                orgVDCResult["LoadBalancer: Custom monitor"] = False
                                             if "Default pool is not configured" in ''.join(result):
                                                 orgVDCResult["LoadBalancer: Default pool not configured"] = True
-                                            else:
-                                                orgVDCResult["LoadBalancer: Default pool not configured"] = False
                                             if "Unsupported persistence" in ''.join(result):
                                                 orgVDCResult["LoadBalancer: Unsupported persistence"] = True
-                                            else:
-                                                orgVDCResult["LoadBalancer: Unsupported persistence"] = False
                                             if "Unsupported algorithm" in ''.join(result):
                                                 orgVDCResult["LoadBalancer: Unsupported algorithm"] = True
-                                            else:
-                                                orgVDCResult["LoadBalancer: Unsupported algorithm"] = False
                                             if "Application profile is not added" in ''.join(result):
-                                                orgVDCResult[
-                                                    "LoadBalancer: Application profile is not added"] = True
-                                            else:
-                                                orgVDCResult[
-                                                    "LoadBalancer: Application profile is not added"] = False
+                                                orgVDCResult["LoadBalancer: Application profile is not added"] = True
                                         if serviceName == "DHCP":
                                             if "Domain names are configured as a DHCP servers" in ''.join(result):
                                                 orgVDCResult["DHCP Relay: Domain names are configured"] = True
-                                            else:
-                                                orgVDCResult["DHCP Relay: Domain names are configured"] = False
                                             if "More than 8 DHCP servers configured" in ''.join(result):
                                                 orgVDCResult["DHCP Relay: More than 8 DHCP servers configured"] = True
-                                            else:
-                                                orgVDCResult["DHCP Relay: More than 8 DHCP servers configured"] = False
                                             if "DHCP Binding IP addresses overlaps" in ''.join(result):
                                                 orgVDCResult[
                                                     "DHCP Binding: Binding IP addresses overlaps with static IP Pool range"] = True
-                                            else:
-                                                orgVDCResult[
-                                                    "DHCP Binding: Binding IP addresses overlaps with static IP Pool range"] = False
                                         if serviceName == "NAT":
                                             if "Nat64 rule is configured" in ''.join(result):
                                                 orgVDCResult["NAT: NAT64 rule"] = True
-                                            else:
-                                                orgVDCResult["NAT: NAT64 rule"] = False
                                             if "Range of IPs or network found in this DNAT rule" in ''.join(result):
                                                 orgVDCResult["NAT: Range of IPs or network in DNAT rule"] = True
-                                            else:
-                                                orgVDCResult["NAT: Range of IPs or network in DNAT rule"] = False
                                         if serviceName == "IPsec":
                                             if "routebased session type" in ''.join(result):
                                                 orgVDCResult["IPsec: Route based session type"] = True
-                                            else:
-                                                orgVDCResult["IPsec: Route based session type"] = False
                                             if "unsupported encryption algorithm" in ''.join(result):
                                                 orgVDCResult["IPsec: Unsupported Encryption Algorithm"] = True
-                                            else:
-                                                orgVDCResult["IPsec: Unsupported Encryption Algorithm"] = False
                                             if 'overlaps DNAT rule with translated IP' in ''.join(result):
                                                 orgVDCResult["IPsec: DNAT rules not supported with Policy-based session type"] = True
-                                            else:
-                                                orgVDCResult["IPsec: DNAT rules not supported with Policy-based session type"] = False
                                         if serviceName == "Routing":
                                             if "OSPF routing protocol" in ''.join(result):
                                                 orgVDCResult["OSPF routing protocol"] = True
-                                            else:
-                                                orgVDCResult["OSPF routing protocol"] = False
                                             if "static routes configured" in ''.join(result):
                                                 orgVDCResult['User-defined Static Routes'] = True
-                                            else:
-                                                orgVDCResult['User-defined Static Routes'] = False
                                         if serviceName == "L2VPN":
                                             if "L2VPN service is configured" in ''.join(result):
                                                 orgVDCResult["L2VPN service"] = True
-                                            else:
-                                                orgVDCResult["L2VPN service"] = False
                                         if serviceName == "SSLVPN":
                                             if "SSLVPN service is configured" in ''.join(result):
                                                 orgVDCResult["SSLVPN service"] = True
-                                            else:
-                                                orgVDCResult["SSLVPN service"] = False
                                         if serviceName == "Firewall":
                                             if "vNicGroupId" in ''.join(result):
                                                 orgVDCResult["Gateway Firewall: Gateway Interfaces in rule"] = True
-                                            else:
-                                                orgVDCResult["Gateway Firewall: Gateway Interfaces in rule"] = False
                                             if "is connected to different edge gateway" in ''.join(result):
                                                 orgVDCResult["Gateway Firewall: Networks connected to different edge gateway used"] = True
-                                            else:
-                                                orgVDCResult["Gateway Firewall: Networks connected to different edge gateway used"] = False
                                             if "grouping object type" in ''.join(result):
                                                 orgVDCResult["Gateway Firewall: Unsupported grouping object"] = True
-                                            else:
-                                                orgVDCResult["Gateway Firewall: Unsupported grouping object"] = False
                                         if serviceName == 'Syslog':
                                             if 'Syslog service is configured' in ''.join(result):
                                                 orgVDCResult["Syslog service"] = True
-                                            else:
-                                                orgVDCResult["Syslog service"] = False
                                         if serviceName == 'SSH':
                                             if 'SSH service is configured' in ''.join(result):
                                                 orgVDCResult["SSH service"] = True
-                                            else:
-                                                orgVDCResult["SSH service"] = False
                                         if serviceName == "GRETUNNEL":
                                             if 'GRE tunnel is configured' in ''.join(result):
                                                 orgVDCResult["GRE Tunnel"] = True
-                                            else:
-                                                orgVDCResult["GRE Tunnel"] = False
 
                                 else:
                                     orgVDCResult[desc] = status
@@ -771,6 +719,12 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
                     # Adding the data after validating to report data
                     self.reportData.append(orgVDCResult)
+
+                    if edgeGatewayDict:
+                        for gateway, services in edgeGatewayDict.items():
+                            for service, errorList in services.items():
+                                for error in errorList:
+                                    self.edgeGatewayData.append([org, VDC, gateway, service, error.replace("\n", '')])
 
                     # Restoring log level of console logger
                     self.changeLogLevelForConsoleLog(disable=False)
@@ -833,6 +787,17 @@ class VMwareCloudDirectorNSXMigratorV2T:
             # Filename of summary report file
             summaryReportfilename = os.path.join(self.vcdBasePath,
                                                  f'v2tAssessmentReport-Summary-{self.currentDateTime}.csv')
+
+            self.edgeGatewayData.insert(0, ["Org Name", "Org VDC Name", "Edge GW name", "Service Name", "Failed Validation Task (From assessment report)"])
+
+            # Writing edge gateway detailed report
+            # Filename of edge gateway detailed report file
+            edgeGatewaydetailedReportfilename = os.path.join(self.vcdBasePath,
+                                                  f'edgeGatewayDetailedReport-{self.currentDateTime}.csv')
+
+            with open(edgeGatewaydetailedReportfilename, "w", newline='') as f:
+                writer = csv.writer(f)
+                writer.writerows(self.edgeGatewayData)
 
             # Adding "Summary" block headers to report file rows
             summaryData = [["Summary", "Org VDCs", "VMs", "ORG VDC RAM (MB)"]]
