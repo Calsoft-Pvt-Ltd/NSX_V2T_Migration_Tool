@@ -783,6 +783,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
                 writer = csv.writer(f)
                 writer.writerow(["Org Name", "Org VDC Name", "Edge GW name", "Service Name", "Failed Validation Task (From assessment report)"])
                 writer.writerows(self.edgeGatewayData)
+
+            return edgeGatewaydetailedReportfilename
         except:
             raise
 
@@ -926,8 +928,11 @@ class VMwareCloudDirectorNSXMigratorV2T:
                 writer = csv.writer(f)
                 writer.writerows(summaryData)
 
+            edgeGatewaydetailedReportfilename = self.createGatewayReport()
+
             self.consoleLogger.warning(f"Detailed report path: {detailedReportfilename}")
             self.consoleLogger.warning(f"Summary report path: {summaryReportfilename}")
+            self.consoleLogger.warning(f"Edge Gateway Detailed report path: {edgeGatewaydetailedReportfilename}")
 
             # Logging the execution summary table
             self.consoleLogger.info('\n{}\n'.format(table.get_string()))

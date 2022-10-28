@@ -2551,7 +2551,7 @@ class VCDMigrationValidation:
             if not v2tAssessmentMode and 'targetExternalNetwork' not in self.rollback.apiData.keys() and self.rollback.apiData['sourceEdgeGateway']:
                 raise Exception('Target External Network not present')
 
-            errorData = defaultdict(dict())
+            errorData = defaultdict(dict)
             self.rollback.apiData['sourceEdgeGatewayDHCP'] = {}
             if not self.rollback.apiData.get('ipsecConfigDict'):
                 self.rollback.apiData['ipsecConfigDict'] = {}
