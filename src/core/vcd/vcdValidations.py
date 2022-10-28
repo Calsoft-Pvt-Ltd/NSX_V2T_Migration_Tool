@@ -2551,7 +2551,7 @@ class VCDMigrationValidation:
             if not v2tAssessmentMode and 'targetExternalNetwork' not in self.rollback.apiData.keys() and self.rollback.apiData['sourceEdgeGateway']:
                 raise Exception('Target External Network not present')
 
-            errorData = dict()
+            errorData = defaultdict(dict())
             self.rollback.apiData['sourceEdgeGatewayDHCP'] = {}
             if not self.rollback.apiData.get('ipsecConfigDict'):
                 self.rollback.apiData['ipsecConfigDict'] = {}
@@ -2638,7 +2638,6 @@ class VCDMigrationValidation:
                                + SslVpnErrorList + dnsErrorList + syslogErrorList + sshErrorList + greTunnelErrorList
                 if len(currentErrorList) > 1:
                     allErrorList = allErrorList + currentErrorList
-                    errorData[gatewayName] = dict()
 
                 _, defaultGatewayDetails, _ = self.getEdgeGatewayNoSnatStaticRoute(gatewayId)
                 if preCheckMode is False and isinstance(defaultGatewayDetails, dict):
@@ -2671,33 +2670,20 @@ class VCDMigrationValidation:
                         logger.warning('BGP learnt routes route via non-default GW external interface present but NoSnatDestinationSubnet is not configured. For each SNAT rule on the default GW interface SNAT rule will be created')
                     self.rollback.apiData['sourceEdgeGatewayDHCP'][edgeGateway['id']] = dhcpConfigOut
                     logger.debug("Source Edge Gateway - {} services configuration retrieved successfully".format(gatewayName))
-                if gatewayName in errorData:
-                    if dhcpErrorList + dhcpRelayErrorList:
-                        errorData[gatewayName]['DHCP'] = dhcpErrorList + dhcpRelayErrorList
-                    if firewallErrorList:
-                        errorData[gatewayName]['Firewall'] = firewallErrorList
-                    if natErrorList:
-                        errorData[gatewayName]['NAT'] = natErrorList
-                    if ipsecErrorList:
-                        errorData[gatewayName]['IPsec'] = ipsecErrorList
-                    if bgpErrorList:
-                        errorData[gatewayName]['BGP'] = bgpErrorList
-                    if routingErrorList:
-                        errorData[gatewayName]['Routing'] = routingErrorList
-                    if loadBalancingErrorList:
-                        errorData[gatewayName]['LoadBalancer'] = loadBalancingErrorList
-                    if L2VpnErrorList:
-                        errorData[gatewayName]['L2VPN'] = L2VpnErrorList
-                    if SslVpnErrorList:
-                        errorData[gatewayName]['SSLVPN'] = SslVpnErrorList
-                    if dnsErrorList:
-                        errorData[gatewayName]['DNS'] = dnsErrorList
-                    if syslogErrorList:
-                        errorData[gatewayName]['Syslog'] = syslogErrorList
-                    if sshErrorList:
-                        errorData[gatewayName]['SSH'] = sshErrorList
-                    if greTunnelErrorList:
-                        errorData[gatewayName]['GRETUNNEL'] = greTunnelErrorList
+                if v2tAssessmentMode:
+                    errorData[gatewayName]['DHCP'] = dhcpErrorList + dhcpRelayErrorList
+                    errorData[gatewayName]['Firewall'] = firewallErrorList
+                    errorData[gatewayName]['NAT'] = natErrorList
+                    errorData[gatewayName]['IPsec'] = ipsecErrorList
+                    errorData[gatewayName]['BGP'] = bgpErrorList
+                    errorData[gatewayName]['Routing'] = routingErrorList
+                    errorData[gatewayName]['LoadBalancer'] = loadBalancingErrorList
+                    errorData[gatewayName]['L2VPN'] = L2VpnErrorList
+                    errorData[gatewayName]['SSLVPN'] = SslVpnErrorList
+                    errorData[gatewayName]['DNS'] = dnsErrorList
+                    errorData[gatewayName]['Syslog'] = syslogErrorList
+                    errorData[gatewayName]['SSH'] = sshErrorList
+                    errorData[gatewayName]['GRETUNNEL'] = greTunnelErrorList
             if v2tAssessmentMode:
                 return errorData
             if allErrorList:
