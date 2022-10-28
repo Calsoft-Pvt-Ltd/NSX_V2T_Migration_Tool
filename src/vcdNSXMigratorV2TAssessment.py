@@ -779,12 +779,16 @@ class VMwareCloudDirectorNSXMigratorV2T:
             edgeGatewaydetailedReportfilename = os.path.join(self.vcdBasePath,
                                                              f'edgeGatewayDetailedReport-{self.currentDateTime}.csv')
 
-            with open(edgeGatewaydetailedReportfilename, "w", newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(["Org Name", "Org VDC Name", "Edge GW name", "Service Name", "Failed Validation Task (From assessment report)"])
-                writer.writerows(self.edgeGatewayData)
+            if self.edgeGatewayData:
+                with open(edgeGatewaydetailedReportfilename, "w", newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["Org Name", "Org VDC Name", "Edge GW name", "Service Name", "Service Validation Error"])
+                    writer.writerows(self.edgeGatewayData)
 
-            return edgeGatewaydetailedReportfilename
+                return edgeGatewaydetailedReportfilename
+            else:
+                self.consoleLogger.debug("Edge Gateway detailed report not created")
+                return None
         except:
             raise
 
@@ -932,7 +936,9 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
             self.consoleLogger.warning(f"Detailed report path: {detailedReportfilename}")
             self.consoleLogger.warning(f"Summary report path: {summaryReportfilename}")
-            self.consoleLogger.warning(f"Edge Gateway Detailed report path: {edgeGatewaydetailedReportfilename}")
+
+            if edgeGatewaydetailedReportfilename:
+                self.consoleLogger.warning(f"Edge Gateway Detailed report path: {edgeGatewaydetailedReportfilename}")
 
             # Logging the execution summary table
             self.consoleLogger.info('\n{}\n'.format(table.get_string()))
