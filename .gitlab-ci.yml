@@ -1,10 +1,15 @@
 default:
-  image: python:3.8
+  image: python:3.6
 
 # Change pip's cache directory to be inside the project directory since we can
 # only cache local items.
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  BUILD_VERSION: "$CI_COMMIT_BRANCH"
+  BUILD_ID: "$CI_PIPELINE_ID"
+  RELEASE_VERSION: "$BUILD_VERSION.$BUILD_ID"
+  FORCE_BUILD: "false"
+  FORCE_PROVENANCE: "false"
 
 # Pip's cache doesn't store the python packages
 # https://pip.pypa.io/en/stable/reference/pip_install/#caching
@@ -27,6 +32,7 @@ build-windows:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH =~ /v1.*/
     - if: $CI_COMMIT_BRANCH == "master"
+    - if: $FORCE_BUILD == "true"
   before_script:
 #    - choco install python --version=3.7.9 -y
 #    - $env:PATH+=";C:\Python37;C:\Python37\Scripts"
@@ -35,9 +41,6 @@ build-windows:
     - $Env:PATH += ";C:\Users\vmware\AppData\Local\Programs\Python\Python38\Scripts\"
     - $Env:path
   script:
-    - $Env:BUILD_VERSION="$Env:CI_COMMIT_BRANCH"
-    - $Env:BUILD_ID="$Env:CI_PIPELINE_ID"
-    - $Env:RELEASE_VERSION="$Env:BUILD_VERSION.$Env:BUILD_ID"
     - echo "Build Windows package - RELEASE_VERSION=$Env:RELEASE_VERSION"
     - $Env:WINDOWS_PACKAGE="VMware-NSX-Migration-for-VMware-Cloud-Director-$Env:RELEASE_VERSION.zip"
     - echo "WINDOWS_PACKAGE=$Env:WINDOWS_PACKAGE"
@@ -57,23 +60,22 @@ build-linux:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH =~ /v1.*/
     - if: $CI_COMMIT_BRANCH == "master"
+    - if: $FORCE_BUILD == "true"
   before_script:
     - python --version
     - pip install virtualenv
     - virtualenv venv
     - source venv/bin/activate
+    - python --version
     - pip install -r ./requirements_build.txt
     - pip install -r ./src/requirements.txt
     - pip install pycrypto
   script:
-    - export BUILD_VERSION=`grep 'Build' src/release.yml | awk '{print substr($2, 2)}'`
-    - export BUILD_ID="${CI_PIPELINE_ID}"
-    - export RELEASE_VERSION="$BUILD_VERSION.$BUILD_ID"
     - echo "Build Linux package - RELEASE_VERSION=$RELEASE_VERSION"
     - export LINUX_PACKAGE="VMware-NSX-Migration-for-VMware-Cloud-Director-$RELEASE_VERSION.tar.gz"
     - echo "LINUX_PACKAGE=$LINUX_PACKAGE"
     - python -m PyInstaller src/vcdNSXMigrator.spec
-    - tar -czvf $LINUX_PACKAGE -C dist/vcdNSXMigrator/ .
+    - tar -czvf $LINUX_PACKAGE -C dist/ .
   tags:
     - linux
   artifacts:
@@ -84,7 +86,8 @@ build-linux:
 provenance:
   stage: generate-provenance
   rules:
-    - if: $CI_COMMIT_BRANCH =~ /v1.*/
+    - if: $BUILD_VERSION =~ /v1.*/
+    - if: $FORCE_PROVENANCE == "true"
   before_script:
     # Prepare Python virtualenv
     - python --version
@@ -106,8 +109,6 @@ provenance:
 
     # Start SRP provenance generation and submission
     - export CURRENT_TIME_STRING=`date +%Y%m%d%H%M%S`
-    - export BUILD_VERSION=`grep 'Build' src/release.yml | awk '{print substr($2, 2)}'`
-    - export BUILD_ID="${CI_PIPELINE_ID}"
     - export OBJ_UID="uid.obj.build.gitlab(namespace='${CI_PROJECT_NAMESPACE}',project='${CI_PROJECT_NAME}',pipeline_id='${CI_PIPELINE_ID}')"
     - export PROVENANCE_FRAGMENT_UID="uid.mtd.provenance_2_5.fragment(obj_uid=${OBJ_UID},revision='${CURRENT_TIME_STRING}')"
 
