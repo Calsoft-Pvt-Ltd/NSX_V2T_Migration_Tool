@@ -1,11 +1,5 @@
 {
   "NSXT": {
-    "createBridgeEndpointProfile": {
-       "display_name":"{{bridgeEndpointProfileName}}",
-       "description":"",
-       "edge_cluster_id" : "{{edgeClusterId}}",
-       "failover_mode" : "PREEMPTIVE"
-    },
     "createBridgeEdgeProfile": {
       "display_name": "{{bridgeEndpointProfileName}}",
       "id": "{{bridgeEndpointProfileName}}",
@@ -23,20 +17,6 @@
         "standby_list": null,
         "policy": "FAILOVER_ORDER"
       }
-    },
-    "createLogicalPort": {
-      "logical_switch_id":"{{logicalSwitchId}}",
-      "attachment": {"attachment_type":"BRIDGEENDPOINT","id":"{{bridgeProfileId}}"},
-      "admin_state":"UP"
-    },
-    "createBridgeEndpoint": {
-       "display_name":"{{BridgeEndpointName}}",
-       "description":"be",
-       "vlan":0,
-       "bridge_endpoint_profile_id":"{{bridgeEndpointProfileId}}",
-       "bridge_cluster_id": "",
-       "vlan_transport_zone_id": "{{transportZoneId}}",
-       "resource_type": "BridgeEndpoint"
     }
   }
 }

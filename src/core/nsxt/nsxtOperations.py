@@ -141,12 +141,9 @@ class NSXTOperations():
         """
         try:
             logger.debug("Fetching NSXT Logical-Segment data")
-            if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                url = "{}{}".format(
-                    nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                    nsxtConstants.SEGMENT_DETAILS)
-            else:
-                url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.CREATE_LOGICAL_SWITCH_API)
+            url = "{}{}".format(
+                nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                nsxtConstants.SEGMENT_DETAILS)
 
             response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
             if response.status_code == requests.codes.ok:
@@ -261,75 +258,44 @@ class NSXTOperations():
 
             edgeClusterMembers = []
             for edgeClusterName in self.edgeClusterNameList:
-                # checks API version for Interoperability.
-                if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                    edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API, edgeClusterName, usePolicyApi=True)
-                    url = "{}{}{}".format(
-                        nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                        edgeClusterData['path'],
-                        nsxtConstants.EDGE_PATH)
-                    response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
-                    if response.status_code == requests.codes.ok:
-                        responseData = json.loads(response.content)
-                        resultData = responseData['results']
-                        for edgeNodeData in resultData:
-                            if edgeNodeData['nsx_id'] in vcdObj.rollback.apiData['taggedNodesList']:
-                                edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
-                                                           'member_index': edgeNodeData['member_index'], 'edgePath': edgeNodeData['path']})
-                    else:
-                        raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
+                edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API, edgeClusterName, usePolicyApi=True)
+                url = "{}{}{}".format(
+                    nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                    edgeClusterData['path'],
+                    nsxtConstants.EDGE_PATH)
+                response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
+                if response.status_code == requests.codes.ok:
+                    responseData = json.loads(response.content)
+                    resultData = responseData['results']
+                    for edgeNodeData in resultData:
+                        if edgeNodeData['nsx_id'] in vcdObj.rollback.apiData['taggedNodesList']:
+                            edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
+                                                       'member_index': edgeNodeData['member_index'], 'edgePath': edgeNodeData['path']})
                 else:
-                    edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
-                                                            edgeClusterName)
-                    if edgeClusterData:
-                        list(map(lambda member: member.update({'edgeClusterId': edgeClusterData['id']}),
-                                 edgeClusterData['members']))
-                        edgeClusterMembers += edgeClusterData['members'] if isinstance(edgeClusterData['members'], list)\
-                            else [edgeClusterData['members']]
-                        edgeClusterMembers = [member for member in edgeClusterMembers
-                                              if member['transport_node_id'] in vcdObj.rollback.apiData['taggedNodesList']]
-                    else:
-                        raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
+                    raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
 
             filePath = os.path.join(nsxtConstants.NSXT_ROOT_DIRECTORY, 'template.json')
             logger.debug("Successfully retrieved edge Cluster data of {}".format(', '.join(self.edgeClusterNameList)))
             # taking only the edge transport nodes which match the count of source portgroup details
             edgeNodePortgroupList = zip(edgeClusterMembers, portgroupList)
             for data, _ in edgeNodePortgroupList:
-                # checks API version for Interoperability.
-                if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                    intent_path = nsxtConstants.BRIDGE_ENDPOINT_PROFILE_POLICY_PATH.format(data['transport_node_id'])
-                    url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
-                    edgePath = data['edgePath']
-                    payloadDict = {
-                        'bridgeEndpointProfileName': 'Bridge-Endpoint-Profile-{}'.format(data['transport_node_id'])
-                    }
-                    payloadData = self.nsxtUtils.createPayload(filePath, payloadDict, fileType='json',
-                                                              componentName=nsxtConstants.COMPONENT_NAME,
-                                                              templateName=nsxtConstants.CREATE_BRIDGE_EDGE_PROFILE_COMPONENT_NAME)
-                    payloadData = json.loads(payloadData)
-                    payloadData['edge_paths'] = [edgePath]
-                    payloadData = json.dumps(payloadData)
-                    response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER,
-                                                      auth=self.restClientObj.auth, data=payloadData)
-                    if response.status_code == requests.codes.ok or response.status_code == requests.codes.created:
-                        self.checkRealizedState(intent_path)
+                intent_path = nsxtConstants.BRIDGE_ENDPOINT_PROFILE_POLICY_PATH.format(data['transport_node_id'])
+                url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
+                edgePath = data['edgePath']
+                payloadDict = {
+                    'bridgeEndpointProfileName': 'Bridge-Endpoint-Profile-{}'.format(data['transport_node_id'])
+                }
+                payloadData = self.nsxtUtils.createPayload(filePath, payloadDict, fileType='json',
+                                                          componentName=nsxtConstants.COMPONENT_NAME,
+                                                          templateName=nsxtConstants.CREATE_BRIDGE_EDGE_PROFILE_COMPONENT_NAME)
+                payloadData = json.loads(payloadData)
+                payloadData['edge_paths'] = [edgePath]
+                payloadData = json.dumps(payloadData)
+                response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER,
+                                                  auth=self.restClientObj.auth, data=payloadData)
+                if response.status_code == requests.codes.ok or response.status_code == requests.codes.created:
+                    self.checkRealizedState(intent_path)
 
-                else:
-                    url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
-                                                                 nsxtConstants.CREATE_BRIDGE_ENDPOINT_PROFILE)
-                    payloadDict = {
-                        'bridgeEndpointProfileName': 'Bridge-Endpoint-Profile-{}'.format(data['transport_node_id']),
-                        'edgeClusterId': data['edgeClusterId']}
-                    payloadData = self.nsxtUtils.createPayload(filePath, payloadDict, fileType='json',
-                                                               componentName=nsxtConstants.COMPONENT_NAME,
-                                                               templateName=nsxtConstants.CREATE_BRIDGE_ENDPOINT_PROFILE_COMPONENT_NAME)
-                    payloadData = json.loads(payloadData)
-                    payloadData['edge_cluster_member_indexes'] = [data['member_index']]
-
-                    payloadData = json.dumps(payloadData)
-                    response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER,
-                                                       auth=self.restClientObj.auth, data=payloadData)
                 if response.status_code == requests.codes.ok or response.status_code == requests.codes.created:
                     logger.debug('Bridge Endpoint Profile {} created successfully.'.format(payloadDict['bridgeEndpointProfileName']))
                     bridgeEndpointProfileId = json.loads(response.content)["id"]
@@ -447,33 +413,22 @@ class NSXTOperations():
             logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(self.edgeClusterNameList)))
             edgeClusterMembers = []
             for edgeClusterName in self.edgeClusterNameList:
-                # checks API version for Interoperability.
-                if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                    edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API, edgeClusterName, usePolicyApi=True)
-                    url = "{}{}{}".format(
-                        nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                        edgeClusterData['path'],
-                        nsxtConstants.EDGE_PATH)
-                    response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
-                    if response.status_code == requests.codes.ok:
-                        responseData = json.loads(response.content)
-                        resultData = responseData['results']
-                        for edgeNodeData in resultData:
-                            if edgeNodeData['nsx_id'] in vcdObj.rollback.apiData['taggedNodesList']:
-                                edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
-                                                           'member_index': edgeNodeData['member_index'], 'edgePath': edgeNodeData['path']})
-                    else:
-                        raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
+                edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API, edgeClusterName, usePolicyApi=True)
+                url = "{}{}{}".format(
+                    nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                    edgeClusterData['path'],
+                    nsxtConstants.EDGE_PATH)
+                response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
+                if response.status_code == requests.codes.ok:
+                    responseData = json.loads(response.content)
+                    resultData = responseData['results']
+                    for edgeNodeData in resultData:
+                        if edgeNodeData['nsx_id'] in vcdObj.rollback.apiData['taggedNodesList']:
+                            edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
+                                                       'member_index': edgeNodeData['member_index'], 'edgePath': edgeNodeData['path']})
                 else:
-                    edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
-                                                            edgeClusterName)
-                    if edgeClusterData:
-                        edgeClusterMembers += edgeClusterData['members'] if isinstance(edgeClusterData['members'], list) \
-                            else [edgeClusterData['members']]
-                        edgeClusterMembers = [member for member in edgeClusterMembers
-                                              if member['transport_node_id'] in vcdObj.rollback.apiData['taggedNodesList']]
-                    else:
-                        raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
+                    raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
+
             edgeNodePortgroupList = zip(edgeClusterMembers, portgroupList)
             for data, portGroup in edgeNodePortgroupList:
                 url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
@@ -572,15 +527,11 @@ class NSXTOperations():
             switchList = []
             for orgVdcNetwork in targetOrgVDCNetworks:
                 if orgVdcNetwork['networkType'] != 'DIRECT' and orgVdcNetwork['networkType'] != 'OPAQUE':
-                    networkData = self.getNetworkData(componentName=f"{orgVdcNetwork['name']}-"
-                                                                    f"{orgVdcNetwork['id'].split(':')[-1]}",
-                                                      backingNetworkingId=orgVdcNetwork['backingNetworkId'])
-                    # checks API version for Interoperability
-                    if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                        switchTags = [data for data in networkData['tags'] if
-                                      orgVdcNetwork['orgVdc']['id'] in data['tag']]
-                    else:
-                        switchTags = [data for data in networkData['tags'] if orgVdcNetwork['backingNetworkId'] in data['tag']]
+                    networkData = self.getNetworkData(
+                        componentName=f"{orgVdcNetwork['name']}-{orgVdcNetwork['id'].split(':')[-1]}",
+                        backingNetworkingId=orgVdcNetwork['backingNetworkId'])
+                    switchTags = [data for data in networkData['tags'] if
+                                  orgVdcNetwork['orgVdc']['id'] in data['tag']]
 
                     if switchTags:
                         switchList.append((orgVdcNetwork['name'], networkData['id'], orgVdcNetwork['networkType']))
@@ -596,10 +547,6 @@ class NSXTOperations():
                 logger.debug(f'switchList {switchList}')
                 raise Exception('Unable to parse PortGroups')
 
-            bridgeEndpointUrl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.CREATE_BRIDGE_ENDPOINT_API)
-            logicalPorturl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.CREATE_LOGICAL_SWITCH_PORT_API)
-            filePath = os.path.join(nsxtConstants.NSXT_ROOT_DIRECTORY, 'template.json')
-
             # Get transport Zone /infra/sites path.
             transportZoneName = data['BridgingStatus']['TransportZone']
             if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
@@ -614,115 +561,67 @@ class NSXTOperations():
             logger.debug("Retrieving ID of edge cluster: {}".format(', '.join(self.edgeClusterNameList)))
             edgeClusterMembers = []
             for edgeClusterName in self.edgeClusterNameList:
-                # checks API version for Interoperability.
-                if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                    edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API, edgeClusterName, usePolicyApi=True)
-                    url = "{}{}{}".format(
-                        nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                        edgeClusterData['path'],
-                        nsxtConstants.EDGE_PATH)
-                    response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
-                                                      auth=self.restClientObj.auth)
-                    if response.status_code == requests.codes.ok:
-                        responseData = json.loads(response.content)
-                        resultData = responseData['results']
-                        for edgeNodeData in resultData:
-                            if edgeNodeData['nsx_id'] in vcdObj.rollback.apiData['taggedNodesList']:
-                                edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
-                                                           'member_index': edgeNodeData['member_index'],
-                                                           'edgePath': edgeNodeData['path']})
-                    else:
-                        raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
+                edgeClusterData = self.getComponentData(nsxtConstants.GET_EDGE_CLUSTERS_API, edgeClusterName, usePolicyApi=True)
+                url = "{}{}{}".format(
+                    nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                    edgeClusterData['path'],
+                    nsxtConstants.EDGE_PATH)
+                response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
+                                                  auth=self.restClientObj.auth)
+                if response.status_code == requests.codes.ok:
+                    responseData = json.loads(response.content)
+                    resultData = responseData['results']
+                    for edgeNodeData in resultData:
+                        if edgeNodeData['nsx_id'] in vcdObj.rollback.apiData['taggedNodesList']:
+                            edgeClusterMembers.append({'transport_node_id': edgeNodeData['nsx_id'],
+                                                       'member_index': edgeNodeData['member_index'],
+                                                       'edgePath': edgeNodeData['path']})
                 else:
-                    edgeClusterData = self.getComponentData(nsxtConstants.CREATE_EDGE_CLUSTER_API,
-                                                            edgeClusterName)
-                    if edgeClusterData:
-                        edgeClusterMembers += edgeClusterData['members'] if isinstance(edgeClusterData['members'], list)\
-                            else [edgeClusterData['members']]
-                        edgeClusterMembers = [member for member in edgeClusterMembers
-                                              if member['transport_node_id'] in vcdObj.rollback.apiData['taggedNodesList']]
-                    else:
-                        raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
+                    raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
 
             edgeNodeSwitchList = zip(edgeClusterMembers, edgeSwitchList)
             for data, geneveLogicalSwitch in edgeNodeSwitchList:
                 edgeNodeId = data['transport_node_id']
-                # checks API version for Interoperability.
-                if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                    bridgeProfileDict = self.getComponentData(
-                        componentApi=nsxtConstants.BRIDGE_EDGE_PROFILE_DETAILS, usePolicyApi=True)
-                    bridgeProfile = [bridgeProfile for bridgeProfile in bridgeProfileDict if edgeNodeId in bridgeProfile['display_name']]
-                else:
-                    bridgeProfileDict = self.getComponentData(componentApi=nsxtConstants.CREATE_BRIDGE_ENDPOINT_PROFILE)
-                    bridgeProfile = [bridgeProfile for bridgeProfile in bridgeProfileDict if edgeNodeId in bridgeProfile['display_name']]
+                bridgeProfileDict = self.getComponentData(
+                    componentApi=nsxtConstants.BRIDGE_EDGE_PROFILE_DETAILS, usePolicyApi=True)
+                bridgeProfile = [bridgeProfile for bridgeProfile in bridgeProfileDict if edgeNodeId in bridgeProfile['display_name']]
+
                 if not bridgeProfile:
                     continue
-                # checks API version for Interoperability.
-                if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                    intent_path = nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(geneveLogicalSwitch[1])
-                    segmentDetailsUrl = "{}{}".format(
-                        nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
-                    bridgeProfiles= []
-                    for profile in bridgeProfile:
-                        temp_dict = {"bridge_profile_path": profile['path'],
-                                     "vlan_transport_zone_path": transportZonePath,
-                                     "vlan_ids": [0]  # Passing 0 as VLAN ID
-                                     }
-                        bridgeProfiles.append(temp_dict)
-                    response = self.restClientObj.get(url=segmentDetailsUrl, headers=nsxtConstants.NSXT_API_HEADER,
-                                                      auth=self.restClientObj.auth)
-                    if response.status_code == requests.codes.ok:
-                        segmentData = json.loads(response.content)
-                        segmentData['bridge_profiles'] = bridgeProfiles
-                        payloadData = json.dumps(segmentData)
-                        response = self.restClientObj.patch(url=segmentDetailsUrl, headers=nsxtConstants.NSXT_API_HEADER,
-                                                            auth=self.restClientObj.auth, data=str(payloadData))
-                        if response.status_code == requests.codes.ok or response.status_code == requests.codes.created:
-                            self.checkRealizedState(intent_path)
-                            logger.debug('Bridge Endpoint profile attached to Logical switch {}'.format(geneveLogicalSwitch[1]))
-                            if geneveLogicalSwitch[2] == 'NAT_ROUTED':
-                                edgeNodeList.append(edgeNodeId)
-                            self.rollback.apiData['edgeNodeList'] = edgeNodeList
-                        else:
-                            responseData = json.loads(response.content)
-                            msg = 'Failed to attach Bridge Endpoint Profile to logical switch {} - {}.'.format(geneveLogicalSwitch[1], responseData)
-                            raise Exception(msg)
+
+                intent_path = nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(geneveLogicalSwitch[1])
+                segmentDetailsUrl = "{}{}".format(
+                    nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
+                bridgeProfiles= []
+                for profile in bridgeProfile:
+                    temp_dict = {"bridge_profile_path": profile['path'],
+                                 "vlan_transport_zone_path": transportZonePath,
+                                 "vlan_ids": [0]  # Passing 0 as VLAN ID
+                                 }
+                    bridgeProfiles.append(temp_dict)
+                response = self.restClientObj.get(url=segmentDetailsUrl, headers=nsxtConstants.NSXT_API_HEADER,
+                                                  auth=self.restClientObj.auth)
+                if response.status_code == requests.codes.ok:
+                    segmentData = json.loads(response.content)
+                    segmentData['bridge_profiles'] = bridgeProfiles
+                    payloadData = json.dumps(segmentData)
+                    response = self.restClientObj.patch(url=segmentDetailsUrl, headers=nsxtConstants.NSXT_API_HEADER,
+                                                        auth=self.restClientObj.auth, data=str(payloadData))
+                    if response.status_code == requests.codes.ok or response.status_code == requests.codes.created:
+                        self.checkRealizedState(intent_path)
+                        logger.debug('Bridge Endpoint profile attached to Logical switch {}'.format(geneveLogicalSwitch[1]))
+                        if geneveLogicalSwitch[2] == 'NAT_ROUTED':
+                            edgeNodeList.append(edgeNodeId)
+                        self.rollback.apiData['edgeNodeList'] = edgeNodeList
                     else:
                         responseData = json.loads(response.content)
-                        msg = 'Failed to get segment details in attach segment {} - {}.'.format(geneveLogicalSwitch[1], responseData)
+                        msg = 'Failed to attach Bridge Endpoint Profile to logical switch {} - {}.'.format(geneveLogicalSwitch[1], responseData)
                         raise Exception(msg)
                 else:
-                    payloadDict = {'BridgeEndpointName': 'Bridge-Endpoint-{}'.format(edgeNodeId),
-                                   'bridgeEndpointProfileId': bridgeProfile[0]['id'],
-                                   'transportZoneId': transportZoneId}
-                    payloadData = self.nsxtUtils.createPayload(filePath, payloadDict, fileType='json',
-                                                               componentName=nsxtConstants.COMPONENT_NAME,
-                                                               templateName=nsxtConstants.CREATE_BRIDGE_ENDPOINT_TEMPLATE)
-                    response = self.restClientObj.post(url=bridgeEndpointUrl, headers=nsxtConstants.NSXT_API_HEADER,
-                                                       auth=self.restClientObj.auth,
-                                                       data=payloadData)
-                    if response.status_code == requests.codes.created:
-                        logger.debug('Bridge Endpoint {} created'.format(payloadDict['BridgeEndpointName']))
-                        bridgeEndpointId = json.loads(response.content)["id"]
-                        payloadDict = {'logicalSwitchId': geneveLogicalSwitch[1],
-                                       'bridgeProfileId': bridgeEndpointId}
-                        payloadData = self.nsxtUtils.createPayload(filePath, payloadDict, fileType='json',
-                                                                   componentName=nsxtConstants.COMPONENT_NAME,
-                                                                   templateName=nsxtConstants.CREATE_LOGICAL_SWITCH_PORT_TEMPLATE)
-                        response = self.restClientObj.post(url=logicalPorturl, headers=nsxtConstants.NSXT_API_HEADER,
-                                                           auth=self.restClientObj.auth,
-                                                           data=payloadData)
-                        if response.status_code == requests.codes.created:
-                            logger.debug('Bridge Endpoint profile attached to Logical switch {}'.format(geneveLogicalSwitch[1]))
-                            if geneveLogicalSwitch[2] == 'NAT_ROUTED':
-                                edgeNodeList.append(edgeNodeId)
-                            self.rollback.apiData['edgeNodeList'] = edgeNodeList
-                        else:
-                            raise Exception('Failed to attach Bridge Endpoint Profile to logical switch {}.'.format(geneveLogicalSwitch[1]))
-                    else:
-                        responseData = json.loads(response.content)
-                        logger.debug('Failed to create Bridge Endpoint')
-                        raise Exception('Failed to create Bridge Endpoint : {}'.format(responseData))
+                    responseData = json.loads(response.content)
+                    msg = 'Failed to get segment details in attach segment {} - {}.'.format(geneveLogicalSwitch[1], responseData)
+                    raise Exception(msg)
+
             logger.info('Successfully attached bridge endpoint profile to Logical Switch.')
             logger.info('Successfully configured NSXT Bridging.')
             return
@@ -853,28 +752,21 @@ class NSXTOperations():
             # getting the logical switch id of the corresponding org vdc network
             for orgVdcNetwork in orgVDCNetworkList:
                 if orgVdcNetwork['networkType'] != 'DIRECT' and orgVdcNetwork['networkType'] != 'OPAQUE':
-                    networkData = self.getNetworkData(componentName=f"{orgVdcNetwork['name']}-"
-                                                                    f"{orgVdcNetwork['id'].split(':')[-1]}",
-                                                      backingNetworkingId=orgVdcNetwork['backingNetworkId'])
-                    # checks API version for Interoperability
-                    if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                        if orgVdcNetwork.get('orgVdc', None) is None:
-                            switchTags = [data for data in networkData['tags'] if 'vdcGroup' in data['tag']]
-                        else:
-                            switchTags = [data for data in networkData['tags'] if orgVdcNetwork['orgVdc']['id'] in data['tag']]
+                    networkData = self.getNetworkData(
+                        componentName=f"{orgVdcNetwork['name']}-{orgVdcNetwork['id'].split(':')[-1]}",
+                        backingNetworkingId=orgVdcNetwork['backingNetworkId'])
+                    if orgVdcNetwork.get('orgVdc', None) is None:
+                        switchTags = [data for data in networkData['tags'] if 'vdcGroup' in data['tag']]
                     else:
-                        switchTags = [data for data in networkData['tags'] if orgVdcNetwork['backingNetworkId'] in data['tag']]
+                        switchTags = [data for data in networkData['tags'] if orgVdcNetwork['orgVdc']['id'] in data['tag']]
 
                     if switchTags:
-                        if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                            switchList.append((networkData['display_name'], networkData['id'], networkData['transport_zone_path'],
-                                               networkData['path']))
-                            if "bridge_profiles" in networkData.keys():
-                                bridgeDetails = networkData['bridge_profiles']
-                                for data in bridgeDetails:
-                                    edgeBridgeList.append(data['bridge_profile_path'])
-                        else:
-                            switchList.append((networkData['display_name'], networkData['id']))
+                        switchList.append((networkData['display_name'], networkData['id'], networkData['transport_zone_path'],
+                                           networkData['path']))
+                        if "bridge_profiles" in networkData.keys():
+                            bridgeDetails = networkData['bridge_profiles']
+                            for data in bridgeDetails:
+                                edgeBridgeList.append(data['bridge_profile_path'])
 
             if version.parse(self.apiVersion) < version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
                 logicalPorturl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
@@ -888,58 +780,40 @@ class NSXTOperations():
                 bridgeEndpointIdList = [logicalPort['attachment']['id'] for logicalPort in logicalPortsList for switch in switchList if switch[1] == logicalPort['logical_switch_id'] and
                                         logicalPort['attachment']['attachment_type'] == 'BRIDGEENDPOINT']
 
-                # get the logical port id
-                logicalPortList = [logicalPort['id'] for logicalPort in logicalPortsList for switch in
-                                switchList if switch[1] == logicalPort['logical_switch_id'] and
-                                logicalPort['attachment']['attachment_type'] == 'BRIDGEENDPOINT']
-
             # Detach the segment
-            # checks API version for Interoperability.
-            if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                # for each segment present in switchList, we are calling detach segment API.
-                for segment in switchList:
-                    intent_path = nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(segment[1])
-                    segmentUrl = "{}{}".format(
-                        nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
-                    response = self.restClientObj.get(url=segmentUrl, headers=nsxtConstants.NSXT_API_HEADER,
-                                                      auth=self.restClientObj.auth)
-                    if not response.status_code == requests.codes.ok:
-                        raise Exception(f"Falied to get details of logical segment {segment[0]}")
+            # for each segment present in switchList, we are calling detach segment API.
+            for segment in switchList:
+                intent_path = nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(segment[1])
+                segmentUrl = "{}{}".format(
+                    nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
+                response = self.restClientObj.get(url=segmentUrl, headers=nsxtConstants.NSXT_API_HEADER,
+                                                  auth=self.restClientObj.auth)
+                if not response.status_code == requests.codes.ok:
+                    raise Exception(f"Falied to get details of logical segment {segment[0]}")
 
-                    segmentData = json.loads(response.content)
-                    if 'bridge_profiles' in segmentData.keys():
-                        del segmentData['bridge_profiles']
-                    del segmentData['_create_user']
-                    del segmentData['_create_time']
-                    del segmentData['_last_modified_user']
-                    del segmentData['_last_modified_time']
-                    del segmentData['_system_owned']
-                    del segmentData['_protection']
-                    del segmentData['_revision']
-                    payloadData = json.dumps(segmentData)
+                segmentData = json.loads(response.content)
+                if 'bridge_profiles' in segmentData.keys():
+                    del segmentData['bridge_profiles']
+                del segmentData['_create_user']
+                del segmentData['_create_time']
+                del segmentData['_last_modified_user']
+                del segmentData['_last_modified_time']
+                del segmentData['_system_owned']
+                del segmentData['_protection']
+                del segmentData['_revision']
+                payloadData = json.dumps(segmentData)
 
-                    # Detach logical segment by removing bridge_profiles
-                    response = self.restClientObj.patch(url=segmentUrl, headers=nsxtConstants.NSXT_API_HEADER,
-                                                        auth=self.restClientObj.auth, data=str(payloadData))
-                    if response.status_code == requests.codes.ok or response.status_code == requests.codes.created:
-                        self.checkRealizedState(intent_path)
-                        logger.debug('Logical segment {} is detached from bridge successfully.'.format(segment[0]))
-                    else:
-                        responseData = json.loads(response.content)
-                        msg = 'Failed to detach Logical segment {} from Edge-Bridge - {}'.format(segment, responseData['error_message'])
-                        raise Exception(msg)
-            else:
-                # detach the logical switch port
-                for logicalSwitchPort in logicalPortList:
-                    logicalSwitchPorturl = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress, nsxtConstants.DELETE_LOGICAL_SWITCH_PORT_API.format(logicalSwitchPort))
-                    response = self.restClientObj.delete(url=logicalSwitchPorturl, headers=nsxtConstants.NSXT_API_HEADER,
-                                                         auth=self.restClientObj.auth)
-                    if response.status_code == requests.codes.ok:
-                        logger.debug('Logical Switch Port {} detached from Bridge successfully'.format(logicalSwitchPort))
-                    else:
-                        responseData = json.loads(response.content)
-                        msg = 'Failed to detach Logical Switch Port {} from Bridge - {}'.format(logicalSwitchPort, responseData['error_message'])
-                        raise Exception(msg)
+                # Detach logical segment by removing bridge_profiles
+                response = self.restClientObj.patch(url=segmentUrl, headers=nsxtConstants.NSXT_API_HEADER,
+                                                    auth=self.restClientObj.auth, data=str(payloadData))
+                if response.status_code == requests.codes.ok or response.status_code == requests.codes.created:
+                    self.checkRealizedState(intent_path)
+                    logger.debug('Logical segment {} is detached from bridge successfully.'.format(segment[0]))
+                else:
+                    responseData = json.loads(response.content)
+                    msg = 'Failed to detach Logical segment {} from Edge-Bridge - {}'.format(segment, responseData['error_message'])
+                    raise Exception(msg)
+
             # get the bridge endpoint
             if bridgeEndpointIdList or edgeBridgeList:
                 bridgeEndpointProfileIdResults = []
@@ -1225,14 +1099,9 @@ class NSXTOperations():
         """
         # Fetching NSXT version
         try:
-            # checks API version for Interoperability.
-            if str(self.apiVersion).startswith(nsxtConstants.API_VERSION_STARTWITH):
-                # Fetching bridge endpoint profiles from NSXT
-                bridgeProfileDict = self.getComponentData(
-                    componentApi=nsxtConstants.BRIDGE_EDGE_PROFILE_DETAILS, usePolicyApi=True)
-            else:
-                # Fetching bridge endpoint profiles from NSXT
-                bridgeProfileDict = self.getComponentData(componentApi=nsxtConstants.CREATE_BRIDGE_ENDPOINT_PROFILE)
+            # Fetching bridge endpoint profiles from NSXT
+            bridgeProfileDict = self.getComponentData(
+                componentApi=nsxtConstants.BRIDGE_EDGE_PROFILE_DETAILS, usePolicyApi=True)
 
             # if max limit is being exceeded raise exception
             if len(orgVdcNetworkList) + len(bridgeProfileDict) > nsxtConstants.MAX_LIMIT_OF_BRIDGE_ENDPOINT_PROFILES:

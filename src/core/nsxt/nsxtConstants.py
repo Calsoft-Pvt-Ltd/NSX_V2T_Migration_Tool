@@ -51,9 +51,6 @@ API_VERSION = "/spec/openapi/nsx_policy_api.json"
 # root directory constant which fetches the absolute path of this module i.e D:/vcd-migration/src/core/nsxt
 NSXT_ROOT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
-# nsx-t create bridge endpoint profile template name
-CREATE_BRIDGE_ENDPOINT_PROFILE_COMPONENT_NAME = 'createBridgeEndpointProfile'
-
 # nsx-t create bridge edge profile(Policy API) template name.
 CREATE_BRIDGE_EDGE_PROFILE_COMPONENT_NAME = 'createBridgeEdgeProfile'
 
@@ -89,17 +86,8 @@ TRANSPORT_ZONE_API = "/infra/sites/default/enforcement-points/default/transport-
 # nsx-t transport node by id uri
 UPDATE_TRANSPORT_NODE_API = "api/v1/transport-nodes/{}"
 
-# nsx-t logical switch uri
-CREATE_LOGICAL_SWITCH_API = "api/v1/logical-switches"
-
 # nsx-t logical switch port uri
 CREATE_LOGICAL_SWITCH_PORT_API = "api/v1/logical-ports"
-
-# nsx-t create logical switch port template name used in template.json
-CREATE_LOGICAL_SWITCH_PORT_TEMPLATE = "createLogicalPort"
-
-# nsx-t create bridge endpoint template name used in template.json
-CREATE_BRIDGE_ENDPOINT_TEMPLATE = "createBridgeEndpoint"
 
 # nsx-t create bridge endpoint uri
 CREATE_BRIDGE_ENDPOINT_API = "api/v1/bridge-endpoints"
@@ -109,9 +97,6 @@ GET_BRIDGE_ENDPOINT_BY_ID_API = "api/v1/bridge-endpoints/{}"
 
 # nsx-t bridge endpoint profile by id uri
 GET_BRIDGE_ENDPOINT_PROFILE_BY_ID_API = "api/v1/bridge-endpoint-profiles/{}"
-
-# nsx-t logical switch port by id uri
-DELETE_LOGICAL_SWITCH_PORT_API = "api/v1/logical-ports/{}?detach=True"
 
 # nsx-t host swicth profile by id uri
 DELETE_HOST_SWITCH_PROFILE_API = "api/v1/host-switch-profiles/{}"
@@ -129,8 +114,6 @@ GET_LOCALE_SERVICES_API = '/infra/tier-0s/{}/locale-services'
 LOGICAL_SEGMENTS_ENDPOINT = "/infra/segments/{}"
 SEGMENT_DETAILS = "/infra/segments"
 
-# policy API version startswith '3.' onwards.
-API_VERSION_STARTWITH = "3."
 
 # policy API version startswith '3.2' onwards.
 API_VERSION_STARTWITH_3_2 = "3.2"
