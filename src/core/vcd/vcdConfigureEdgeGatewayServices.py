@@ -3155,30 +3155,45 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             if loadBalancerVIPSubnet:
                 hostsListInSubnet = list(ipaddress.ip_network(loadBalancerVIPSubnet, strict=False).hosts())
 
-            if loadBalancerVIPSubnet and len(hostsListInSubnet) < len(virtualServersData):
-                raise Exception("Number of hosts in network - {} if less than the number of virtual server in edge gateway{}".format(loadBalancerVIPSubnet, targetEdgeGatewayName))
+
+            # url to retrieve the routing config info
+            url = "{}{}/{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                     vcdConstants.NETWORK_EDGES, sourceEdgeGatewayId, vcdConstants.VNIC)
+            # get api call to retrieve the edge gateway config info
+            response = self.restClientObj.get(url, self.headers)
+            if response.status_code == requests.codes.ok:
+                responseDict = self.vcdUtils.parseXml(response.content)
+                vNicsDetails = responseDict['vnics']['vnic']
+            else:
+                errorResponseData = response.json()
+                raise Exception("Failed to get edge gateway {} vnic details due to error {}".format(sourceEdgeGatewayId, errorResponseData['message']))
+            virtualServerIp = {}
+            for vnics in vNicsDetails:
+                if vnics['addressGroups']:
+                    if 'primaryAddress' in vnics['addressGroups']['addressGroup']:
+                        virtualServerIp[vnics['addressGroups']['addressGroup']['primaryAddress']] = vnics['type']
+                    if 'secondaryAddresses' in vnics['addressGroups']['addressGroup']:
+                        for ip in listify(vnics['addressGroups']['addressGroup']['secondaryAddresses']['ipAddress']):
+                            virtualServerIp[ip] = vnics['type']
+            extVirtualServerIP = list()
+            for virtualServer in virtualServersData:
+                if virtualServerIp[virtualServer['ipAddress']] == 'uplink':
+                    extVirtualServerIP.append(virtualServer['ipAddress'])
+
+            if loadBalancerVIPSubnet and len(hostsListInSubnet) < len(extVirtualServerIP):
+                raise Exception("Number of hosts in network - {} is less than the number of virtual server in edge gateway{}".format(loadBalancerVIPSubnet, targetEdgeGatewayName))
 
             for virtualServer in virtualServersData:
-                # IP address to be used for VIP in virtual service
-                ipv4VirtualIpAddress = None
-                ipv6VirtualIpAddress = None
-
-                # configure ipv4 virtual ip address, based on YAML parameter and IP address used in NSX-V virtual service.
-                if loadBalancerVIPSubnet and isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv4Address):
-                    ipv4VirtualIpAddress = hostsListInSubnet.pop(0)
-
-                # configure ipv6 virtual ip address, based on YAML parameter.
-                if LoadBalancerServiceNetworkIPv6 and isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv6Address):
-                    ipv6VirtualIpAddress = virtualServer['ipAddress']
-
+                isVipInternal = float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and virtualServerIp[virtualServer['ipAddress']] == 'internal'
                 # If virtual service is already created on target then skip it
                 if virtualServer['name'] in [service['name'] for service in virtualServices]:
                     logger.debug(f'Virtual service {virtualServer["name"]} already created on target edge gateway {targetEdgeGatewayName}')
+                    if isVipInternal:
+                        continue
                     # Incrementing the IPV4 address for next virtual service
-                    if loadBalancerVIPSubnet and hostsListInSubnet:
+                    if loadBalancerVIPSubnet and hostsListInSubnet and not isVipInternal:
                         hostsListInSubnet.pop(0)
-
-                    continue
+                        continue
                 payloadDict = {
                     'virtualServiceName': virtualServer['name'],
                     'description': virtualServer.get('description', ''),
@@ -3237,14 +3252,15 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 payloadData['applicationProfile'] = applicationProfilePayload
 
                 # Add ipv4 virtual IP address.
-                if loadBalancerVIPSubnet and ipv4VirtualIpAddress:
-                    payloadData['virtualIpAddress'] = str(ipv4VirtualIpAddress)
-
+                # configure ipv4 virtual ip address, based on YAML parameter and IP address used in NSX-V virtual service.
+                if isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv4Address):
+                    payloadData['virtualIpAddress'] = str(
+                        virtualServer['ipAddress'] if isVipInternal else hostsListInSubnet.pop(0))
                 # Add ipv6 virtual IP address.
                 if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and \
                         LoadBalancerServiceNetworkIPv6 and \
-                        ipv6VirtualIpAddress:
-                    payloadData['ipv6VirtualIpAddress'] = str(ipv6VirtualIpAddress)
+                        isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv6Address):
+                    payloadData['ipv6VirtualIpAddress'] = str(virtualServer['ipAddress'])
 
                 payloadData = json.dumps(payloadData)
                 url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.EDGE_GATEWAY_LOADBALANCER_VIRTUAL_SERVER)
@@ -3257,12 +3273,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     logger.debug('Successfully created virtual server - {} for load balancer on target edge gateway'.format(
                         virtualServer['name']
                     ))
-
+                    payloadData = json.loads(payloadData)
                     # Name of DNAT rule to be created for load balancer virtual service
                     DNATRuleName = f'{virtualServer["name"]}-DNAT-RULE'
                     # Creating DNAT rule for virtual service
-                    if ipv4VirtualIpAddress:
-                        self.createDNATRuleForLoadBalancer(targetEdgeGatewayId, DNATRuleName, str(ipv4VirtualIpAddress),
+                    if not isVipInternal:
+                        logger.warning(payloadData['virtualIpAddress'])
+                        self.createDNATRuleForLoadBalancer(targetEdgeGatewayId, DNATRuleName, payloadData['virtualIpAddress'],
                                                            virtualServer['ipAddress'], virtualServer['port'])
                 else:
                     errorResponseData = response.json()
