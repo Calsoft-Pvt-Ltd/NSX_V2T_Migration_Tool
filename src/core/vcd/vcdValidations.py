@@ -3256,6 +3256,71 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
+    def validateLBVirtualServiceOnOrgvdcNetwork(self, edgeGatewayId):
+        """
+        Description :   validation for ipv4 virtual server
+        Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
+        """
+
+        if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+            return
+        errorList = list()
+        # url for getting edge gateway load balancer virtual servers configuration
+        url = '{}{}'.format(
+            vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+            vcdConstants.EDGE_GATEWAY_VIRTUAL_SERVER_CONFIG.format(edgeGatewayId))
+        response = self.restClientObj.get(url, self.headers)
+        if response.status_code == requests.codes.ok:
+            virtualServersData = self.vcdUtils.parseXml(response.content)
+        else:
+            errorResponseData = response.json()
+            raise Exception('Failed to get source edge gateway load balancer virtual servers configuration due to error {}'.format(errorResponseData['message']))
+
+        virtualServersData = listify(virtualServersData['loadBalancer']['virtualServer'])
+        virtualSeverIp = list()
+        for virtualServer in virtualServersData:
+            virtualSeverIp.append(virtualServer['ipAddress'])
+        # url to retrieve the routing config info
+        url = "{}{}/{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                 vcdConstants.NETWORK_EDGES, edgeGatewayId, vcdConstants.VNIC)
+        # get api call to retrieve the edge gateway config info
+        response = self.restClientObj.get(url, self.headers)
+        if response.status_code == requests.codes.ok:
+            responseDict = self.vcdUtils.parseXml(response.content)
+            vNicsDetails = responseDict['vnics']['vnic']
+        else:
+            errorResponseData = response.json()
+            raise Exception("Failed to get edge gateway {} vnic details due to error {}".format(edgeGatewayId, errorResponseData['message']))
+        gatewayIp = []
+        for vnics in vNicsDetails:
+            if vnics['addressGroups']:
+                if vnics['type'] == 'internal':
+                    gatewayIp = (vnics['addressGroups']['addressGroup']['primaryAddress'])
+        if gatewayIp in virtualSeverIp:
+            errorList.append(gatewayIp)
+
+        sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
+        orgVdcNetworks = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
+        for orgVdcNetwork in orgVdcNetworks:
+            orgVDCNetworkId = orgVdcNetwork['id']
+            url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                  vcdConstants.GET_ORG_VDC_NETWORK_BY_ID.format(orgVDCNetworkId),
+                                  vcdConstants.GET_ORG_VDC_NETWORK_ALLOCATED_IP)
+            # retrieve all allocated IPs from OrgVDC network
+            resultList = self.getPaginatedResults('OrgVDC network allocated IP', url, self.headers)
+            vmIp= list()
+            for allocatedIpList in resultList:
+                if allocatedIpList['allocationType'] == 'VM_ALLOCATED':
+                    vmIp.append(allocatedIpList['ipAddress'])
+            for virtualServer in virtualSeverIp:
+                if virtualServer in vmIp:
+                    errorList.append(virtualServer)
+        if errorList:
+            return ['Virtual server IP : {} is already getting used by VM/GatewayIP of orgvdc network on edge gateway {}'.format(','.join(errorList), edgeGatewayId)]
+        else:
+            return []
+
+    @isSessionExpired
     def getEdgeGatewayLoadBalancerConfig(self, edgeGatewayId, gatewayName, nsxvObj, v2tAssessmentMode=False):
         """
         Description :   Gets the Load Balancer Configuration details on the Edge Gateway
@@ -3398,6 +3463,8 @@ class VCDMigrationValidation:
                            loadBalancerErrorList.append("Service Engine Group {} doesn't exist in Avi.\n".format(serviceEngineGroupName))
             else:
                 loadBalancerErrorList.append('Unable to get load balancer service configuration with error code {} \n'.format(response.status_code))
+            errorList = self.validateLBVirtualServiceOnOrgvdcNetwork(edgeGatewayId)
+            loadBalancerErrorList.extend(errorList)
             return loadBalancerErrorList
         except Exception:
             raise
