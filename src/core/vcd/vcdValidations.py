@@ -2557,6 +2557,7 @@ class VCDMigrationValidation:
                 self.rollback.apiData['ipsecConfigDict'] = {}
 
             allErrorList = list()
+            serviceConfigDict = dict()
             edgeGatewayCount = 0
             for edgeGateway in self.rollback.apiData['sourceEdgeGateway']:
                 currentErrorList = list()
@@ -2622,7 +2623,7 @@ class VCDMigrationValidation:
                 ipsecErrorList = self.thread.returnValues['getEdgeGatewayIpsecConfig']
                 bgpErrorList, bgpStatus = self.thread.returnValues['getEdgegatewayBGPconfig']
                 routingErrorList, routingDetails = self.thread.returnValues['getEdgeGatewayRoutingConfig']
-                loadBalancingErrorList = self.thread.returnValues['getEdgeGatewayLoadBalancerConfig']
+                loadBalancingErrorList, loadBalancerConfigDict = self.thread.returnValues['getEdgeGatewayLoadBalancerConfig']
                 L2VpnErrorList = self.thread.returnValues['getEdgeGatewayL2VPNConfig']
                 SslVpnErrorList = self.thread.returnValues['getEdgeGatewaySSLVPNConfig']
                 dnsErrorList = self.thread.returnValues['getEdgeGatewayDnsConfig']
@@ -2677,7 +2678,7 @@ class VCDMigrationValidation:
                     errorData[gatewayName]['IPsec'] = ipsecErrorList
                     errorData[gatewayName]['BGP'] = bgpErrorList
                     errorData[gatewayName]['Routing'] = routingErrorList
-                    errorData[gatewayName]['LoadBalancer'] = loadBalancingErrorList
+                    errorData[gatewayName]['LoadBalancer'] = loadBalancingErrorList.append(loadBalancerConfigDict)
                     errorData[gatewayName]['L2VPN'] = L2VpnErrorList
                     errorData[gatewayName]['SSLVPN'] = SslVpnErrorList
                     errorData[gatewayName]['DNS'] = dnsErrorList
@@ -3255,6 +3256,12 @@ class VCDMigrationValidation:
         """
         try:
             loadBalancerErrorList = []
+            loadBalancerConfigDict = {
+                'Custom Monitor': [],
+                'Unsupported Persistence in application profile': [],
+                'Unsupported algorithm in LB pool': [],
+                'Transparent Mode': []
+            }
             supportedLoadBalancerAlgo = ['round-robin', 'leastconn']
             supportedLoadBalancerPersistence = ['cookie', 'sourceip']
             loadBalancerServiceNetworkIPv6 = self.orgVdcInput['EdgeGateways'][gatewayName].get(
@@ -3295,9 +3302,11 @@ class VCDMigrationValidation:
                                     if any(key in monitor and monitor[key] for key in ['expected', 'send', 'receive', 'extension']) or \
                                             (monitor.get('url') and monitor.get('url') != '/'):
                                         loadBalancerErrorList.append("Load balancer pool '{}' have unsupported values configured in monitor '{}'\n".format(pool['name'], monitor['name']))
+                                        loadBalancerConfigDict['Custom Monitor'].append(monitor['name'])
                                 elif monitor['type'] == 'udp':
                                     if v2tAssessmentMode:
                                         loadBalancerErrorList.append("Load balancer pool '{}' have unsupported values configured in monitor '{}'\n".format(pool['name'], monitor['name']))
+                                        loadBalancerConfigDict['Custom Monitor'].append(monitor['name'])
                                     else:
                                         logger.warning("UDP monitor '{}' send / receive will be set based on the Avi System-UDP".format(monitor['name']))
                     if poolsWithIpv6Configured:
@@ -3357,7 +3366,7 @@ class VCDMigrationValidation:
                     for profile in applicationProfiles:
                         if profile.get('persistence') and profile['persistence']['method'] not in supportedLoadBalancerPersistence:
                             loadBalancerErrorList.append("Unsupported persistence type '{}' provided in application profile '{}'\n".format(profile['persistence']['method'], profile['name']))
-
+                            loadBalancerConfigDict['Unsupported Persistence in application profile'].append(profile['name'])
                     # fetching load balancer pools data
                     if responseDict['loadBalancer'].get('pool', []):
                         lbPoolsData = responseDict['loadBalancer'].get('pool', [])
@@ -3365,8 +3374,10 @@ class VCDMigrationValidation:
                         for pool in lbPoolsData:
                             if pool['algorithm'] not in supportedLoadBalancerAlgo:
                                 loadBalancerErrorList.append("Unsupported algorithm '{}' provided in load balancer pool '{}'\n".format(pool['algorithm'], pool['name']))
+                                loadBalancerConfigDict['Unsupported algorithm in LB pool'].append(pool['name'])
                             if pool['transparent'] != 'false':
                                 loadBalancerErrorList.append('{} pool has transparent mode enabled which is not supported\n'.format(pool['name']))
+                                loadBalancerConfigDict['Transparent Mode'].append(pool['name'])
                     if not v2tAssessmentMode and not nsxvObj.ipAddress and not nsxvObj.username:
                         loadBalancerErrorList.append("NSX-V LoadBalancer service is enabled on Source Edge Gateway {}, but NSX-V details are not provided in user input file\n".format(edgeGatewayId))
 
@@ -3387,7 +3398,7 @@ class VCDMigrationValidation:
                            loadBalancerErrorList.append("Service Engine Group {} doesn't exist in Avi.\n".format(serviceEngineGroupName))
             else:
                 loadBalancerErrorList.append('Unable to get load balancer service configuration with error code {} \n'.format(response.status_code))
-            return loadBalancerErrorList
+            return loadBalancerErrorList, loadBalancerConfigDict
         except Exception:
             raise
 
