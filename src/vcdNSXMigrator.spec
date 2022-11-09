@@ -5,7 +5,7 @@ block_cipher = None
 
 a = Analysis(
   ['vcdNSXMigrator.py'],
-  pathex=['/home/vagrant/vcd-migration/src'],
+  pathex=[],
   binaries=[],
   datas=[
     ('./samplev2tAssessmentInput.yml', '.'),
