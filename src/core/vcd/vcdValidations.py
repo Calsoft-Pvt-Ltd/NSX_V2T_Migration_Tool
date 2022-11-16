@@ -3281,7 +3281,7 @@ class VCDMigrationValidation:
             raise Exception('Failed to get source edge gateway load balancer virtual servers configuration due to error {}'.format(errorResponseData['message']))
 
         if not virtualServersData:
-            return
+            return []
         virtualSeverIp = list()
         for virtualServer in virtualServersData:
             virtualSeverIp.append(virtualServer['ipAddress'])
@@ -3959,10 +3959,10 @@ class VCDMigrationValidation:
         # iterating over the vms in the vapp
         for vm in vmList:
             if vm["@status"] not in vApp_state:
-                self.suspendedVMList.append(vm['@name'])
+                self.unsupportedVAppList.append(vm['@name'])
 
         if responseDict['VApp'].get('InMaintenanceMode') == 'true':
-            self.maintenanceModeVAppList.append(responseDict['VApp']['@name'])
+            self.unsupportedVAppList.append(responseDict['VApp']['@name'])
 
     def validateSourceSuspendedVMsInVapp(self, sourceOrgVDCId):
         """
@@ -3970,8 +3970,7 @@ class VCDMigrationValidation:
                         If found atleast single VM in suspended state then raises exception
         """
         try:
-            self.suspendedVMList = list()
-            self.maintenanceModeVAppList = list()
+            self.unsupportedVAppList = list()
             sourceVappsList = self.getOrgVDCvAppsList(sourceOrgVDCId)
             if not sourceVappsList:
                 return
@@ -3982,12 +3981,10 @@ class VCDMigrationValidation:
             self.thread.joinThreads()
             if self.thread.stop():
                 raise Exception("Failed to validate vapp for suspended VM. Check log file for errors")
-            if self.suspendedVMList:
+            if self.unsupportedVAppList:
                 raise ValidationError(
-                    "VMs: {} are in state like (suspended, partially suspended) which are not supported by migration".format(','.join(self.suspendedVMList)))
-            if self.maintenanceModeVAppList:
-                raise ValidationError(
-                    "vApp {} is in maintenance mode which are not supported by migration".format(','.join(self.maintenanceModeVAppList)))
+                    "VApp/VMs: {} are in state like (suspended, partially suspended, maintenance mode) which are not supported by migration".format(
+                        ','.join(self.unsupportedVAppList)))
             logger.debug("Validated Successfully, No unspported VMs (suspended, partially suspended etc.) in Source Vapps")
         except Exception:
             raise
