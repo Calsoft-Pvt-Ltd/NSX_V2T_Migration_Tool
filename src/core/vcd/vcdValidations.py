@@ -3272,11 +3272,16 @@ class VCDMigrationValidation:
         response = self.restClientObj.get(url, self.headers)
         if response.status_code == requests.codes.ok:
             virtualServersData = self.vcdUtils.parseXml(response.content)
+            if virtualServersData['loadBalancer']:
+                virtualServersData = listify(virtualServersData['loadBalancer']['virtualServer'])
+            else:
+                virtualServersData = []
         else:
             errorResponseData = response.json()
             raise Exception('Failed to get source edge gateway load balancer virtual servers configuration due to error {}'.format(errorResponseData['message']))
 
-        virtualServersData = listify(virtualServersData['loadBalancer']['virtualServer'])
+        if not virtualServersData:
+            return
         virtualSeverIp = list()
         for virtualServer in virtualServersData:
             virtualSeverIp.append(virtualServer['ipAddress'])
