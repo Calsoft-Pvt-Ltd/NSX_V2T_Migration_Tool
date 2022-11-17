@@ -3567,6 +3567,9 @@ class VCDMigrationValidation:
                 try:
                     if responseDict['routing']['staticRouting']['staticRoutes']:
                         staticRoutes = listify(responseDict['routing']['staticRouting']['staticRoutes']['route'])
+                        networkList = [route["network"] for route in staticRoutes]
+                        if len(set(networkList)) < len(networkList):
+                            logger.warning("Multiple static routes to same network are present on edge gateway - {}.".format(edgeGatewayName))
                         if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
                             routeType = ''
                             staticRoutesList = self.staticRouteCheck(edgeGatewayId, edgeGatewayName, staticRoutes, routeType=routeType)
