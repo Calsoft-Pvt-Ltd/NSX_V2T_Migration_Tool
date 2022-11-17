@@ -69,7 +69,7 @@ def replace_unsupported_chars(text):
     """
     Description: Removes unsupported characters by replacing with empty string
     """
-    for c in ";|=,~@":
+    for c in ";|=\\,/~@":
         text = text.replace(c, '')
     return text
 
