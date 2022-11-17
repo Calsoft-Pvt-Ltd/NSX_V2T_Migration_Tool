@@ -70,6 +70,7 @@ EDGE_GW_SERVICES_VALIDATIONS = {
     'IPsec: DNAT rules not supported with Policy-based session type': 1,
     'OSPF routing protocol': 2,
     'User-defined Static Routes': 1,
+    'Load Balancer: VIP IP address conflict': 1,
     'LoadBalancer: Transparent Mode': 2,
     'LoadBalancer: Application Rules': 2,
     'LoadBalancer: Custom monitor': 1,
@@ -619,6 +620,10 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                     servicesResult = output
                                     for serviceName, result in servicesResult.items():
                                         if serviceName == "LoadBalancer":
+                                            if "already getting used by VM/GatewayIP" in ''.join(result):
+                                                orgVDCResult["Load Balancer: VIP IP address conflict"] = True
+                                            else:
+                                                orgVDCResult["Load Balancer: VIP IP address conflict"] = False
                                             if "transparent mode enabled" in ''.join(result):
                                                 orgVDCResult["LoadBalancer: Transparent Mode"] = True
                                             else:
