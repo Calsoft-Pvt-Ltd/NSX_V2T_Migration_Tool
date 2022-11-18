@@ -186,29 +186,6 @@
         "name": "{{gatewayName}}",
         "id": "{{gatewayId}}"
       }
-    },
-    "createLoadBalancerVirtualService": {
-      "name": "{{virtualServiceName}}",
-      "description": "{{description}}",
-      "enabled": "{{enabled}}",
-      "loadBalancerPoolRef": {
-        "name": "{{poolName}}",
-        "id": "{{poolId}}"
-      },
-      "gatewayRef": {
-        "name": "{{gatewayName}}",
-        "id": "{{gatewayId}}"
-      },
-      "serviceEngineGroupRef": {
-        "name": "{{serviceEngineGroupName}}",
-        "id": "{{serviceEngineGroupId}}"
-      },
-      "servicePorts": [
-        {
-          "portStart": "{{port}}",
-          "sslEnabled": "{{sslEnabled}}"
-        }
-      ]
     }
   }
 }
