@@ -3252,7 +3252,7 @@ class VCDMigrationValidation:
         """
 
         if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
-            return
+            return []
         errorList = list()
         # url for getting edge gateway load balancer virtual servers configuration
         url = '{}{}'.format(
@@ -3289,7 +3289,7 @@ class VCDMigrationValidation:
         for vnics in vNicsDetails:
             if vnics['addressGroups']:
                 if vnics['type'] == 'internal':
-                    gatewayIp = (vnics['addressGroups']['addressGroup']['primaryAddress'])
+                    gatewayIp = vnics['addressGroups']['addressGroup']['primaryAddress']
         if gatewayIp in virtualSeverIp:
             errorList.append(gatewayIp)
 
@@ -3404,6 +3404,12 @@ class VCDMigrationValidation:
                         # Check for application profile configured or not.
                         if not(virtualServer.get('applicationProfileId')):
                             loadBalancerErrorList.append("Application profile is not added in virtual Server '{}'\n".format(virtualServer['name']))
+
+                        if virtualServer.get('port').count(',') >= 10:
+                            loadBalancerErrorList.append("Only 10 ports allowed on single virtual server '{}'\n".format(virtualServer['name']))
+
+                        if virtualServer.get('protocol') in ['tcp', 'udp'] and ',' in virtualServer.get('port'):
+                            loadBalancerErrorList.append("Multiple service ports are not supported with TCP/UDP on virtual service '{}' on edge gateway '{}'.\n".format(virtualServer['name'], gatewayName))
 
                     if virtualServersWithIpv6Configured:
                         loadBalancerErrorList.append(

@@ -794,7 +794,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             protocol = protocol.upper()
             value = applicationPortProfilesDict.get(f"SYSTEM-{protocol}-{port}") or \
                     applicationPortProfilesDict.get(f"TENANT-{data['Organization']['@id']}-{protocol}-{port}")
-            if value:
+            if value and len(value['applicationPorts'][0]['destinationPorts']) == 1:
                 logger.debug(f"Application Port Profile {value['id']} for the {protocol}-{port} retrieved successfully")
                 return value['name'], value['id']
             else:
@@ -3045,47 +3045,54 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                   vcdConstants.ALL_EDGE_GATEWAYS,
                                   vcdConstants.T1_ROUTER_NAT_CONFIG.format(edgeGatewayId))
             # Payload data for creating DNAT rule
-            payloadDict = {
-                "ruleId": ruleName,
-                "ruleTag": ruleName,
-                "ruleDescription": "",
-                "enabled": "true",
-                "action": "DNAT",
-                "loggingEnabled": "true",
-                "version": "",
-                "originalAddress": destinationIp,
-                "translatedAddress": sourceIP,
-                "dnatExternalPort": port
-            }
+            portList = []
+            for _port in port.split(','):
+                if '-' in _port:
+                    portStart, portEnd = _port.split('-', 1)
+                    for p in range(int(portStart), int(portEnd) + 1):
+                        portList.append(str(p))
+                else:
+                    portList.append(_port)
+            for port in portList:
+                payloadDict = {
+                    "ruleId": ruleName,
+                    "ruleTag": ruleName,
+                    "ruleDescription": "",
+                    "enabled": "true",
+                    "action": "DNAT",
+                    "loggingEnabled": "true",
+                    "version": "",
+                    "originalAddress": destinationIp,
+                    "translatedAddress": sourceIP,
+                    "dnatExternalPort": port
+                }
+                # Filepath of template json file
+                filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
 
-            # Filepath of template json file
-            filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
+                # Creating payload for DNAT rule creation
+                payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='json',
+                                                          componentName=vcdConstants.COMPONENT_NAME,
+                                                          templateName=vcdConstants.CREATE_DNAT_TEMPLATE, apiVersion=self.version)
+                payloadData = json.loads(payloadData)
 
-            # Creating payload for DNAT rule creation
-            payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='json',
-                                                      componentName=vcdConstants.COMPONENT_NAME,
-                                                      templateName=vcdConstants.CREATE_DNAT_TEMPLATE, apiVersion=self.version)
-            payloadData = json.loads(payloadData)
+                # Deleting version key from payload data as it is not required
+                del payloadData['version']
 
-            # Deleting version key from payload data as it is not required
-            del payloadData['version']
+                # Getting the application port profile list
+                applicationPortProfilesList = self.getApplicationPortProfiles()
+                applicationPortProfilesDict = self.filterApplicationPortProfiles(applicationPortProfilesList)
 
-            # Getting the application port profile list
-            applicationPortProfilesList = self.getApplicationPortProfiles()
-            applicationPortProfilesDict = self.filterApplicationPortProfiles(applicationPortProfilesList)
+                # Fetching name and id of specific application port profile for corresponding port
+                protocol_port_name, protocol_port_id = self._searchApplicationPortProfile(
+                    applicationPortProfilesDict, 'tcp', port)
+                payloadData["applicationPortProfile"] = {"name": protocol_port_name, "id": protocol_port_id}
 
-            # Fetching name and id of specific application port profile for corresponding port
-            protocol_port_name, protocol_port_id = self._searchApplicationPortProfile(
-                applicationPortProfilesDict, 'tcp', port)
-            payloadData["applicationPortProfile"] = {"name": protocol_port_name, "id": protocol_port_id}
+                # From VCD v10.2.2, firewallMatch to external address to be provided for DNAT rules
+                if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS_10_2_2):
+                    payloadData["firewallMatch"] = "MATCH_EXTERNAL_ADDRESS"
 
-            # From VCD v10.2.2, firewallMatch to external address to be provided for DNAT rules
-            if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS_10_2_2):
-                payloadData["firewallMatch"] = "MATCH_EXTERNAL_ADDRESS"
-
-            # Create rule api call
-            self.createNatRuleTask(payloadData, url)
-
+                # Create rule api call
+                self.createNatRuleTask(payloadData, url)
         except:
             raise
 
@@ -3167,24 +3174,27 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             else:
                 errorResponseData = response.json()
                 raise Exception("Failed to get edge gateway {} vnic details due to error {}".format(sourceEdgeGatewayId, errorResponseData['message']))
-            virtualServerIp = {}
+            vnicIpToTypeMap = {}
             for vnics in vNicsDetails:
                 if vnics['addressGroups']:
                     if 'primaryAddress' in vnics['addressGroups']['addressGroup']:
-                        virtualServerIp[vnics['addressGroups']['addressGroup']['primaryAddress']] = vnics['type']
+                        vnicIpToTypeMap[vnics['addressGroups']['addressGroup']['primaryAddress']] = vnics['type']
                     if 'secondaryAddresses' in vnics['addressGroups']['addressGroup']:
                         for ip in listify(vnics['addressGroups']['addressGroup']['secondaryAddresses']['ipAddress']):
-                            virtualServerIp[ip] = vnics['type']
+                            vnicIpToTypeMap[ip] = vnics['type']
             extVirtualServerIP = list()
             for virtualServer in virtualServersData:
-                if virtualServerIp[virtualServer['ipAddress']] == 'uplink':
+                if isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv4Address) \
+                        and vnicIpToTypeMap[virtualServer['ipAddress']] == 'uplink':
                     extVirtualServerIP.append(virtualServer['ipAddress'])
 
             if loadBalancerVIPSubnet and len(hostsListInSubnet) < len(extVirtualServerIP):
                 raise Exception("Number of hosts in network - {} is less than the number of virtual server in edge gateway{}".format(loadBalancerVIPSubnet, targetEdgeGatewayName))
 
             for virtualServer in virtualServersData:
-                isVipInternal = float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and virtualServerIp[virtualServer['ipAddress']] == 'internal'
+                isVipInternal = float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) \
+                                and isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv4Address) \
+                                and vnicIpToTypeMap.get(virtualServer['ipAddress']) == 'internal'
                 # If virtual service is already created on target then skip it
                 if virtualServer['name'] in [service['name'] for service in virtualServices]:
                     logger.debug(f'Virtual service {virtualServer["name"]} already created on target edge gateway {targetEdgeGatewayName}')
@@ -3193,26 +3203,31 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     # Incrementing the IPV4 address for next virtual service
                     if loadBalancerVIPSubnet and hostsListInSubnet and not isVipInternal:
                         hostsListInSubnet.pop(0)
-                        continue
-                payloadDict = {
-                    'virtualServiceName': virtualServer['name'],
-                    'description': virtualServer.get('description', ''),
-                    'enabled': virtualServer['enabled'],
-                    'poolName': poolNameIdDict[virtualServer['defaultPoolId']][0],
-                    'poolId': poolNameIdDict[virtualServer['defaultPoolId']][1],
-                    'gatewayName': targetEdgeGatewayName,
-                    'gatewayId': targetEdgeGatewayId,
-                    'serviceEngineGroupName': self.serviceEngineGroupName,
-                    'serviceEngineGroupId': self.serviceEngineGroupId,
-                    'port': virtualServer['port'],
-                    'sslEnabled': True if virtualServer['protocol'] == 'https' else False
+                    continue
+                payloadData = {
+                    "name": virtualServer["name"],
+                    "description": virtualServer.get("description", ""),
+                    "enabled": virtualServer["enabled"],
+                    "loadBalancerPoolRef": {
+                        "name": poolNameIdDict[virtualServer["defaultPoolId"]][0],
+                        "id": poolNameIdDict[virtualServer["defaultPoolId"]][1],
+                    },
+                    "gatewayRef": {
+                        "name": targetEdgeGatewayName,
+                        "id": targetEdgeGatewayId,
+                    },
+                    "serviceEngineGroupRef": {
+                        "name": self.serviceEngineGroupName,
+                        "id": self.serviceEngineGroupId,
+                    },
+                    "servicePorts": [
+                        {"portStart": port.split("-")[0], "portEnd": port.split("-")[1],
+                         "sslEnabled": True if virtualServer["protocol"] == "https" else False}
+                        if "-" in port
+                        else {"portStart": port, "sslEnabled": True if virtualServer["protocol"] == "https" else False}
+                        for port in virtualServer["port"].split(",")
+                    ]
                 }
-
-                filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
-                payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='json',
-                                                          componentName=vcdConstants.COMPONENT_NAME,
-                                                          templateName=vcdConstants.CREATE_LOADBALANCER_VIRTUAL_SERVICE)
-                payloadData = json.loads(payloadData)
 
                 certificateForTCP = False
 
@@ -3277,8 +3292,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     # Name of DNAT rule to be created for load balancer virtual service
                     DNATRuleName = f'{virtualServer["name"]}-DNAT-RULE'
                     # Creating DNAT rule for virtual service
-                    if not isVipInternal:
-                        logger.warning(payloadData['virtualIpAddress'])
+                    if not isVipInternal and isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv4Address):
                         self.createDNATRuleForLoadBalancer(targetEdgeGatewayId, DNATRuleName, payloadData['virtualIpAddress'],
                                                            virtualServer['ipAddress'], virtualServer['port'])
                 else:
