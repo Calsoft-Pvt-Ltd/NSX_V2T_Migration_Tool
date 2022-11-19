@@ -2813,6 +2813,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             loggingDone = False
 
+            # Iterating over source edge gateway
+            for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
+                sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
             # Iterating over edge gateway id list
             for edgeGateway in self.rollback.apiData['targetEdgeGateway']:
                 logger.debug("Removing load balancer configuration from target edge gateway '{}'".format(edgeGateway['name']))
@@ -2902,7 +2905,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 serviceEngineGroup["serviceEngineGroupRef"]["name"], edgeGateway["name"], errorResponse['message']))
 
                 # Disabling load balacer service from target edge gateway
-                self.enableLoadBalancerService(edgeGatewayId, edgeGateway['name'], rollback=True)
+                self.enableLoadBalancerService(edgeGatewayId, edgeGateway['name'], sourceEdgeGatewayId, rollback=True)
 
                 # Disabling DHCPv6 service from target edge gateway
                 if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
@@ -3003,7 +3006,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         self.serviceEngineGroupName = serviceEngineGroupDetails[0]['name']
                         self.serviceEngineGroupId = serviceEngineGroupDetails[0]['id']
                         # enable load balancer service
-                        self.enableLoadBalancerService(targetEdgeGatewayId, targetEdgeGatewayName)
+                        self.enableLoadBalancerService(targetEdgeGatewayId, targetEdgeGatewayName, sourceEdgeGatewayId)
                         # enable DHCPv6 in SLACC mode if the LoadBalancerServiceNetworkIPv6 is configured.
                         if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and LoadBalancerServiceNetworkIPv6:
                             self.enableDHCPv6InSlaccMode(targetEdgeGatewayId, targetEdgeGatewayName)
@@ -3212,7 +3215,16 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='json',
                                                           componentName=vcdConstants.COMPONENT_NAME,
                                                           templateName=vcdConstants.CREATE_LOADBALANCER_VIRTUAL_SERVICE)
+
                 payloadData = json.loads(payloadData)
+
+                # Add key to turn Transparent mode in Virtual services if Transparent mode ON in LB
+                for pool in sourceLBPools:
+                    if pool['name'] == payloadData["loadBalancerPoolRef"]["name"]:
+                        payloadData["transparentModeEnabled"] = pool["transparent"]
+
+
+
 
                 certificateForTCP = False
 
@@ -3263,6 +3275,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     payloadData['ipv6VirtualIpAddress'] = str(virtualServer['ipAddress'])
 
                 payloadData = json.dumps(payloadData)
+                #https://10.196.235.31/cloudapi/1.0.0/loadBalancer/virtualServices
                 url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.EDGE_GATEWAY_LOADBALANCER_VIRTUAL_SERVER)
                 self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
                 # post api call to configure virtual server for load balancer service
@@ -3354,6 +3367,42 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     logger.debug('Uploading the certificate {} for load balancer HTTPS configuration'.format(objectId))
                     self.uploadCertificate(certificate, objectId)
 
+            # Create IP_SET Groups in Security Tab in Target side
+            ipSetDict={}
+            for poolData in pools:
+                if poolData["transparent"] == "true":
+                    urlForIpSet = "{}{}".format(
+                        vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                        vcdConstants.CREATE_FIREWALL_GROUP)
+
+                    payload = {
+                        'name': "",
+                        'description': "",
+                        'ipAddresses': [],
+                        'ownerRef': {'id': targetEdgeGatewayId},
+                        'typeValue': "IP_SET"
+                    }
+                    payload["name"] = poolData["name"] + "_IP_SET"
+
+                    if poolData.get('member'):
+                        poolMembers = poolData.get('member') if isinstance(poolData.get('member'), list) else [
+                            poolData.get('member')]
+                    else:
+                        poolMembers = []
+
+                    if poolMembers:
+                        for member in poolMembers:
+                            payload['ipAddresses'].append(member['ipAddress'])
+
+                    response = self.restClientObj.post(urlForIpSet, self.headers, data=json.dumps(payload))
+
+                    if response.status_code == requests.codes.accepted:
+                        ipSetStaticGroup = self._checkTaskStatus(taskUrl=response.headers['Location'],
+                                                                 returnOutput=True)
+                        logger.debug(f"Firewall Group created: {payload['name']}({ipSetStaticGroup}) on {payload['ownerRef']['id']}")
+                        ipSetDict[payload["name"]]=ipSetStaticGroup
+
+
             # Iterating over pools to create pools for load balancer in target
             for poolData in pools:
 
@@ -3411,17 +3460,26 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                           templateName=vcdConstants.CREATE_LOADBALANCER_POOL)
                 payloadData = json.loads(payloadData)
 
-                # Adding pool members in pool payload
-                targetPoolMembers = []
-                for member in poolMembers:
-                    memberDict = {
-                                "ipAddress": member['ipAddress'],
-                                "port": member['port'],
-                                "ratio": member['weight'],
-                                "enabled": True if member['condition'] == 'enabled' else False
-                                }
-                    targetPoolMembers.append(memberDict)
-                payloadData['members'] = targetPoolMembers
+                # if transparent mode enabled set its IP set in group tab else add in IP addresses tab
+                if poolData["transparent"] == "true":
+                    memberGroupRef = {
+                        "name": poolData["name"]+"_IP_SET",
+                        "id": "urn:vcloud:firewallGroup:" + ipSetDict[poolData["name"]+"_IP_SET"]
+                    }
+                    payloadData["memberGroupRef"] = memberGroupRef
+
+                # else(if not transparent)
+                else:
+                    targetPoolMembers = []
+                    for member in poolMembers:
+                        memberDict = {
+                            "ipAddress": member['ipAddress'],
+                            "port": member['port'],
+                            "ratio": member['weight'],
+                            "enabled": True if member['condition'] == 'enabled' else False
+                        }
+                        targetPoolMembers.append(memberDict)
+                    payloadData['members'] = targetPoolMembers
 
                 # adding persistence profile in payload
                 if persistenceProfile:
@@ -3474,7 +3532,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             raise Exception('Failed to get load balancer configuration from source edge gateway - {}'.format(targetEdgeGatewayName))
 
     @isSessionExpired
-    def enableLoadBalancerService(self, targetEdgeGatewayId, targetEdgeGatewayName, rollback=False):
+    def enableLoadBalancerService(self, targetEdgeGatewayId, targetEdgeGatewayName, sourceEdgeGatewayId, rollback=False):
         """
             Description :   Enabling LoadBalancer virtual service on target edge gateway
             Params      :   targetEdgeGatewayId - ID of target edge gateway (STRING)
@@ -3531,6 +3589,39 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 # use service network for IPV6 from YAML
                 if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and LoadBalancerServiceNetworkIPv6:
                     payloadData["ipv6ServiceNetworkDefinition"] = LoadBalancerServiceNetworkIPv6
+            # payloadData = json.dumps(payloadData)
+
+            #url for fetching pool data in order to enable Transparent mode
+            urlForSourcePool = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                   vcdConstants.NETWORK_EDGES,
+                                   vcdConstants.EDGE_GATEWAY_LOADBALANCER_CONFIG.format(sourceEdgeGatewayId))
+            responseFromSourcePool = self.restClientObj.get(urlForSourcePool, self.headers)
+
+            if responseFromSourcePool.status_code == requests.codes.ok:
+                responseLbDict = self.vcdUtils.parseXml(responseFromSourcePool.content)
+            else:
+                errorResponseData = responseFromSourcePool.json()
+                raise Exception(
+                    'Failed to fetch LoadBalancer Pool data from Source Edge Gateway Id-{} with error-{}'.format(
+                        sourceEdgeGatewayId, errorResponseData['message']))
+
+            pools = responseLbDict['loadBalancer'].get('pool') \
+                if isinstance(responseLbDict['loadBalancer'].get('pool'), list) \
+                else [responseLbDict['loadBalancer'].get('pool')]
+
+            #Add transparentModeEnabled key in payloadData(Validation: all pools should either be transparent or all should be non-transparent But not both)
+
+            statusList=[]
+            for pool in pools:
+                statusList.append(pool["transparent"])
+            statusList = list(set(statusList))
+            if len(statusList)==1:
+                payloadData["transparentModeEnabled"] = statusList[0]
+            else:
+                raise Exception('All Pools are not Transparent in the source LB, All should either be Transparent or non-Transparent')
+
+
+
             payloadData = json.dumps(payloadData)
 
             # put api call to enable load balancer on target edge gateway

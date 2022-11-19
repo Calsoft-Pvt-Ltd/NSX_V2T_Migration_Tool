@@ -3446,8 +3446,8 @@ class VCDMigrationValidation:
                         for pool in lbPoolsData:
                             if pool['algorithm'] not in supportedLoadBalancerAlgo:
                                 loadBalancerErrorList.append("Unsupported algorithm '{}' provided in load balancer pool '{}'\n".format(pool['algorithm'], pool['name']))
-                            if pool['transparent'] != 'false':
-                                loadBalancerErrorList.append('{} pool has transparent mode enabled which is not supported\n'.format(pool['name']))
+                            # if pool['transparent'] != 'false':
+                            #     loadBalancerErrorList.append('{} pool has transparent mode enabled which is not supported\n'.format(pool['name']))
                     if not v2tAssessmentMode and not nsxvObj.ipAddress and not nsxvObj.username:
                         loadBalancerErrorList.append("NSX-V LoadBalancer service is enabled on Source Edge Gateway {}, but NSX-V details are not provided in user input file\n".format(edgeGatewayId))
 
