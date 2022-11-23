@@ -3280,8 +3280,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 # Add ipv4 virtual IP address.
                 # configure ipv4 virtual ip address, based on YAML parameter and IP address used in NSX-V virtual service.
                 if isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv4Address):
-                    payloadData['virtualIpAddress'] = str(
-                        virtualServer['ipAddress'] if isVipInternal else hostsListInSubnet.pop(0))
+                    if payloadData["transparentModeEnabled"] == "true":
+                        payloadData['virtualIpAddress'] = str(virtualServer['ipAddress'])
+                    else:
+                        payloadData['virtualIpAddress'] = str(
+                            virtualServer['ipAddress'] if isVipInternal else hostsListInSubnet.pop(0))
                 # Add ipv6 virtual IP address.
                 if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and \
                         LoadBalancerServiceNetworkIPv6 and \
@@ -3301,12 +3304,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         virtualServer['name']
                     ))
                     payloadData = json.loads(payloadData)
-                    # Name of DNAT rule to be created for load balancer virtual service
-                    DNATRuleName = f'{virtualServer["name"]}-DNAT-RULE'
-                    # Creating DNAT rule for virtual service
-                    if not isVipInternal and isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv4Address):
-                        self.createDNATRuleForLoadBalancer(targetEdgeGatewayId, DNATRuleName, payloadData['virtualIpAddress'],
-                                                           virtualServer['ipAddress'], virtualServer['port'])
+                    if payloadData['transparentModeEnabled'] == "false":
+                        # Name of DNAT rule to be created for load balancer virtual service
+                        DNATRuleName = f'{virtualServer["name"]}-DNAT-RULE'
+                        # Creating DNAT rule for virtual service
+                        if not isVipInternal and isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv4Address):
+                            self.createDNATRuleForLoadBalancer(targetEdgeGatewayId, DNATRuleName, payloadData['virtualIpAddress'],
+                                                               virtualServer['ipAddress'], virtualServer['port'])
                 else:
                     errorResponseData = response.json()
                     raise Exception(
