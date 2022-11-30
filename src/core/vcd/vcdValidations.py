@@ -2617,12 +2617,12 @@ class VCDMigrationValidation:
                 # Fetching saved values from thread class of all the threads
                 dhcpErrorList, dhcpConfigOut = self.thread.returnValues['getEdgeGatewayDhcpConfig']
                 dhcpRelayErrorList = self.thread.returnValues['getDhcpRelayForNonDR']
-                firewallErrorList = self.thread.returnValues['getEdgeGatewayFirewallConfig']
-                natErrorList, ifNatRulesPresent = self.thread.returnValues['getEdgeGatewayNatConfig']
+                firewallErrorList, firewallConfigDict = self.thread.returnValues['getEdgeGatewayFirewallConfig']
+                natErrorList, ifNatRulesPresent, natConfigDict = self.thread.returnValues['getEdgeGatewayNatConfig']
                 ipsecErrorList = self.thread.returnValues['getEdgeGatewayIpsecConfig']
                 bgpErrorList, bgpStatus = self.thread.returnValues['getEdgegatewayBGPconfig']
                 routingErrorList, routingDetails = self.thread.returnValues['getEdgeGatewayRoutingConfig']
-                loadBalancingErrorList = self.thread.returnValues['getEdgeGatewayLoadBalancerConfig']
+                loadBalancingErrorList, loadBalancerConfigDict = self.thread.returnValues['getEdgeGatewayLoadBalancerConfig']
                 L2VpnErrorList = self.thread.returnValues['getEdgeGatewayL2VPNConfig']
                 SslVpnErrorList = self.thread.returnValues['getEdgeGatewaySSLVPNConfig']
                 dnsErrorList = self.thread.returnValues['getEdgeGatewayDnsConfig']
@@ -2672,12 +2672,12 @@ class VCDMigrationValidation:
                     logger.debug("Source Edge Gateway - {} services configuration retrieved successfully".format(gatewayName))
                 if v2tAssessmentMode:
                     errorData[gatewayName]['DHCP'] = dhcpErrorList + dhcpRelayErrorList
-                    errorData[gatewayName]['Firewall'] = firewallErrorList
-                    errorData[gatewayName]['NAT'] = natErrorList
+                    errorData[gatewayName]['Firewall'] = firewallConfigDict
+                    errorData[gatewayName]['NAT'] = natConfigDict
                     errorData[gatewayName]['IPsec'] = ipsecErrorList
                     errorData[gatewayName]['BGP'] = bgpErrorList
                     errorData[gatewayName]['Routing'] = routingErrorList
-                    errorData[gatewayName]['LoadBalancer'] = loadBalancingErrorList
+                    errorData[gatewayName]['LoadBalancer'] = loadBalancerConfigDict
                     errorData[gatewayName]['L2VPN'] = L2VpnErrorList
                     errorData[gatewayName]['SSLVPN'] = SslVpnErrorList
                     errorData[gatewayName]['DNS'] = dnsErrorList
@@ -3067,6 +3067,18 @@ class VCDMigrationValidation:
                                                     sharedNetwork=True)
 
             errorList = list()
+            firewallConfigDict = {
+                "vNicGroupId present in the source of firewall rule": [],
+                "Direct network used in the source of firewall rule": [],
+                "Isolated network used in the source of firewall rule": [],
+                "Routed Network connected to different edge gateway used in source of firewall rule": [],
+                "Unsupported grouping object type in the source of firewall rule": [],
+                "vNicGroupId present in the destination of firewall rule": [],
+                "Direct network used in the destination of firewall rule": [],
+                "Isolated network used in the destination of firewall rule": [],
+                "Routed Network connected to different edge gateway used in destination of firewall rule": [],
+                "Unsupported grouping object type in the destination of firewall rule": []
+            }
             # url to retrieve the firewall config details of edge gateway
             url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                                   vcdConstants.NETWORK_EDGES,
@@ -3107,6 +3119,7 @@ class VCDMigrationValidation:
                         if firewall.get('source'):
                             if firewall['source'].get('vnicGroupId'):
                                 errorList.append("vNicGroupId '{}' is present in the source of firewall rule '{}'\n".format(firewall['source']['vnicGroupId'], firewall['name']))
+                                firewallConfigDict["vNicGroupId present in the source of firewall rule"].append(firewall['id'])
                             if firewall['source'].get('groupingObjectId'):
                                 groupingobjects = firewall['source']['groupingObjectId'] if isinstance(firewall['source']['groupingObjectId'], list) else [firewall['source']['groupingObjectId']]
                                 for groupingobject in groupingobjects:
@@ -3114,15 +3127,20 @@ class VCDMigrationValidation:
                                         for network in orgVdcNetworks:
                                             if network['networkType'] == "DIRECT" and network['parentNetworkId']['id'] == groupingobject:
                                                 errorList.append("Direct network '{}' cannot be used in the source of firewall rule : '{}'\n".format(network['name'], firewall['name']))
+                                                firewallConfigDict["Direct network used in the source of firewall rule"].append(firewall['id'])
                                             elif network['id'] == groupingobject and network['networkType'] == 'ISOLATED':
                                                 errorList.append("Isolated network '{}' cannot be used in the source of firewall rule : '{}'\n".format(network['name'], firewall['name']))
+                                                firewallConfigDict["Isolated network used in the source of firewall rule"].append(firewall['id'])
                                             elif network['id'] == groupingobject and network['networkType'] == 'NAT_ROUTED' and network.get('connection', {})['routerRef']['id'].split(':')[-1] != edgeGatewayId:
                                                 errorList.append("Routed Network '{}' is connected to different edge gateway so it cannot be used in source of firewall rule : '{}'\n".format(network['name'], firewall['name']))
+                                                firewallConfigDict["Routed Network connected to different edge gateway used in source of firewall rule"].append(firewall['id'])
                                     if "ipset" not in groupingobject and "network" not in groupingobject:
                                         errorList.append("The grouping object type '{}' in the source of firewall rule '{}' is not supported\n".format(groupingobject, firewall['name']))
+                                        firewallConfigDict["Unsupported grouping object type in the source of firewall rule"].append(firewall['id'])
                         if firewall.get('destination'):
                             if firewall['destination'].get('vnicGroupId'):
                                 errorList.append("vNicGroupId '{}' is present in the destination of firewall rule '{}'\n".format(firewall['destination']['vnicGroupId'], firewall['name']))
+                                firewallConfigDict["vNicGroupId present in the destination of firewall rule"].append(firewall['id'])
                             if firewall['destination'].get('groupingObjectId'):
                                 groupingobjects = firewall['destination']['groupingObjectId'] if isinstance(firewall['destination']['groupingObjectId'], list) else [firewall['destination']['groupingObjectId']]
                                 for groupingobject in groupingobjects:
@@ -3130,16 +3148,20 @@ class VCDMigrationValidation:
                                         for network in orgVdcNetworks:
                                             if network['networkType'] == "DIRECT" and network['parentNetworkId']['id'] == groupingobject:
                                                 errorList.append("Direct network '{}' cannot be used in the source of firewall rule : '{}'\n".format(network['name'], firewall['name']))
+                                                firewallConfigDict["Direct network used in the destination of firewall rule"].append(firewall['id'])
                                             elif network['id'] == groupingobject and network['networkType'] == 'ISOLATED':
                                                 errorList.append("Isolated network '{}' cannot be used in the source of firewall rule : '{}'\n".format(network['name'], firewall['name']))
+                                                firewallConfigDict["Isolated network used in the destination of firewall rule"].append(firewall['id'])
                                             elif network['id'] == groupingobject and network['networkType'] == 'NAT_ROUTED' and network.get('connection', {})['routerRef']['id'].split(':')[-1] != edgeGatewayId:
                                                 errorList.append("Routed Network '{}' is connected to different edge gateway so it cannot be used in source of firewall rule : '{}'\n".format(network['name'], firewall['name']))
+                                                firewallConfigDict["Routed Network connected to different edge gateway used in destination of firewall rule"].append(firewall['id'])
                                     if "ipset" not in groupingobject and "network" not in groupingobject:
                                         errorList.append("The grouping object type '{}' in the destination of firewall rule '{}' is not supported\n".format(groupingobject, firewall['name']))
-                    return errorList
+                                        firewallConfigDict["Unsupported grouping object type in the destination of firewall rule"].append(firewall['id'])
+                    return errorList, firewallConfigDict
                 else:
                     errorList.append('Firewall is disabled in source\n')
-                    return errorList
+                    return errorList, firewallConfigDict
             raise Exception(
                 "Failed to retrieve the Firewall Configurations of Source Edge Gateway with error code {}: {}\n".format(
                     response.status_code, responseDict['Error']['@message']))
@@ -3154,6 +3176,10 @@ class VCDMigrationValidation:
         """
         try:
             errorList = list()
+            natConfigDict = {
+                'Nat64 rule': [],
+                'Range of IPs or network found in DNAT rule': []
+            }
             logger.debug("Getting NAT Services Configuration Details of Source Edge Gateway")
             # url to retrieve the nat config details of the specified edge gateway
             url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
@@ -3169,6 +3195,7 @@ class VCDMigrationValidation:
                 # checking if nat64 rules are present, if not raising exception
                 if responseDict['nat']['nat64Rules']:
                     errorList.append('Nat64 rule is configured in source but not supported in Target\n')
+                    natConfigDict['Nat64 rule'] = [rule['ruleId'] for rule in listify(responseDict['nat']['nat64Rules']['nat64Rule'])]
                 # checking if nat rules are present
                 if responseDict['nat']['natRules']:
                     natrules = responseDict['nat']['natRules']['natRule']
@@ -3179,14 +3206,15 @@ class VCDMigrationValidation:
                             errorList.append(
                                 'Range of IPs or network found in this DNAT rule {} and range cannot be used in target edge gateway\n'.format(
                                     natrule['ruleId']))
-                    return errorList, natrules
+                            natConfigDict['Range of IPs or network found in DNAT rule'].append(natrule['ruleId'])
+                    return errorList, natrules, natConfigDict
                 else:
-                    return errorList, False
+                    return errorList, False, natConfigDict
             else:
                 errorList.append(
                     'Failed to retrieve the NAT Configurations of Source Edge Gateway with error code {} \n'.format(
                         response.status_code))
-                return errorList, False
+                return errorList, False, natConfigDict
         except Exception:
             raise
 
@@ -3245,7 +3273,7 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def validateLBVirtualServiceOnOrgvdcNetwork(self, edgeGatewayId):
+    def validateLBVirtualServiceOnOrgvdcNetwork(self, edgeGatewayId, loadBalancerConfigDict):
         """
         Description :   validation for ipv4 virtual server
         Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
@@ -3309,6 +3337,7 @@ class VCDMigrationValidation:
             for virtualServer in virtualSeverIp:
                 if virtualServer in vmIp:
                     errorList.append(virtualServer)
+                    loadBalancerConfigDict['Virtual server IP is already getting used by VM/GatewayIP of orgvdc network on edge gateway'].append(virtualServer['name'])
         if errorList:
             return ['Virtual server IP : {} is already getting used by VM/GatewayIP of orgvdc network on edge gateway {}'.format(','.join(errorList), edgeGatewayId)]
         else:
@@ -3325,6 +3354,15 @@ class VCDMigrationValidation:
         """
         try:
             loadBalancerErrorList = []
+            loadBalancerConfigDict = {
+                'Virtual server IP is already getting used by VM/GatewayIP of orgvdc network on edge gateway': [],
+                'Application rules': [],
+                'Unsupported values in monitor': [],
+                'Virtual Server without default pool': [],
+                'Unsupported persistence in application profile': [],
+                'Unsupported algorithm in LB pool': [],
+                'Application profile is not added in virtual Server':[]
+            }
             supportedLoadBalancerAlgo = ['round-robin', 'leastconn']
             supportedLoadBalancerPersistence = ['cookie', 'sourceip']
             loadBalancerServiceNetworkIPv6 = self.orgVdcInput['EdgeGateways'][gatewayName].get(
@@ -3349,6 +3387,9 @@ class VCDMigrationValidation:
 
                     if applicationRules:
                         loadBalancerErrorList.append('Application rules are present in load balancer service but not supported in the Target\n')
+                        if v2tAssessmentMode:
+                            for applicationRule in listify(applicationRules):
+                                loadBalancerConfigDict['Application rules'].append(applicationRule['name'])
 
                     for pool in listify(responseDict['loadBalancer'].get('pool')):
                         # Check if the pool member has IPV6 configured and LoadBalancerServiceNetworkIPv6 configured
@@ -3365,9 +3406,11 @@ class VCDMigrationValidation:
                                     if any(key in monitor and monitor[key] for key in ['expected', 'send', 'receive', 'extension']) or \
                                             (monitor.get('url') and monitor.get('url') != '/'):
                                         loadBalancerErrorList.append("Load balancer pool '{}' have unsupported values configured in monitor '{}'\n".format(pool['name'], monitor['name']))
+                                        loadBalancerConfigDict['Unsupported values in monitor'].append(monitor['name'])
                                 elif monitor['type'] == 'udp':
                                     if v2tAssessmentMode:
                                         loadBalancerErrorList.append("Load balancer pool '{}' have unsupported values configured in monitor '{}'\n".format(pool['name'], monitor['name']))
+                                        loadBalancerConfigDict['Unsupported values in monitor'].append(monitor['name'])
                                     else:
                                         logger.warning("UDP monitor '{}' send / receive will be set based on the Avi System-UDP".format(monitor['name']))
                     if poolsWithIpv6Configured:
@@ -3394,6 +3437,7 @@ class VCDMigrationValidation:
                         # check for default pool
                         if not virtualServer.get('defaultPoolId', None):
                             loadBalancerErrorList.append("Default pool is not configured in load balancer virtual server '{}'\n".format(virtualServer['name']))
+                            loadBalancerConfigDict['Virtual Server without default pool'].append(virtualServer['name'])
 
                         # check for IPV6 Addr for virtual server and LoadBalancerServiceNetworkIPv6 configured or not.
                         if not v2tAssessmentMode and \
@@ -3404,6 +3448,7 @@ class VCDMigrationValidation:
                         # Check for application profile configured or not.
                         if not(virtualServer.get('applicationProfileId')):
                             loadBalancerErrorList.append("Application profile is not added in virtual Server '{}'\n".format(virtualServer['name']))
+                            loadBalancerConfigDict['Application profile is not added in virtual Server'].append(virtualServer['name'])
 
                         if virtualServer.get('port').count(',') >= 10:
                             loadBalancerErrorList.append("Only 10 ports allowed on single virtual server '{}'\n".format(virtualServer['name']))
@@ -3433,7 +3478,7 @@ class VCDMigrationValidation:
                     for profile in applicationProfiles:
                         if profile.get('persistence') and profile['persistence']['method'] not in supportedLoadBalancerPersistence:
                             loadBalancerErrorList.append("Unsupported persistence type '{}' provided in application profile '{}'\n".format(profile['persistence']['method'], profile['name']))
-
+                            loadBalancerConfigDict['Unsupported persistence in application profile'].append(profile['name'])
                     # fetching load balancer pools data
                     if responseDict['loadBalancer'].get('pool', []):
                         lbPoolsData = responseDict['loadBalancer'].get('pool', [])
@@ -3441,6 +3486,7 @@ class VCDMigrationValidation:
                         for pool in lbPoolsData:
                             if pool['algorithm'] not in supportedLoadBalancerAlgo:
                                 loadBalancerErrorList.append("Unsupported algorithm '{}' provided in load balancer pool '{}'\n".format(pool['algorithm'], pool['name']))
+                                loadBalancerConfigDict['Unsupported algorithm in LB pool'].append(pool['name'])
                             if pool['transparent'] != 'false':
                                 loadBalancerErrorList.append('{} pool has transparent mode enabled which is not supported\n'.format(pool['name']))
                     if not v2tAssessmentMode and not nsxvObj.ipAddress and not nsxvObj.username:
@@ -3463,9 +3509,9 @@ class VCDMigrationValidation:
                            loadBalancerErrorList.append("Service Engine Group {} doesn't exist in Avi.\n".format(serviceEngineGroupName))
             else:
                 loadBalancerErrorList.append('Unable to get load balancer service configuration with error code {} \n'.format(response.status_code))
-            errorList = self.validateLBVirtualServiceOnOrgvdcNetwork(edgeGatewayId)
+            errorList = self.validateLBVirtualServiceOnOrgvdcNetwork(edgeGatewayId, loadBalancerConfigDict)
             loadBalancerErrorList.extend(errorList)
-            return loadBalancerErrorList
+            return loadBalancerErrorList, loadBalancerConfigDict
         except Exception:
             raise
 
@@ -3636,7 +3682,7 @@ class VCDMigrationValidation:
         nsxvCertificateStore = None
         for site in listify(responseDict['sites']['sites']):
             if site['ipsecSessionType'] == "policybasedsession":
-                natErrorList, natRulesPresent = self.getEdgeGatewayNatConfig(edgeGatewayId)
+                natErrorList, natRulesPresent, _ = self.getEdgeGatewayNatConfig(edgeGatewayId)
                 localSubnets = site.get('localSubnets')
                 for natrule in natRulesPresent:
                     if natrule['action'] == 'dnat' and natrule['ruleType'] == 'user':

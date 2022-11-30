@@ -510,6 +510,9 @@ class VMwareCloudDirectorNSXMigratorV2T:
             # List to store Org VDC edge gateway result
             self.edgeGatewayData = list()
 
+            # List to store Org VDC Edge Gateway Load Balancer result
+            self.loadBalancerData  =list()
+
             # Iterating over the org in the relation map
             for org in relationMap:
                 # Iterating over the org vdc's in the relation map
@@ -618,7 +621,12 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                     edgeGatewayDict = copy.deepcopy(output)
                                     for edge, services in output.items():
                                         for service, result in services.items():
-                                            servicesResult[service] = servicesResult.get(service, []) + result
+                                            if isinstance(result, dict):
+                                                for serviceError in result:
+                                                    if result[serviceError]:
+                                                        servicesResult[service] = servicesResult.get(service, []) + [serviceError]
+                                            else:
+                                                servicesResult[service] = servicesResult.get(service, []) + result
 
                                     for serviceName, result in servicesResult.items():
                                         result = ''.join(result)
@@ -629,9 +637,9 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 orgVDCResult["LoadBalancer: Transparent Mode"] = True
                                             if "Application rules" in result:
                                                 orgVDCResult["LoadBalancer: Application Rules"] = True
-                                            if "unsupported values configured" in result:
+                                            if "Unsupported values in monitor" in result:
                                                 orgVDCResult["LoadBalancer: Custom monitor"] = True
-                                            if "Default pool is not configured" in result:
+                                            if "Virtual Server without default pool" in result:
                                                 orgVDCResult["LoadBalancer: Default pool not configured"] = True
                                             if "Unsupported persistence" in result:
                                                 orgVDCResult["LoadBalancer: Unsupported persistence"] = True
@@ -648,9 +656,9 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 orgVDCResult[
                                                     "DHCP Binding: Binding IP addresses overlaps with static IP Pool range"] = True
                                         if serviceName == "NAT":
-                                            if "Nat64 rule is configured" in result:
+                                            if "Nat64 rule" in result:
                                                 orgVDCResult["NAT: NAT64 rule"] = True
-                                            if "Range of IPs or network found in this DNAT rule" in result:
+                                            if "Range of IPs or network found in DNAT rule" in result:
                                                 orgVDCResult["NAT: Range of IPs or network in DNAT rule"] = True
                                         if serviceName == "IPsec":
                                             if "routebased session type" in result:
@@ -673,7 +681,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                         if serviceName == "Firewall":
                                             if "vNicGroupId" in result:
                                                 orgVDCResult["Gateway Firewall: Gateway Interfaces in rule"] = True
-                                            if "is connected to different edge gateway" in result:
+                                            if "connected to different edge gateway" in result:
                                                 orgVDCResult["Gateway Firewall: Networks connected to different edge gateway used"] = True
                                             if "grouping object type" in result:
                                                 orgVDCResult["Gateway Firewall: Unsupported grouping object"] = True
@@ -728,8 +736,17 @@ class VMwareCloudDirectorNSXMigratorV2T:
                     if edgeGatewayDict:
                         for gateway, services in edgeGatewayDict.items():
                             for service, errorList in services.items():
-                                for error in errorList:
-                                    self.edgeGatewayData.append([org, VDC, gateway, service, error.replace("\n", '')])
+                                if isinstance(errorList, list):
+                                    for error in errorList:
+                                        self.edgeGatewayData.append([org, VDC, gateway, service, error.replace("\n", '')])
+                                else:
+                                    for error in errorList:
+                                        if errorList[error]:
+                                            self.edgeGatewayData.append([org, VDC, gateway, service, error, ';'.join(errorList[error])])
+                                if service == 'LoadBalancer':
+                                    for error in errorList:
+                                        if errorList[error]:
+                                            self.loadBalancerData.append([org, VDC, gateway, error, ';'.join(errorList[error])])
 
                     # Restoring log level of console logger
                     self.changeLogLevelForConsoleLog(disable=False)
@@ -780,17 +797,40 @@ class VMwareCloudDirectorNSXMigratorV2T:
             # Writing edge gateway detailed report
             # Filename of edge gateway detailed report file
             edgeGatewaydetailedReportfilename = os.path.join(self.vcdBasePath,
-                                                             f'edgeGatewayDetailedReport-{self.currentDateTime}.csv')
+                                                             f'edgeGatewaysDetailedReport-{self.currentDateTime}.csv')
 
             if self.edgeGatewayData:
                 with open(edgeGatewaydetailedReportfilename, "w", newline='') as f:
                     writer = csv.writer(f)
-                    writer.writerow(["Org Name", "Org VDC Name", "Edge GW name", "Service Name", "Service Validation Error"])
+                    writer.writerow(["Org Name", "Org VDC Name", "Edge GW name", "Service Name", "Service Validation Error", "Additional details(Object Name/ID)"])
                     writer.writerows(self.edgeGatewayData)
 
                 return edgeGatewaydetailedReportfilename
             else:
                 self.consoleLogger.debug("Edge Gateway detailed report not created")
+                return None
+        except:
+            raise
+
+    def createLBReport(self):
+        """
+        Description: This method creates detailed gateway load balancer csv report for v2t-Assessment
+        """
+        try:
+            # Writing edge gateway detailed report
+            # Filename of edge gateway detailed report file
+            loadBalancerReportfilename = os.path.join(self.vcdBasePath,
+                                                      f'loadBalancerDetailedReport-{self.currentDateTime}.csv')
+
+            if self.loadBalancerData:
+                with open(loadBalancerReportfilename, "w", newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["Org Name", "Org VDC Name", "Edge GW name", "LB Service", "Object Name"])
+                    writer.writerows(self.loadBalancerData)
+
+                return loadBalancerReportfilename
+            else:
+                self.consoleLogger.debug("Edge Gateway LB detailed report not created")
                 return None
         except:
             raise
@@ -937,11 +977,15 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
             edgeGatewaydetailedReportfilename = self.createGatewayReport()
 
+            loadBalancerReportfilename = self.createLBReport()
+
             self.consoleLogger.warning(f"Detailed report path: {detailedReportfilename}")
             self.consoleLogger.warning(f"Summary report path: {summaryReportfilename}")
 
             if edgeGatewaydetailedReportfilename:
                 self.consoleLogger.warning(f"Edge Gateway Detailed report path: {edgeGatewaydetailedReportfilename}")
+            if loadBalancerReportfilename:
+                self.consoleLogger.warning(f"Load Balancer Detailed report path: {loadBalancerReportfilename}")
 
             # Logging the execution summary table
             self.consoleLogger.info('\n{}\n'.format(table.get_string()))
