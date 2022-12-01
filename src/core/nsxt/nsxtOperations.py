@@ -321,8 +321,8 @@ class NSXTOperations():
             if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
                 if not self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
                                              componentName=bridgeUplinkProfile, usePolicyApi=True):
-                    url = "{}{}/{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                                                                 nsxtConstants.HOST_SWITCH_PROFILE_API, bridgeUplinkProfile)
+                    intent_path = "{}/{}".format(nsxtConstants.HOST_SWITCH_PROFILE_API, bridgeUplinkProfile)
+                    url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
                     payloadDict = {'uplinkProfileName': bridgeUplinkProfile,
                                    'resource_type': "PolicyUplinkHostSwitchProfile"}
                     # create payload for host profile creation
@@ -337,6 +337,7 @@ class NSXTOperations():
                     response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payload,
                                                       auth=self.restClientObj.auth)
                     if response.status_code == requests.codes.ok:
+                        self.checkRealizedState(intent_path)
                         logger.debug("Successfully created uplink profile {}".format(bridgeUplinkProfile))
                         uplinkProfileId = json.loads(response.content)["unique_id"]
                         logger.info('Successfully created Bridge Uplink Host Profile {}'.format(bridgeUplinkProfile))
@@ -966,18 +967,26 @@ class NSXTOperations():
                     url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
                     response = self.restClientObj.delete(url, headers=nsxtConstants.NSXT_API_HEADER,
                                                          auth=self.restClientObj.auth)
+                    if response.status_code == requests.codes.ok:
+                        self.checkRealizedState(intent_path, markedForDelete=True)
+                        logger.debug('Host Switch Profile {} deleted successfully'.format(hostSwitchProfileId))
+                    else:
+                        responseData = json.loads(response.content)
+                        msg = 'Failed to delete Host Switch Profile {} - {}'.format(hostSwitchProfileId,
+                                                                                    responseData['error_message'])
+                        raise Exception(msg)
                 else:
                     hostSwitchProfileId = hostSwitchProfileData['id']
                     url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
                                                                  nsxtConstants.DELETE_HOST_SWITCH_PROFILE_API.format(hostSwitchProfileId))
                     response = self.restClientObj.delete(url, headers=nsxtConstants.NSXT_API_HEADER,
                                                          auth=self.restClientObj.auth)
-                if response.status_code == requests.codes.ok:
-                    logger.debug('Host Switch Profile {} deleted successfully'.format(hostSwitchProfileId))
-                else:
-                    responseData = json.loads(response.content)
-                    msg = 'Failed to delete Host Switch Profile {} - {}'.format(hostSwitchProfileId, responseData['error_message'])
-                    raise Exception(msg)
+                    if response.status_code == requests.codes.ok:
+                        logger.debug('Host Switch Profile {} deleted successfully'.format(hostSwitchProfileId))
+                    else:
+                        responseData = json.loads(response.content)
+                        msg = 'Failed to delete Host Switch Profile {} - {}'.format(hostSwitchProfileId, responseData['error_message'])
+                        raise Exception(msg)
         except Exception:
             raise
         else:
@@ -1494,8 +1503,8 @@ class NSXTOperations():
             return
         if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
             # Url to create transport zone
-            url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                                nsxtConstants.TRANSPORT_ZONE_PATH.format(TransportZone))
+            intent_path = nsxtConstants.TRANSPORT_ZONE_PATH.format(TransportZone)
+            url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
             payloadData = {
                 "display_name": TransportZone,
                 "tz_type": "VLAN_BACKED",
@@ -1637,9 +1646,8 @@ class NSXTOperations():
                 segmentName = f"{vdcNetworkName[:-(len(segmentName) - 80)]}-{vdcNetworkId}"
             segmentId = segmentName.replace(' ', '_')
 
-            url = "{}{}".format(
-                nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(segmentId))
+            intent_path = nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(segmentId)
+            url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
             if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
                 urlTZ = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), nsxtConstants.TRANSPORT_ZONE_API)
             else:
@@ -1663,6 +1671,7 @@ class NSXTOperations():
                                                           auth=self.restClientObj.auth)
 
                         if response.status_code == requests.codes.ok:
+                            self.checkRealizedState(intent_path)
                             responseDict = response.json()
                             backingUniqueId = responseDict['unique_id']
                             return backingUniqueId, segmentId
@@ -1686,11 +1695,12 @@ class NSXTOperations():
             if logicalsegments:
                 logger.info('Rollback: Deleting logical segments')
                 for segments in logicalsegments:
+                    intent_path = nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(segments)
                     url = "{}{}".format(
-                        nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                        nsxtConstants.LOGICAL_SEGMENTS_ENDPOINT.format(segments))
+                        nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), intent_path)
                     response = self.restClientObj.delete(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
                     if response.status_code == requests.codes.ok:
+                        self.checkRealizedState(intent_path, markedForDelete=True)
                         logger.debug('Logical segment - {} deleted successfully'.format(segments))
                     else:
                         responseData = json.loads(response.content)
