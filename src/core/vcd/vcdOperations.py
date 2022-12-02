@@ -1198,7 +1198,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description("Reconnection of target Edge gateway to T0 router")
     @remediate
-    def reconnectTargetEdgeGateway(self):
+    def reconnectTargetEdgeGateway(self, reconnect=True):
         """
         Description : Reconnect Target Edge Gateway to T0 router
         """
@@ -1208,15 +1208,19 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                              ' as it does not exists')
                 return
 
-            logger.info('Reconnecting target Edge gateway to T0 router.')
+            if reconnect:
+                logger.info('Reconnecting target Edge gateway to T0 router.')
+            else:
+                logger.info('Disconnecting target Edge gateway from T0 router.')
             data = self.rollback.apiData
             for targetEdgeGateway in data['targetEdgeGateway']:
                 payloadDict = targetEdgeGateway
-                del payloadDict['status']
-                if self.rollback.apiData.get('OrgVDCGroupID', {}).get(targetEdgeGateway['id']):
-                    ownerRef = self.rollback.apiData['OrgVDCGroupID'].get(targetEdgeGateway['id'])
-                    payloadDict['ownerRef'] = {'id': ownerRef}
-                payloadDict['edgeGatewayUplinks'][0]['connected'] = True
+                if reconnect:
+                    del payloadDict['status']
+                    if self.rollback.apiData.get('OrgVDCGroupID', {}).get(targetEdgeGateway['id']):
+                        ownerRef = self.rollback.apiData['OrgVDCGroupID'].get(targetEdgeGateway['id'])
+                        payloadDict['ownerRef'] = {'id': ownerRef}
+                payloadDict['edgeGatewayUplinks'][0]['connected'] = reconnect
                 # edge gateway update URL
                 url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
                                        targetEdgeGateway['id'])
@@ -1230,13 +1234,16 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     # checking the status of the reconnecting target edge gateway task
                     self._checkTaskStatus(taskUrl=taskUrl)
                     logger.debug(
-                        'Target Org VDC Edge Gateway {} reconnected successfully.'.format(targetEdgeGateway['name']))
+                        'Target Org VDC Edge Gateway {} reconnected/disconnected successfully.'.format(targetEdgeGateway['name']))
                     continue
                 else:
                     raise Exception(
                         'Failed to reconnect target Org VDC Edge Gateway {} {}'.format(targetEdgeGateway['name'],
                                                                                        response.json()['message']))
-            logger.info('Successfully reconnected target Edge gateway to T0 router.')
+            if reconnect:
+                logger.info('Successfully reconnected target Edge gateway to T0 router.')
+            else:
+                logger.info('Successfully disconnected target Edge gateway to T0 router.')
         except:
             raise
 
@@ -1951,7 +1958,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description("disconnection of target Org VDC Networks")
     @remediate
-    def disconnectTargetOrgVDCNetwork(self):
+    def disconnectTargetOrgVDCNetwork(self, rollback=False):
         """
         Description : Disconnect target Org VDC networks
         """
@@ -1969,10 +1976,51 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # handling only the routed networks
                 if vdcNetwork['networkType'] == "NAT_ROUTED":
                     vdcNetworkID = vdcNetwork['id']
+                    # removing security groups first if present
+                    if vdcNetwork.get('securityGroups'):
+                        vdcNetwork['securityGroups'] = None
+                        url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                               vcdConstants.ALL_ORG_VDC_NETWORKS,
+                                               vdcNetworkID)
+                        payload = json.dumps(vdcNetwork)
+                        self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+                        # put api call to remove the security group from target org vdc network
+                        response = self.restClientObj.put(url, self.headers, data=payload)
+                        if response.status_code == requests.codes.accepted:
+                            taskUrl = response.headers['Location']
+                            # checking the status of removing the security group from target org vdc network
+                            self._checkTaskStatus(taskUrl=taskUrl)
+                            logger.debug('Removed security groups from target Org VDC network - {} successfully.'.format(vdcNetwork['name']))
+                    if rollback:
+                        # removing dhcp if present
+                        urlDHCP = "{}{}/{}/dhcp".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                        vcdConstants.ALL_ORG_VDC_NETWORKS,
+                                                        vdcNetworkID)
+                        responseDHCP = self.restClientObj.get(urlDHCP, self.headers)
+                        if responseDHCP.status_code == requests.codes.ok:
+                            responseDict = responseDHCP.json()
+                            if responseDict["enabled"]:
+                                responseDel = self.restClientObj.delete(urlDHCP, self.headers)
+                                if responseDel.status_code == requests.codes.accepted:
+                                    if responseDel.headers.get("Location"):
+                                        # checking the status of deleting dhcp task
+                                        self._checkTaskStatus(taskUrl=responseDel.headers.get("Location"))
+                                        logger.debug(
+                                            "DHCP Deleted for network id {} before disconnecting network".format(
+                                                vdcNetworkID))
+                                else:
+                                    logger.debug(
+                                        "Failed to delete DHCP from target org vdc network {} - {}".format(vdcNetworkID,
+                                                                                                           responseDel.message))
+                        else:
+                            logger.debug(
+                                "Failed to retrieve DHCP state from Target org vdc network {}".format(vdcNetworkID))
+
                     # url to disconnect the target org vdc network
                     url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                            vcdConstants.ALL_ORG_VDC_NETWORKS,
                                            vdcNetworkID)
+
                     # creating the payload data
                     vdcNetwork['connection'] = None
                     vdcNetwork['networkType'] = 'ISOLATED'

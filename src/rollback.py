@@ -43,6 +43,18 @@ class Rollback:
         """
         # All these tasks should be completed for all Org VDCs before deleting DC groups.
         # Hence task to delete DC groups is not included here.
+        self.preRollbackTasks = [
+            'vcdObj.setStaticRoutesScope(rollback=True)',
+            'vcdObj.disconnectTargetOrgVDCNetwork(rollback=True)',
+            'vcdObj.reconnectTargetEdgeGateway(reconnect=False)',
+            'vcdObj.disconnectSourceOrgVDCNetwork(orgVDCNetworkList, sourceEdgeGatewayId, rollback=True)',
+            'vcdObj.setStaticRoutesInterfaces(rollback=True)',
+            'vcdObj.dhcpRollBack()',
+            'vcdObj.ipsecRollBack()',
+            'vcdObj.reconnectOrDisconnectSourceEdgeGateway(sourceEdgeGatewayId, connect=True)',
+            'vcdObj.connectUplinkSourceEdgeGateway(sourceEdgeGatewayId, rollback=True)',
+        ]
+
         self.rollbackTaskDfw = [
             'vcdObj.disableTargetOrgVDC(rollback=True)',
             'vcdObj.enableDFWinOrgvdcGroup(rollback=True)',
@@ -59,20 +71,14 @@ class Rollback:
             'vcdObj.disablePromiscModeForgedTransmit()',
             'nsxtObj.deleteLogicalSegments()',
             'vcdObj.deleteOrgVDCGroup()',
-            'vcdObj.setStaticRoutesScope(rollback=True)',
             'vcdObj.deleteOrgVDCNetworks(targetOrgVDCId, rollback=True)',
             'vcdObj.deleteNsxTBackedOrgVDCEdgeGateways(targetOrgVDCId)',
             'vcdObj.enableSourceAffinityRules()',
             'vcdObj.deleteOrgVDC(targetOrgVDCId, rollback=True)',
             'vcdObj.resetTargetExternalNetwork()',
-            'vcdObj.disconnectSourceOrgVDCNetwork(orgVDCNetworkList, sourceEdgeGatewayId, rollback=True)',
-            'vcdObj.setStaticRoutesInterfaces(rollback=True)',
-            'vcdObj.dhcpRollBack()',
-            'vcdObj.ipsecRollBack()',
-            'vcdObj.reconnectOrDisconnectSourceEdgeGateway(sourceEdgeGatewayId, connect=True)',
-            'vcdObj.connectUplinkSourceEdgeGateway(sourceEdgeGatewayId, rollback=True)']
+        ]
 
-    def perform(self, vcdObj, nsxtObj, vcdObjList, rollbackTasks=None):
+    def perform(self, vcdObj, nsxtObj, vcdObjList, rollbackTasks=None, preRollback=False):
         """
             Description : Method that performs the rollback of setup during a failure
             Parameters  : vcdObj - object of vcdOperations (object)
@@ -80,6 +86,9 @@ class Rollback:
                           rollbackTasks - List to tasks to be performed for rollback (LIST)
         """
         sourceOrgVDCId, orgVDCNetworkList, targetOrgVDCId, sourceEdgeGatewayId, targetNetworkList = str(), list(), str(), str(), list()
+        if preRollback and vcdObj.rollback.metadata.get("preRollback"):
+            return
+
         try:
             timeout = self.timeoutForVappMigration
 
@@ -112,7 +121,7 @@ class Rollback:
                 listOfRollbackTasks = rollbackTasks
             # Checking if rollback key exists
             else:
-                listOfRollbackTasks = self.rollbackTask
+                listOfRollbackTasks = self.preRollbackTasks if preRollback else self.rollbackTask
             if listOfRollbackTasks:
                 # List of task left to pe performed as part of rollback
                 rollbackTasksLeft = copy.deepcopy(listOfRollbackTasks)
@@ -125,25 +134,43 @@ class Rollback:
                     # Removing task from rollback tasks left list after the task has been performed successfully
                     rollbackTasksLeft.pop(0)
                     # Saving the remaining rollback tasks in metadata
-                    vcdObj.createMetaDataInOrgVDC(sourceOrgVDCId, metadataDict={'rollbackTasks': rollbackTasksLeft},
-                                                  domain='system')
+                    if preRollback:
+                        vcdObj.createMetaDataInOrgVDC(sourceOrgVDCId, metadataDict={'preRollbackTasks': rollbackTasksLeft},
+                                                      domain='system')
+                    else:
+                        vcdObj.createMetaDataInOrgVDC(sourceOrgVDCId, metadataDict={'rollbackTasks': rollbackTasksLeft},
+                                                      domain='system')
+
         except AttributeError as err:
             self.logger.error('Rollback is not supported in current state. Please perform manual rollback.')
             # Saving the list of tasks left as part of rollback in metadata to continue rollback from the same step
-            vcdObj.createMetaDataInOrgVDC(sourceOrgVDCId, metadataDict={'rollbackTasks': rollbackTasksLeft}, domain='system')
-            raise
+            if preRollback:
+                vcdObj.createMetaDataInOrgVDC(sourceOrgVDCId, metadataDict={'preRollbackTasks': rollbackTasksLeft},
+                                              domain='system')
+            else:
+                vcdObj.createMetaDataInOrgVDC(sourceOrgVDCId, metadataDict={'rollbackTasks': rollbackTasksLeft},
+                                              domain='system')
         except Exception as error:
             self.logger.exception(error)
             self.logger.debug(traceback.format_exc())
             # Saving the list of tasks left as part of rollback in metadata to continue rollback from the same step
-            vcdObj.createMetaDataInOrgVDC(sourceOrgVDCId,
-                                          metadataDict={'rollbackTasks': rollbackTasksLeft}, domain='system')
+            if preRollback:
+                vcdObj.createMetaDataInOrgVDC(sourceOrgVDCId, metadataDict={'preRollbackTasks': rollbackTasksLeft},
+                                              domain='system')
+            else:
+                vcdObj.createMetaDataInOrgVDC(sourceOrgVDCId, metadataDict={'rollbackTasks': rollbackTasksLeft},
+                                              domain='system')
             self.logger.error("Rollback failed, manual rollback required or use --rollback parameter to retry rollback again.")
             raise
         else:
-            # Deleting metadata created in the source org vdc after rollback
-            vcdObj.deleteMetadata(sourceOrgVDCId)
-            self.logger.info("Rollback completed successfully.")
+            if not preRollback:
+                # Deleting metadata created in the source org vdc after rollback
+                vcdObj.deleteMetadata(sourceOrgVDCId)
+                self.logger.info("Rollback completed successfully.")
+            else:
+                vcdObj.deleteMetadataApiCall(key='preRollbackTasks-system-v2t',
+                                             orgVDCId=vcdObj.rollback.apiData.get('sourceOrgVDC', {}).get('@id'))
+                vcdObj.createMetaDataInOrgVDC(sourceOrgVDCId, metadataDict={'preRollback': True}, domain='system')
 
     def performDfwRollback(self, vcdObj):
         """

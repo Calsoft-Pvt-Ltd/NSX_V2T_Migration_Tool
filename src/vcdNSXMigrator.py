@@ -507,6 +507,16 @@ class VMwareCloudDirectorNSXMigrator():
                 self.vcdObjList[0].moveNamedDisksRollback(
                     self.vcdObjList, self.timeoutForVappMigration, threadCount=self.threadCount)
 
+                # Perform prerollback tasks
+                futures = list()
+                with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+                    for vcdObj, nsxtObj in zip(self.vcdObjList, self.nsxtObjList):
+                        if vcdObj.rollback.metadata:
+                            futures.append(executor.submit(vcdObj.rollback.perform, vcdObj, nsxtObj, self.vcdObjList,
+                                                           rollbackTasks=vcdObj.rollback.metadata.get(
+                                                               'preRollbackTasks'), preRollback=True))
+                    waitForThreadToComplete(futures)
+
                 # If bridging is configured do rollback
                 self.nsxtObjList[0].rollbackBridging(self.vcdObjList)
                 self.nsxtObjList[0].deleteTransportZone(self.vcdObjList[0], rollback=True)
