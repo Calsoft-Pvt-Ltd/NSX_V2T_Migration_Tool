@@ -2891,6 +2891,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 self.configureDHCPRelayService()
                 self.configureDHCPBindingService()
 
+            # reconnecting target org vdc edge gateway from T0
+            self.reconnectTargetEdgeGateway()
+
+            # updating route redistribution rules on tier-0 routers for rules
+            if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+                self.updateRouteRedistributionRules(nsxtObj)
+
             if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
                 # increase in scope of Target edgegateways
                 self.increaseScopeOfEdgegateways()
@@ -2920,13 +2927,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     if [obj for obj in vcdObjList if hasattr(obj, '__exception__')]:
                         return
                     continue
-
-            # reconnecting target org vdc edge gateway from T0
-            self.reconnectTargetEdgeGateway()
-
-            # updating route redistribution rules on tier-0 routers for rules
-            if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
-                self.updateRouteRedistributionRules(nsxtObj)
 
             # Configure DNAT rules for non-distributed network if implicit condition is met
             if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
