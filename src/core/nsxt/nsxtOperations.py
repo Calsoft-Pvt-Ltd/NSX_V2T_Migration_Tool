@@ -1789,8 +1789,10 @@ class NSXTOperations():
         Description :   Gets VRF details
         Parameters  :   VRFbackingId   -   Id of the VRF  (STRING)
         """
+        vrfId = copy.deepcopy(vrfBackingId)
+        vrfId = vrfId.replace(" ", "_")
         url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                            nsxtConstants.GET_LOCALE_SERVICES_API.format(vrfBackingId))
+                            nsxtConstants.GET_LOCALE_SERVICES_API.format(vrfId))
         response = self.restClientObj.get(url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
         responseDict = response.json()
         if response.status_code == requests.codes.ok:
