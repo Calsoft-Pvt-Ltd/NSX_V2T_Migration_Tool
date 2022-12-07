@@ -3342,8 +3342,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except:
             raise
 
-    @description("Copying source org vdc metadata to target org vdc")
-    @remediate
     def copyMetadatatToTargetVDC(self):
         """
         It copies source org vdc metadata to target org vdc metadata
