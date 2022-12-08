@@ -1192,6 +1192,8 @@ class NSXTOperations():
 
                     for entity in agencyClusterMapping:
                         clusterMappedToAgent, agentName = entity
+                        if not isinstance(agentName, str):
+                            continue
                         if clusterName.strip() == clusterMappedToAgent.strip() and agentName.strip() == "VMware Network Fabric":
                             break
                     else:
