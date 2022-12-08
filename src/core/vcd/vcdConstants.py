@@ -16,22 +16,17 @@ VCD_API_HEADER = 'application/*;version={}'
 # vcd admin operations legacy api url
 XML_ADMIN_API_URL = "https://{}/api/admin/"
 
-# API version for Betelgeuse builds
-API_VERSION_BETELGEUSE_10_4 = "37.0"
-
-# API version for Andromeda builds
+# API version for VCD builds
+API_VERSION_PRE_ZEUS = "34.0"
+API_VERSION_ZEUS = "35.0"
+API_VERSION_ZEUS_10_2_2 = "35.2"
 API_VERSION_ANDROMEDA = "36.0"
 API_VERSION_ANDROMEDA_10_3_1 = "36.1"
 API_VERSION_ANDROMEDA_10_3_2 = "36.2"
 VCD_10_3_2_1_BUILD = '10.3.2.19442122'
 API_VERSION_ANDROMEDA_10_3_3 = "36.3"
-
-# API version for Zeus builds
-API_VERSION_ZEUS = "35.0"
-API_VERSION_ZEUS_10_2_2 = "35.2"
-
-# API version before Zeus
-API_VERSION_PRE_ZEUS = "34.0"
+API_VERSION_BETELGEUSE_10_4 = "37.0"
+API_VERSION_CASTOR_10_4_1 = "37.1"
 
 # vm Affinity rule url
 AFFINITY_URL = "https://{}/api/vdc/{}/vmAffinityRules/"
@@ -156,12 +151,6 @@ EDGE_GATEWAY_VIRTUAL_SERVER_CONFIG = "edges/{}/loadbalancer/config/virtualserver
 
 # load balancer pool uri for edge gateway
 EDGE_GATEWAY_LOADBALANCER_POOLS = "loadBalancer/pools"
-
-# create load balancer pool component name
-CREATE_LOADBALANCER_POOL = "createLoadBalancerPool"
-
-# create load balancer virtual service component name
-CREATE_LOADBALANCER_VIRTUAL_SERVICE = "createLoadBalancerVirtualService"
 
 # load balancer virtual server uri for edge gateway
 EDGE_GATEWAY_LOADBALANCER_VIRTUAL_SERVER = 'loadBalancer/virtualServices'

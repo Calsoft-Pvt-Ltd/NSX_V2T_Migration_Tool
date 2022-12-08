@@ -171,21 +171,6 @@
       "dnsServer2": "",
       "enabled": true,
       "autoAllocateIpRanges": false
-    },
-    "createLoadBalancerPool": {
-      "enabled": true,
-      "passiveMonitoringEnabled": true,
-      "name": "{{poolName}}",
-      "description": "{{description}}",
-      "defaultPort": 80,
-      "gracefulTimeoutPeriod": 1,
-      "algorithm": "{{algorithm}}",
-      "persistenceProfile": null,
-      "virtualServiceRefs": null,
-      "gatewayRef": {
-        "name": "{{gatewayName}}",
-        "id": "{{gatewayId}}"
-      }
     }
   }
 }

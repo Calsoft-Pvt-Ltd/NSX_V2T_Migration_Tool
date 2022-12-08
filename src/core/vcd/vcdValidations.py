@@ -3450,11 +3450,10 @@ class VCDMigrationValidation:
                             loadBalancerErrorList.append("Application profile is not added in virtual Server '{}'\n".format(virtualServer['name']))
                             loadBalancerConfigDict['Application profile is not added in virtual Server'].append(virtualServer['name'])
 
-                        if virtualServer.get('port').count(',') >= 10:
-                            loadBalancerErrorList.append("Only 10 ports allowed on single virtual server '{}'\n".format(virtualServer['name']))
-
-                        if virtualServer.get('protocol') in ['tcp', 'udp'] and ',' in virtualServer.get('port'):
-                            loadBalancerErrorList.append("Multiple service ports are not supported with TCP/UDP on virtual service '{}' on edge gateway '{}'.\n".format(virtualServer['name'], gatewayName))
+                        if ',' in virtualServer.get('port') or '-' in virtualServer.get('port'):
+                            loadBalancerErrorList.append(
+                                "Multiple service ports are not supported on virtual service '{}' on edge gateway '{}'."
+                                "\n".format(virtualServer['name'], gatewayName))
 
                     if virtualServersWithIpv6Configured:
                         loadBalancerErrorList.append(
