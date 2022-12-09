@@ -2659,9 +2659,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 extNetData['name']))
                     else:
                         errorResponse = response.json()
-                        raise Exception(
-                            'Failed to update External network {} with sub allocated ip pools - {}'.format(
-                                extNetData['name'], errorResponse['message']))
+                        msg = "Failed to update External network {} with sub allocated ip pools - {}".format(
+                                extNetData['name'], errorResponse['message'])
+                        if "provided list 'ipRanges.values' should have at least one" in errorResponse.get("message", ""):
+                            msg += " Add one extra IP address to static pool of external network - {}".format(extNetData['name'])
+                        raise Exception(msg)
         except:
             logger.error(traceback.format_exc())
             raise
@@ -2702,10 +2704,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         responseDict = response.json()
                         if response.status_code == requests.codes.ok:
                             if int(responseDict['resultTotal']) > 1:
+                                sourceOrgVDCNetworkSubnetList = [ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
+                                                                        for subnet in sourceOrgVDCNetwork['subnets']['values']]
+                                directNetworkId = sourceOrgVDCNetwork['id'].split(':')[-1]
                                 # Fetch the ips used by the VM's linked to this external network for IP migration
-                                self.getIPAssociatedUsedByVM(sourceOrgVDCNetwork['name'],
+                                self.getIPAssociatedUsedByVM(sourceOrgVDCNetwork['name'], directNetworkId,
                                                              sourceOrgVDCNetwork['parentNetworkId']['name'],
-                                                             orgVDCIDList)
+                                                             sourceOrgVDCNetworkSubnetList, orgVDCIDList)
                         else:
                             raise Exception('Failed to get direct networks connected to external network {}, '
                                             'due to error -{}'.format(sourceOrgVDCNetwork['parentNetworkId']['name'],
@@ -4565,8 +4570,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         targetExtNetData['name']))
                 else:
                     errorDict = apiResponse.json()
-                    raise Exception("Failed to reset the target external network '{}' to its initial state: {}".format(
-                        targetExtNetData['name'], errorDict['message']))
+                    msg = "Failed to update External network {} with sub allocated ip pools - {}".format(
+                        targetExtNetData['name'], errorDict['message'])
+                    if "provided list 'ipRanges.values' should have at least one" in errorDict.get("message", ""):
+                        msg += " Add one extra IP address to static pool of external network - {}".format(
+                            targetExtNetData['name'])
+                    raise Exception(msg)
 
         except Exception:
             raise
@@ -5687,7 +5696,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 pass
 
     @isSessionExpired
-    def getIPAssociatedUsedByVM(self, networkName, externalNetworkName, vdcIDList):
+    def getIPAssociatedUsedByVM(self, networkName, directNetworkId, externalNetworkName, externalNetworkSubnets, vdcIDList):
         """
         Description: Method to find all the IPS to be migrated used by vm connected to shared direct networks and save that to metadata
         Parameters:  networkName - Name of shared service direct network
@@ -5709,7 +5718,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     responseDict = self.vcdUtils.parseXml(response.content, process_namespaces=False, attr_prefix='')
                     vAppData = responseDict.get('VApp', {})
                     # checking if the vapp has vms
+                    vappRoutedListConnectedToDirectNet = list()
                     if vAppData and vAppData.get('Children'):
+                        networkConfig = listify(vAppData.get('NetworkConfigSection', {}).get('NetworkConfig', []))
+                        for network in networkConfig:
+                            if network.get('Configuration', {}).get('ParentNetwork', {}).get('id') == directNetworkId:
+                                if network['Configuration'].get('RouterInfo', {}).get('ExternalIp'):
+                                    ipList.append(network['Configuration']['RouterInfo']['ExternalIp'])
+                                    vappRoutedListConnectedToDirectNet.append(network['networkName'])
                         vmList = vAppData['Children']['Vm'] if isinstance(
                             vAppData['Children']['Vm'],
                             list) else [
@@ -5724,6 +5740,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 for network in vmNetworkSpec:
                                     if network['network'] == networkName and network['IpAddressAllocationMode'] == 'POOL':
                                         ipList.append(network['IpAddress'])
+                                    elif network['network'] in vappRoutedListConnectedToDirectNet:
+                                        if network.get('ExternalIpAddress') and any([ipaddress.ip_address(network['ExternalIpAddress']) in subnet for subnet in externalNetworkSubnets]):
+                                            ipList.append(network['ExternalIpAddress'])
                 else:
                     raise Exception("Failed to fetch vApp details")
                 # Saving these IP's in metadata
