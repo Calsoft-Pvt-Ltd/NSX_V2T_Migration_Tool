@@ -3273,6 +3273,145 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
+    def validateLBTransparent(self, edgeGatewayId, gatewayName, vsData, lbServiceNetwork, lbData, v2tAssessmentMode, loadBalancerConfigDict):
+        """
+        Description :   Validates the transparent load balancer
+        Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
+                        gatewayName -  Name of the Edge Gateway  (STRING)
+                        vsData - virtual server present on LB (LIST)
+                        lbServiceNetwork - User defined service network for LB (STRING)
+                        lbData - Load balancer api call data
+                        v2tAssessmentMode - bool the sets whether v2tAssessmentMode is executing this method or not (BOOLEAN)
+        """
+        if float(self.version) < float(vcdConstants.API_VERSION_CASTOR_10_4_1):
+            return ['Transparent Load balancer mode is configured in the Source edge gateway {} but not supported '
+                    'in the Target\n'.format(gatewayName)]
+
+        transparentErrors = []
+
+        # Storing ipsec site ips and name for relevant checks against virtual server ip
+        ipsecConfig = self.rollback.apiData['ipsecConfigDict'][gatewayName]
+        ipsecIPs = {
+            site['localIp']: site['name']
+            for site in listify(ipsecConfig['sites']['sites'])
+        } if ipsecConfig['enabled'] and ipsecConfig['sites'] else {}
+
+        # Storing relevant natrule ips and rule id for checking against pool members and virtual server
+        natRuleConfig = self.getEdgeGatewayNatConfig(edgeGatewayId, validation=False)
+        natrules = listify(natRuleConfig.get('natRules', {}).get('natRule', []))
+        dnatOriginalIPs = {
+            natrule['originalAddress']: natrule['ruleId']
+            for natrule in natrules
+            if natrule['ruleType'] == 'user' and natrule['action'] == 'dnat'
+        }
+        dnatTranslatedIPs = {
+            natrule['translatedAddress']: natrule['ruleId']
+            for natrule in natrules
+            if natrule['ruleType'] == 'user' and natrule['action'] == 'dnat'
+        }
+        snatTranslatedIPs = {
+            natrule['translatedAddress']: natrule['ruleId']
+            for natrule in natrules
+            if natrule['ruleType'] == 'user' and natrule['action'] == 'snat'
+        }
+
+        # fetching load balancer pools data and validating
+        poolData = listify(lbData['loadBalancer'].get('pool'))
+        for pool in poolData:
+            if pool['transparent'] == 'true' and pool.get('member'):
+                poolMembers = listify(pool.get('member'))
+
+                # Check if IPv6 used in pool members ip
+                for member in poolMembers:
+                    if isinstance(ipaddress.ip_address(member['ipAddress']), ipaddress.IPv6Address):
+                        transparentErrors.append(
+                            "IPv6 pool '{}' is not supported in transparent mode\n".format(pool['name']))
+                        loadBalancerConfigDict['Pool member IP address IPV6'].append(pool['name'])
+                        break
+
+                poolport = set()
+                # Check if members ip is used in any dnat rule translated addr
+                for member in poolMembers:
+                    if member['ipAddress'] in dnatTranslatedIPs.keys():
+                        transparentErrors.append(
+                            "Translated IP '{}' of DNAT rule '{}' is used in pool {}\n"
+                            .format(member['ipAddress'], dnatTranslatedIPs.get(member['ipAddress']), pool['name']))
+                        loadBalancerConfigDict['Pool member IP overlapping DNAT'].append(pool['name'])
+
+                    poolport.add(member['port'])
+
+                # Check if poolports are equal in this pool
+                if len(poolport) != 1:
+                    transparentErrors.append(
+                        "Pool '{}' should have uniform port across all members when transparent mode is enabled\n".format(pool['name']))
+                    loadBalancerConfigDict['Pool members using different ports'].append(pool['name'])
+
+                # For a transparent pool's virtual server check
+                for virtualServer in vsData:
+                    if virtualServer.get('defaultPoolId') and pool['poolId'] == virtualServer.get('defaultPoolId'):
+                        # Check if transparent VS has IPV6
+                        if isinstance(ipaddress.ip_address(virtualServer['ipAddress']),
+                                      ipaddress.IPv6Address):
+                            transparentErrors.append(
+                                "IPv6 virtual server '{}' is not supported in transparent mode\n".format(virtualServer['name']))
+                            loadBalancerConfigDict['Virtual server IP address IPV6'].append(virtualServer['name'])
+
+                        # Check if VS ip is being used in user-defined dnat or snat or ipsec sites
+                        if virtualServer['ipAddress'] in dnatOriginalIPs.keys():
+                            transparentErrors.append(
+                                "The VIP '{}' of virtual server '{}' should not be used in DNAT rule '{}' when "
+                                "transparent mode is enabled\n".format(virtualServer['ipAddress'], virtualServer['name']
+                                                                       , dnatOriginalIPs.get(virtualServer['ipAddress'])))
+                            loadBalancerConfigDict[
+                                'Virtual server IP address used in DNAT'
+                            ].append(dnatOriginalIPs.get(virtualServer['ipAddress']))
+
+                        if virtualServer['ipAddress'] in snatTranslatedIPs.keys():
+                            transparentErrors.append(
+                                "The VIP '{}' of virtual server '{}' should not be used in SNAT rule '{}' when "
+                                "transparent mode is enabled\n".format(virtualServer['ipAddress'], virtualServer['name']
+                                                                       , snatTranslatedIPs.get(virtualServer['ipAddress'])))
+                            loadBalancerConfigDict[
+                                'Virtual server IP address used in SNAT'
+                            ].append(snatTranslatedIPs.get(virtualServer['ipAddress']))
+
+                        if virtualServer['ipAddress'] in ipsecIPs.keys():
+                            transparentErrors.append(
+                                "The VIP '{}' of virtual server '{}' should not be used in IPsec '{}' when transparent "
+                                "mode is enabled\n".format(virtualServer['ipAddress'], virtualServer['name'],
+                                                           ipsecIPs.get(virtualServer['ipAddress'])))
+                            loadBalancerConfigDict[
+                                'Virtual server IP address used in IPSEC sites'
+                            ].append(ipsecIPs.get(virtualServer['ipAddress']))
+
+        # Check if all pools are transparent
+        for pool in poolData:
+            if not pool['transparent'] == 'true':
+                transparentErrors.append("All pools should be configured in transparent mode in Edge Gateway '{}'\n"
+                                         .format(edgeGatewayId))
+                loadBalancerConfigDict['Pools are mixed transparent and non transparent'].append(gatewayName)
+                break
+
+        # Validating load balancer service subnet
+        if lbServiceNetwork and int(lbServiceNetwork.split('/')[-1]) > 28:
+            transparentErrors.append("LoadBalancerServiceNetwork should be /28 or less when transparent mode is enabled"
+                                     " on Edge Gateway '{}'\n".format(edgeGatewayId))
+
+        # Validating service engine group haMode
+        if not v2tAssessmentMode:
+            serviceEngineGroupResultList = self.getServiceEngineGroupDetails()
+            serviceEngineGroupName = self.orgVdcInput['EdgeGateways'][gatewayName]['ServiceEngineGroupName']
+            if serviceEngineGroupResultList:
+                serviceEngineGroupDetails = [serviceEngineGroup for serviceEngineGroup in
+                                             serviceEngineGroupResultList if
+                                             serviceEngineGroup['name'] == serviceEngineGroupName]
+                if serviceEngineGroupDetails[0].get('haMode') != 'LEGACY_ACTIVE_STANDBY':
+                    transparentErrors.append("Service engine group {} should be in Active-Standby mode when transparent"
+                                             " mode is enabled on Edge Gateway {}\n".format(serviceEngineGroupName, edgeGatewayId))
+
+        return transparentErrors
+
+    @isSessionExpired
     def validateLBVirtualServiceOnOrgvdcNetwork(self, edgeGatewayId, loadBalancerConfigDict):
         """
         Description :   validation for ipv4 virtual server
@@ -3361,14 +3500,25 @@ class VCDMigrationValidation:
                 'Virtual Server without default pool': [],
                 'Unsupported persistence in application profile': [],
                 'Unsupported algorithm in LB pool': [],
-                'Application profile is not added in virtual Server':[]
+                'Application profile is not added in virtual Server':[],
+                'Pool member IP overlapping DNAT': [],
+                'Pool member IP address IPV6': [],
+                'Pool members using different ports': [],
+                'Virtual server IP address IPV6': [],
+                'Virtual server IP address used in DNAT': [],
+                'Virtual server IP address used in SNAT': [],
+                'Virtual server IP address used in IPSEC sites': [],
+                'Pools are mixed transparent and non transparent': [],
             }
             supportedLoadBalancerAlgo = ['round-robin', 'leastconn']
             supportedLoadBalancerPersistence = ['cookie', 'sourceip']
+            loadBalancerServiceNetwork = self.orgVdcInput['EdgeGateways'][gatewayName].get(
+                'LoadBalancerServiceNetwork') if not v2tAssessmentMode else None
             loadBalancerServiceNetworkIPv6 = self.orgVdcInput['EdgeGateways'][gatewayName].get(
                 'LoadBalancerServiceNetworkIPv6', None) if not v2tAssessmentMode else None
             poolsWithIpv6Configured = list()
             virtualServersWithIpv6Configured = list()
+            isTransparentPoolPresent = False
             logger.debug("Getting Load Balancer Services Configuration Details of Source Edge Gateway {}".format(edgeGatewayId))
             # url to retrieve the load balancer config info
             url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
@@ -3391,12 +3541,16 @@ class VCDMigrationValidation:
                             for applicationRule in listify(applicationRules):
                                 loadBalancerConfigDict['Application rules'].append(applicationRule['name'])
 
-                    for pool in listify(responseDict['loadBalancer'].get('pool')):
+                    for pool in listify(responseDict['loadBalancer'].get('pool', [])):
+                        # setting a flag for transparent
+                        if pool.get('transparent') == 'true':
+                            isTransparentPoolPresent = True
                         # Check if the pool member has IPV6 configured and LoadBalancerServiceNetworkIPv6 configured
-                        for member in listify(pool.get('member')):
+                        for member in listify(pool.get('member', [])):
                             if not v2tAssessmentMode and \
                                     not loadBalancerServiceNetworkIPv6 and \
-                                    isinstance(ipaddress.ip_address(member['ipAddress']), ipaddress.IPv6Address):
+                                    isinstance(ipaddress.ip_address(member['ipAddress']), ipaddress.IPv6Address) \
+                                    and not pool.get('transparent') == 'true':
                                 poolsWithIpv6Configured.append(pool['name'])
                                 break
 
@@ -3442,7 +3596,8 @@ class VCDMigrationValidation:
                         # check for IPV6 Addr for virtual server and LoadBalancerServiceNetworkIPv6 configured or not.
                         if not v2tAssessmentMode and \
                                 not loadBalancerServiceNetworkIPv6 and \
-                                isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv6Address):
+                                isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv6Address)\
+                                and not isTransparentPoolPresent:
                             virtualServersWithIpv6Configured.append(virtualServer['name'])
 
                         # Check for application profile configured or not.
@@ -3486,8 +3641,6 @@ class VCDMigrationValidation:
                             if pool['algorithm'] not in supportedLoadBalancerAlgo:
                                 loadBalancerErrorList.append("Unsupported algorithm '{}' provided in load balancer pool '{}'\n".format(pool['algorithm'], pool['name']))
                                 loadBalancerConfigDict['Unsupported algorithm in LB pool'].append(pool['name'])
-                            if pool['transparent'] != 'false':
-                                loadBalancerErrorList.append('{} pool has transparent mode enabled which is not supported\n'.format(pool['name']))
                     if not v2tAssessmentMode and not nsxvObj.ipAddress and not nsxvObj.username:
                         loadBalancerErrorList.append("NSX-V LoadBalancer service is enabled on Source Edge Gateway {}, but NSX-V details are not provided in user input file\n".format(edgeGatewayId))
 
@@ -3506,6 +3659,11 @@ class VCDMigrationValidation:
                                     logger.warning("Service engine group has HA MODE '{}', if you keep using this you may incur some extra charges.".format(serviceEngineGroupDetails[0].get('haMode')))
                         else:
                            loadBalancerErrorList.append("Service Engine Group {} doesn't exist in Avi.\n".format(serviceEngineGroupName))
+                    # validating if transparent lB found
+                    transparentErrors = self.validateLBTransparent(
+                        edgeGatewayId, gatewayName, virtualServersData, loadBalancerServiceNetwork, responseDict,
+                        v2tAssessmentMode, loadBalancerConfigDict) if isTransparentPoolPresent else []
+                    loadBalancerErrorList.extend(transparentErrors)
             else:
                 loadBalancerErrorList.append('Unable to get load balancer service configuration with error code {} \n'.format(response.status_code))
             errorList = self.validateLBVirtualServiceOnOrgvdcNetwork(edgeGatewayId, loadBalancerConfigDict)
