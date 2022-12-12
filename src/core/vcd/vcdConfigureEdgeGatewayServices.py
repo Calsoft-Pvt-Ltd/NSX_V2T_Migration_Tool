@@ -3375,6 +3375,15 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         }
             return persistenceProfile
 
+        def getDefaultPort(_poolData):
+            # If pool transparent then pool default port is pool members port else 80
+            if _poolData['transparent'] == 'true' and _poolData.get('member'):
+                for member in listify(_poolData.get('member')):
+                    return member['port']
+            else:
+                return 80
+
+
         healthMonitorMap = {
             'http': 'HTTP',
             'https': 'HTTPS',
@@ -3398,7 +3407,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 'enabled': True,
                 'passiveMonitoringEnabled': True,
                 'name': poolData['name'],
-                'defaultPort': 80,
+                'defaultPort': getDefaultPort(poolData),
                 'gracefulTimeoutPeriod': 1,
                 'algorithm':
                     'LEAST_CONNECTIONS' if poolData['algorithm'] == 'leastconn'

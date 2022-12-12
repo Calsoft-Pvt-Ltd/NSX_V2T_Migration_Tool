@@ -70,14 +70,21 @@ EDGE_GW_SERVICES_VALIDATIONS = {
     'IPsec: DNAT rules not supported with Policy-based session type': 1,
     'OSPF routing protocol': 2,
     'User-defined Static Routes': 1,
-    'Load Balancer: VIP IP address conflict': 1,
-    'LoadBalancer: Transparent Mode': 2,
+    'LoadBalancer: VIP IP address conflict': 1,
     'LoadBalancer: Application Rules': 2,
     'LoadBalancer: Custom monitor': 1,
     'LoadBalancer: Default pool not configured': 1,
     'LoadBalancer: Unsupported persistence': 1,
     'LoadBalancer: Unsupported algorithm': 1,
     'LoadBalancer: Application profile is not added': 1,
+    'LoadBalancer: Pool member IP overlapping DNAT in transparent mode': 1,
+    'LoadBalancer: IPv6 pool member in transparent mode': 2,
+    'LoadBalancer: Pool members using different ports in transparent mode': 1,
+    'LoadBalancer: IPv6 Virtual server in transparent mode': 2,
+    'LoadBalancer: VIP overlapping with DNAT in transparent mode': 1,
+    'LoadBalancer: VIP overlapping with SNAT in transparent mode': 1,
+    'LoadBalancer: VIP overlapping with IPsec in transparent mode': 1,
+    'LoadBalancer: Pools are mixed transparent and non transparent': 1,
     'L2VPN service': 1,
     'SSLVPN service': 1,
     'Syslog service': 1,
@@ -632,9 +639,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                         result = ''.join(result)
                                         if serviceName == "LoadBalancer":
                                             if "already getting used by VM/GatewayIP" in result:
-                                                orgVDCResult["Load Balancer: VIP IP address conflict"] = True
-                                            if "transparent mode enabled" in result:
-                                                orgVDCResult["LoadBalancer: Transparent Mode"] = True
+                                                orgVDCResult["LoadBalancer: VIP IP address conflict"] = True
                                             if "Application rules" in result:
                                                 orgVDCResult["LoadBalancer: Application Rules"] = True
                                             if "Unsupported values in monitor" in result:
@@ -647,6 +652,22 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                 orgVDCResult["LoadBalancer: Unsupported algorithm"] = True
                                             if "Application profile is not added" in result:
                                                 orgVDCResult["LoadBalancer: Application profile is not added"] = True
+                                            if "Pool member IP overlapping DNAT" in result:
+                                                orgVDCResult["LoadBalancer: Pool member IP overlapping DNAT in transparent mode"] = True
+                                            if "Pool member IP address IPV6" in result:
+                                                orgVDCResult["LoadBalancer: IPv6 pool member in transparent mode"] = True
+                                            if "Pool members using different ports" in result:
+                                                orgVDCResult["LoadBalancer: Pool members using different ports in transparent mode"] = True
+                                            if "Virtual server IP address IPV6" in result:
+                                                orgVDCResult["LoadBalancer: IPv6 Virtual server in transparent mode"] = True
+                                            if "Virtual server IP address used in DNAT" in result:
+                                                orgVDCResult["LoadBalancer: VIP overlapping with DNAT in transparent mode"] = True
+                                            if "Virtual server IP address used in SNAT" in result:
+                                                orgVDCResult["LoadBalancer: VIP overlapping with SNAT in transparent mode"] = True
+                                            if "Virtual server IP address used in IPSEC sites" in result:
+                                                orgVDCResult["LoadBalancer: VIP overlapping with IPsec in transparent mode"] = True
+                                            if "Pools are mixed transparent and non transparent" in result:
+                                                orgVDCResult["LoadBalancer: Pools are mixed transparent and non transparent"] = True
                                         if serviceName == "DHCP":
                                             if "Domain names are configured as a DHCP servers" in result:
                                                 orgVDCResult["DHCP Relay: Domain names are configured"] = True
