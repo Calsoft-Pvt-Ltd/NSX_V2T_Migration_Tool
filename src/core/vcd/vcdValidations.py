@@ -1498,9 +1498,11 @@ class VCDMigrationValidation:
             logger.debug("Validate the external networks subnet configuration.")
             # reading the data from metadata
             data = self.rollback.apiData
+            # creating metadata keys for edge gateways connected to T0/T1 on target
+            data['isT0Connected'] = dict()
             # Get external network to gateway mapping from orgvdc data
             errorList = list()
-
+            gatewayErrorList  = list()
             # comparing the source and target external network subnet configuration
             if 'sourceExternalNetwork' not in data.keys() or 'targetExternalNetwork' not in data.keys():
                 raise Exception('Target External Network not present')
@@ -1531,18 +1533,118 @@ class VCDMigrationValidation:
                     zip(targetExternalGatewayList, targetExternalPrefixLengthList)]
                 if not all(sourceNetworkAddress in targetNetworkAddressList for sourceNetworkAddress in
                            sourceNetworkAddressList):
+                    gatewayErrorList.append(edgeGateway["id"])
                     errorList.append(
                         'All the Source External Networks Subnets are not present in Target External Network - {} for edgeGateway {}.'.format(
                             extNetName, edgeGateway['name']))
+                else:
+                    data['isT0Connected'][edgeGateway['name']] = {extNetName: sourceExternalGatewayAndPrefixList}
 
             if errorList:
-                raise Exception('; '.join(errorList))
+                if float(self.version) >= float(vcdConstants.API_VERSION_CASTOR_10_4_1):
+                    segmentErrorList = self.validateSegmentBackedNetwork(gatewayErrorList)
+                    if segmentErrorList:
+                        raise Exception('; '.join(errorList + segmentErrorList))
+                else:
+                    raise Exception('; '.join(errorList))
             else:
                 logger.debug(
                     'Validated successfully, all the Source External Networks Subnets are present in Target External Network.')
 
         except Exception:
             raise
+
+    def validateSegmentBackedNetwork(self, gatewayErrorList):
+        """
+        Description : Validate '-v2t' suffixed NSX-T Segment backed network subnets
+        Parameters :  sourceExternalNetworkSubnetsDict - source external network to subnets mapping dict (DICT)
+        """
+        data = self.rollback.apiData
+        data['isT1Connected'] = dict()
+        data['segmentToIdMapping'] = dict()
+        data['vlanSegmentToGatewayMapping'] = dict()
+        errorList = list()
+
+        externalNetworks = self.fetchAllExternalNetworks()
+        for edgeGateway in copy.deepcopy(self.rollback.apiData['sourceEdgeGateway']):
+            if edgeGateway["id"] not in gatewayErrorList:
+                continue
+            # Get the uplinks for edge gateway
+            edgeGatewayUplinksData = edgeGateway['edgeGatewayUplinks']
+            # Get Target External network belongs to edge gateway.
+            t0Gateway = self.orgVdcInput['EdgeGateways'][edgeGateway['name']]['Tier0Gateways']
+            if not t0Gateway:
+                continue
+            # get external network details from metadata.
+            targetExternalNetwork = self.rollback.apiData['targetExternalNetwork'][t0Gateway]
+            targetNetworkAddressList = [
+                ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
+                for subnet in targetExternalNetwork['subnets']['values']]
+
+            data['isT1Connected'][edgeGateway['name']] = dict()
+            for uplink in edgeGatewayUplinksData:
+
+                uplinkGatewayAndPrefixList = {(subnet['gateway'], subnet['prefixLength']) for subnet in
+                                                      uplink['subnets']['values']}
+
+                uplinkAddressList = [ipaddress.ip_network('{}/{}'.format(gateway, prefixLength), strict=False)
+                                     for gateway, prefixLength in uplinkGatewayAndPrefixList]
+
+                if all(uplinkAddress in targetNetworkAddressList for uplinkAddress in uplinkAddressList):
+                    if t0Gateway in data['isT0Connected'].get(edgeGateway['name'], {}):
+                        data['isT0Connected'][edgeGateway['name']][t0Gateway].append(uplinkGatewayAndPrefixList)
+                    else:
+                        data['isT0Connected'][edgeGateway['name']] = {t0Gateway: uplinkGatewayAndPrefixList}
+                    continue
+
+                if len(uplinkAddressList) > 1:
+                    errorList.append("Edge Gateway {} is connected to multiple subnets of external network {}".format(edgeGateway['name'], uplink['uplinkName']))
+                    continue
+
+                for extNet in externalNetworks:
+                    # Finding segment backed ext net for shared direct network
+                    if extNet['name'] == uplink['uplinkName'] + '-v2t':
+                        if [backing for backing in extNet['networkBackings']['values'] if
+                            backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH']:
+                            extNetAddressList = [ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
+                                                 for subnet in extNet['subnets']['values']]
+                            if all(uplinkAddress in extNetAddressList for uplinkAddress in uplinkAddressList):
+                                # Checks whether the segment is VLAN or Overlay Backed
+                                # If VLAN backed checks if more than one edge gateways are getting connected
+                                # If more than 1 then gives error
+                                data['isT1Connected'][edgeGateway['name']][uplink['uplinkName']] = uplinkGatewayAndPrefixList
+                                data['segmentToIdMapping'][extNet['name']] = extNet['id']
+                                if any([backing.get("isNsxTVlanSegment") for backing in extNet['networkBackings']['values']]):
+                                    url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
+                                                        vcdConstants.VALIDATE_DEDICATED_EXTERNAL_NETWORK_FILTER.format(extNet["id"]))
+                                    headers = {'Authorization': self.headers['Authorization'],
+                                               'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+                                    response = self.restClientObj.get(url, headers)
+                                    if response.status_code == requests.codes.ok:
+                                        responseDict = response.json()
+                                        if responseDict["resultTotal"] > 0:
+                                            errorList.append("Cannot connect more than 1 edge gateways to VLAN backed segment {}".format(extNet["name"]))
+                                        else:
+                                            if isinstance(data['vlanSegmentToGatewayMapping'].get(extNet["name"]), list):
+                                                data['vlanSegmentToGatewayMapping'][extNet["name"]].append(edgeGateway["id"])
+                                            else:
+                                                data['vlanSegmentToGatewayMapping'][extNet["name"]] = [edgeGateway["id"]]
+                                    else:
+                                        raise Exception("Failed to fetch external network {} edge gateway uplink details".format(extNet["name"]))
+                                break
+                            else:
+                                errorList.append("edge gateway {} subnets not present in segment backed network {}".format(edgeGateway['name'], extNet['name']))
+                                break
+                else:
+                    errorList.insert(0, "External network {} is used by edge Gateway. It's equivalent NSX-T segment backed external network - {}-v2t is not present".format(
+                        uplink['uplinkName'], edgeGateway['name'], uplink['uplinkName']))
+        for vlanNet, edgeGatewayList in data['vlanSegmentToGatewayMapping'].items():
+            if len(edgeGatewayList) > 1:
+                errorList.append("More than 1 edge gateway connected to vlan backed segment is not allowed. Edge Gateways - {} "
+                                 "from Org VDC {} are trying to connect to vlan backed segment network {}".format(
+                                        edgeGatewayList, data["sourceOrgVDC"]["@name"], vlanNet))
+
+        return errorList
 
     @isSessionExpired
     def getOrgVDCAffinityRules(self, orgVDCId):
@@ -3728,7 +3830,11 @@ class VCDMigrationValidation:
                                 staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"], "interface": staticRoute["interface"]})
                         # Checking whether the edge gateway interface is external
                         if vnicData["index"] == vnic and vnicData["type"] == "uplink":
-                            externalStaticRoutes.append(staticRoute)
+                            if vnicData["portgroupName"] in self.rollback.apiData.get('isT1Connected', {}).get(edgeGatewayName, {}):
+                                internalStaticRoutes.append(staticRoute)
+                                staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"], "interface": staticRoute["interface"]})
+                            else:
+                                externalStaticRoutes.append(staticRoute)
             logger.debug("Internal Static Routes - {}".format(internalStaticRoutes))
             logger.debug("External Static Routes - {}".format(externalStaticRoutes))
 
@@ -3743,6 +3849,25 @@ class VCDMigrationValidation:
                 return internalStaticRoutes + externalStaticRoutes
         except:
             raise
+
+    @isSessionExpired
+    def getEdgeGatewayVnicDetails(self, edgeGatewayId):
+        """
+        Description :   Gets the vnic details of the Edge Gateway
+        Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
+        """
+        # url to retrieve the routing config info
+        url = "{}{}/{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                 vcdConstants.NETWORK_EDGES,
+                                 edgeGatewayId, vcdConstants.VNIC)
+        # get api call to retrieve the edge gateway config info
+        response = self.restClientObj.get(url, self.headers)
+        if response.status_code == requests.codes.ok:
+            responseDict = self.vcdUtils.parseXml(response.content)
+            vNicsDetails = responseDict['vnics']['vnic']
+            return vNicsDetails
+        else:
+            raise Exception("Failed to get edge gateway {} vnic details".format(edgeGatewayId))
 
     @isSessionExpired
     def getEdgeGatewayRoutingConfig(self, edgeGatewayId, edgeGatewayName, validation=True, precheck=False):
@@ -5396,6 +5521,22 @@ class VCDMigrationValidation:
         else:
             return True
 
+    @description("Performing vlan segment check in case of multiple Org VDCs")
+    @remediate
+    def checkVlanSegmentFromMultipleVDCs(self, vcdObjList):
+        """
+        Description : Validation vlan segment backed to multiple edge gateways belonging to dofferent VDCs
+        """
+        if float(self.version) < float(vcdConstants.API_VERSION_CASTOR_10_4_1) or len(vcdObjList) == 1:
+            return
+        segmentList = list()
+        for vcdObj in vcdObjList:
+            for segment in vcdObj.rollback.apiData.get('vlanSegmentToGatewayMapping', {}):
+                segmentList.append(segment)
+        if len(set(segmentList)) < len(segmentList):
+            raise Exception("Multiple edge gateways from Org VDCs are trying to connect to segment backed network."
+                            "Only 1 edge gateways can be connected to segment backed network")
+
     def updateEdgeGatewayInputDict(self, sourceOrgVDCId):
         """
         Description : Validation for edgeGwInputs.
@@ -5531,7 +5672,7 @@ class VCDMigrationValidation:
                     entity))
         return errorList
 
-    def preMigrationValidation(self, inputDict, sourceOrgVDCId, nsxtObj, nsxvObj, validateVapp=False, validateServices=False):
+    def preMigrationValidation(self, inputDict, sourceOrgVDCId, nsxtObj, nsxvObj, vcdObjList, validateVapp=False, validateServices=False):
         """
         Description : Pre migration validation tasks
         Parameters  : inputDict      -  dictionary of all the input yaml file key/values (DICT)
@@ -5553,7 +5694,9 @@ class VCDMigrationValidation:
                     # Performing services related validations
                     self.servicesValidations(sourceOrgVDCId, nsxtObj, nsxvObj) if validateServices else False,
                     # Performing vApp related validations
-                    self.vappValidations(sourceOrgVDCId, nsxtObj) if validateVapp else False]):
+                    self.vappValidations(sourceOrgVDCId, nsxtObj) if validateVapp else False,
+                    # Performing vlan segment checks for multiple Org VDCs
+                    self.checkVlanSegmentFromMultipleVDCs(vcdObjList)]):
                 logger.debug(
                     f'Successfully completed org vdc related validation tasks for org vdc "{self.orgVdcInput["OrgVDCName"]}"')
         except:
@@ -6987,7 +7130,7 @@ class VCDMigrationValidation:
                 return True
         return False
 
-    def _checkNonDistributedImplicitCondition(self, sourceOrgVDCNetworks):
+    def _checkNonDistributedImplicitCondition(self, sourceOrgVDCNetworks, natConfig=False):
         implicitGateways = set()
         implicitNetworks = set()
         for sourceOrgVDCNetwork in sourceOrgVDCNetworks:
@@ -7003,5 +7146,30 @@ class VCDMigrationValidation:
                 if dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns:
                     implicitGateways.add(sourceOrgVDCNetwork['connection']['routerRef']['name'])
                     implicitNetworks.add(sourceOrgVDCNetwork['id'])
+
+                if sourceOrgVDCNetwork['id'] in implicitNetworks:
+                    continue
+                if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4) or not natConfig:
+                    continue
+                    # fetching NAT rules configured on edge to which source org vdc network is connected
+                natRules = self.getEdgeGatewayNatConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
+                                                        split(':')[-1], validation=False)
+                # return in case of no rules
+                if not natRules['natRules']:
+                    continue
+                # fetching edge gateway vnic details
+                vNicsDetails = self.getEdgeGatewayVnicDetails(
+                    sourceOrgVDCNetwork['connection']['routerRef']['id'].split(':')[-1])
+                # fetching index of NIC to which source org vdc network is connected
+                for vnicData in vNicsDetails:
+                    if sourceOrgVDCNetwork["name"] == vnicData.get("portgroupName"):
+                        vnic = vnicData["index"]
+                        # checking whether nat rule is configured on internal interface to which source org vdc network is connected
+                        for natRule in listify(natRules.get('natRules', {}).get('natRule', [])):
+                            if vnic == natRule["vnic"]:
+                                implicitGateways.add(sourceOrgVDCNetwork['connection']['routerRef']['name'])
+                                implicitNetworks.add(sourceOrgVDCNetwork['id'])
+                                break
+                        break
 
         return implicitGateways, implicitNetworks

@@ -82,7 +82,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         finally:
             return sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked
 
-    def initializePreCheck(self, vcdValidationObj, orgVDCDict, validationFailures, sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked, threadObj, nsxtObj, noSnatDestSubnet=None, edgeGatewayDeploymentEdgeCluster=None):
+    def initializePreCheck(self, vcdValidationObj, orgVDCDict, validationFailures, sourceOrgVDCId, sourceProviderVDCId, isSourceNSXTbacked, threadObj, nsxtObj, vcdObjList, noSnatDestSubnet=None, edgeGatewayDeploymentEdgeCluster=None):
         """
         Description : This method fetches the necessary details to run validations
         Parameters :  vcdValidationObj - Object the holds reference to class with all the validation methods (OBJECT)
@@ -180,6 +180,11 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                     'Validating Source Edge gateway services': [vcdValidationObj.getEdgeGatewayServices, nsxtObj, self.nsxvObj, noSnatDestSubnet, True],
                     'Validating Distributed Firewall configuration': [vcdValidationObj.getDistributedFirewallConfig, sourceOrgVDCId, True, True, False]
                 })
+
+            # Perform segment backed network check in case of multiple Org VDCs
+            vcdValidationMapping.update({
+                'Validating segment backed network in case of multiple Org VDCs': [vcdValidationObj.checkVlanSegmentFromMultipleVDCs, vcdObjList]
+            })
 
             return vcdValidationMapping
         except Exception as e:
@@ -283,7 +288,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
         finally:
             threading.current_thread().name = "MainThread"
 
-    def execute(self, orgVDCDict, vcdValidationObj, nsxtObj):
+    def execute(self, orgVDCDict, vcdValidationObj, nsxtObj, vcdObjList):
         """
         Description : This method fetches the necessary details to run validations
         Parameters : orgVDCDict - Dictionary holding the org vdc details from the input file (DICT)
@@ -310,7 +315,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
 
             vcdValidationMapping = self.initializePreCheck(
                 vcdValidationObj, orgVDCDict, validationFailures, sourceOrgVDCId, sourceProviderVDCId,
-                isSourceNSXTbacked, threadObj, nsxtObj,
+                isSourceNSXTbacked, threadObj, nsxtObj, vcdObjList,
                 noSnatDestSubnet=orgVDCDict.get("NoSnatDestinationSubnet"),
                 edgeGatewayDeploymentEdgeCluster=orgVDCDict.get('EdgeGatewayDeploymentEdgeCluster', None)
             )
@@ -351,7 +356,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
                 # Iterating over the org vdc/s
                 for orgVDCDict, vcdValidationObj, nsxtObj in zip(self.inputDict["VCloudDirector"]["SourceOrgVDC"], self.vcdObjList, self.nsxtObjList):
-                    futures.append(executor.submit(self.execute, orgVDCDict, vcdValidationObj, nsxtObj))
+                    futures.append(executor.submit(self.execute, orgVDCDict, vcdValidationObj, nsxtObj, self.vcdObjList))
                 waitForThreadToComplete(futures)
 
             # Check if there was exception related to shared network.
