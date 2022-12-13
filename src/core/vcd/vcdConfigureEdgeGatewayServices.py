@@ -129,8 +129,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                      self.rollback.apiData['targetEdgeGateway']))[0]['id']
 
                 data = self.getEdgeGatewayFirewallConfig(sourceEdgeGatewayId, validation=False)
+                # fetching the nat rules of source edge gateway
+                natRules = self.getEdgeGatewayNatConfig(sourceEdgeGatewayId, validation=False)
                 # Checking NAT IP matching with firewall destination field
-                self.checkNatIpFirewallMatching(sourceEdgeGatewayId, edgeGatewayId, data)
+                self.checkNatIpFirewallMatching(sourceEdgeGatewayId, edgeGatewayId, data, natRules)
                 # retrieving list instance of firewall rules from source edge gateway
                 sourceFirewallRules = data if isinstance(data, list) else [data]
                 # getting vcd id
@@ -141,6 +143,25 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                               vcdConstants.ALL_EDGE_GATEWAYS,
                                               vcdConstants.T1_ROUTER_FIREWALL_CONFIG.format(edgeGatewayId))
                 if not networktype:
+                    fwScopeDict = self.rollback.apiData.get('fwScopeDict') or defaultdict(dict)
+                    if natRules.get('natRules'):
+                        natIpToSnatIdMapping = {natRule['originalAddress']: natRule['ruleTag'] for natRule in
+                                                listify(natRules.get('natRules', {}).get('natRule', [])) if
+                                                natRule['action'] == 'snat'}
+                        natIpToSnatVnicMapping = {natRule['originalAddress']: natRule['vnic'] for natRule in
+                                                  listify(natRules.get('natRules', {}).get('natRule', [])) if
+                                                  natRule['action'] == 'snat'}
+                        natIpToDnatIdMapping = {natRule['originalAddress']: natRule['ruleTag'] for natRule in
+                                                listify(natRules.get('natRules', {}).get('natRule', [])) if
+                                                natRule['action'] == 'dnat'}
+                        natIpToDnatVnicMapping = {natRule['originalAddress']: natRule['vnic'] for natRule in
+                                                  listify(natRules.get('natRules', {}).get('natRule', [])) if
+                                                  natRule['action'] == 'dnat'}
+                    else:
+                        natIpToSnatIdMapping = {}
+                        natIpToSnatVnicMapping = {}
+                        natIpToDnatIdMapping = {}
+                        natIpToDnatVnicMapping = {}
                     # retrieving the application port profiles
                     applicationPortProfilesList = self.getApplicationPortProfiles()
                     applicationPortProfilesDict = self.filterApplicationPortProfiles(applicationPortProfilesList)
@@ -186,7 +207,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         # fetch firewall groups created on target edge gateway
                         targetIPsetList = self.fetchFirewallGroups(urlFilter=vcdConstants.FIREWALL_GROUP_IPSET_FILTER.
                                                                    format(edgeGatewayId))
-
+                        if not networktype:
+                            fwSourceMappedToNat = set()
+                            fwDestinationMappedToNat = set()
+                            fwSourceScopeSet = set()
+                            fwDestinationScopeSet = set()
                         # checking for the source key in firewallRule dictionary
                         if firewallRule.get('source', None):
                             # retrieving ip address list source edge gateway firewall rule
@@ -208,6 +233,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             if not networktype:
                                 if ipAddressList:
                                     for ipAddress in ipAddressList:
+                                        if ipAddress in natIpToSnatIdMapping:
+                                            fwSourceMappedToNat.add(natIpToSnatIdMapping[ipAddress])
+                                            fwSourceScopeSet.add(natIpToSnatVnicMapping[ipAddress])
+                                        else:
+                                            fwSourceScopeSet.add(None)
                                         groupId = list(filter(lambda targetIPset: ipAddress == targetIPset['name'],
                                                               targetIPsetList))
                                         if groupId:
@@ -254,6 +284,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                 if firewallIdDict[edgeGatewayId].get(ipsetresponseDict['ipset']['name']):
                                                     ipsetDict = firewallIdDict[edgeGatewayId][ipsetresponseDict['ipset']['name']]
                                                     sourcefirewallGroupId.append(ipsetDict)
+                                            ipsetAddressList = ipsetresponseDict['ipset']['value'].split(',')
+                                            for ipAddress in listify(ipsetAddressList):
+                                                if ipAddress in natIpToSnatIdMapping:
+                                                    fwSourceMappedToNat.add(natIpToSnatIdMapping[ipAddress])
+                                                    fwSourceScopeSet.add(natIpToSnatVnicMapping[ipAddress])
+                                                else:
+                                                    fwSourceScopeSet.add(None)
                                         else:
                                             ipsetresponse = self.vcdUtils.parseXml(ipsetresponse.content)
                                             raise Exception("Failed to retrieve ipset group {} info - {}".format(ipsetgroup, ipsetresponse['error']['details']))
@@ -327,6 +364,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             if not networktype:
                                 if ipAddressList:
                                     for ipAddress in ipAddressList:
+                                        if ipAddress in natIpToDnatIdMapping:
+                                            fwDestinationMappedToNat.add(natIpToDnatIdMapping[ipAddress])
+                                            fwDestinationScopeSet.add(natIpToDnatVnicMapping[ipAddress])
+                                        else:
+                                            fwDestinationScopeSet.add(None)
                                         groupId = list(filter(lambda targetIPset: ipAddress == targetIPset['name'],
                                                               targetIPsetList))
                                         if groupId:
@@ -370,6 +412,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                 if firewallIdDict[edgeGatewayId].get(ipsetresponseDict['ipset']['name']):
                                                     ipsetDict = firewallIdDict[edgeGatewayId][ipsetresponseDict['ipset']['name']]
                                                     destinationfirewallGroupId.append(ipsetDict)
+                                            ipsetAddressList = ipsetresponseDict['ipset']['value'].split(',')
+                                            for ipAddress in listify(ipsetAddressList):
+                                                if ipAddress in natIpToDnatIdMapping:
+                                                    fwDestinationMappedToNat.add(natIpToDnatIdMapping[ipAddress])
+                                                    fwDestinationScopeSet.add(natIpToDnatVnicMapping[ipAddress])
+                                                else:
+                                                    fwDestinationScopeSet.add(None)
                                         else:
                                             ipsetresponse = self.vcdUtils.parseXml(ipsetresponse.content)
                                             raise Exception("Failed to retrieve ipset group {} info - {}".format(ipsetgroup, ipsetresponse['error']['details']))
@@ -490,6 +539,14 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 # setting the configStatus flag meaning the particular firewall rule is configured successfully in order to skip its reconfiguration
                                 self.rollback.apiData[firewallRule['id']] = sourceEdgeGatewayId
                                 logger.debug('Firewall rule {} created successfully.'.format(firewallRule['name']))
+                                if len(fwSourceScopeSet) == 1 and None not in fwSourceScopeSet:
+                                    if not fwDestinationScopeSet or fwSourceScopeSet == fwDestinationScopeSet or (len(fwDestinationScopeSet) == 1 and None in fwDestinationScopeSet):
+                                       fwScopeDict[edgeGatewayId][firewallRule["id"]] = fwSourceMappedToNat
+
+                                if len(fwDestinationScopeSet) == 1 and None not in fwDestinationScopeSet:
+                                    if not fwSourceScopeSet or fwSourceScopeSet == fwDestinationScopeSet or (len(fwSourceScopeSet) == 1 and None in fwSourceScopeSet):
+                                       fwScopeDict[edgeGatewayId][firewallRule["id"]] = fwDestinationMappedToNat
+                                self.rollback.apiData['fwScopeDict'] = fwScopeDict
                             else:
                                 # failure in configuration of firewall rules on target edge gateway
                                 response = response.json()
@@ -503,14 +560,12 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             self.saveMetadataInOrgVdc()
             raise
 
-    def checkNatIpFirewallMatching(self, sourceEdgeGatewayId, targetEdgeGatewayId, userDefinedFirewallRules):
+    def checkNatIpFirewallMatching(self, sourceEdgeGatewayId, targetEdgeGatewayId, userDefinedFirewallRules, natRules):
         """
         Description :   Gets the Firewall Configuration details of the specified Edge Gateway
         Parameters  :   sourceEdgeGatewayId   -   Id of the Edge Gateway  (STRING)
                         userDefinedFirewallRules - user defined firewall rules on edge gateway (LIST)
         """
-        # fetching the nat rules of source edge gateway
-        natRules = self.getEdgeGatewayNatConfig(sourceEdgeGatewayId, validation=False)
         # fetching target org vdc networks
         orgvdcNetworks = self.getOrgVDCNetworks(self.rollback.apiData["targetOrgVDC"]["@id"], 'targetOrgVDCNetworks',
                                                 saveResponse=False)
@@ -888,6 +943,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     routingConfigDetails = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId,
                                                                             sourceEdgeGateway['name'],
                                                                             validation=False)
+                    # get details of edge gateway vnics
+                    vNicsDetails = self.getEdgeGatewayVnicDetails(sourceEdgeGatewayId)
                     # get details of all Non default gateway subnet, default gateway and noSnatRules
                     allnonDefaultGatewaySubnetList, defaultGatewayDict, noSnatRulesList = self.getEdgeGatewayNoSnatStaticRoute(
                         sourceEdgeGatewayId, staticRoutingConfig)
@@ -906,6 +963,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     statusForNATConfiguration = self.rollback.apiData.get('NATstatus', {})
                     rulesConfigured = statusForNATConfiguration.get(t1gatewayId, [])
                     if data['enabled'] == 'true':
+                        if not self.rollback.apiData.get("natInterfaces"):
+                            self.rollback.apiData["natInterfaces"] = {}
+                        if not self.rollback.apiData["natInterfaces"].get(sourceEdgeGatewayId):
+                            self.rollback.apiData["natInterfaces"][sourceEdgeGatewayId] = {}
                         for sourceNATRule in userDefinedNAT:
                             destinationIpDict = dict()
                             # checking whether 'ConfigStatus' key is present or not if present skipping that rule while remediation
@@ -932,7 +993,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                         'netmask': eachParticipant['netmask']}
                                     break
 
-                            payloadData = self.createNATPayloadData(sourceNATRule, applicationPortProfilesList, version,
+                            payloadData = self.createNATPayloadData(sourceEdgeGatewayId, sourceEdgeGateway['name'], sourceNATRule, vNicsDetails,
+                                                                    applicationPortProfilesList, version,
                                                                     defaultGatewayDict, destinationIpDict, noSnatRulesList,
                                                                     bgpConfigDetails, routingConfigDetails, noSnatDestSubnetList=noSnatDestSubnet)
                             payloadData = payloadData if isinstance(payloadData, list) else [payloadData]
@@ -1123,6 +1185,145 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             else:
                 raise Exception("Failed to create static route on target edge gateway {}".format(edgeGatewayName))
         logger.debug("Successfully configured static routes on target edge gateway {}".format(edgeGatewayName))
+
+    @description("Setting static routes on target edge gateways")
+    @remediate
+    def setEdgeGatewayStaticRoutes(self):
+        """
+        Description :   Create static routes on the Target Edge Gateway connected to NSX-T segment via CSP port
+        Parameters:     targetEdgeGatewayId - target edge gateway id (STRING)
+
+        """
+        data = self.rollback.apiData
+        if not data.get('isT1Connected'):
+            return
+        logger.debug("Setting static routes for target edge gateways")
+        networkList = ['0.0.0.0/1', '128.0.0.0/1']
+        for targetEdgeGateway in data['targetEdgeGateway']:
+            if targetEdgeGateway['name'] not in data['isT1Connected']:
+                continue
+            logger.debug("Setting static routes for target edge gateway - {}".format(targetEdgeGateway['name']))
+            sourceEdgeGatewayId = list(filter(lambda edgeGateway: edgeGateway["name"] == targetEdgeGateway["name"],
+                                        self.rollback.apiData["sourceEdgeGateway"]))[0]["id"]
+            sourceEdgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
+            defaultGateway = self.getEdgeGatewayDefaultGateway(sourceEdgeGatewayId)
+            uplinkName = None
+            for uplink, subnetData in data['isT1Connected'][targetEdgeGateway["name"]].items():
+                if any([defaultGateway == subnetTuple[0] for subnetTuple in subnetData]):
+                    uplinkName = uplink + '-v2t'
+                    uplinkId = data['segmentToIdMapping'][uplinkName]
+                    break
+            if not uplinkName:
+                continue
+            url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                  vcdConstants.ALL_EDGE_GATEWAYS,
+                                  vcdConstants.TARGET_STATIC_ROUTE.format(targetEdgeGateway['id']))
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+            for network in networkList:
+                payloadData = {
+                    "name": "User-defined-route",
+                    "description": "Static route for directly connected external network",
+                    "networkCidr": network,
+                    "nextHops": [
+                        {
+                            "ipAddress": defaultGateway,
+                            "adminDistance": "1",
+                            "scope": {
+                                "name": uplinkName,
+                                "id": uplinkId,
+                                "scopeType": "NETWORK"
+                            }
+                        }
+                    ]
+                }
+                payloadDict = json.dumps(payloadData)
+                response = self.restClientObj.post(url, headers, data=payloadDict)
+                if response.status_code == requests.codes.accepted:
+                    taskUrl = response.headers['Location']
+                    self._checkTaskStatus(taskUrl=taskUrl)
+                    logger.debug(
+                        f"Successfully created static route {network} for network {uplinkName} on target edge gateway - {targetEdgeGateway['name']}")
+                else:
+                    raise Exception(
+                        "Failed to create static route on target edge gateway {}".format(targetEdgeGateway['name']))
+        logger.debug(
+            "Successfully configured static routes on target edge gateway edge gateways")
+
+    @description("Updating scopes of FW rules on target edge gateways")
+    @remediate
+    def updateFirewallRules(self, rollback=False):
+        """
+        Description : Updating firewall rules interfaces
+        """
+        try:
+            if float(self.version) < float(vcdConstants.API_VERSION_CASTOR_10_4_1):
+                return
+            for targetEdgeGateway in self.rollback.apiData.get('targetEdgeGateway', []):
+                if not self.rollback.apiData.get('fwScopeDict', {}).get(targetEdgeGateway['id']):
+                    continue
+                # url to configure firewall rules on target edge gateway
+                firewallUrl = "{}{}{}?pageSize=128".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                              vcdConstants.ALL_EDGE_GATEWAYS,
+                                              vcdConstants.T1_ROUTER_FIREWALL_CONFIG.format(targetEdgeGateway["id"]))
+                # get api call to retrieve firewall info of target edge gateway
+                response = self.restClientObj.get(firewallUrl, self.headers)
+                if response.status_code == requests.codes.ok:
+                    # successful retrieval of firewall info
+                    responseDict = response.json()
+                    userDefinedFirewallRulesList = responseDict['userDefinedRules']
+                else:
+                    raise Exception("Failed to fetch target edge gateway {} firewall rules".format(targetEdgeGateway["name"]))
+                # url to configure firewall rules on target edge gateway
+                natUrl = "{}{}{}?pageSize=128".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                vcdConstants.ALL_EDGE_GATEWAYS,
+                                                vcdConstants.T1_ROUTER_NAT_CONFIG.format(targetEdgeGateway["id"]))
+                # get api call to retrieve firewall info of target edge gateway
+                response = self.restClientObj.get(natUrl, self.headers)
+                if response.status_code == requests.codes.ok:
+                    # successful retrieval of firewall info
+                    responseDict = response.json()
+                    natRulesList = responseDict['values']
+                else:
+                    raise Exception("Failed to fetch target edge gateway {} NAT rules".format(targetEdgeGateway["name"]))
+
+                for firewallRuleId, natRuleIds in self.rollback.apiData['fwScopeDict'][targetEdgeGateway['id']].items():
+                    if not rollback:
+                        natRuleId = list(natRuleIds)[0]
+                        for natRule in natRulesList:
+                            if natRuleId == natRule['name']:
+                                networkData = natRule.get("appliedTo")
+                                break
+                        for firewallRule in userDefinedFirewallRulesList:
+                            if firewallRuleId == firewallRule["name"].split('-')[-1]:
+                                firewallRuleData = firewallRule
+                                break
+                        firewallRuleData["appliedTo"] = networkData
+                    else:
+                        for firewallRule in userDefinedFirewallRulesList:
+                            if firewallRuleId == firewallRule["name"].split('-')[-1]:
+                                firewallRuleData = firewallRule
+                                break
+                        firewallRuleData["appliedTo"] = None
+                    firewallUpdateUrl = "{}{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                  vcdConstants.ALL_EDGE_GATEWAYS,
+                                                  vcdConstants.T1_ROUTER_FIREWALL_CONFIG.format(targetEdgeGateway["id"]),
+                                                  firewallRuleData["id"])
+                    headers = {'Authorization': self.headers['Authorization'],
+                               'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+                    payLoadDict = json.dumps(firewallRuleData)
+                    response = self.restClientObj.put(firewallUpdateUrl, headers, data=payLoadDict)
+                    if response.status_code == requests.codes.accepted:
+                        taskUrl = response.headers['Location']
+                        self._checkTaskStatus(taskUrl=taskUrl)
+                        logger.debug("firewall rule {} scope {} updated on target edge gateway {}".format(
+                            firewallRuleData["name"], networkData["name"], targetEdgeGateway["id"]))
+                    else:
+                        raise Exception("Failed to update firewall rule {} scope".format(firewallRuleData["name"]))
+                logger.debug("Firewall rules scopes updated on target edge gateway {}".format(targetEdgeGateway["name"]))
+            logger.debug("Scopes of firewall rules updated successfully")
+        except:
+            raise
 
     @isSessionExpired
     def getTargetEdgeGatewayIpPrefixData(self, targetEdgeGatewayId):
@@ -1695,7 +1896,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 logger.debug(
                     "DHCP relay service not configured on source edge gateway : {}.".format(sourceEdgeGateway))
                 continue
-            
+
             # Configure DHCP relay service if DHCP server is configured , if not then continue.
             if not DHCPData['relay'].get('relayServer'):
                 logger.debug(
@@ -2159,7 +2360,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         except Exception:
             raise
 
-    def createNATPayloadData(self, sourceNATRule, applicationPortProfilesList, version,
+    def createNATPayloadData(self, sourceEdgeGatewayId, sourceEdgeGatewayName, sourceNATRule, vNicsDetails, applicationPortProfilesList, version,
                              defaultEdgeGateway, destinationIpDict, staticRoutesList, bgpDetails,
                              routingConfigDetails, noSnatDestSubnetList=None):
         """
@@ -2182,6 +2383,15 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
         # Convert the application port profile list to Dict.
         applicationPortProfilesDict = self.filterApplicationPortProfiles(applicationPortProfilesList)
+
+        # checking whether nat rule interface and updating metadata respectively
+        if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+            for vnicData in vNicsDetails:
+                if sourceNATRule["vnic"] == vnicData["index"]:
+                    if "portgroupName" in vnicData and (vnicData["portgroupName"] in self.rollback.apiData["sourceOrgVDCNetworks"] or \
+                        vnicData["portgroupName"] in self.rollback.apiData.get("isT1Connected", {}).get(sourceEdgeGatewayName, {})):
+                        self.rollback.apiData["natInterfaces"][sourceEdgeGatewayId][sourceNATRule['ruleTag']] = vnicData["portgroupName"]
+                    break
 
         # creating common payload dict for both DNAT AND SNAT
         payloadDict = {

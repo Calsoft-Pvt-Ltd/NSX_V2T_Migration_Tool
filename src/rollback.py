@@ -73,6 +73,7 @@ class Rollback:
             'vcdObj.deleteOrgVDCGroup()',
             'vcdObj.deleteOrgVDCNetworks(targetOrgVDCId, rollback=True)',
             'vcdObj.deleteNsxTBackedOrgVDCEdgeGateways(targetOrgVDCId)',
+            'vcdObj.directNetworkIpCleanup(key="segmentBackedNetworkIP")',
             'vcdObj.enableSourceAffinityRules()',
             'vcdObj.deleteOrgVDC(targetOrgVDCId, rollback=True)',
             'vcdObj.resetTargetExternalNetwork()',

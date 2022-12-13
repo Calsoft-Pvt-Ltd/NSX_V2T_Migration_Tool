@@ -61,7 +61,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     networkAddress = ipaddress.ip_network(
                         '{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
                         strict=False)
-                    edgeGatewaySubnetDict[extNet][networkAddress].extend(subnet['ipRanges']['values'])
+                    if networkAddress in [ipaddress.ip_network('{}/{}'.format(subnetData[0], subnetData[1]), strict=False)
+                                          for subnetData in self.rollback.apiData['isT0Connected'].get(edgeGateway['name'], {}).get(extNet, [])]:
+                        edgeGatewaySubnetDict[extNet][networkAddress].extend(subnet['ipRanges']['values'])
 
                     # TODO pranshu: multiple T0 - this can be removed.
                     #  Check self.rollback.apiData['sourceEdgeGateway'] in older versions
@@ -132,22 +134,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             else:
                 dedicated = False
 
-            # Prepare payload for edgeGatewayUplinks->subnets->values
-            subnetData = []
-            for uplink in sourceEdgeGatewayDict['edgeGatewayUplinks']:
-                subnetData += uplink['subnets']['values']
-
-            # Checking if default edge gateway is configured on edge gateway
-            # and Setting primary ip to be used for edge gateway creation
-            defaultGateway = self.getEdgeGatewayDefaultGateway(sourceEdgeGatewayId)
-            for subnet in subnetData:
-                if subnet['gateway'] != defaultGateway:
-                    subnet['primaryIp'] = None
+            t0Gateway = self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']]['Tier0Gateways']
 
             # Prepare payload for edgeClusterConfig->primaryEdgeCluster->backingId
             # Checking if edge cluster is specified in user input yaml
-            externalDict = self.getExternalNetworkByName(
-                self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']]['Tier0Gateways'])
+            externalDict = self.getExternalNetworkByName(t0Gateway)
 
             if self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'):
                 # Fetch edge cluster id
@@ -155,6 +146,21 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             else:
                 edgeClusterId = nsxObj.fetchEdgeClusterIdForTier0Gateway(
                     externalDict['networkBackings']['values'][0]['name'])
+
+            # Prepare payload for edgeGatewayUplinks->subnets->values
+            subnetData = []
+            if sourceEdgeGatewayDict['name'] in data['isT0Connected']:
+                # Adding only those subnets to T0 subnet data that are going to be connected to external network via T0
+                gatewayList = [subnetData[0] for subnetData in data['isT0Connected'][sourceEdgeGatewayDict['name']][t0Gateway]]
+                for uplink in sourceEdgeGatewayDict['edgeGatewayUplinks']:
+                    if uplink['subnets']['values'][0]['gateway'] in gatewayList:
+                        subnetData += uplink['subnets']['values']
+            else:
+                # In case target edge gateway is not going to be connected to T0, a dummy T0/VRF is necessary
+                # Adding first subnet from dummy T0 because payload demands atleast one subnet
+                subnetData = [subnet for subnet in  externalDict['subnets']['values'] if subnet['totalIpCount'] != subnet['usedIpCount']]
+                subnetData = [subnetData[0]]
+                subnetData[0]['ipRanges'] = {'values': []}
 
             payloadData = {
                 'name': sourceEdgeGatewayDict['name'],
@@ -191,6 +197,27 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 },
             }
 
+            # Checking if target edge gateway is going to be connected to segment backed network directly
+            if sourceEdgeGatewayDict['name'] in data.get('isT1Connected', []):
+                for uplink in sourceEdgeGatewayDict['edgeGatewayUplinks']:
+                    if uplink['uplinkName'] in data['isT1Connected'][sourceEdgeGatewayDict['name']]:
+                        # Adding respective uplinks to target edge gateway payload
+                        uplinkDict = {
+                            'uplinkId': data['segmentToIdMapping'][uplink['uplinkName'] + '-v2t'],
+                            'uplinkName': uplink['uplinkName'] + '-v2t',
+                            'subnets': {
+                                'values': uplink['subnets']['values']
+                            }
+                        }
+                        payloadData['edgeGatewayUplinks'].append(uplinkDict)
+
+            # Checking if default edge gateway is configured on edge gateway
+            # and Setting primary ip to be used for edge gateway creation
+            defaultGateway = self.getEdgeGatewayDefaultGateway(sourceEdgeGatewayId)
+            for subnet in payloadData['edgeGatewayUplinks'][0]['subnets']['values']:
+                if subnet['gateway'] != defaultGateway:
+                    subnet['primaryIp'] = None
+
             # edge gateway create URL
             url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS)
             self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
@@ -220,6 +247,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             logger.info('Creating target Org VDC Edge Gateway')
             self._updateTargetExternalNetworkPool()
+            self.copyIPToSegmentBackedExtNet(edgeGatewayIpMigration=True, key='segmentBackedNetworkIP')
             self._createEdgeGateway(nsxObj)
             self.rollback.apiData['targetEdgeGateway'] = self.getOrgVDCEdgeGateway(
                 self.rollback.apiData['targetOrgVDC']['@id'])
@@ -233,6 +261,45 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 logger.debug("Lock released by thread - '{}'".format(threading.currentThread().getName()))
             except RuntimeError:
                 pass
+
+    @description("Disconnection of external network directly connected to T1")
+    @remediate
+    def disconnectSegmentBackedNetwork(self):
+        """
+        Description : Disconnection of NSX-T segment backed external network from target edge gateways
+        """
+        if not self.rollback.apiData.get('isT1Connected'):
+            return
+        logger.debug('Disconnecting segment backed external network directly connected to target edge gateways')
+        data = self.rollback.apiData
+        for targetEdgeGateway in data.get('targetEdgeGateway', []):
+            if targetEdgeGateway['name'] not in data['isT1Connected']:
+                continue
+            payloadDict = copy.deepcopy(targetEdgeGateway)
+            del payloadDict['status']
+            t0Gateway = self.orgVdcInput['EdgeGateways'][targetEdgeGateway['name']]['Tier0Gateways']
+            targetUplinks = [uplink for uplink in targetEdgeGateway['edgeGatewayUplinks'] if uplink['uplinkName'] == t0Gateway]
+            payloadDict['edgeGatewayUplinks'] = targetUplinks
+
+            # edge gateway update URL
+            url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
+                                   targetEdgeGateway['id'])
+            # creating the payload data
+            payloadData = json.dumps(payloadDict)
+            self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+            # put api to reconnect the target edge gateway
+            response = self.restClientObj.put(url, self.headers, data=payloadData)
+            if response.status_code == requests.codes.accepted:
+                taskUrl = response.headers['Location']
+                # checking the status of the reconnecting target edge gateway task
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug(
+                    'Target Org VDC Edge Gateway {} disconnected from segment backed external networks successfully.'.format(targetEdgeGateway['name']))
+            else:
+                raise Exception(
+                    'Failed to disconnect target Org VDC Edge Gateway from external networks {}'.format(targetEdgeGateway['name'],
+                                                                                   response.json()['message']))
+        logger.debug('Successfully disconnect target Edge gateway from external network directly connected to T1.')
 
     @description("Allowing of non distributed routing for edge gateway.")
     @remediate
@@ -1220,7 +1287,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     if self.rollback.apiData.get('OrgVDCGroupID', {}).get(targetEdgeGateway['id']):
                         ownerRef = self.rollback.apiData['OrgVDCGroupID'].get(targetEdgeGateway['id'])
                         payloadDict['ownerRef'] = {'id': ownerRef}
-                payloadDict['edgeGatewayUplinks'][0]['connected'] = reconnect
+                    if targetEdgeGateway['name'] in data['isT0Connected']:
+                        payloadDict['edgeGatewayUplinks'][0]['connected'] = reconnect
+                else:
+                    payloadDict['edgeGatewayUplinks'] = [payloadDict['edgeGatewayUplinks'][0]]
+                    payloadDict['edgeGatewayUplinks'][0]['connected'] = reconnect
+
                 # edge gateway update URL
                 url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
                                        targetEdgeGateway['id'])
@@ -2123,11 +2195,17 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             return
         # getting the org vdc networks info from metadata
         OrgVDCNetworkList = self.rollback.apiData.get('targetOrgVDCNetworks')
-        sourceStaticRoutes = self.rollback.apiData.get('sourceStaticRoutes', {})
+        sourceStaticRoutes = copy.deepcopy(self.rollback.apiData.get('sourceStaticRoutes', {}))
         for targetEdgeGateway in self.rollback.apiData.get('targetEdgeGateway', []):
             edgeGatewayID = targetEdgeGateway['id']
             edgeGatewayName = targetEdgeGateway['name']
             targetStaticRoutes = self.getTargetStaticRouteDetails(edgeGatewayID, edgeGatewayName)
+            if rollback:
+                sourceStaticRoutes[targetEdgeGateway["name"]] += [{"network": targetStaticRoute["networkCidr"],
+                                                                   "nextHop": targetStaticRoute["nextHops"][0]["ipAddress"],
+                                                                   "interface": targetStaticRoute["nextHops"][0]["scope"]["name"]}
+                                                                  for targetStaticRoute in targetStaticRoutes
+                                                                  if targetStaticRoute["networkCidr"] in ["0.0.0.0/1", "128.0.0.0/1"]]
             for targetStaticRoute in targetStaticRoutes:
                 for sourceStaticRoute in sourceStaticRoutes.get(edgeGatewayName):
                     if targetStaticRoute["networkCidr"] == sourceStaticRoute["network"]:
@@ -2142,7 +2220,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                         "adminDistance": targetStaticRoute["nextHops"][0]["adminDistance"],
                                         "scope": {
                                                     "name": sourceStaticRoute['interface'] + '-v2t',
-                                                    "id": OrgVDCNetworkList[sourceStaticRoute['interface'] + '-v2t']['id'],
+                                                    "id": OrgVDCNetworkList[sourceStaticRoute['interface'] + '-v2t']['id'] if
+                                                            sourceStaticRoute['interface'] + '-v2t' in OrgVDCNetworkList else
+                                                        self.rollback.apiData['segmentToIdMapping'][sourceStaticRoute['interface'] + '-v2t'],
                                                     "scopeType": "NETWORK"
                                         } if not rollback else None
                                     }
@@ -2162,6 +2242,81 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             else:
                                 raise Exception('Failed to set scope of static route')
                             break
+
+    @description("Updating target Edge Gateway NAT rules")
+    @remediate
+    def updateNATRules(self, rollback=False):
+        """
+        Description :   Updates the NAT rules created on internal interfaces of source edge gateway
+        """
+        if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+            return
+        data = self.rollback.apiData
+        targetEdgeGateway = copy.deepcopy(data['targetEdgeGateway'])
+        for sourceEdgeGateway in data['sourceEdgeGateway']:
+            sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
+            if data.get("natInterfaces", {}).get(sourceEdgeGatewayId):
+                t1gatewayId = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
+                                          targetEdgeGateway))[0]['id']
+                url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                      vcdConstants.ALL_EDGE_GATEWAYS,
+                                      vcdConstants.T1_ROUTER_NAT_CONFIG.format(t1gatewayId))
+                # rest api call to retrive target edge nat config
+                response = self.restClientObj.get(url, headers=self.headers)
+                if response.status_code == requests.codes.ok:
+                    responseDict = response.json()
+                    natRuleList = responseDict["values"]
+                else:
+                    raise Exception("Failed to fetch target edge gateway {} nat info".format(sourceEdgeGateway["name"]))
+
+                for natRule in natRuleList:
+                    if natRule["name"] not in data["natInterfaces"][sourceEdgeGatewayId]:
+                        continue
+
+                    putUrl = "{}{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                vcdConstants.ALL_EDGE_GATEWAYS,
+                                                vcdConstants.T1_ROUTER_NAT_CONFIG.format(t1gatewayId),
+                                                natRule["id"])
+                    payLoad = {
+                        "name": natRule.get("name"),
+                        "description": natRule.get("description"),
+                        "enabled": natRule.get("enabled"),
+                        "type": natRule.get("type"),
+                        "externalAddresses": natRule.get("externalAddresses"),
+                        "internalAddresses": natRule.get("internalAddresses"),
+                        "logging": natRule.get("logging"),
+                        "priority": natRule.get("priority"),
+                        "firewallMatch": natRule.get("firewallMatch"),
+                        "applicationPortProfile": natRule.get("applicationPortProfile"),
+                        "dnatExternalPort": natRule.get("dnatExternalPort"),
+                        "id": natRule.get("id")
+                    }
+                    if not rollback:
+                        if data["natInterfaces"][sourceEdgeGatewayId][natRule["name"]] in data["sourceOrgVDCNetworks"]:
+                            payLoad["appliedTo"] = {"id": data["targetOrgVDCNetworks"][
+                                data["natInterfaces"][sourceEdgeGatewayId][natRule["name"]] + '-v2t']["id"]}
+                        elif data["natInterfaces"][sourceEdgeGatewayId][natRule["name"]] in data.get("isT1Connected", {}).get(sourceEdgeGateway["name"], {}):
+                            payLoad["appliedTo"] = {"id": data["segmentToIdMapping"][
+                                data["natInterfaces"][sourceEdgeGatewayId][natRule["name"]] + '-v2t']}
+                    else:
+                        if data["natInterfaces"][sourceEdgeGatewayId][natRule["name"]] + '-v2t' not in data['segmentToIdMapping']:
+                            continue
+                        payLoad["appliedTo"] = None
+
+                    headers = {'Authorization': self.headers['Authorization'],
+                                'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+                    payloadDict = json.dumps(payLoad)
+                    response = self.restClientObj.put(putUrl, headers, data=payloadDict)
+                    if response.status_code == requests.codes.accepted:
+                        taskUrl = response.headers['Location']
+                        self._checkTaskStatus(taskUrl=taskUrl)
+                        logger.debug(
+                            "Target NAT rule '{}' on target edge gateway '{}' updated successfully".format(
+                                natRule["name"], t1gatewayId))
+                    else:
+                        raise Exception(
+                            'Failed to update NAT rule {} on target edge gateway {}'.format(natRule["name"],
+                                                                                            t1gatewayId))
 
     @isSessionExpired
     def disableDistributedRoutingOnOrgVdcEdgeGateway(self, orgVDCEdgeGatewayId):
@@ -2594,14 +2749,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description("Cleanup of IP/s from external network used by direct network")
     @remediate
-    def directNetworkIpCleanup(self, source=False):
+    def directNetworkIpCleanup(self, source=False, key="directNetworkIP"):
         """
         Description: Remove IP's from used by shared direct networks from external networks
         Parameters: source - Remove the IP's from source external network (BOOL)
         """
         try:
             # Return if there are no ip's to migrate
-            if not self.rollback.apiData.get("directNetworkIP"):
+            if not self.rollback.apiData.get(key):
                 return
             # Locking thread as external network can be common
             self.lock.acquire(blocking=True)
@@ -2609,7 +2764,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if not source:
                 logger.debug("Rollback: Clearing IP's from NSX-T segment backed external network")
             # Iterating over all the networks to migrate the ip's
-            for extNetName, ipData in self.rollback.apiData["directNetworkIP"].items():
+            for extNetName, ipData in self.rollback.apiData[key].items():
                 extNetName = extNetName + '-v2t' if not source else extNetName
 
                 # Fetching source external network
@@ -2676,7 +2831,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description("Migration of IP/s to segment backed external network")
     @remediate
-    def copyIPToSegmentBackedExtNet(self, rollback=False, orgVDCIDList=None):
+    def copyIPToSegmentBackedExtNet(self, rollback=False, orgVDCIDList=None, edgeGatewayIpMigration=False, key='directNetworkIP'):
         """
         Description: Migrate the IP assigned to vm connected to shared direct network to segment backed external network
         """
@@ -2684,7 +2839,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # Acquire thread lock
             self.lock.acquire(blocking=True)
 
-            if not rollback:
+            if edgeGatewayIpMigration and self.rollback.apiData.get('isT1Connected', {}):
+                self.getIpUsedByEdgeGateway()
+
+            if not rollback and not edgeGatewayIpMigration:
                 #Fetching the IP's to be migrated to segment backed external network
                 # getting the source org vdc urn
                 sourceOrgVDCId = self.rollback.apiData.get('sourceOrgVDC', {}).get('@id', str())
@@ -2717,7 +2875,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                                       responseDict['message']))
 
             # Return if there are no ip's to migrate
-            if not self.rollback.apiData.get("directNetworkIP"):
+            if not self.rollback.apiData.get(key):
                 return
 
             if rollback:
@@ -2725,7 +2883,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             else:
                 logger.info("Copying IP's to NSX-T segment backed external network")
             # Iterating over all the networks to migrate the ip's
-            for extNetName, ipData in self.rollback.apiData["directNetworkIP"].items():
+            for extNetName, ipData in self.rollback.apiData[key].items():
 
                 # if not rollback ip's will be added to target nsxt segment backed external network
                 if not rollback:
@@ -2821,13 +2979,16 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # creating target Org VDC Edge Gateway
             self.createEdgeGateway(nsxObj)
 
+            # disconnecting external network directly connected to T1 via CSP port
+            self.disconnectSegmentBackedNetwork()
+
             implicitGateways, implicitNetworks = set(), set()
             if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
                 # Configure Edge gateway RateLimits
                 self.configureEdgeGWRateLimit(nsxObj)
 
                 # Allow Non distributed routing for edge gateways
-                implicitGateways, implicitNetworks = self._checkNonDistributedImplicitCondition(orgVdcNetworkList)
+                implicitGateways, implicitNetworks = self._checkNonDistributedImplicitCondition(orgVdcNetworkList, natConfig=True)
                 self.allowNonDistributedRoutingOnEdgeGW(implicitGateways)
 
             # only if source org vdc networks exist
@@ -2930,9 +3091,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # reconnecting target Org VDC networks
                 self.reconnectOrgVDCNetworks(sourceOrgVDCId, targetOrgVDCId, source=False)
 
-                # set static route scopes
-                self.setStaticRoutesScope()
-
             # configuring firewall security groups
             self.configureFirewall(networktype=True)
 
@@ -2947,9 +3105,25 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # reconnecting target org vdc edge gateway from T0
             self.reconnectTargetEdgeGateway()
 
+            # set static route scopes
+            self.setStaticRoutesScope()
+
+            # setting static routes for NSX-T segment directly connected to target edge gateways
+            self.setEdgeGatewayStaticRoutes()
+
+            # update NAT rules in internal interfaces
+            self.updateNATRules()
+
+            # update firewall rules
+            self.updateFirewallRules()
+
             # updating route redistribution rules on tier-0 routers for rules
             if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
                 self.updateRouteRedistributionRules(nsxtObj)
+
+            # Configure DNAT rules for non-distributed network if implicit condition is met
+            if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
+                self.configureTargetDnatForDns()
 
             if float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
                 # increase in scope of Target edgegateways
@@ -2980,10 +3154,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     if [obj for obj in vcdObjList if hasattr(obj, '__exception__')]:
                         return
                     continue
-
-            # Configure DNAT rules for non-distributed network if implicit condition is met
-            if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2):
-                self.configureTargetDnatForDns()
         except:
             logger.error(traceback.format_exc())
             self.__exception__ = True
@@ -5753,6 +5923,34 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     directNetworkIPS[externalNetworkName] = list(set(ipList))
                 self.rollback.apiData["directNetworkIP"] = directNetworkIPS
             return ipList
+        except:
+            raise
+        finally:
+            self.saveMetadataInOrgVdc()
+
+    @isSessionExpired
+    def getIpUsedByEdgeGateway(self):
+        """
+        Description: Method to find all the IPS to be migrated used by edge gateways and save that to metadata
+        """
+        try:
+            data = self.rollback.apiData
+            directNetworkIPS = data.get("segmentBackedNetworkIP", {})
+            for edgeGateway in data.get('sourceEdgeGateway', []):
+                ipAddressList = list()
+                for externalNetworkName in data['isT1Connected'].get(edgeGateway['name'], {}):
+                    externalNetworkId = [uplink['uplinkId'] for uplink in edgeGateway['edgeGatewayUplinks'] if externalNetworkName == uplink['uplinkName']][0]
+                    url = "{}{}/{}/usedIpAddresses".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EXTERNAL_NETWORKS, externalNetworkId)
+                    headers = {'Authorization': self.headers['Authorization'],
+                               'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+                    edgeGatewayConnectedToExtNetList = self.getPaginatedResults('External Network IP usage', url, headers)
+                    ipAddressList = ipAddressList + [edge['ipAddress'] for edge in edgeGatewayConnectedToExtNetList if edge['entityId'] == edgeGateway['id']]
+                    if externalNetworkName in directNetworkIPS:
+                        directNetworkIPS[externalNetworkName] = list(set(directNetworkIPS[externalNetworkName] + ipAddressList))
+                    else:
+                        directNetworkIPS[externalNetworkName] = list(set(ipAddressList))
+
+            data["segmentBackedNetworkIP"] = directNetworkIPS
         except:
             raise
         finally:
