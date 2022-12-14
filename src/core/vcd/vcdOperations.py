@@ -3218,6 +3218,30 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 logger.debug("No Catalogs exist in Organization")
                 return
 
+            # resourceEntitiesList holds the resource entities of source org vdc
+            resourceEntitiesList = listify(sourceOrgVDCResponseDict['AdminVdc']['ResourceEntities']['ResourceEntity'])
+
+            # sourceCatalogItemsList holds the list of resource entities of type media or vapp template found in source org vdc
+            sourceCatalogItemsList = [resourceEntity for resourceEntity in resourceEntitiesList if
+                                      resourceEntity['@type'] == vcdConstants.TYPE_VAPP_MEDIA or resourceEntity[
+                                            '@type'] == vcdConstants.TYPE_VAPP_TEMPLATE]
+
+            organizationCatalogItemList = []
+            # organizationCatalogItemList holds the resource entities of type vapp template from whole organization
+            organizationCatalogItemList = self.getvAppTemplates(orgId)
+            # now organizationCatalogItemList will also hold resource entities of type media from whole organization
+            organizationCatalogItemList.extend(self.getCatalogMedia(orgId))
+            # commonCatalogItemsDetailsList holds the details of catalog common from source org vdc and organization
+            commonCatalogItemsDetailsList = [orgResource for orgResource in organizationCatalogItemList for
+                                             srcResource in sourceCatalogItemsList if
+                                                srcResource['@href'] == orgResource['href']]
+            # Validate if any stale vapp template/media files found
+            catalogItemsWithNoCatalog = self.validateVappMediasNotStale(commonCatalogItemsDetailsList)
+            if catalogItemsWithNoCatalog:
+                logger.warning(
+                    "Media Items - {} with no catalog linked to them exists. Migration of catalog might fail. Please "
+                    "remove stale items manually.".format(','.join(catalogItemsWithNoCatalog)))
+
             # getting the target storage profile details
             targetOrgVDCId = targetOrgVDCId.split(':')[-1]
             # url to get target org vdc details
@@ -3315,25 +3339,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     # no catalog items found in the source org vdc
                     logger.debug("No catalogs items found in the source org vdc")
                     return
-
-                # resourceEntitiesList holds the resource entities of source org vdc
-                resourceEntitiesList = sourceOrgVDCResponseDict['AdminVdc']['ResourceEntities']['ResourceEntity'] if isinstance(sourceOrgVDCResponseDict['AdminVdc']['ResourceEntities']['ResourceEntity'], list) else [sourceOrgVDCResponseDict['AdminVdc']['ResourceEntities']['ResourceEntity']]
-
-                # sourceCatalogItemsList holds the list of resource entities of type media or vapp template found in source org vdc
-                # each catalog item in sourceCatalogItemsList after updating will be dictionary with keys { '@href', '@id', '@name', '@type', 'catalogName', 'catalogHref', 'catalogItemHref', 'catalogDescription'}
-                sourceCatalogItemsList = [resourceEntity for resourceEntity in resourceEntitiesList if resourceEntity['@type'] == vcdConstants.TYPE_VAPP_MEDIA or resourceEntity['@type'] == vcdConstants.TYPE_VAPP_TEMPLATE]
-
-                organizationCatalogItemList = []
-                # organizationCatalogItemList holds the resource entities of type vapp template from whole organization
-                organizationCatalogItemList = self.getvAppTemplates(orgId)
-                # now organizationCatalogItemList will also hold resource entities of type media from whole organization
-                organizationCatalogItemList.extend(self.getCatalogMedia(orgId))
-
-                # commonCatalogItemsDetailsList holds the details of catalog common from source org vdc and organization
-                # commonCatalogItemsDetailsList will have many keys, but our interest keys are 'href' - href, 'catalogName' - name of catalog, 'catalog' - catalog href, 'catalogItem' - catalog item href
-                # Note: If the catalog item is of media type then all above keys are present; but if catalog item is of type vapp template then only  'href' and 'catalogName' is present.
-                # So we need to find the values of 'catalog' and 'catalogItem', since those are needed further
-                commonCatalogItemsDetailsList = [orgResource for orgResource in organizationCatalogItemList for srcResource in sourceCatalogItemsList if srcResource['@href'] == orgResource['href']]
 
                 # getting the default storage profile of the target org vdc
                 defaultTargetStorageProfileHref = None
