@@ -6178,10 +6178,23 @@ class VCDMigrationValidation:
                         f"Org VDC contains subscribed Catalog {srcCatalog.get('@name')} that can't be migrated. Please remove the catalog before cleanup.")
                 else:
                     raise Exception(f"Org VDC contains subscribed Catalog {srcCatalog.get('@name')} that can't be migrated. Please remove the catalog before cleanup.")
+
         if v2tAssessmentMode and errorList:
                 raise ValidationError(',\n'.join(errorList))
         if Migration:
             return orgId, sourceOrgVDCResponseDict, orgCatalogs, sourceOrgVDCCatalogDetails
+
+    def validateVappMediasNotStale(self, commonCatalogItemsDetailsList):
+        """
+        Description :   Method to get catalog items without catalog refernce in it
+        Prameters   :   commonCatalogItemsDetailsList - Common catalog items from source org and source org vdc
+        """
+        catalogItemsWithNoCatalog = []
+        for resource in commonCatalogItemsDetailsList:
+            if not resource.get('catalogName'):
+                catalogItemsWithNoCatalog.append(resource['href'].split("/")[-1])
+                logger.debug("Stale vApp templates or VM medias exist without catalog reference {}".format(resource['href']))
+        return catalogItemsWithNoCatalog
 
     @isSessionExpired
     def disableSourceAffinityRules(self):
