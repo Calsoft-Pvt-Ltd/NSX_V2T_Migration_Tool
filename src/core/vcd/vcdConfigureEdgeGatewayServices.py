@@ -3472,7 +3472,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.EDGE_GATEWAY_LOADBALANCER_VIRTUAL_SERVER)
             self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-            print(payload)
             response = self.restClientObj.post(url, self.headers, data=json.dumps(payload))
             if response.status_code == requests.codes.accepted:
                 taskUrl = response.headers['Location']
@@ -3658,7 +3657,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 payload.update({
                     'memberGroupRef': createIpset(poolData) if poolData['transparent'] == 'true' else None,
                 })
-            print(payload)
 
             url = '{}{}'.format(
                 vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.EDGE_GATEWAY_LOADBALANCER_POOLS)
