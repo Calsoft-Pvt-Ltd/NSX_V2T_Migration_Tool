@@ -8,7 +8,7 @@ variables:
   BUILD_VERSION: "$CI_COMMIT_BRANCH"
   BUILD_ID: "$CI_PIPELINE_ID"
   RELEASE_VERSION: "$BUILD_VERSION.$BUILD_ID"
-  FORCE_BUILD: "false"
+  FORCE_BUILD: "true"
   FORCE_PROVENANCE: "false"
 
 # Pip's cache doesn't store the python packages
@@ -40,6 +40,8 @@ build-windows:
 #    - pipenv update
     - $Env:PATH += ";C:\Users\vmware\AppData\Local\Programs\Python\Python38\Scripts\"
     - $Env:path
+    - CI_PIPELINE_CREATED_AT
+    - "Date: $env:CI_PIPELINE_CREATED_AT" | Out-File -FilePath release.yml -Append
   script:
     - echo "Build Windows package - RELEASE_VERSION=$Env:RELEASE_VERSION"
     - $Env:WINDOWS_PACKAGE="VMware-NSX-Migration-for-VMware-Cloud-Director-$Env:RELEASE_VERSION.zip"
