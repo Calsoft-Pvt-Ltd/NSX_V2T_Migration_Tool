@@ -161,6 +161,12 @@ EDGE_GATEWAY_LOADBALANCER_POOLS_USING_ID = 'edgeGateways/{}/loadBalancer/poolSum
 # load balancer virtual service uri for edge gateway using edge gateway id
 EDGE_GATEWAY_LOADBALANCER_VIRTUALSERVICE_USING_ID = 'edgeGateways/{}/loadBalancer/virtualServiceSummaries'
 
+# load balancer clouds uri using cloud id
+GET_LOADBALANCER_CLOUD_USING_ID = 'loadBalancer/clouds/{}'
+
+# load balancer controller uri using controller id
+GET_LOADBALANCER_CONTROLLER_USING_ID = 'loadBalancer/controllers/{}'
+
 # routing config uri for edge gateway by id
 EDGE_GATEWAY_ROUTING_CONFIG = "/{}/routing/config/"
 EDGE_GATEWAY_DHCP_RELAY_CONFIG_BY_ID = "/relay"

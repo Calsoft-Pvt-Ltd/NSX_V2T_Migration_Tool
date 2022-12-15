@@ -3490,17 +3490,18 @@ class VCDMigrationValidation:
         for pool in poolData:
             if not pool['transparent'] == 'true':
                 transparentErrors.append("All pools should be configured in transparent mode in Edge Gateway '{}'\n"
-                                         .format(edgeGatewayId))
-                loadBalancerConfigDict['Pools are mixed transparent and non transparent'].append(gatewayName)
+                                         .format(gatewayName))
+                loadBalancerConfigDict['Pools are mixed transparent and non transparent'].append(edgeGatewayId)
                 break
 
-        # Validating load balancer service subnet
-        if lbServiceNetwork and int(lbServiceNetwork.split('/')[-1]) > 28:
-            transparentErrors.append("LoadBalancerServiceNetwork should be /28 or less when transparent mode is enabled"
-                                     " on Edge Gateway '{}'\n".format(edgeGatewayId))
-
-        # Validating service engine group haMode
         if not v2tAssessmentMode:
+            # Validating load balancer service subnet
+            if lbServiceNetwork and int(lbServiceNetwork.split('/')[-1]) > 28:
+                transparentErrors.append(
+                    "LoadBalancerServiceNetwork should be /28 or less when transparent mode is enabled"
+                    " on Edge Gateway '{}'\n".format(gatewayName))
+
+            # Validating service engine group haMode
             serviceEngineGroupResultList = self.getServiceEngineGroupDetails()
             serviceEngineGroupName = self.orgVdcInput['EdgeGateways'][gatewayName]['ServiceEngineGroupName']
             if serviceEngineGroupResultList:
@@ -3510,6 +3511,36 @@ class VCDMigrationValidation:
                 if serviceEngineGroupDetails[0].get('haMode') != 'LEGACY_ACTIVE_STANDBY':
                     transparentErrors.append("Service engine group {} should be in Active-Standby mode when transparent"
                                              " mode is enabled on Edge Gateway {}\n".format(serviceEngineGroupName, edgeGatewayId))
+
+                # Validating AVI version at least 21.1.4 for transparent
+                serviceCloudId = serviceEngineGroupDetails[0]['serviceEngineGroupBacking']['loadBalancerCloudRef']['id']
+                logger.debug(
+                    "Getting NSX-T Cloud details backing the service engine group '{}'".format(serviceEngineGroupName))
+                cloudUrl = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                         vcdConstants.GET_LOADBALANCER_CLOUD_USING_ID.format(serviceCloudId))
+                responseCloud = self.restClientObj.get(cloudUrl, self.headers)
+                lbCloudDict = responseCloud.json()
+                if responseCloud.status_code == requests.codes.ok:
+                    logger.debug("Successfully retrieved NSX-T Cloud details")
+                    lbControllerId = lbCloudDict['loadBalancerCloudBacking']['loadBalancerControllerRef']['id']
+                    logger.debug(
+                        "Getting Load Balancer Controller details backing the cloud '{}'".format(lbCloudDict['name']))
+                    controllerUrl = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                  vcdConstants.GET_LOADBALANCER_CONTROLLER_USING_ID.format(lbControllerId))
+                    responseController = self.restClientObj.get(controllerUrl, self.headers)
+                    lbControllerDict = responseController.json()
+                    if responseController.status_code == requests.codes.ok:
+                        logger.debug("Successfully retrieved Load Balancer Controller details")
+                        if version.parse(lbControllerDict.get('version')) < version.parse('21.1.4'):
+                            transparentErrors.append(
+                                "AVI version should be 21.1.4 or above for transparent mode. Current version "
+                                "is '{}'".format(lbControllerDict.get('version')))
+                    else:
+                        raise Exception(
+                            'Failed to retrieve load balancer controller details due to error {}'.format(lbControllerDict['message']))
+                else:
+                    raise Exception(
+                        'Failed to retrieve load balancer cloud details due to error {}'.format(lbCloudDict['message']))
 
         return transparentErrors
 
