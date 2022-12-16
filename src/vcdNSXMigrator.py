@@ -500,7 +500,10 @@ class VMwareCloudDirectorNSXMigrator():
                         if vcdObj.rollback.metadata:
                             futures.append(executor.submit(vcdObj.copyIPToSegmentBackedExtNet, rollback=True))
                     waitForThreadToComplete(futures)
-                self.nsxtObjList[0].addSegmentToExclusionlist(self.vcdObjList, True)
+
+                # Adding segment to the exclusion list
+                self.nsxtObjList[0].addSegmentToExclusionlist(self.vcdObjList, beforeVMotion=True)
+
                 # if vApp migration was performed do rollback
                 self.vcdObjList[0].vappRollback(
                     self.vcdObjList, self.inputDict, self.timeoutForVappMigration, threadCount=self.threadCount)
@@ -526,8 +529,9 @@ class VMwareCloudDirectorNSXMigrator():
                     self.nsxtObjList[0].untagEdgeTransportNodes(
                             self.vcdObjList, self.inputDict, self.vcdObjList[0].rollback.apiData.get('taggedNodesList'))
 
-                 # Removing Segment from Exclusion List
+                # Removing Segment from Exclusion List
                 self.nsxtObjList[0].addSegmentToExclusionlist(self.vcdObjList)
+
                 # Rollback dfw/firewall rules
                 futures = list()
                 with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
