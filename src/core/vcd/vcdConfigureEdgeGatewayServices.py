@@ -74,7 +74,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             self.configStaticRoutes()
             # configuring loadbalancer
             self.configureLoadBalancer(nsxvObj)
-            logger.debug("Edge Gateway services configured successfully")
+            logger.info("Target Edge Gateway services configured successfully")
         except:
             logger.error(traceback.format_exc())
             raise
@@ -129,8 +129,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                      self.rollback.apiData['targetEdgeGateway']))[0]['id']
 
                 data = self.getEdgeGatewayFirewallConfig(sourceEdgeGatewayId, validation=False)
+                # fetching the nat rules of source edge gateway
+                natRules = self.getEdgeGatewayNatConfig(sourceEdgeGatewayId, validation=False)
                 # Checking NAT IP matching with firewall destination field
-                self.checkNatIpFirewallMatching(sourceEdgeGatewayId, edgeGatewayId, data)
+                self.checkNatIpFirewallMatching(sourceEdgeGatewayId, edgeGatewayId, data, natRules)
                 # retrieving list instance of firewall rules from source edge gateway
                 sourceFirewallRules = data if isinstance(data, list) else [data]
                 # getting vcd id
@@ -141,6 +143,25 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                               vcdConstants.ALL_EDGE_GATEWAYS,
                                               vcdConstants.T1_ROUTER_FIREWALL_CONFIG.format(edgeGatewayId))
                 if not networktype:
+                    fwScopeDict = self.rollback.apiData.get('fwScopeDict') or defaultdict(dict)
+                    if natRules.get('natRules'):
+                        natIpToSnatIdMapping = {natRule['originalAddress']: natRule['ruleTag'] for natRule in
+                                                listify(natRules.get('natRules', {}).get('natRule', [])) if
+                                                natRule['action'] == 'snat'}
+                        natIpToSnatVnicMapping = {natRule['originalAddress']: natRule['vnic'] for natRule in
+                                                  listify(natRules.get('natRules', {}).get('natRule', [])) if
+                                                  natRule['action'] == 'snat'}
+                        natIpToDnatIdMapping = {natRule['originalAddress']: natRule['ruleTag'] for natRule in
+                                                listify(natRules.get('natRules', {}).get('natRule', [])) if
+                                                natRule['action'] == 'dnat'}
+                        natIpToDnatVnicMapping = {natRule['originalAddress']: natRule['vnic'] for natRule in
+                                                  listify(natRules.get('natRules', {}).get('natRule', [])) if
+                                                  natRule['action'] == 'dnat'}
+                    else:
+                        natIpToSnatIdMapping = {}
+                        natIpToSnatVnicMapping = {}
+                        natIpToDnatIdMapping = {}
+                        natIpToDnatVnicMapping = {}
                     # retrieving the application port profiles
                     applicationPortProfilesList = self.getApplicationPortProfiles()
                     applicationPortProfilesDict = self.filterApplicationPortProfiles(applicationPortProfilesList)
@@ -186,7 +207,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         # fetch firewall groups created on target edge gateway
                         targetIPsetList = self.fetchFirewallGroups(urlFilter=vcdConstants.FIREWALL_GROUP_IPSET_FILTER.
                                                                    format(edgeGatewayId))
-
+                        if not networktype:
+                            fwSourceMappedToNat = set()
+                            fwDestinationMappedToNat = set()
+                            fwSourceScopeSet = set()
+                            fwDestinationScopeSet = set()
                         # checking for the source key in firewallRule dictionary
                         if firewallRule.get('source', None):
                             # retrieving ip address list source edge gateway firewall rule
@@ -208,6 +233,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             if not networktype:
                                 if ipAddressList:
                                     for ipAddress in ipAddressList:
+                                        if ipAddress in natIpToSnatIdMapping:
+                                            fwSourceMappedToNat.add(natIpToSnatIdMapping[ipAddress])
+                                            fwSourceScopeSet.add(natIpToSnatVnicMapping[ipAddress])
+                                        else:
+                                            fwSourceScopeSet.add(None)
                                         groupId = list(filter(lambda targetIPset: ipAddress == targetIPset['name'],
                                                               targetIPsetList))
                                         if groupId:
@@ -254,6 +284,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                 if firewallIdDict[edgeGatewayId].get(ipsetresponseDict['ipset']['name']):
                                                     ipsetDict = firewallIdDict[edgeGatewayId][ipsetresponseDict['ipset']['name']]
                                                     sourcefirewallGroupId.append(ipsetDict)
+                                            ipsetAddressList = ipsetresponseDict['ipset']['value'].split(',')
+                                            for ipAddress in listify(ipsetAddressList):
+                                                if ipAddress in natIpToSnatIdMapping:
+                                                    fwSourceMappedToNat.add(natIpToSnatIdMapping[ipAddress])
+                                                    fwSourceScopeSet.add(natIpToSnatVnicMapping[ipAddress])
+                                                else:
+                                                    fwSourceScopeSet.add(None)
                                         else:
                                             ipsetresponse = self.vcdUtils.parseXml(ipsetresponse.content)
                                             raise Exception("Failed to retrieve ipset group {} info - {}".format(ipsetgroup, ipsetresponse['error']['details']))
@@ -327,6 +364,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             if not networktype:
                                 if ipAddressList:
                                     for ipAddress in ipAddressList:
+                                        if ipAddress in natIpToDnatIdMapping:
+                                            fwDestinationMappedToNat.add(natIpToDnatIdMapping[ipAddress])
+                                            fwDestinationScopeSet.add(natIpToDnatVnicMapping[ipAddress])
+                                        else:
+                                            fwDestinationScopeSet.add(None)
                                         groupId = list(filter(lambda targetIPset: ipAddress == targetIPset['name'],
                                                               targetIPsetList))
                                         if groupId:
@@ -370,6 +412,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                                 if firewallIdDict[edgeGatewayId].get(ipsetresponseDict['ipset']['name']):
                                                     ipsetDict = firewallIdDict[edgeGatewayId][ipsetresponseDict['ipset']['name']]
                                                     destinationfirewallGroupId.append(ipsetDict)
+                                            ipsetAddressList = ipsetresponseDict['ipset']['value'].split(',')
+                                            for ipAddress in listify(ipsetAddressList):
+                                                if ipAddress in natIpToDnatIdMapping:
+                                                    fwDestinationMappedToNat.add(natIpToDnatIdMapping[ipAddress])
+                                                    fwDestinationScopeSet.add(natIpToDnatVnicMapping[ipAddress])
+                                                else:
+                                                    fwDestinationScopeSet.add(None)
                                         else:
                                             ipsetresponse = self.vcdUtils.parseXml(ipsetresponse.content)
                                             raise Exception("Failed to retrieve ipset group {} info - {}".format(ipsetgroup, ipsetresponse['error']['details']))
@@ -490,6 +539,14 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 # setting the configStatus flag meaning the particular firewall rule is configured successfully in order to skip its reconfiguration
                                 self.rollback.apiData[firewallRule['id']] = sourceEdgeGatewayId
                                 logger.debug('Firewall rule {} created successfully.'.format(firewallRule['name']))
+                                if len(fwSourceScopeSet) == 1 and None not in fwSourceScopeSet:
+                                    if not fwDestinationScopeSet or fwSourceScopeSet == fwDestinationScopeSet or (len(fwDestinationScopeSet) == 1 and None in fwDestinationScopeSet):
+                                       fwScopeDict[edgeGatewayId][firewallRule["id"]] = fwSourceMappedToNat
+
+                                if len(fwDestinationScopeSet) == 1 and None not in fwDestinationScopeSet:
+                                    if not fwSourceScopeSet or fwSourceScopeSet == fwDestinationScopeSet or (len(fwSourceScopeSet) == 1 and None in fwSourceScopeSet):
+                                       fwScopeDict[edgeGatewayId][firewallRule["id"]] = fwDestinationMappedToNat
+                                self.rollback.apiData['fwScopeDict'] = fwScopeDict
                             else:
                                 # failure in configuration of firewall rules on target edge gateway
                                 response = response.json()
@@ -503,14 +560,12 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             self.saveMetadataInOrgVdc()
             raise
 
-    def checkNatIpFirewallMatching(self, sourceEdgeGatewayId, targetEdgeGatewayId, userDefinedFirewallRules):
+    def checkNatIpFirewallMatching(self, sourceEdgeGatewayId, targetEdgeGatewayId, userDefinedFirewallRules, natRules):
         """
         Description :   Gets the Firewall Configuration details of the specified Edge Gateway
         Parameters  :   sourceEdgeGatewayId   -   Id of the Edge Gateway  (STRING)
                         userDefinedFirewallRules - user defined firewall rules on edge gateway (LIST)
         """
-        # fetching the nat rules of source edge gateway
-        natRules = self.getEdgeGatewayNatConfig(sourceEdgeGatewayId, validation=False)
         # fetching target org vdc networks
         orgvdcNetworks = self.getOrgVDCNetworks(self.rollback.apiData["targetOrgVDC"]["@id"], 'targetOrgVDCNetworks',
                                                 saveResponse=False)
@@ -888,6 +943,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     routingConfigDetails = self.getEdgeGatewayRoutingConfig(sourceEdgeGatewayId,
                                                                             sourceEdgeGateway['name'],
                                                                             validation=False)
+                    # get details of edge gateway vnics
+                    vNicsDetails = self.getEdgeGatewayVnicDetails(sourceEdgeGatewayId)
                     # get details of all Non default gateway subnet, default gateway and noSnatRules
                     allnonDefaultGatewaySubnetList, defaultGatewayDict, noSnatRulesList = self.getEdgeGatewayNoSnatStaticRoute(
                         sourceEdgeGatewayId, staticRoutingConfig)
@@ -906,6 +963,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     statusForNATConfiguration = self.rollback.apiData.get('NATstatus', {})
                     rulesConfigured = statusForNATConfiguration.get(t1gatewayId, [])
                     if data['enabled'] == 'true':
+                        if not self.rollback.apiData.get("natInterfaces"):
+                            self.rollback.apiData["natInterfaces"] = {}
+                        if not self.rollback.apiData["natInterfaces"].get(sourceEdgeGatewayId):
+                            self.rollback.apiData["natInterfaces"][sourceEdgeGatewayId] = {}
                         for sourceNATRule in userDefinedNAT:
                             destinationIpDict = dict()
                             # checking whether 'ConfigStatus' key is present or not if present skipping that rule while remediation
@@ -932,7 +993,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                         'netmask': eachParticipant['netmask']}
                                     break
 
-                            payloadData = self.createNATPayloadData(sourceNATRule, applicationPortProfilesList, version,
+                            payloadData = self.createNATPayloadData(sourceEdgeGatewayId, sourceEdgeGateway['name'], sourceNATRule, vNicsDetails,
+                                                                    applicationPortProfilesList, version,
                                                                     defaultGatewayDict, destinationIpDict, noSnatRulesList,
                                                                     bgpConfigDetails, routingConfigDetails, noSnatDestSubnetList=noSnatDestSubnet)
                             payloadData = payloadData if isinstance(payloadData, list) else [payloadData]
@@ -1123,6 +1185,145 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             else:
                 raise Exception("Failed to create static route on target edge gateway {}".format(edgeGatewayName))
         logger.debug("Successfully configured static routes on target edge gateway {}".format(edgeGatewayName))
+
+    @description("Setting static routes on target edge gateways")
+    @remediate
+    def setEdgeGatewayStaticRoutes(self):
+        """
+        Description :   Create static routes on the Target Edge Gateway connected to NSX-T segment via CSP port
+        Parameters:     targetEdgeGatewayId - target edge gateway id (STRING)
+
+        """
+        data = self.rollback.apiData
+        if not data.get('isT1Connected'):
+            return
+        logger.debug("Setting static routes for target edge gateways")
+        networkList = ['0.0.0.0/1', '128.0.0.0/1']
+        for targetEdgeGateway in data['targetEdgeGateway']:
+            if targetEdgeGateway['name'] not in data['isT1Connected']:
+                continue
+            logger.debug("Setting static routes for target edge gateway - {}".format(targetEdgeGateway['name']))
+            sourceEdgeGatewayId = list(filter(lambda edgeGateway: edgeGateway["name"] == targetEdgeGateway["name"],
+                                        self.rollback.apiData["sourceEdgeGateway"]))[0]["id"]
+            sourceEdgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
+            defaultGateway = self.getEdgeGatewayDefaultGateway(sourceEdgeGatewayId)
+            uplinkName = None
+            for uplink, subnetData in data['isT1Connected'][targetEdgeGateway["name"]].items():
+                if any([defaultGateway == subnetTuple[0] for subnetTuple in subnetData]):
+                    uplinkName = uplink + '-v2t'
+                    uplinkId = data['segmentToIdMapping'][uplinkName]
+                    break
+            if not uplinkName:
+                continue
+            url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                  vcdConstants.ALL_EDGE_GATEWAYS,
+                                  vcdConstants.TARGET_STATIC_ROUTE.format(targetEdgeGateway['id']))
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+            for network in networkList:
+                payloadData = {
+                    "name": "User-defined-route",
+                    "description": "Static route for directly connected external network",
+                    "networkCidr": network,
+                    "nextHops": [
+                        {
+                            "ipAddress": defaultGateway,
+                            "adminDistance": "1",
+                            "scope": {
+                                "name": uplinkName,
+                                "id": uplinkId,
+                                "scopeType": "NETWORK"
+                            }
+                        }
+                    ]
+                }
+                payloadDict = json.dumps(payloadData)
+                response = self.restClientObj.post(url, headers, data=payloadDict)
+                if response.status_code == requests.codes.accepted:
+                    taskUrl = response.headers['Location']
+                    self._checkTaskStatus(taskUrl=taskUrl)
+                    logger.debug(
+                        f"Successfully created static route {network} for network {uplinkName} on target edge gateway - {targetEdgeGateway['name']}")
+                else:
+                    raise Exception(
+                        "Failed to create static route on target edge gateway {}".format(targetEdgeGateway['name']))
+        logger.debug(
+            "Successfully configured static routes on target edge gateway edge gateways")
+
+    @description("Updating scopes of FW rules on target edge gateways")
+    @remediate
+    def updateFirewallRules(self, rollback=False):
+        """
+        Description : Updating firewall rules interfaces
+        """
+        try:
+            if float(self.version) < float(vcdConstants.API_VERSION_CASTOR_10_4_1):
+                return
+            for targetEdgeGateway in self.rollback.apiData.get('targetEdgeGateway', []):
+                if not self.rollback.apiData.get('fwScopeDict', {}).get(targetEdgeGateway['id']):
+                    continue
+                # url to configure firewall rules on target edge gateway
+                firewallUrl = "{}{}{}?pageSize=128".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                              vcdConstants.ALL_EDGE_GATEWAYS,
+                                              vcdConstants.T1_ROUTER_FIREWALL_CONFIG.format(targetEdgeGateway["id"]))
+                # get api call to retrieve firewall info of target edge gateway
+                response = self.restClientObj.get(firewallUrl, self.headers)
+                if response.status_code == requests.codes.ok:
+                    # successful retrieval of firewall info
+                    responseDict = response.json()
+                    userDefinedFirewallRulesList = responseDict['userDefinedRules']
+                else:
+                    raise Exception("Failed to fetch target edge gateway {} firewall rules".format(targetEdgeGateway["name"]))
+                # url to configure firewall rules on target edge gateway
+                natUrl = "{}{}{}?pageSize=128".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                vcdConstants.ALL_EDGE_GATEWAYS,
+                                                vcdConstants.T1_ROUTER_NAT_CONFIG.format(targetEdgeGateway["id"]))
+                # get api call to retrieve firewall info of target edge gateway
+                response = self.restClientObj.get(natUrl, self.headers)
+                if response.status_code == requests.codes.ok:
+                    # successful retrieval of firewall info
+                    responseDict = response.json()
+                    natRulesList = responseDict['values']
+                else:
+                    raise Exception("Failed to fetch target edge gateway {} NAT rules".format(targetEdgeGateway["name"]))
+
+                for firewallRuleId, natRuleIds in self.rollback.apiData['fwScopeDict'][targetEdgeGateway['id']].items():
+                    if not rollback:
+                        natRuleId = list(natRuleIds)[0]
+                        for natRule in natRulesList:
+                            if natRuleId == natRule['name']:
+                                networkData = natRule.get("appliedTo")
+                                break
+                        for firewallRule in userDefinedFirewallRulesList:
+                            if firewallRuleId == firewallRule["name"].split('-')[-1]:
+                                firewallRuleData = firewallRule
+                                break
+                        firewallRuleData["appliedTo"] = networkData
+                    else:
+                        for firewallRule in userDefinedFirewallRulesList:
+                            if firewallRuleId == firewallRule["name"].split('-')[-1]:
+                                firewallRuleData = firewallRule
+                                break
+                        firewallRuleData["appliedTo"] = None
+                    firewallUpdateUrl = "{}{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                  vcdConstants.ALL_EDGE_GATEWAYS,
+                                                  vcdConstants.T1_ROUTER_FIREWALL_CONFIG.format(targetEdgeGateway["id"]),
+                                                  firewallRuleData["id"])
+                    headers = {'Authorization': self.headers['Authorization'],
+                               'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+                    payLoadDict = json.dumps(firewallRuleData)
+                    response = self.restClientObj.put(firewallUpdateUrl, headers, data=payLoadDict)
+                    if response.status_code == requests.codes.accepted:
+                        taskUrl = response.headers['Location']
+                        self._checkTaskStatus(taskUrl=taskUrl)
+                        logger.debug("firewall rule {} scope {} updated on target edge gateway {}".format(
+                            firewallRuleData["name"], networkData["name"], targetEdgeGateway["id"]))
+                    else:
+                        raise Exception("Failed to update firewall rule {} scope".format(firewallRuleData["name"]))
+                logger.debug("Firewall rules scopes updated on target edge gateway {}".format(targetEdgeGateway["name"]))
+            logger.debug("Scopes of firewall rules updated successfully")
+        except:
+            raise
 
     @isSessionExpired
     def getTargetEdgeGatewayIpPrefixData(self, targetEdgeGatewayId):
@@ -1695,7 +1896,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 logger.debug(
                     "DHCP relay service not configured on source edge gateway : {}.".format(sourceEdgeGateway))
                 continue
-            
+
             # Configure DHCP relay service if DHCP server is configured , if not then continue.
             if not DHCPData['relay'].get('relayServer'):
                 logger.debug(
@@ -2159,7 +2360,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         except Exception:
             raise
 
-    def createNATPayloadData(self, sourceNATRule, applicationPortProfilesList, version,
+    def createNATPayloadData(self, sourceEdgeGatewayId, sourceEdgeGatewayName, sourceNATRule, vNicsDetails, applicationPortProfilesList, version,
                              defaultEdgeGateway, destinationIpDict, staticRoutesList, bgpDetails,
                              routingConfigDetails, noSnatDestSubnetList=None):
         """
@@ -2182,6 +2383,15 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
         # Convert the application port profile list to Dict.
         applicationPortProfilesDict = self.filterApplicationPortProfiles(applicationPortProfilesList)
+
+        # checking whether nat rule interface and updating metadata respectively
+        if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+            for vnicData in vNicsDetails:
+                if sourceNATRule["vnic"] == vnicData["index"]:
+                    if "portgroupName" in vnicData and (vnicData["portgroupName"] in self.rollback.apiData["sourceOrgVDCNetworks"] or \
+                        vnicData["portgroupName"] in self.rollback.apiData.get("isT1Connected", {}).get(sourceEdgeGatewayName, {})):
+                        self.rollback.apiData["natInterfaces"][sourceEdgeGatewayId][sourceNATRule['ruleTag']] = vnicData["portgroupName"]
+                    break
 
         # creating common payload dict for both DNAT AND SNAT
         payloadDict = {
@@ -2971,10 +3181,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 self.rollback.apiData['targetEdgeGateway']))[0]['id']
                 targetEdgeGatewayName = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
                                 self.rollback.apiData['targetEdgeGateway']))[0]['name']
-                LoadBalancerServiceNetwork = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get(
-                    'LoadBalancerServiceNetwork', None)
-                LoadBalancerServiceNetworkIPv6 = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get(
-                    'LoadBalancerServiceNetworkIPv6', None)
 
                 # url to retrieve the load balancer config info
                 url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
@@ -2982,46 +3188,49 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                       vcdConstants.EDGE_GATEWAY_LOADBALANCER_CONFIG.format(sourceEdgeGatewayId))
                 # get api call to retrieve the load balancer config info
                 response = self.restClientObj.get(url, self.headers)
-                if response.status_code == requests.codes.ok:
-                    responseDict = self.vcdUtils.parseXml(response.content)
-                    # checking if load balancer is enabled, if so raising exception
-                    if responseDict['loadBalancer']['enabled'] == "true":
-                        if not float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
-                            raise Exception("Load Balancer service is configured in the Source edge gateway {} but not supported in the Target".format(sourceEdgeGateway['name']))
-                        serviceEngineGroupResultList = self.getServiceEngineGroupDetails()
-                        if not serviceEngineGroupResultList:
-                             raise Exception('Service Engine Group does not exist.')
-
-                        logger.debug("Configuring LoadBalancer Services in Target Edge Gateway - {}".format(sourceEdgeGateway['name']))
-                        serviceEngineGroupName = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['ServiceEngineGroupName']
-                        serviceEngineGroupDetails = [serviceEngineGroup for serviceEngineGroup in
-                                                     serviceEngineGroupResultList if
-                                                     serviceEngineGroup['name'] == serviceEngineGroupName]
-                        if not serviceEngineGroupDetails:
-                            raise Exception("Service Engine Group {} is not present in Avi.".format(serviceEngineGroupName))
-
-                        self.serviceEngineGroupName = serviceEngineGroupDetails[0]['name']
-                        self.serviceEngineGroupId = serviceEngineGroupDetails[0]['id']
-                        # enable load balancer service
-                        self.enableLoadBalancerService(targetEdgeGatewayId, targetEdgeGatewayName)
-                        # enable DHCPv6 in SLACC mode if the LoadBalancerServiceNetworkIPv6 is configured.
-                        if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and LoadBalancerServiceNetworkIPv6:
-                            self.enableDHCPv6InSlaccMode(targetEdgeGatewayId, targetEdgeGatewayName)
-                        # service engine group assignment to target edge gateway
-                        self.assignServiceEngineGroup(targetEdgeGatewayId, targetEdgeGatewayName, serviceEngineGroupDetails[0])
-                        # creating pools
-                        self.createLoadBalancerPools(sourceEdgeGatewayId, targetEdgeGatewayId, targetEdgeGatewayName, nsxvObj)
-                        # creating load balancer virtual server
-                        self.createLoadBalancerVirtualService(sourceEdgeGatewayId, targetEdgeGatewayId, targetEdgeGatewayName)
-                    else:
-                        logger.debug("LoadBalancer Service is in disabled state in Source Edge Gateway - {}".format(sourceEdgeGateway['name']))
-                else:
+                if response.status_code != requests.codes.ok:
                     errorResponseData = response.json()
                     raise Exception(
                         "Failed to fetch load balancer config from source edge gateway '{}' due to error {}".format(
                             targetEdgeGatewayName, errorResponseData['message']
                         ))
-            logger.info('Target Edge gateway services got configured successfully.')
+
+                sourceLbConfig = self.vcdUtils.parseXml(response.content)
+                if sourceLbConfig['loadBalancer']['enabled'] != "true":
+                    logger.debug("LoadBalancer Service is in disabled state in Source Edge Gateway - {}".format(
+                        sourceEdgeGateway['name']))
+                    return
+
+                if not float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
+                    raise Exception(
+                        "Load Balancer service is configured in the Source edge gateway {} but not supported in the "
+                        "Target".format(sourceEdgeGateway['name']))
+
+                serviceEngineGroupResultList = self.getServiceEngineGroupDetails()
+                if not serviceEngineGroupResultList:
+                    raise Exception('Service Engine Group does not exist.')
+
+                logger.debug("Configuring LoadBalancer Services in Target Edge Gateway - {}".format(sourceEdgeGateway['name']))
+                serviceEngineGroupName = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['ServiceEngineGroupName']
+                serviceEngineGroupDetails = [
+                    serviceEngineGroup
+                    for serviceEngineGroup in serviceEngineGroupResultList
+                    if serviceEngineGroup['name'] == serviceEngineGroupName
+                ]
+                if not serviceEngineGroupDetails:
+                    raise Exception("Service Engine Group {} is not present in Avi.".format(serviceEngineGroupName))
+
+                self.serviceEngineGroupName = serviceEngineGroupDetails[0]['name']
+                self.serviceEngineGroupId = serviceEngineGroupDetails[0]['id']
+
+                self.enableLoadBalancerService(targetEdgeGatewayId, targetEdgeGatewayName, sourceLbConfig)
+                if (float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and
+                        self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName]['LoadBalancerServiceNetworkIPv6']):
+                    self.enableDHCPv6InSlaccMode(targetEdgeGatewayId, targetEdgeGatewayName)
+                self.assignServiceEngineGroup(targetEdgeGatewayId, targetEdgeGatewayName, serviceEngineGroupDetails[0])
+                self.createLoadBalancerPools(sourceEdgeGatewayId, sourceLbConfig, targetEdgeGatewayId, targetEdgeGatewayName, nsxvObj)
+                self.createLoadBalancerVirtualService(sourceEdgeGatewayId, sourceLbConfig, targetEdgeGatewayId, targetEdgeGatewayName)
+
         except Exception:
             # Updating execution result in metadata in case of failure
             self.rollback.executionResult['configureServices']['configureLoadBalancer'] = False
@@ -3096,73 +3305,27 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         except:
             raise
 
-    def createLoadBalancerVirtualService(self, sourceEdgeGatewayId, targetEdgeGatewayId, targetEdgeGatewayName):
+    def createLoadBalancerVirtualService(self, sourceEdgeGatewayId, sourceLbConfig, targetEdgeGatewayId, targetEdgeGatewayName):
         """
             Description :   Configure LoadBalancer virtual service on target edge gateway
             Params      :   sourceEdgeGatewayId - ID of source edge gateway (STRING)
                             targetEdgeGatewayId - ID of target edge gateway (STRING)
                             targetEdgeGatewayName - Name of target edge gateway (STRING)
         """
-        try:
-            # Fetching virtual service configured on edge gateway
-            virtualServices = self.getVirtualServiceDetails(targetEdgeGatewayId)
 
-            poolNameIdDict = {}
-            # url for getting edge gateway load balancer virtual servers configuration
-            url = '{}{}'.format(
-                vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
-                vcdConstants.EDGE_GATEWAY_VIRTUAL_SERVER_CONFIG.format(sourceEdgeGatewayId))
-            response = self.restClientObj.get(url, self.headers)
-            if response.status_code == requests.codes.ok:
-                virtualServersData = self.vcdUtils.parseXml(response.content)
-            else:
-                raise Exception('Failed to get source edge gateway load balancer virtual servers configuration')
-
-            # getting loadbalancer config
-            url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
-                                  vcdConstants.NETWORK_EDGES,
-                                  vcdConstants.EDGE_GATEWAY_LOADBALANCER_CONFIG.format(sourceEdgeGatewayId))
-            response = self.restClientObj.get(url, self.headers)
-            if response.status_code == requests.codes.ok:
-                responseDict = self.vcdUtils.parseXml(response.content)
-                # Fetching pools data from response
-                sourceLBPools = responseDict['loadBalancer'].get('pool') \
-                    if isinstance(responseDict['loadBalancer'].get('pool'), list) \
-                    else [responseDict['loadBalancer'].get('pool')]
-
-                # Fetching application profiles data from response
-                applicationProfiles = responseDict['loadBalancer'].get('applicationProfile') \
-                    if isinstance(responseDict['loadBalancer'].get('applicationProfile'), list) \
-                    else [responseDict['loadBalancer'].get('applicationProfile')]
-
-            else:
-                raise Exception('Failed to get load balancer configuration from source edge gateway - {}'.format(
-                    targetEdgeGatewayName))
-
+        def getSourceToTargetPoolMap():
             # Fetching load balancer pools data
             targetLoadBalancerPoolSummary = self.getPoolSumaryDetails(targetEdgeGatewayId)
+            targetPoolNameIdDict = {
+                targetPool['name']: targetPool['id']
+                for targetPool in targetLoadBalancerPoolSummary
+            }
+            return {
+                pool['poolId']: (pool['name'], targetPoolNameIdDict[pool['name']])
+                for pool in sourceLBPools
+            }
 
-            # Iterating over pools to find the pool to be used in virtual service
-            for pool in sourceLBPools:
-                poolNameIdDict[pool['poolId']] = pool['name'], [targetPool for targetPool in
-                                                                targetLoadBalancerPoolSummary
-                                                                if targetPool['name'] == pool['name']
-                                                                ][0]['id']
-
-            virtualServersData = virtualServersData['loadBalancer']['virtualServer'] if isinstance(
-                virtualServersData['loadBalancer']['virtualServer'], list) else \
-                [virtualServersData['loadBalancer']['virtualServer']]
-
-            # if subnet is not provided in user input use default subnet
-            loadBalancerVIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get('LoadBalancerVIPSubnet')
-            LoadBalancerServiceNetworkIPv6 = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get('LoadBalancerServiceNetworkIPv6')
-
-            # Creating a list of hosts in a subnet
-            hostsListInSubnet = []
-            if loadBalancerVIPSubnet:
-                hostsListInSubnet = list(ipaddress.ip_network(loadBalancerVIPSubnet, strict=False).hosts())
-
-
+        def setAdditionalVirtualServersData(_virtualServersData):
             # url to retrieve the routing config info
             url = "{}{}/{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                                      vcdConstants.NETWORK_EDGES, sourceEdgeGatewayId, vcdConstants.VNIC)
@@ -3172,140 +3335,178 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 responseDict = self.vcdUtils.parseXml(response.content)
                 vNicsDetails = responseDict['vnics']['vnic']
             else:
-                errorResponseData = response.json()
-                raise Exception("Failed to get edge gateway {} vnic details due to error {}".format(sourceEdgeGatewayId, errorResponseData['message']))
+                raise Exception(
+                    "Failed to get edge gateway {} vnic details due to error {}".format(
+                        sourceEdgeGatewayId, response.json()['message']))
+
             vnicIpToTypeMap = {}
             for vnics in vNicsDetails:
                 if vnics['addressGroups']:
                     if 'primaryAddress' in vnics['addressGroups']['addressGroup']:
                         vnicIpToTypeMap[vnics['addressGroups']['addressGroup']['primaryAddress']] = vnics['type']
                     if 'secondaryAddresses' in vnics['addressGroups']['addressGroup']:
-                        for ip in listify(vnics['addressGroups']['addressGroup']['secondaryAddresses']['ipAddress']):
+                        for ip in listify(
+                                vnics['addressGroups']['addressGroup']['secondaryAddresses']['ipAddress']):
                             vnicIpToTypeMap[ip] = vnics['type']
+
             extVirtualServerIP = list()
-            for virtualServer in virtualServersData:
-                if isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv4Address) \
-                        and vnicIpToTypeMap[virtualServer['ipAddress']] == 'uplink':
-                    extVirtualServerIP.append(virtualServer['ipAddress'])
+            for virtualServer in _virtualServersData:
+                virtualServer['retainSourceVip'] = True
+                if ipaddress.ip_address(virtualServer['ipAddress']).version == 4:
+                    virtualServer['vipVersion'] = 4
+                    if not transparentModeEnabled and vnicIpToTypeMap[virtualServer['ipAddress']] == 'uplink':
+                        virtualServer['retainSourceVip'] = False
+                        extVirtualServerIP.append(virtualServer['ipAddress'])
+                elif ipaddress.ip_address(virtualServer['ipAddress']).version == 6:
+                    virtualServer['vipVersion'] = 6
+                else:
+                    raise Exception('Unknown IP version')
 
-            if loadBalancerVIPSubnet and len(hostsListInSubnet) < len(extVirtualServerIP):
-                raise Exception("Number of hosts in network - {} is less than the number of virtual server in edge gateway{}".format(loadBalancerVIPSubnet, targetEdgeGatewayName))
+        # Fetching virtual service configured on edge gateway
+        virtualServices = self.getVirtualServiceDetails(targetEdgeGatewayId)
+        transparentModeEnabled = self.isTransparentModeEnabled(sourceLbConfig)
+        virtualServersData = self.getSourceVirtualServiceDetails(sourceEdgeGatewayId)
+        setAdditionalVirtualServersData(virtualServersData)
 
-            for virtualServer in virtualServersData:
-                isVipInternal = float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) \
-                                and isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv4Address) \
-                                and vnicIpToTypeMap.get(virtualServer['ipAddress']) == 'internal'
-                # If virtual service is already created on target then skip it
-                if virtualServer['name'] in [service['name'] for service in virtualServices]:
-                    logger.debug(f'Virtual service {virtualServer["name"]} already created on target edge gateway {targetEdgeGatewayName}')
-                    if isVipInternal:
-                        continue
+        sourceLBPools = listify(sourceLbConfig['loadBalancer'].get('pool'))
+        applicationProfiles = listify(sourceLbConfig['loadBalancer'].get('applicationProfile'))
+        lbCertificates = self.getCertificatesFromTenant()
+        poolNameIdDict = getSourceToTargetPoolMap()
+
+
+        vipToBeReplaced = [
+            virtualServer['ipAddress']
+            for virtualServer in virtualServersData
+            if not virtualServer['retainSourceVip']
+        ]
+        hostsListInSubnet = []
+        if vipToBeReplaced:
+            # Creating a list of hosts in a subnet
+            loadBalancerVIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName]['LoadBalancerVIPSubnet']
+            if not loadBalancerVIPSubnet:
+                raise Exception('loadBalancerVIPSubnet value not provided in User Input file')
+
+            hostsListInSubnet = list(ipaddress.ip_network(loadBalancerVIPSubnet, strict=False).hosts())
+            # TODO pranshu: LB Move to precheck
+            if len(hostsListInSubnet) < len(vipToBeReplaced):
+                raise Exception(
+                    "Number of hosts in network - {} is less than the number of virtual server in edge gateway "
+                    "{}".format(loadBalancerVIPSubnet, targetEdgeGatewayName))
+
+        def getCertificateRef(vs):
+            isTcpCert = False
+            if vs['protocol'] == 'https' and vs['protocol'] == 'tcp':
+                for profile in applicationProfiles:
+                    if profile['applicationProfileId'] == vs['applicationProfileId']:
+                        certificateObjectId = profile.get('clientSsl', {}).get('serviceCertificate')
+
+                        if vs['protocol'] == 'tcp':
+                            isTcpCert = True
+
+                        # Certificates payload
+                        return {
+                            'name': certificateObjectId,
+                            'id': lbCertificates[certificateObjectId]
+                        }, isTcpCert
+
+            return None, isTcpCert
+
+        for virtualServer in virtualServersData:
+            certificateRef, certificateForTCP = getCertificateRef(virtualServer)
+
+            # If virtual service is already created on target then skip it
+            if virtualServer['name'] in [service['name'] for service in virtualServices]:
+                logger.debug(f'Virtual service {virtualServer["name"]} already created on target edge gateway {targetEdgeGatewayName}')
+                if not virtualServer['retainSourceVip']:
                     # Incrementing the IPV4 address for next virtual service
-                    if loadBalancerVIPSubnet and hostsListInSubnet and not isVipInternal:
-                        hostsListInSubnet.pop(0)
-                    continue
-                payloadData = {
-                    "name": virtualServer["name"],
-                    "description": virtualServer.get("description", ""),
-                    "enabled": virtualServer["enabled"],
-                    "loadBalancerPoolRef": {
-                        "name": poolNameIdDict[virtualServer["defaultPoolId"]][0],
-                        "id": poolNameIdDict[virtualServer["defaultPoolId"]][1],
-                    },
-                    "gatewayRef": {
-                        "name": targetEdgeGatewayName,
-                        "id": targetEdgeGatewayId,
-                    },
-                    "serviceEngineGroupRef": {
-                        "name": self.serviceEngineGroupName,
-                        "id": self.serviceEngineGroupId,
-                    },
-                    "servicePorts": [
-                        {"portStart": port.split("-")[0], "portEnd": port.split("-")[1],
-                         "sslEnabled": True if virtualServer["protocol"] == "https" else False}
-                        if "-" in port
-                        else {"portStart": port, "sslEnabled": True if virtualServer["protocol"] == "https" else False}
-                        for port in virtualServer["port"].split(",")
-                    ]
-                }
+                    hostsListInSubnet.pop(0)
+                continue
 
-                certificateForTCP = False
+            payload = {
+                "name": virtualServer["name"],
+                "description": virtualServer.get("description", ""),
+                "enabled": virtualServer["enabled"],
+                'virtualIpAddress':
+                    str(virtualServer['ipAddress'] if virtualServer['retainSourceVip'] else hostsListInSubnet.pop(0))
+                    if virtualServer['vipVersion'] == 4 else None,
+                "loadBalancerPoolRef": {
+                    "name": poolNameIdDict[virtualServer["defaultPoolId"]][0],
+                    "id": poolNameIdDict[virtualServer["defaultPoolId"]][1],
+                },
+                "gatewayRef": {
+                    "name": targetEdgeGatewayName,
+                    "id": targetEdgeGatewayId,
+                },
+                "serviceEngineGroupRef": {
+                    "name": self.serviceEngineGroupName,
+                    "id": self.serviceEngineGroupId,
+                },
+                'certificateRef': certificateRef,
+                "servicePorts": [
+                    {
+                        "portStart": virtualServer["port"],
+                        "sslEnabled": virtualServer["protocol"] == "https"
+                    }
+                ],
+                'applicationProfile': {
+                    "type":
+                        "HTTP" if virtualServer['protocol'] == 'http'
+                        else "HTTPS" if virtualServer['protocol'] == 'https'
+                        else "L4 TLS" if certificateForTCP
+                        else "L4",
+                    "systemDefined": True,
+                },
+            }
 
-                if virtualServer['protocol'] == 'https' or virtualServer['protocol'] == 'tcp':
-                    applicationProfileId = virtualServer['applicationProfileId']
-                    applicationProfileData = [profile for profile in applicationProfiles
-                                              if profile['applicationProfileId'] == applicationProfileId]
+            # Add fields introduced in specific VCD versions
+            if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+                payload.update({
+                    'ipv6VirtualIpAddress':
+                        str(virtualServer['ipAddress']) if virtualServer['vipVersion'] == 6 else None,
+                })
 
-                    applicationProfileData = applicationProfileData[0] if applicationProfileData else None
+            if float(self.version) >= float(vcdConstants.API_VERSION_CASTOR_10_4_1):
+                payload.update({
+                    'transparentModeEnabled': transparentModeEnabled,
+                })
 
-                    if applicationProfileData:
-                        certificateObjectId = applicationProfileData.get('clientSsl', {}).get('serviceCertificate', None)
+            url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.EDGE_GATEWAY_LOADBALANCER_VIRTUAL_SERVER)
+            self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+            response = self.restClientObj.post(url, self.headers, data=json.dumps(payload))
+            if response.status_code == requests.codes.accepted:
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug('Successfully created virtual server - {} for load balancer on target edge gateway'.format(
+                    virtualServer['name']
+                ))
 
-                        if virtualServer['protocol'] == 'tcp' and certificateObjectId:
-                            certificateForTCP = True
-
-                        if certificateObjectId:
-                            # Getting certificates from org vdc tenant portal
-                            lbCertificates = self.getCertificatesFromTenant()
-
-                            # Certificates payload
-                            certificatePayload = {
-                                'name': certificateObjectId,
-                                'id': lbCertificates[certificateObjectId]
-                                 }
-                            payloadData["certificateRef"] = certificatePayload
-                else:
-                    payloadData["certificateRef"] = None
-
-                applicationProfilePayload = {
-                    "type": "HTTP" if virtualServer['protocol'] == 'http'
-                    else "HTTPS" if virtualServer['protocol'] == 'https'
-                    else "L4 TLS" if certificateForTCP
-                    else "L4",
-                    "systemDefined": True
-                }
-                payloadData['applicationProfile'] = applicationProfilePayload
-
-                # Add ipv4 virtual IP address.
-                # configure ipv4 virtual ip address, based on YAML parameter and IP address used in NSX-V virtual service.
-                if isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv4Address):
-                    payloadData['virtualIpAddress'] = str(
-                        virtualServer['ipAddress'] if isVipInternal else hostsListInSubnet.pop(0))
-                # Add ipv6 virtual IP address.
-                if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and \
-                        LoadBalancerServiceNetworkIPv6 and \
-                        isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv6Address):
-                    payloadData['ipv6VirtualIpAddress'] = str(virtualServer['ipAddress'])
-
-                payloadData = json.dumps(payloadData)
-                url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.EDGE_GATEWAY_LOADBALANCER_VIRTUAL_SERVER)
-                self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-                # post api call to configure virtual server for load balancer service
-                response = self.restClientObj.post(url, self.headers, data=payloadData)
-                if response.status_code == requests.codes.accepted:
-                    taskUrl = response.headers['Location']
-                    self._checkTaskStatus(taskUrl=taskUrl)
-                    logger.debug('Successfully created virtual server - {} for load balancer on target edge gateway'.format(
-                        virtualServer['name']
-                    ))
-                    payloadData = json.loads(payloadData)
-                    # Name of DNAT rule to be created for load balancer virtual service
+                # Creating DNAT rule for virtual service
+                if not virtualServer['retainSourceVip']:
                     DNATRuleName = f'{virtualServer["name"]}-DNAT-RULE'
-                    # Creating DNAT rule for virtual service
-                    if not isVipInternal and isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv4Address):
-                        self.createDNATRuleForLoadBalancer(targetEdgeGatewayId, DNATRuleName, payloadData['virtualIpAddress'],
-                                                           virtualServer['ipAddress'], virtualServer['port'])
-                else:
-                    errorResponseData = response.json()
-                    raise Exception(
-                        "Failed to create virtual server '{}' for load balancer on target edge gateway '{}' due to error {}".format(
-                            virtualServer['name'], targetEdgeGatewayName, errorResponseData['message']
-                        ))
-        except:
-            raise
+                    self.createDNATRuleForLoadBalancer(targetEdgeGatewayId, DNATRuleName, payload['virtualIpAddress'],
+                                                       virtualServer['ipAddress'], virtualServer['port'])
+            else:
+                errorResponseData = response.json()
+                raise Exception(
+                    "Failed to create virtual server '{}' for load balancer on target edge gateway '{}' due to error {}".format(
+                        virtualServer['name'], targetEdgeGatewayName, errorResponseData['message']
+                    ))
+
+    def getSourceVirtualServiceDetails(self, sourceEdgeGatewayId):
+        # url for getting edge gateway load balancer virtual servers configuration
+        url = '{}{}'.format(
+            vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+            vcdConstants.EDGE_GATEWAY_VIRTUAL_SERVER_CONFIG.format(sourceEdgeGatewayId))
+        response = self.restClientObj.get(url, self.headers)
+        if response.status_code != requests.codes.ok:
+            # TODO pranshu: print exception
+            raise Exception('Failed to get source edge gateway load balancer virtual servers configuration')
+
+        virtualServersData = self.vcdUtils.parseXml(response.content)
+        return listify(virtualServersData['loadBalancer']['virtualServer'])
 
     @isSessionExpired
-    def createLoadBalancerPools(self, sourceEdgeGatewayId, targetEdgeGatewayId, targetEdgeGatewayName, nsxvObj):
+    def createLoadBalancerPools(self, sourceEdgeGatewayId, sourceLbConfig, targetEdgeGatewayId, targetEdgeGatewayName, nsxvObj):
         """
             Description :   Configure LoadBalancer service pools on target edge gateway
             Params      :   sourceEdgeGatewayId - ID of source edge gateway (STRING)
@@ -3313,260 +3514,237 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             targetEdgeGatewayName - Name of target edge gateway (STRING)
                             nsxvObj - NSXVOperations class object (OBJECT)
         """
-        # Fetching load balancer pools configured on target edge gateway
         loadBalancerPools = self.getPoolSumaryDetails(targetEdgeGatewayId)
-        # getting loadbalancer config
-        url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
-                              vcdConstants.NETWORK_EDGES,
-                              vcdConstants.EDGE_GATEWAY_LOADBALANCER_CONFIG.format(sourceEdgeGatewayId))
-        response = self.restClientObj.get(url, self.headers)
-        if response.status_code == requests.codes.ok:
-            responseDict = self.vcdUtils.parseXml(response.content)
-            # Fetching pools data from response
-            pools = responseDict['loadBalancer'].get('pool') \
-                if isinstance(responseDict['loadBalancer'].get('pool'), list) \
-                else [responseDict['loadBalancer'].get('pool')]
+        pools = listify(sourceLbConfig['loadBalancer'].get('pool'))
+        healthMonitors = listify(sourceLbConfig['loadBalancer'].get('monitor'))
+        applicationProfiles = listify(sourceLbConfig['loadBalancer'].get('applicationProfile'))
+        virtualServersData = self.getSourceVirtualServiceDetails(sourceEdgeGatewayId)
 
-            # Fetching health monitors data from response
-            healthMonitors = responseDict['loadBalancer'].get('monitor') \
-                if isinstance(responseDict['loadBalancer'].get('monitor'), list) \
-                else [responseDict['loadBalancer'].get('monitor')]
+        # Fetching object id's of certificates used for https configuration
+        objectIdsOfCertificates = [profile['clientSsl']['serviceCertificate'] for profile in applicationProfiles if profile.get('clientSsl')]
 
-            # Fetching application profiles data from response
-            applicationProfiles = responseDict['loadBalancer'].get('applicationProfile') \
-                if isinstance(responseDict['loadBalancer'].get('applicationProfile'), list) \
-                else [responseDict['loadBalancer'].get('applicationProfile')]
+        # Getting certificates from org vdc tenant portal
+        lbCertificates = self.getCertificatesFromTenant()
 
-            # url for getting edge gateway load balancer virtual servers configuration
-            url = '{}{}'.format(
-                vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
-                vcdConstants.EDGE_GATEWAY_VIRTUAL_SERVER_CONFIG.format(sourceEdgeGatewayId))
-            response = self.restClientObj.get(url, self.headers)
-            if response.status_code == requests.codes.ok:
-                virtualServersData = self.vcdUtils.parseXml(response.content)
+        # Uploading certificate to org vdc tenant portal
+        for objectId in objectIdsOfCertificates:
+            if objectId in lbCertificates:
+                logger.debug('Certificate {} already present in vCD tenant portal'.format(objectId))
+                continue
             else:
-                raise Exception('Failed to get source edge gateway load balancer virtual servers configuration')
+                # Fetch certificate from nsx-v
+                certificate = nsxvObj.certRetrieval(objectId)
+                logger.debug('Uploading the certificate {} for load balancer HTTPS configuration'.format(objectId))
+                self.uploadCertificate(certificate, objectId)
 
-            virtualServersData = virtualServersData['loadBalancer']['virtualServer'] if isinstance(
-                virtualServersData['loadBalancer']['virtualServer'], list) else \
-                [virtualServersData['loadBalancer']['virtualServer']]
+        def createIpset(pool):
+            ipsetUrl = '{}{}'.format(
+                vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                vcdConstants.CREATE_FIREWALL_GROUP)
+            ipsetPayload = {
+                'name': pool['name'] + '_IP_SET',
+                'description': '',
+                'ipAddresses': [member['ipAddress'] for member in listify(pool.get('member'))],
+                'ownerRef': {'id': targetEdgeGatewayId},
+                'typeValue': 'IP_SET',
+            }
+            ipsetResponse = self.restClientObj.post(ipsetUrl, self.headers, data=json.dumps(ipsetPayload))
+            if ipsetResponse.status_code != requests.codes.accepted:
+                raise Exception('Failed to create Firewall group - {}'.format(ipsetResponse.json()['message']))
 
-            # Fetching object id's of certificates used for https configuration
-            objectIdsOfCertificates = [profile['clientSsl']['serviceCertificate'] for profile in applicationProfiles if profile.get('clientSsl')]
+            ipSetStaticGroup = self._checkTaskStatus(taskUrl=ipsetResponse.headers['Location'], returnOutput=True)
+            logger.debug(
+                f"Firewall Group created: {ipsetPayload['name']}({ipSetStaticGroup}) on {ipsetPayload['ownerRef']['id']}")
+            return {
+                'name': ipsetPayload['name'],
+                'id': f'urn:vcloud:firewallGroup:{ipSetStaticGroup}',
+            }
 
-            # Getting certificates from org vdc tenant portal
-            lbCertificates = self.getCertificatesFromTenant()
+        def getPersistenceProfile(pool):
+            # finding virtual service corresponding to this load balancer pool
+            virtualServer = list(filter(lambda vserver: vserver['defaultPoolId'] == pool['poolId'], virtualServersData))
+            persistenceProfile = None
+            if virtualServer:
+                applicationProfileId = virtualServer[0]['applicationProfileId']
+                applicationProfileData = list(filter(
+                    lambda profile: profile['applicationProfileId'] == applicationProfileId, applicationProfiles))[0]
 
-            # Uploading certificate to org vdc tenant portal
-            for objectId in objectIdsOfCertificates:
-                if objectId in lbCertificates:
-                    logger.debug('Certificate {} already present in vCD tenant portal'.format(objectId))
-                    continue
-                else:
-                    # Fetch certificate from nsx-v
-                    certificate = nsxvObj.certRetrieval(objectId)
-                    logger.debug('Uploading the certificate {} for load balancer HTTPS configuration'.format(objectId))
-                    self.uploadCertificate(certificate, objectId)
-
-            # Iterating over pools to create pools for load balancer in target
-            for poolData in pools:
-
-                persistenceProfile = {}
-
-                # finding virtual service corresponding to this load balancer pool
-                virtualServer = list(filter(lambda vserver: vserver['defaultPoolId'] == poolData['poolId'], virtualServersData))
-
-                if virtualServer:
-                    applicationProfileId = virtualServer[0]['applicationProfileId']
-                    applicationProfileData = list(filter(lambda profile: profile['applicationProfileId'] == applicationProfileId, applicationProfiles))[0]
-
-                    # creating persistence profile payload for pool creation
-                    if applicationProfileData and applicationProfileData.get('persistence'):
-                        persistenceData = applicationProfileData.get('persistence')
-                        if persistenceData['method'] == 'cookie':
-                            persistenceProfile = {
-                                "type": "HTTP_COOKIE",
-                                "value": persistenceData['cookieName']
-                            }
-                        if persistenceData['method'] == 'sourceip':
-                            persistenceProfile = {
-                                "type": "CLIENT_IP",
-                                "value": ""}
-
-                # If pool is already created on target then skip
-                if poolData['name'] in [pool['name'] for pool in loadBalancerPools]:
-                    logger.debug(f'Pool {poolData["name"]} already created on target edge gateway {targetEdgeGatewayName}')
-                    continue
-
-                # Filtering the health monitors used in pools
-                healthMonitorUsedInPool = list(filter(
-                    lambda montitor:montitor['monitorId'] == poolData.get('monitorId', None), healthMonitors))
-
-                # Fetching pool memmers from pool data
-                if poolData.get('member'):
-                    poolMembers = poolData.get('member') if isinstance(poolData.get('member'), list) else [poolData.get('member')]
-                else:
-                    poolMembers = []
-
-                # file path of template.json
-                filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.json')
-
-                # Creating pool dict for load balancer pool creation
-                payloadDict = {
-                    'poolName': poolData['name'],
-                    'description': poolData.get('description', ''),
-                    'algorithm': "LEAST_CONNECTIONS" if poolData['algorithm'] == 'leastconn'
-                                                     else poolData['algorithm'].upper().replace('-', '_'),
-                    'gatewayName': targetEdgeGatewayName,
-                    'gatewayId': targetEdgeGatewayId
-                }
-                payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='json',
-                                                          componentName=vcdConstants.COMPONENT_NAME,
-                                                          templateName=vcdConstants.CREATE_LOADBALANCER_POOL)
-                payloadData = json.loads(payloadData)
-
-                # Adding pool members in pool payload
-                targetPoolMembers = []
-                for member in poolMembers:
-                    memberDict = {
-                                "ipAddress": member['ipAddress'],
-                                "port": member['port'],
-                                "ratio": member['weight'],
-                                "enabled": True if member['condition'] == 'enabled' else False
-                                }
-                    targetPoolMembers.append(memberDict)
-                payloadData['members'] = targetPoolMembers
-
-                # adding persistence profile in payload
-                if persistenceProfile:
-                    payloadData['persistenceProfile'] = persistenceProfile
-
-                # Adding health monitors in pool payload
-                if healthMonitorUsedInPool:
-                    healthMonitorsForPayload = [
-                        {
-                            "type": 'HTTP' if healthMonitorUsedInPool[0]['type'] == 'http'
-                                          else 'HTTPS' if healthMonitorUsedInPool[0]['type'] == 'https'
-                                          else 'TCP' if healthMonitorUsedInPool[0]['type'] == 'tcp'
-                                          else 'UDP' if healthMonitorUsedInPool[0]['type'] == 'udp'
-                                          else 'PING' if healthMonitorUsedInPool[0]['type'] == 'icmp'
-                                          else None,
-                            "systemDefined": True
+                # creating persistence profile payload for pool creation
+                if applicationProfileData and applicationProfileData.get('persistence'):
+                    persistenceData = applicationProfileData.get('persistence')
+                    if persistenceData['method'] == 'cookie':
+                        persistenceProfile = {
+                            "type": "HTTP_COOKIE",
+                            "value": persistenceData['cookieName']
                         }
-                    ]
+                    if persistenceData['method'] == 'sourceip':
+                        persistenceProfile = {
+                            "type": "CLIENT_IP",
+                            "value": ""
+                        }
+            return persistenceProfile
 
-                    payloadData['healthMonitors'] = healthMonitorsForPayload
+        def getDefaultPort(_poolData):
+            # If pool transparent then pool default port is pool members port else 80
+            if _poolData['transparent'] == 'true' and _poolData.get('member'):
+                for member in listify(_poolData.get('member')):
+                    return member['port']
+            else:
+                return 80
 
 
-                # Adding certificates in pool payload if https config is present
-                if healthMonitorUsedInPool and healthMonitorUsedInPool[0]['type'] == 'https':
-                    lbCertificates = self.getCertificatesFromTenant()
-                    certificatePayload = [{'name': objectId, 'id': lbCertificates[objectId]}for objectId in objectIdsOfCertificates]
-                    payloadData["caCertificateRefs"] = certificatePayload
-                    if self.version >= vcdConstants.API_VERSION_BETELGEUSE_10_4:
-                        payloadData["sslEnabled"] = True
-                else:
-                    payloadData["caCertificateRefs"] = None
+        healthMonitorMap = {
+            'http': 'HTTP',
+            'https': 'HTTPS',
+            'tcp': 'TCP',
+            'udp': 'UDP',
+            'icmp': 'PING',
+        }
 
-                payloadData = json.dumps(payloadData)
+        # Iterating over pools to create pools for load balancer in target
+        for poolData in pools:
+            # If pool is already created on target then skip
+            if poolData['name'] in [pool['name'] for pool in loadBalancerPools]:
+                logger.debug(f'Pool {poolData["name"]} already created on target edge gateway {targetEdgeGatewayName}')
+                continue
 
-                # URL to create load balancer pools
-                url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.EDGE_GATEWAY_LOADBALANCER_POOLS)
-                self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-                # post api call to configure pool for load balancer service
-                response = self.restClientObj.post(url, self.headers, data=payloadData)
-                if response.status_code == requests.codes.accepted:
-                    taskUrl = response.headers['Location']
-                    self._checkTaskStatus(taskUrl=taskUrl)
-                else:
-                    # Error response JSON in case load balancer pool creation fails
-                    errorResponseData = response.json()
-                    raise Exception("Failed to create pool for load balancer on target edge gateway '{}' due to error {}".format(
-                        targetEdgeGatewayName, errorResponseData['message']
-                    ))
-        else:
-            raise Exception('Failed to get load balancer configuration from source edge gateway - {}'.format(targetEdgeGatewayName))
+            healthMonitorUsedInPool = list(filter(
+                lambda monitor: monitor['monitorId'] == poolData.get('monitorId', None), healthMonitors))
+
+            payload = {
+                'description': poolData.get('description', ''),
+                'enabled': True,
+                'passiveMonitoringEnabled': True,
+                'name': poolData['name'],
+                'defaultPort': getDefaultPort(poolData),
+                'gracefulTimeoutPeriod': 1,
+                'algorithm':
+                    'LEAST_CONNECTIONS' if poolData['algorithm'] == 'leastconn'
+                    else poolData['algorithm'].upper().replace('-', '_'),
+                'healthMonitors': [{
+                    "type": healthMonitorMap.get(healthMonitorUsedInPool[0]['type']),
+                    "systemDefined": True,
+                }],
+                'persistenceProfile': getPersistenceProfile(poolData),
+                'members': [
+                    {
+                        "ipAddress": member['ipAddress'],
+                        "port": member['port'],
+                        "ratio": member['weight'],
+                        "enabled": True if member['condition'] == 'enabled' else False
+                    }
+                    for member in listify(poolData.get('member'))
+                ] if poolData['transparent'] != 'true' else None,
+                'virtualServiceRefs': None,
+                'gatewayRef': {
+                    'name': targetEdgeGatewayName,
+                    'id': targetEdgeGatewayId
+                },
+                'caCertificateRefs': [
+                    {'name': objectId, 'id': lbCertificates[objectId]} for objectId in objectIdsOfCertificates
+                ] if healthMonitorUsedInPool and healthMonitorUsedInPool[0]['type'] == 'https' else None,
+            }
+
+            # Add fields introduced in specific VCD versions
+            if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+                payload.update({
+                    'sslEnabled':
+                        True if healthMonitorUsedInPool and healthMonitorUsedInPool[0]['type'] == 'https'
+                        else False,
+                })
+
+            if float(self.version) >= float(vcdConstants.API_VERSION_CASTOR_10_4_1):
+                payload.update({
+                    'memberGroupRef': createIpset(poolData) if poolData['transparent'] == 'true' else None,
+                })
+
+            url = '{}{}'.format(
+                vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.EDGE_GATEWAY_LOADBALANCER_POOLS)
+            self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+            response = self.restClientObj.post(url, self.headers, data=json.dumps(payload))
+            if response.status_code == requests.codes.accepted:
+                self._checkTaskStatus(taskUrl=response.headers['Location'])
+                logger.debug(f'Pool {poolData["name"]} created on target edge gateway {targetEdgeGatewayName}')
+            else:
+                errorResponseData = response.json()
+                raise Exception(
+                    "Failed to create pool for load balancer on target edge gateway '{}' due to error {}".format(
+                        targetEdgeGatewayName, errorResponseData['message']))
+
+    def isTransparentModeEnabled(self, sourceLbConfig):
+        if float(self.version) < float(vcdConstants.API_VERSION_CASTOR_10_4_1):
+            return False
+
+        return all(
+            pool["transparent"] == 'true'
+            for pool in listify(sourceLbConfig['loadBalancer'].get('pool'))
+        )
 
     @isSessionExpired
-    def enableLoadBalancerService(self, targetEdgeGatewayId, targetEdgeGatewayName, rollback=False):
+    def enableLoadBalancerService(
+            self, targetEdgeGatewayId, targetEdgeGatewayName, sourceLbConfig=None, rollback=False):
         """
             Description :   Enabling LoadBalancer virtual service on target edge gateway
             Params      :   targetEdgeGatewayId - ID of target edge gateway (STRING)
                             targetEdgeGatewayName - Name of target edge gateway (STRING)
                             rollback - flag to decide whether to disable or enable load balancer(BOOL)
         """
-        try:
-            if rollback:
-                logger.debug('Disabling LoadBalancer service on target Edge Gateway-{} as a part of rollback'.format(
-                    targetEdgeGatewayName))
-                payloadDict = {"enabled": False}
-            else:
-                logger.debug('Enabling LoadBalancer service on target Edge Gateway-{}'.format(targetEdgeGatewayName))
-                payloadDict = {"enabled": True}
+        if rollback:
+            logger.debug('Disabling LoadBalancer service on target Edge Gateway-{} as a part of rollback'.format(
+                targetEdgeGatewayName))
+            payload = {"enabled": False}
+        else:
+            logger.debug('Enabling LoadBalancer service on target Edge Gateway-{}'.format(targetEdgeGatewayName))
+            payload = {"enabled": True}
 
-            # url to enable loadbalancer service on target edge gateway
-            url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                  vcdConstants.ALL_EDGE_GATEWAYS,
-                                  vcdConstants.LOADBALANCER_ENABLE_URI.format(targetEdgeGatewayId))
-            payloadData = json.dumps(payloadDict)
-            self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-
-            # get api call to fetch load balancer service status from edge gateaway
-            response = self.restClientObj.get(url, self.headers, data=payloadData)
-            if response.status_code == requests.codes.ok:
-                responseData = response.json()
-            else:
-                errorResponseData = response.json()
-                raise Exception('Failed to fetch LoadBalancer service data from target Edge Gateway-{} with error-{}'.format(
+        # Get current load balancer status
+        url = "{}{}/{}".format(
+            vcdConstants.OPEN_API_URL.format(self.ipAddress),
+            vcdConstants.ALL_EDGE_GATEWAYS,
+            vcdConstants.LOADBALANCER_ENABLE_URI.format(targetEdgeGatewayId))
+        self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+        response = self.restClientObj.get(url, self.headers, data=json.dumps(payload))
+        if response.status_code != requests.codes.ok:
+            errorResponseData = response.json()
+            raise Exception(
+                'Failed to fetch LoadBalancer service data from target Edge Gateway-{} with error-{}'.format(
                     targetEdgeGatewayName, errorResponseData['message']))
 
-            lbServiceStatus = responseData['enabled']
-            if rollback and not lbServiceStatus:
-                logger.debug('Load Balancer already disabled on target Edge Gateway-{}'.format(targetEdgeGatewayName))
-                return
+        responseData = response.json()
+        lbServiceStatus = responseData['enabled']
+        if rollback and not lbServiceStatus:
+            logger.debug('Load Balancer already disabled on target Edge Gateway-{}'.format(targetEdgeGatewayName))
+            return
 
-            if not rollback and lbServiceStatus:
-                logger.debug('Load Balancer already enabled on target Edge Gateway-{}'.format(targetEdgeGatewayName))
-                return
+        if not rollback and lbServiceStatus:
+            logger.debug('Load Balancer already enabled on target Edge Gateway-{}'.format(targetEdgeGatewayName))
+            return
 
-            # if the LoadBalancerServiceNetworkIPv6 is configured then configure respective IPV6 service engine group.
-            LoadBalancerIPv4VIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get(
-                'LoadBalancerVIPSubnet', None)
-            LoadBalancerServiceNetwork = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get(
-                'LoadBalancerServiceNetwork', None)
-            LoadBalancerServiceNetworkIPv6 = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName].get(
-                'LoadBalancerServiceNetworkIPv6', None)
-            payloadData = json.loads(payloadData)
-            if not rollback:
-                # use service network for IPV4 from YAML
-                if LoadBalancerIPv4VIPSubnet and LoadBalancerServiceNetwork:
-                    payloadData["serviceNetworkDefinition"] = LoadBalancerServiceNetwork
+        # Set additional parameters
+        LoadBalancerIPv4VIPSubnet = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName]['LoadBalancerVIPSubnet']
+        LoadBalancerServiceNetwork = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName][
+            'LoadBalancerServiceNetwork']
+        LoadBalancerServiceNetworkIPv6 = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName][
+            'LoadBalancerServiceNetworkIPv6']
+        if not rollback:
+            if LoadBalancerIPv4VIPSubnet and LoadBalancerServiceNetwork:
+                payload["serviceNetworkDefinition"] = LoadBalancerServiceNetwork
+            if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and LoadBalancerServiceNetworkIPv6:
+                payload["ipv6ServiceNetworkDefinition"] = LoadBalancerServiceNetworkIPv6
+            if self.isTransparentModeEnabled(sourceLbConfig):
+                payload["transparentModeEnabled"] = True
 
-                # use service network for IPV6 from YAML
-                if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4) and LoadBalancerServiceNetworkIPv6:
-                    payloadData["ipv6ServiceNetworkDefinition"] = LoadBalancerServiceNetworkIPv6
-            payloadData = json.dumps(payloadData)
-
-            # put api call to enable load balancer on target edge gateway
-            response = self.restClientObj.put(url, self.headers, data=payloadData)
-            if response.status_code == requests.codes.accepted:
-                taskUrl = response.headers['Location']
-                self._checkTaskStatus(taskUrl)
-                if rollback:
-                    logger.debug('Successfully disabled LoadBalancer service on target Edge Gateway-{}'.format(
-                        targetEdgeGatewayName))
-                else:
-                    logger.debug('Successfully enabled LoadBalancer service on target Edge Gateway-{}'.format(targetEdgeGatewayName))
-            else:
-                errorResponseData = response.json()
-                if rollback:
-                    raise Exception(
-                        'Failed to disable LoadBalancer service on target Edge Gateway-{} with error-{}'.format(
-                            targetEdgeGatewayName, errorResponseData['message']))
-                else:
-                    raise Exception('Failed to enable LoadBalancer service on target Edge Gateway-{} with error-{}'.format(targetEdgeGatewayName, errorResponseData['message']))
-        except Exception:
-            raise
+        # Enable/Disable LB
+        response = self.restClientObj.put(url, self.headers, data=json.dumps(payload))
+        if response.status_code == requests.codes.accepted:
+            self._checkTaskStatus(response.headers['Location'])
+            logger.debug('Successfully {} LoadBalancer service on target Edge Gateway-{}'.format(
+                'disabled' if rollback else 'enabled', targetEdgeGatewayName))
+        else:
+            errorResponseData = response.json()
+            raise Exception(
+                'Failed to {} LoadBalancer service on target Edge Gateway-{} with error-{}'.format(
+                    'disable' if rollback else 'enable', targetEdgeGatewayName, errorResponseData['message']))
 
     @isSessionExpired
     def enableDHCPv6InSlaccMode(self, targetEdgeGatewayId, targetEdgeGatewayName, rollback=False):

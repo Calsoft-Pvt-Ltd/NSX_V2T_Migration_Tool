@@ -1498,9 +1498,11 @@ class VCDMigrationValidation:
             logger.debug("Validate the external networks subnet configuration.")
             # reading the data from metadata
             data = self.rollback.apiData
+            # creating metadata keys for edge gateways connected to T0/T1 on target
+            data['isT0Connected'] = dict()
             # Get external network to gateway mapping from orgvdc data
             errorList = list()
-
+            gatewayErrorList  = list()
             # comparing the source and target external network subnet configuration
             if 'sourceExternalNetwork' not in data.keys() or 'targetExternalNetwork' not in data.keys():
                 raise Exception('Target External Network not present')
@@ -1531,18 +1533,118 @@ class VCDMigrationValidation:
                     zip(targetExternalGatewayList, targetExternalPrefixLengthList)]
                 if not all(sourceNetworkAddress in targetNetworkAddressList for sourceNetworkAddress in
                            sourceNetworkAddressList):
+                    gatewayErrorList.append(edgeGateway["id"])
                     errorList.append(
                         'All the Source External Networks Subnets are not present in Target External Network - {} for edgeGateway {}.'.format(
                             extNetName, edgeGateway['name']))
+                else:
+                    data['isT0Connected'][edgeGateway['name']] = {extNetName: sourceExternalGatewayAndPrefixList}
 
             if errorList:
-                raise Exception('; '.join(errorList))
+                if float(self.version) >= float(vcdConstants.API_VERSION_CASTOR_10_4_1):
+                    segmentErrorList = self.validateSegmentBackedNetwork(gatewayErrorList)
+                    if segmentErrorList:
+                        raise Exception('; '.join(errorList + segmentErrorList))
+                else:
+                    raise Exception('; '.join(errorList))
             else:
                 logger.debug(
                     'Validated successfully, all the Source External Networks Subnets are present in Target External Network.')
 
         except Exception:
             raise
+
+    def validateSegmentBackedNetwork(self, gatewayErrorList):
+        """
+        Description : Validate '-v2t' suffixed NSX-T Segment backed network subnets
+        Parameters :  sourceExternalNetworkSubnetsDict - source external network to subnets mapping dict (DICT)
+        """
+        data = self.rollback.apiData
+        data['isT1Connected'] = dict()
+        data['segmentToIdMapping'] = dict()
+        data['vlanSegmentToGatewayMapping'] = dict()
+        errorList = list()
+
+        externalNetworks = self.fetchAllExternalNetworks()
+        for edgeGateway in copy.deepcopy(self.rollback.apiData['sourceEdgeGateway']):
+            if edgeGateway["id"] not in gatewayErrorList:
+                continue
+            # Get the uplinks for edge gateway
+            edgeGatewayUplinksData = edgeGateway['edgeGatewayUplinks']
+            # Get Target External network belongs to edge gateway.
+            t0Gateway = self.orgVdcInput['EdgeGateways'][edgeGateway['name']]['Tier0Gateways']
+            if not t0Gateway:
+                continue
+            # get external network details from metadata.
+            targetExternalNetwork = self.rollback.apiData['targetExternalNetwork'][t0Gateway]
+            targetNetworkAddressList = [
+                ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
+                for subnet in targetExternalNetwork['subnets']['values']]
+
+            data['isT1Connected'][edgeGateway['name']] = dict()
+            for uplink in edgeGatewayUplinksData:
+
+                uplinkGatewayAndPrefixList = {(subnet['gateway'], subnet['prefixLength']) for subnet in
+                                                      uplink['subnets']['values']}
+
+                uplinkAddressList = [ipaddress.ip_network('{}/{}'.format(gateway, prefixLength), strict=False)
+                                     for gateway, prefixLength in uplinkGatewayAndPrefixList]
+
+                if all(uplinkAddress in targetNetworkAddressList for uplinkAddress in uplinkAddressList):
+                    if t0Gateway in data['isT0Connected'].get(edgeGateway['name'], {}):
+                        data['isT0Connected'][edgeGateway['name']][t0Gateway].append(uplinkGatewayAndPrefixList)
+                    else:
+                        data['isT0Connected'][edgeGateway['name']] = {t0Gateway: uplinkGatewayAndPrefixList}
+                    continue
+
+                if len(uplinkAddressList) > 1:
+                    errorList.append("Edge Gateway {} is connected to multiple subnets of external network {}".format(edgeGateway['name'], uplink['uplinkName']))
+                    continue
+
+                for extNet in externalNetworks:
+                    # Finding segment backed ext net for shared direct network
+                    if extNet['name'] == uplink['uplinkName'] + '-v2t':
+                        if [backing for backing in extNet['networkBackings']['values'] if
+                            backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH']:
+                            extNetAddressList = [ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
+                                                 for subnet in extNet['subnets']['values']]
+                            if all(uplinkAddress in extNetAddressList for uplinkAddress in uplinkAddressList):
+                                # Checks whether the segment is VLAN or Overlay Backed
+                                # If VLAN backed checks if more than one edge gateways are getting connected
+                                # If more than 1 then gives error
+                                data['isT1Connected'][edgeGateway['name']][uplink['uplinkName']] = uplinkGatewayAndPrefixList
+                                data['segmentToIdMapping'][extNet['name']] = extNet['id']
+                                if any([backing.get("isNsxTVlanSegment") for backing in extNet['networkBackings']['values']]):
+                                    url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
+                                                        vcdConstants.VALIDATE_DEDICATED_EXTERNAL_NETWORK_FILTER.format(extNet["id"]))
+                                    headers = {'Authorization': self.headers['Authorization'],
+                                               'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+                                    response = self.restClientObj.get(url, headers)
+                                    if response.status_code == requests.codes.ok:
+                                        responseDict = response.json()
+                                        if responseDict["resultTotal"] > 0:
+                                            errorList.append("Cannot connect more than 1 edge gateways to VLAN backed segment {}".format(extNet["name"]))
+                                        else:
+                                            if isinstance(data['vlanSegmentToGatewayMapping'].get(extNet["name"]), list):
+                                                data['vlanSegmentToGatewayMapping'][extNet["name"]].append(edgeGateway["id"])
+                                            else:
+                                                data['vlanSegmentToGatewayMapping'][extNet["name"]] = [edgeGateway["id"]]
+                                    else:
+                                        raise Exception("Failed to fetch external network {} edge gateway uplink details".format(extNet["name"]))
+                                break
+                            else:
+                                errorList.append("edge gateway {} subnets not present in segment backed network {}".format(edgeGateway['name'], extNet['name']))
+                                break
+                else:
+                    errorList.insert(0, "External network {} is used by edge Gateway. It's equivalent NSX-T segment backed external network - {}-v2t is not present".format(
+                        uplink['uplinkName'], edgeGateway['name'], uplink['uplinkName']))
+        for vlanNet, edgeGatewayList in data['vlanSegmentToGatewayMapping'].items():
+            if len(edgeGatewayList) > 1:
+                errorList.append("More than 1 edge gateway connected to vlan backed segment is not allowed. Edge Gateways - {} "
+                                 "from Org VDC {} are trying to connect to vlan backed segment network {}".format(
+                                        edgeGatewayList, data["sourceOrgVDC"]["@name"], vlanNet))
+
+        return errorList
 
     @isSessionExpired
     def getOrgVDCAffinityRules(self, orgVDCId):
@@ -3273,6 +3375,176 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
+    def validateLBTransparent(self, edgeGatewayId, gatewayName, vsData, lbServiceNetwork, lbData, v2tAssessmentMode, loadBalancerConfigDict):
+        """
+        Description :   Validates the transparent load balancer
+        Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
+                        gatewayName -  Name of the Edge Gateway  (STRING)
+                        vsData - virtual server present on LB (LIST)
+                        lbServiceNetwork - User defined service network for LB (STRING)
+                        lbData - Load balancer api call data
+                        v2tAssessmentMode - bool the sets whether v2tAssessmentMode is executing this method or not (BOOLEAN)
+        """
+        if float(self.version) < float(vcdConstants.API_VERSION_CASTOR_10_4_1):
+            return ['Transparent Load balancer mode is configured in the Source edge gateway {} but not supported '
+                    'in the Target\n'.format(gatewayName)]
+
+        transparentErrors = []
+
+        # Storing ipsec site ips and name for relevant checks against virtual server ip
+        ipsecConfig = self.rollback.apiData['ipsecConfigDict'][gatewayName]
+        ipsecIPs = {
+            site['localIp']: site['name']
+            for site in listify(ipsecConfig['sites']['sites'])
+        } if ipsecConfig['enabled'] and ipsecConfig['sites'] else {}
+
+        # Storing relevant natrule ips and rule id for checking against pool members and virtual server
+        natRuleConfig = self.getEdgeGatewayNatConfig(edgeGatewayId, validation=False)
+        natrules = listify(natRuleConfig.get('natRules', {}).get('natRule', []))
+        dnatOriginalIPs = {
+            natrule['originalAddress']: natrule['ruleId']
+            for natrule in natrules
+            if natrule['ruleType'] == 'user' and natrule['action'] == 'dnat'
+        }
+        dnatTranslatedIPs = {
+            natrule['translatedAddress']: natrule['ruleId']
+            for natrule in natrules
+            if natrule['ruleType'] == 'user' and natrule['action'] == 'dnat'
+        }
+        snatTranslatedIPs = {
+            natrule['translatedAddress']: natrule['ruleId']
+            for natrule in natrules
+            if natrule['ruleType'] == 'user' and natrule['action'] == 'snat'
+        }
+
+        # fetching load balancer pools data and validating
+        poolData = listify(lbData['loadBalancer'].get('pool'))
+        for pool in poolData:
+            if pool['transparent'] == 'true' and pool.get('member'):
+                poolMembers = listify(pool.get('member'))
+
+                # Check if IPv6 used in pool members ip
+                for member in poolMembers:
+                    if isinstance(ipaddress.ip_address(member['ipAddress']), ipaddress.IPv6Address):
+                        transparentErrors.append(
+                            "IPv6 pool '{}' is not supported in transparent mode\n".format(pool['name']))
+                        loadBalancerConfigDict['Pool member IP address IPV6'].append(pool['name'])
+                        break
+
+                poolport = set()
+                # Check if members ip is used in any dnat rule translated addr
+                for member in poolMembers:
+                    if member['ipAddress'] in dnatTranslatedIPs.keys():
+                        transparentErrors.append(
+                            "Translated IP '{}' of DNAT rule '{}' is used in pool {}\n"
+                            .format(member['ipAddress'], dnatTranslatedIPs.get(member['ipAddress']), pool['name']))
+                        loadBalancerConfigDict['Pool member IP overlapping DNAT'].append(pool['name'])
+
+                    poolport.add(member['port'])
+
+                # Check if poolports are equal in this pool
+                if len(poolport) != 1:
+                    transparentErrors.append(
+                        "Pool '{}' should have uniform port across all members when transparent mode is enabled\n".format(pool['name']))
+                    loadBalancerConfigDict['Pool members using different ports'].append(pool['name'])
+
+                # For a transparent pool's virtual server check
+                for virtualServer in vsData:
+                    if virtualServer.get('defaultPoolId') and pool['poolId'] == virtualServer.get('defaultPoolId'):
+                        # Check if transparent VS has IPV6
+                        if isinstance(ipaddress.ip_address(virtualServer['ipAddress']),
+                                      ipaddress.IPv6Address):
+                            transparentErrors.append(
+                                "IPv6 virtual server '{}' is not supported in transparent mode\n".format(virtualServer['name']))
+                            loadBalancerConfigDict['Virtual server IP address IPV6'].append(virtualServer['name'])
+
+                        # Check if VS ip is being used in user-defined dnat or snat or ipsec sites
+                        if virtualServer['ipAddress'] in dnatOriginalIPs.keys():
+                            transparentErrors.append(
+                                "The VIP '{}' of virtual server '{}' should not be used in DNAT rule '{}' when "
+                                "transparent mode is enabled\n".format(virtualServer['ipAddress'], virtualServer['name']
+                                                                       , dnatOriginalIPs.get(virtualServer['ipAddress'])))
+                            loadBalancerConfigDict[
+                                'Virtual server IP address used in DNAT'
+                            ].append(dnatOriginalIPs.get(virtualServer['ipAddress']))
+
+                        if virtualServer['ipAddress'] in snatTranslatedIPs.keys():
+                            transparentErrors.append(
+                                "The VIP '{}' of virtual server '{}' should not be used in SNAT rule '{}' when "
+                                "transparent mode is enabled\n".format(virtualServer['ipAddress'], virtualServer['name']
+                                                                       , snatTranslatedIPs.get(virtualServer['ipAddress'])))
+                            loadBalancerConfigDict[
+                                'Virtual server IP address used in SNAT'
+                            ].append(snatTranslatedIPs.get(virtualServer['ipAddress']))
+
+                        if virtualServer['ipAddress'] in ipsecIPs.keys():
+                            transparentErrors.append(
+                                "The VIP '{}' of virtual server '{}' should not be used in IPsec '{}' when transparent "
+                                "mode is enabled\n".format(virtualServer['ipAddress'], virtualServer['name'],
+                                                           ipsecIPs.get(virtualServer['ipAddress'])))
+                            loadBalancerConfigDict[
+                                'Virtual server IP address used in IPSEC sites'
+                            ].append(ipsecIPs.get(virtualServer['ipAddress']))
+
+        # Check if all pools are transparent
+        for pool in poolData:
+            if not pool['transparent'] == 'true':
+                transparentErrors.append("All pools should be configured in transparent mode in Edge Gateway '{}'\n"
+                                         .format(gatewayName))
+                loadBalancerConfigDict['Pools are mixed transparent and non transparent'].append(edgeGatewayId)
+                break
+
+        if not v2tAssessmentMode:
+            # Validating load balancer service subnet
+            if lbServiceNetwork and int(lbServiceNetwork.split('/')[-1]) > 28:
+                transparentErrors.append(
+                    "LoadBalancerServiceNetwork should be /28 or less when transparent mode is enabled"
+                    " on Edge Gateway '{}'\n".format(gatewayName))
+
+            # Validating service engine group haMode
+            serviceEngineGroupResultList = self.getServiceEngineGroupDetails()
+            serviceEngineGroupName = self.orgVdcInput['EdgeGateways'][gatewayName]['ServiceEngineGroupName']
+            if serviceEngineGroupResultList:
+                serviceEngineGroupDetails = [serviceEngineGroup for serviceEngineGroup in
+                                             serviceEngineGroupResultList if
+                                             serviceEngineGroup['name'] == serviceEngineGroupName]
+                if serviceEngineGroupDetails[0].get('haMode') != 'LEGACY_ACTIVE_STANDBY':
+                    transparentErrors.append("Service engine group {} should be in Active-Standby mode when transparent"
+                                             " mode is enabled on Edge Gateway {}\n".format(serviceEngineGroupName, edgeGatewayId))
+
+                # Validating AVI version at least 21.1.4 for transparent
+                serviceCloudId = serviceEngineGroupDetails[0]['serviceEngineGroupBacking']['loadBalancerCloudRef']['id']
+                logger.debug(
+                    "Getting NSX-T Cloud details backing the service engine group '{}'".format(serviceEngineGroupName))
+                cloudUrl = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                         vcdConstants.GET_LOADBALANCER_CLOUD_USING_ID.format(serviceCloudId))
+                responseCloud = self.restClientObj.get(cloudUrl, self.headers)
+                lbCloudDict = responseCloud.json()
+                if responseCloud.status_code == requests.codes.ok:
+                    logger.debug("Successfully retrieved NSX-T Cloud details")
+                    lbControllerId = lbCloudDict['loadBalancerCloudBacking']['loadBalancerControllerRef']['id']
+                    logger.debug(
+                        "Getting Load Balancer Controller details backing the cloud '{}'".format(lbCloudDict['name']))
+                    controllerUrl = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                  vcdConstants.GET_LOADBALANCER_CONTROLLER_USING_ID.format(lbControllerId))
+                    responseController = self.restClientObj.get(controllerUrl, self.headers)
+                    lbControllerDict = responseController.json()
+                    if responseController.status_code == requests.codes.ok:
+                        logger.debug("Successfully retrieved Load Balancer Controller details")
+                        if version.parse(lbControllerDict.get('version')) < version.parse('21.1.4'):
+                            transparentErrors.append(
+                                "AVI version should be 21.1.4 or above for transparent mode. Current version "
+                                "is '{}'".format(lbControllerDict.get('version')))
+                    else:
+                        raise Exception(
+                            'Failed to retrieve load balancer controller details due to error {}'.format(lbControllerDict['message']))
+                else:
+                    raise Exception(
+                        'Failed to retrieve load balancer cloud details due to error {}'.format(lbCloudDict['message']))
+
+        return transparentErrors
+
+    @isSessionExpired
     def validateLBVirtualServiceOnOrgvdcNetwork(self, edgeGatewayId, loadBalancerConfigDict):
         """
         Description :   validation for ipv4 virtual server
@@ -3361,14 +3633,25 @@ class VCDMigrationValidation:
                 'Virtual Server without default pool': [],
                 'Unsupported persistence in application profile': [],
                 'Unsupported algorithm in LB pool': [],
-                'Application profile is not added in virtual Server':[]
+                'Application profile is not added in virtual Server':[],
+                'Pool member IP overlapping DNAT': [],
+                'Pool member IP address IPV6': [],
+                'Pool members using different ports': [],
+                'Virtual server IP address IPV6': [],
+                'Virtual server IP address used in DNAT': [],
+                'Virtual server IP address used in SNAT': [],
+                'Virtual server IP address used in IPSEC sites': [],
+                'Pools are mixed transparent and non transparent': [],
             }
             supportedLoadBalancerAlgo = ['round-robin', 'leastconn']
             supportedLoadBalancerPersistence = ['cookie', 'sourceip']
+            loadBalancerServiceNetwork = self.orgVdcInput['EdgeGateways'][gatewayName].get(
+                'LoadBalancerServiceNetwork') if not v2tAssessmentMode else None
             loadBalancerServiceNetworkIPv6 = self.orgVdcInput['EdgeGateways'][gatewayName].get(
                 'LoadBalancerServiceNetworkIPv6', None) if not v2tAssessmentMode else None
             poolsWithIpv6Configured = list()
             virtualServersWithIpv6Configured = list()
+            isTransparentPoolPresent = False
             logger.debug("Getting Load Balancer Services Configuration Details of Source Edge Gateway {}".format(edgeGatewayId))
             # url to retrieve the load balancer config info
             url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
@@ -3391,12 +3674,16 @@ class VCDMigrationValidation:
                             for applicationRule in listify(applicationRules):
                                 loadBalancerConfigDict['Application rules'].append(applicationRule['name'])
 
-                    for pool in listify(responseDict['loadBalancer'].get('pool')):
+                    for pool in listify(responseDict['loadBalancer'].get('pool', [])):
+                        # setting a flag for transparent
+                        if pool.get('transparent') == 'true':
+                            isTransparentPoolPresent = True
                         # Check if the pool member has IPV6 configured and LoadBalancerServiceNetworkIPv6 configured
-                        for member in listify(pool.get('member')):
+                        for member in listify(pool.get('member', [])):
                             if not v2tAssessmentMode and \
                                     not loadBalancerServiceNetworkIPv6 and \
-                                    isinstance(ipaddress.ip_address(member['ipAddress']), ipaddress.IPv6Address):
+                                    isinstance(ipaddress.ip_address(member['ipAddress']), ipaddress.IPv6Address) \
+                                    and not pool.get('transparent') == 'true':
                                 poolsWithIpv6Configured.append(pool['name'])
                                 break
 
@@ -3442,7 +3729,8 @@ class VCDMigrationValidation:
                         # check for IPV6 Addr for virtual server and LoadBalancerServiceNetworkIPv6 configured or not.
                         if not v2tAssessmentMode and \
                                 not loadBalancerServiceNetworkIPv6 and \
-                                isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv6Address):
+                                isinstance(ipaddress.ip_address(virtualServer['ipAddress']), ipaddress.IPv6Address)\
+                                and not isTransparentPoolPresent:
                             virtualServersWithIpv6Configured.append(virtualServer['name'])
 
                         # Check for application profile configured or not.
@@ -3450,11 +3738,10 @@ class VCDMigrationValidation:
                             loadBalancerErrorList.append("Application profile is not added in virtual Server '{}'\n".format(virtualServer['name']))
                             loadBalancerConfigDict['Application profile is not added in virtual Server'].append(virtualServer['name'])
 
-                        if virtualServer.get('port').count(',') >= 10:
-                            loadBalancerErrorList.append("Only 10 ports allowed on single virtual server '{}'\n".format(virtualServer['name']))
-
-                        if virtualServer.get('protocol') in ['tcp', 'udp'] and ',' in virtualServer.get('port'):
-                            loadBalancerErrorList.append("Multiple service ports are not supported with TCP/UDP on virtual service '{}' on edge gateway '{}'.\n".format(virtualServer['name'], gatewayName))
+                        if ',' in virtualServer.get('port') or '-' in virtualServer.get('port'):
+                            loadBalancerErrorList.append(
+                                "Multiple service ports are not supported on virtual service '{}' on edge gateway '{}'."
+                                "\n".format(virtualServer['name'], gatewayName))
 
                     if virtualServersWithIpv6Configured:
                         loadBalancerErrorList.append(
@@ -3487,8 +3774,6 @@ class VCDMigrationValidation:
                             if pool['algorithm'] not in supportedLoadBalancerAlgo:
                                 loadBalancerErrorList.append("Unsupported algorithm '{}' provided in load balancer pool '{}'\n".format(pool['algorithm'], pool['name']))
                                 loadBalancerConfigDict['Unsupported algorithm in LB pool'].append(pool['name'])
-                            if pool['transparent'] != 'false':
-                                loadBalancerErrorList.append('{} pool has transparent mode enabled which is not supported\n'.format(pool['name']))
                     if not v2tAssessmentMode and not nsxvObj.ipAddress and not nsxvObj.username:
                         loadBalancerErrorList.append("NSX-V LoadBalancer service is enabled on Source Edge Gateway {}, but NSX-V details are not provided in user input file\n".format(edgeGatewayId))
 
@@ -3507,6 +3792,11 @@ class VCDMigrationValidation:
                                     logger.warning("Service engine group has HA MODE '{}', if you keep using this you may incur some extra charges.".format(serviceEngineGroupDetails[0].get('haMode')))
                         else:
                            loadBalancerErrorList.append("Service Engine Group {} doesn't exist in Avi.\n".format(serviceEngineGroupName))
+                    # validating if transparent lB found
+                    transparentErrors = self.validateLBTransparent(
+                        edgeGatewayId, gatewayName, virtualServersData, loadBalancerServiceNetwork, responseDict,
+                        v2tAssessmentMode, loadBalancerConfigDict) if isTransparentPoolPresent else []
+                    loadBalancerErrorList.extend(transparentErrors)
             else:
                 loadBalancerErrorList.append('Unable to get load balancer service configuration with error code {} \n'.format(response.status_code))
             errorList = self.validateLBVirtualServiceOnOrgvdcNetwork(edgeGatewayId, loadBalancerConfigDict)
@@ -3571,7 +3861,11 @@ class VCDMigrationValidation:
                                 staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"], "interface": staticRoute["interface"]})
                         # Checking whether the edge gateway interface is external
                         if vnicData["index"] == vnic and vnicData["type"] == "uplink":
-                            externalStaticRoutes.append(staticRoute)
+                            if vnicData["portgroupName"] in self.rollback.apiData.get('isT1Connected', {}).get(edgeGatewayName, {}):
+                                internalStaticRoutes.append(staticRoute)
+                                staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"], "interface": staticRoute["interface"]})
+                            else:
+                                externalStaticRoutes.append(staticRoute)
             logger.debug("Internal Static Routes - {}".format(internalStaticRoutes))
             logger.debug("External Static Routes - {}".format(externalStaticRoutes))
 
@@ -3586,6 +3880,25 @@ class VCDMigrationValidation:
                 return internalStaticRoutes + externalStaticRoutes
         except:
             raise
+
+    @isSessionExpired
+    def getEdgeGatewayVnicDetails(self, edgeGatewayId):
+        """
+        Description :   Gets the vnic details of the Edge Gateway
+        Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
+        """
+        # url to retrieve the routing config info
+        url = "{}{}/{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                 vcdConstants.NETWORK_EDGES,
+                                 edgeGatewayId, vcdConstants.VNIC)
+        # get api call to retrieve the edge gateway config info
+        response = self.restClientObj.get(url, self.headers)
+        if response.status_code == requests.codes.ok:
+            responseDict = self.vcdUtils.parseXml(response.content)
+            vNicsDetails = responseDict['vnics']['vnic']
+            return vNicsDetails
+        else:
+            raise Exception("Failed to get edge gateway {} vnic details".format(edgeGatewayId))
 
     @isSessionExpired
     def getEdgeGatewayRoutingConfig(self, edgeGatewayId, edgeGatewayName, validation=True, precheck=False):
@@ -5239,6 +5552,22 @@ class VCDMigrationValidation:
         else:
             return True
 
+    @description("Performing vlan segment check in case of multiple Org VDCs")
+    @remediate
+    def checkVlanSegmentFromMultipleVDCs(self, vcdObjList):
+        """
+        Description : Validation vlan segment backed to multiple edge gateways belonging to dofferent VDCs
+        """
+        if float(self.version) < float(vcdConstants.API_VERSION_CASTOR_10_4_1) or len(vcdObjList) == 1:
+            return
+        segmentList = list()
+        for vcdObj in vcdObjList:
+            for segment in vcdObj.rollback.apiData.get('vlanSegmentToGatewayMapping', {}):
+                segmentList.append(segment)
+        if len(set(segmentList)) < len(segmentList):
+            raise Exception("Multiple edge gateways from Org VDCs are trying to connect to segment backed network."
+                            "Only 1 edge gateways can be connected to segment backed network")
+
     def updateEdgeGatewayInputDict(self, sourceOrgVDCId):
         """
         Description : Validation for edgeGwInputs.
@@ -5374,7 +5703,7 @@ class VCDMigrationValidation:
                     entity))
         return errorList
 
-    def preMigrationValidation(self, inputDict, sourceOrgVDCId, nsxtObj, nsxvObj, validateVapp=False, validateServices=False):
+    def preMigrationValidation(self, inputDict, sourceOrgVDCId, nsxtObj, nsxvObj, vcdObjList, validateVapp=False, validateServices=False):
         """
         Description : Pre migration validation tasks
         Parameters  : inputDict      -  dictionary of all the input yaml file key/values (DICT)
@@ -5396,7 +5725,9 @@ class VCDMigrationValidation:
                     # Performing services related validations
                     self.servicesValidations(sourceOrgVDCId, nsxtObj, nsxvObj) if validateServices else False,
                     # Performing vApp related validations
-                    self.vappValidations(sourceOrgVDCId, nsxtObj) if validateVapp else False]):
+                    self.vappValidations(sourceOrgVDCId, nsxtObj) if validateVapp else False,
+                    # Performing vlan segment checks for multiple Org VDCs
+                    self.checkVlanSegmentFromMultipleVDCs(vcdObjList)]):
                 logger.debug(
                     f'Successfully completed org vdc related validation tasks for org vdc "{self.orgVdcInput["OrgVDCName"]}"')
         except:
@@ -5878,10 +6209,23 @@ class VCDMigrationValidation:
                         f"Org VDC contains subscribed Catalog {srcCatalog.get('@name')} that can't be migrated. Please remove the catalog before cleanup.")
                 else:
                     raise Exception(f"Org VDC contains subscribed Catalog {srcCatalog.get('@name')} that can't be migrated. Please remove the catalog before cleanup.")
+
         if v2tAssessmentMode and errorList:
                 raise ValidationError(',\n'.join(errorList))
         if Migration:
             return orgId, sourceOrgVDCResponseDict, orgCatalogs, sourceOrgVDCCatalogDetails
+
+    def validateVappMediasNotStale(self, commonCatalogItemsDetailsList):
+        """
+        Description :   Method to get catalog items without catalog refernce in it
+        Prameters   :   commonCatalogItemsDetailsList - Common catalog items from source org and source org vdc
+        """
+        catalogItemsWithNoCatalog = []
+        for resource in commonCatalogItemsDetailsList:
+            if not resource.get('catalogName'):
+                catalogItemsWithNoCatalog.append(resource['href'].split("/")[-1])
+                logger.debug("Stale vApp templates or VM medias exist without catalog reference {}".format(resource['href']))
+        return catalogItemsWithNoCatalog
 
     @isSessionExpired
     def disableSourceAffinityRules(self):
@@ -6830,7 +7174,7 @@ class VCDMigrationValidation:
                 return True
         return False
 
-    def _checkNonDistributedImplicitCondition(self, sourceOrgVDCNetworks):
+    def _checkNonDistributedImplicitCondition(self, sourceOrgVDCNetworks, natConfig=False):
         implicitGateways = set()
         implicitNetworks = set()
         for sourceOrgVDCNetwork in sourceOrgVDCNetworks:
@@ -6846,5 +7190,30 @@ class VCDMigrationValidation:
                 if dnsRelayConfig and orgvdcNetworkGatewayIp == orgvdcNetworkDns:
                     implicitGateways.add(sourceOrgVDCNetwork['connection']['routerRef']['name'])
                     implicitNetworks.add(sourceOrgVDCNetwork['id'])
+
+                if sourceOrgVDCNetwork['id'] in implicitNetworks:
+                    continue
+                if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4) or not natConfig:
+                    continue
+                    # fetching NAT rules configured on edge to which source org vdc network is connected
+                natRules = self.getEdgeGatewayNatConfig(sourceOrgVDCNetwork['connection']['routerRef']['id'].
+                                                        split(':')[-1], validation=False)
+                # return in case of no rules
+                if not natRules['natRules']:
+                    continue
+                # fetching edge gateway vnic details
+                vNicsDetails = self.getEdgeGatewayVnicDetails(
+                    sourceOrgVDCNetwork['connection']['routerRef']['id'].split(':')[-1])
+                # fetching index of NIC to which source org vdc network is connected
+                for vnicData in vNicsDetails:
+                    if sourceOrgVDCNetwork["name"] == vnicData.get("portgroupName"):
+                        vnic = vnicData["index"]
+                        # checking whether nat rule is configured on internal interface to which source org vdc network is connected
+                        for natRule in listify(natRules.get('natRules', {}).get('natRule', [])):
+                            if vnic == natRule["vnic"]:
+                                implicitGateways.add(sourceOrgVDCNetwork['connection']['routerRef']['name'])
+                                implicitNetworks.add(sourceOrgVDCNetwork['id'])
+                                break
+                        break
 
         return implicitGateways, implicitNetworks

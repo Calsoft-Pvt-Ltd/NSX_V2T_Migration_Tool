@@ -821,7 +821,7 @@ class VMwareCloudDirectorNSXMigrator():
             for vcdObj, nsxtObj in zip(self.vcdObjList, self.nsxtObjList):
                 futures.append(executor.submit(vcdObj.preMigrationValidation, self.inputDict,
                                                self.orgVDCData[vcdObj.orgVdcInput["OrgVDCName"]]["id"], nsxtObj,
-                                               self.nsxvObj,
+                                               self.nsxvObj, self.vcdObjList,
                                                validateVapp=mainConstants.MOVEVAPP_KEYWORD in self.executeList,
                                                validateServices=mainConstants.SERVICES_KEYWORD in self.executeList))
             waitForThreadToComplete(futures)
