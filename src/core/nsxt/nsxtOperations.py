@@ -1693,58 +1693,26 @@ class NSXTOperations():
         Description : Adding and Removing NSX Segment to exclusion list
         Parameters  : vcdObjList- list of objects of vcd operations class (LIST)
                       beforeVmotion- flag for before and after vmotion (BOOL)
-
         """
-
         if beforeVMotion:
             logger.debug('Adding NSX-Segment to the Exclusion list')
         else:
             logger.debug('Removing NSX-Segment from the Exclusion list')
         networkList = list()
         for vcdObject in vcdObjList:
-            # getting the target org vdc urn
             dfw = True if vcdObject.rollback.apiData.get('OrgVDCGroupID') else False
             if vcdObject.rollback.apiData.get('targetOrgVDC', {}).get('@id'):
                 networkList += vcdObject.retrieveNetworkListFromMetadata(
                     vcdObject.rollback.apiData.get('targetOrgVDC', {}).get('@id'), orgVDCType='target',
                     dfwStatus=dfw)
-        # payload for retrieving all segments
-        payload = {
-            "primary": {
-                "resource_type": "Segment",
-                "filters":
-                    [
-                        {
-                            "field_names": "!_exists_",
-                            "value": "advanced_config.origin_id",
-                            "case_sensitive": True
-                        }
-                    ]
-            }
-        }
-        payload = json.dumps(payload)
-        url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), '/search/aggregate')
-        response = self.restClientObj.post(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payload,
-                                           auth=self.restClientObj.auth)
-        if response.status_code == requests.codes.ok:
-            logger.debug('successfully retrieved all the Segments from NSX-T')
-        else:
-            responseData = json.loads(response.content)
-            raise Exception(responseData['error_message'])
-        segmentDict = response.json()
-        segmentList = listify(segmentDict.get('results', {}))
-
         dcGroupInfo = dict()
-        dcSegmentPaths = dict()
-
         for network in networkList:
             if network['networkType'] == 'NAT_ROUTED' and network.get('ownerRef').get('id'):
                 dataCenterId = network['ownerRef']['id']
-
                 # Getting datacenter info from nsx-t and saving the response for revision number
                 if not dcGroupInfo.get(network['ownerRef']['id']):
                     url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                                        '/infra/domains/default/groups/{}'.format(dataCenterId.split(':')[-1]))
+                                        nsxtConstants.GET_DATACENTER_BY_ID_API.format(dataCenterId.split(':')[-1]))
                     response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
                                                       auth=self.restClientObj.auth)
                     if response.status_code == requests.codes.ok:
@@ -1753,18 +1721,27 @@ class NSXTOperations():
                         responseData = json.loads(response.content)
                         raise Exception(responseData['error_message'])
                     dataCenterGroup = response.json()
-
                     dcGroupInfo[dataCenterId] = {
                         'name': network['ownerRef']['name'],
-                        '_revision': dataCenterGroup['_revision']
+                        '_revision': dataCenterGroup['_revision'],
+                        'pathList': []
                     }
-                    dcSegmentPaths[dataCenterId] = list()
 
-                # Saving segment path from segments corresponding to network
-                for segment in segmentList:
-                    if segment['primary'].get('display_name') == network['name'] + '-' + network['id'].split(':')[-1]:
-                        dcSegmentPaths.get(dataCenterId).append(segment['primary'].get('path'))
-                        break
+                dcGroupInfo[dataCenterId]['pathList'].append("/infra/segments/{}".format(network["backingNetworkId"]))
+
+        # Getting exclusion list from nsx-t
+        exclusionUrl = "{}{}".format(
+            nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+            nsxtConstants.GET_EXCLUSIONLIST_API)
+        response = self.restClientObj.get(url=exclusionUrl, headers=nsxtConstants.NSXT_API_HEADER,
+                                          auth=self.restClientObj.auth)
+        if response.status_code == requests.codes.ok:
+            logger.debug('Successfully retrieved ExclusionList')
+        else:
+            responseData = json.loads(response.content)
+            raise Exception(responseData['error_message'])
+        exclusionList = response.json()
+        callPatch = False
 
         for dcId, dcInfo in dcGroupInfo.items():
             # payload for adding NSX-Segment
@@ -1787,13 +1764,14 @@ class NSXTOperations():
                 conjunction = {"resource_type": "ConjunctionOperator",
                                "conjunction_operator": "OR"}
                 segmentData = {"resource_type": "PathExpression",
-                               "paths": dcSegmentPaths[dcId]}
+                               "paths": dcInfo['pathList']}
                 payload["expression"].append(conjunction)
                 payload["expression"].append(segmentData)
 
+            # Sending the data center group with added/removed segments in payload
             payload = json.dumps(payload)
             url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                                '/infra/domains/default/groups/{}'.format(dcId.split(':')[-1]))
+                                nsxtConstants.GET_DATACENTER_BY_ID_API.format(dcId.split(':')[-1]))
             response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payload,
                                               auth=self.restClientObj.auth)
             if response.status_code == requests.codes.ok:
@@ -1801,39 +1779,27 @@ class NSXTOperations():
             else:
                 responseData = json.loads(response.content)
                 raise Exception(responseData['error_message'])
-
-            # Getting exclusion list from nsx-t
-            url = "{}{}".format(
-                nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                '/infra/settings/firewall/security/exclude-list')
-            response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
-                                              auth=self.restClientObj.auth)
-            if response.status_code == requests.codes.ok:
-                logger.debug('Successfully retrieved ExclusionList')
-            else:
-                responseData = json.loads(response.content)
-                raise Exception(responseData['error_message'])
-            exclusionList = response.json()
-
-            callFlag = False
+            # adding/removing data center in exclusion list before/after vmotion
             if not ('/infra/domains/default/groups/{}'.format(dcId.split(':')[-1])) in exclusionList.get(
                     'members') and beforeVMotion:
                 exclusionList['members'].append('/infra/domains/default/groups/{}'.format(dcId.split(':')[-1]))
-                callFlag = True
+                callPatch = True
             if ('/infra/domains/default/groups/{}'.format(dcId.split(':')[-1])) in exclusionList.get(
                     'members') and not beforeVMotion:
                 exclusionList['members'].remove('/infra/domains/default/groups/{}'.format(dcId.split(':')[-1]))
-                callFlag = True
-            if callFlag:
-                exclusionList = json.dumps(exclusionList)
-                response = self.restClientObj.patch(url=url, headers=nsxtConstants.NSXT_API_HEADER,
-                                                    data=exclusionList,
-                                                    auth=self.restClientObj.auth)
-                if response.status_code == requests.codes.ok:
-                    logger.debug('Successfully added/removed DataCenterGroup in the Exclusion List')
-                else:
-                    responseData = json.loads(response.content)
-                    raise Exception(responseData['error_message'])
+                callPatch = True
+
+        # Patching the exclusion list if required
+        if callPatch:
+            exclusionList = json.dumps(exclusionList)
+            response = self.restClientObj.patch(url=exclusionUrl, headers=nsxtConstants.NSXT_API_HEADER,
+                                                data=exclusionList,
+                                                auth=self.restClientObj.auth)
+            if response.status_code == requests.codes.ok:
+                logger.debug('Successfully added/removed DataCenterGroup in the Exclusion List')
+            else:
+                responseData = json.loads(response.content)
+                raise Exception(responseData['error_message'])
 
 
     def deleteLogicalSegments(self):
