@@ -143,6 +143,7 @@ class Rollback:
                                                       domain='system')
 
         except AttributeError as err:
+            self.logger.debug(traceback.format_exc())
             self.logger.error('Rollback is not supported in current state. Please perform manual rollback.')
             # Saving the list of tasks left as part of rollback in metadata to continue rollback from the same step
             if preRollback:
@@ -151,6 +152,7 @@ class Rollback:
             else:
                 vcdObj.createMetaDataInOrgVDC(sourceOrgVDCId, metadataDict={'rollbackTasks': rollbackTasksLeft},
                                               domain='system')
+            raise
         except Exception as error:
             self.logger.exception(error)
             self.logger.debug(traceback.format_exc())
