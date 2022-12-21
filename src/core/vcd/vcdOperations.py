@@ -4121,66 +4121,78 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         if not networkData:
             return
-        networkMetadata = copy.deepcopy(networkData)
-        for network in networkData:
-            networkName = network['name']
-            response = self.getExternalNetworkByName(networkName)
-            # getting the external network sub allocated pools
-            for index, subnet in enumerate(response['subnets']['values']):
-                externalRanges = subnet['ipRanges']['values']
-                externalRangeList = []
-                externalNetworkSubnet = ipaddress.ip_network(
-                    '{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
-                    strict=False)
-                # creating range of source external network pool range
-                for externalRange in externalRanges:
-                    externalRangeList.extend(
-                        self.createIpRange(externalNetworkSubnet, externalRange['startAddress'], externalRange['endAddress']))
-                subIpPools = edgeGatewaySubnetDict.get(externalNetworkSubnet)
-                # If no ipPools are used from corresponding network then skip the iteration
-                if not subIpPools:
-                    continue
-                # Raise exception if target ext network subnet has only one IP and EmptyPoolOverride flag is False
-                if subnet["totalIpCount"] == 1:
-                    if self.orgVdcInput.get("EmptyIPPoolOverride", False):
-                        logger.warning("Skipping removing '{}' IP from source external network - '{}'".format(externalRanges[0]["startAddress"], networkName))
+        try:
+            # Acquire lock as source external network in different org vdc's
+            self.lock.acquire(blocking=True)
+            networkMetadata = copy.deepcopy(networkData)
+            for network in networkData:
+                networkName = network['name']
+                response = self.getExternalNetworkByName(networkName)
+                # getting the external network sub allocated pools
+                for index, subnet in enumerate(response['subnets']['values']):
+                    externalRanges = subnet['ipRanges']['values']
+                    externalRangeList = []
+                    externalNetworkSubnet = ipaddress.ip_network(
+                        '{}/{}'.format(subnet['gateway'], subnet['prefixLength']),
+                        strict=False)
+                    # creating range of source external network pool range
+                    for externalRange in externalRanges:
+                        externalRangeList.extend(
+                            self.createIpRange(externalNetworkSubnet, externalRange['startAddress'], externalRange['endAddress']))
+                    subIpPools = edgeGatewaySubnetDict.get(externalNetworkSubnet)
+                    # If no ipPools are used from corresponding network then skip the iteration
+                    if not subIpPools:
                         continue
-                    else:
-                        raise Exception("External Network subnet has only one IP address which cannot be removed. EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
+                    # Raise exception if target ext network subnet has only one IP and EmptyPoolOverride flag is False
+                    if subnet["totalIpCount"] == 1:
+                        if self.orgVdcInput.get("EmptyIPPoolOverride", False):
+                            logger.warning("Skipping removing '{}' IP from source external network - '{}'".format(externalRanges[0]["startAddress"], networkName))
+                            continue
+                        else:
+                            raise Exception("External Network subnet has only one IP address which cannot be removed. EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
 
-                # creating range of source edge gateway sub allocated pool range
-                subIpRangeList = []
-                for ipRange in subIpPools:
-                    subIpRangeList.extend(
-                        self.createIpRange(externalNetworkSubnet, ipRange['startAddress'], ipRange['endAddress']))
-                # removing the sub allocated ip pools of source edge gateway from source external network
-                for ip in subIpRangeList:
-                    if ip in externalRangeList:
-                        externalRangeList.remove(ip)
-                # getting the source edge gateway sub allocated ip pool after removing used ips i.e source edge gateway
-                result = self.createExternalNetworkSubPoolRangePayload(externalRangeList)
-                response['subnets']['values'][index]['ipRanges']['values'] = result
+                    # creating range of source edge gateway sub allocated pool range
+                    subIpRangeList = []
+                    for ipRange in subIpPools:
+                        subIpRangeList.extend(
+                            self.createIpRange(externalNetworkSubnet, ipRange['startAddress'], ipRange['endAddress']))
+                    # removing the sub allocated ip pools of source edge gateway from source external network
+                    for ip in subIpRangeList:
+                        if ip in externalRangeList:
+                            externalRangeList.remove(ip)
+                    # getting the source edge gateway sub allocated ip pool after removing used ips i.e source edge gateway
+                    result = self.createExternalNetworkSubPoolRangePayload(externalRangeList)
+                    response['subnets']['values'][index]['ipRanges']['values'] = result
 
-            # API call to update external network details
-            payloadData = json.dumps(response)
-            # TODO pranshu: multiple T0 - cleanup - update source network pool
-            url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                   vcdConstants.ALL_EXTERNAL_NETWORKS, response['id'])
-            # put api call to update the external networks ip allocation
-            self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-            apiResponse = self.restClientObj.put(url, self.headers, data=payloadData)
-            if apiResponse.status_code == requests.codes.accepted:
-                taskUrl = apiResponse.headers['Location']
-                # checking the status of the creating org vdc network task
-                self._checkTaskStatus(taskUrl=taskUrl)
-                logger.debug('Updating external network sub allocated ip pool {}'.format(networkName))
-                # save source extenal network metadata in target org vdc
-                networkMetadata.remove(network)
-                self.createMetaDataInOrgVDC(targetOrgVDCId, metadataDict={"sourceExternalNetwork": networkMetadata})
-            else:
-                errorDict = apiResponse.json()
-                raise Exception("Failed to update source external network '{}': {}".format(
-                        networkName, errorDict['message']))
+                # API call to update external network details
+                payloadData = json.dumps(response)
+                # TODO pranshu: multiple T0 - cleanup - update source network pool
+                url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                       vcdConstants.ALL_EXTERNAL_NETWORKS, response['id'])
+                # put api call to update the external networks ip allocation
+                self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+                apiResponse = self.restClientObj.put(url, self.headers, data=payloadData)
+                if apiResponse.status_code == requests.codes.accepted:
+                    taskUrl = apiResponse.headers['Location']
+                    # checking the status of the creating org vdc network task
+                    self._checkTaskStatus(taskUrl=taskUrl)
+                    logger.debug('Updating external network sub allocated ip pool {}'.format(networkName))
+                    # save source extenal network metadata in target org vdc
+                    networkMetadata.remove(network)
+                    self.createMetaDataInOrgVDC(targetOrgVDCId, metadataDict={"sourceExternalNetwork": networkMetadata})
+                else:
+                    errorDict = apiResponse.json()
+                    raise Exception("Failed to update source external network '{}': {}".format(
+                            networkName, errorDict['message']))
+        except Exception:
+            raise
+        finally:
+            try:
+                # Releasing the lock
+                self.lock.release()
+                logger.debug("Lock released by thread - '{}'".format(threading.currentThread().getName()))
+            except RuntimeError:
+                pass
 
     @isSessionExpired
     def syncOrgVDCGroup(self, OrgVDCGroupID):
