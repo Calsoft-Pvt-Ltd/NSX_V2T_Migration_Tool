@@ -930,6 +930,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # iterating over the org vdc network list
             for orgVDCNetwork in orgVDCNetworksList:
                 # Check if DHCP Binding enabled on Network, if enabled then delete binding first.
+                # Binding should already be removed during rollback in disconnectTargetOrgVDCNetwork, just checking here if present then remove
                 if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
                     self.removeDHCPBinding(orgVDCNetwork['id'])
                 # url to delete the org vdc network
@@ -2072,6 +2073,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         if responseDHCP.status_code == requests.codes.ok:
                             responseDict = responseDHCP.json()
                             if responseDict["enabled"]:
+                                # Check if DHCP Binding enabled on Network, if enabled then delete binding first then dhcp
+                                if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_1):
+                                    self.removeDHCPBinding(vdcNetworkID)
+
                                 responseDel = self.restClientObj.delete(urlDHCP, self.headers)
                                 if responseDel.status_code == requests.codes.accepted:
                                     if responseDel.headers.get("Location"):
