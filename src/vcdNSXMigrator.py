@@ -502,7 +502,8 @@ class VMwareCloudDirectorNSXMigrator():
                     waitForThreadToComplete(futures)
 
                 # Adding segment to the exclusion list
-                self.nsxtObjList[0].addSegmentToExclusionlist(self.vcdObjList, beforeVMotion=True)
+                for vcdObject in self.vcdObjList:
+                    self.nsxtObjList[0].addGroupToExclusionlist(vcdObject)
 
                 # if vApp migration was performed do rollback
                 self.vcdObjList[0].vappRollback(
@@ -530,7 +531,8 @@ class VMwareCloudDirectorNSXMigrator():
                             self.vcdObjList, self.inputDict, self.vcdObjList[0].rollback.apiData.get('taggedNodesList'))
 
                 # Removing Segment from Exclusion List
-                self.nsxtObjList[0].addSegmentToExclusionlist(self.vcdObjList)
+                for vcdObject in self.vcdObjList:
+                    self.nsxtObjList[0].removeGroupFromExclusionlist(vcdObject)
 
                 # Rollback dfw/firewall rules
                 futures = list()

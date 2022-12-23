@@ -1688,51 +1688,116 @@ class NSXTOperations():
         except Exception:
             raise
 
-    def addSegmentToExclusionlist(self, vcdObjList, beforeVMotion=False):
+    def getGroupsForExclusion(self, vcdObject):
         """
         Description : Adding and Removing NSX Segment to exclusion list
         Parameters  : vcdObjList- list of objects of vcd operations class (LIST)
-                      beforeVmotion- flag for before and after vmotion (BOOL)
         """
-        if beforeVMotion:
-            logger.debug('Adding NSX-Segment to the Exclusion list')
-        else:
-            logger.debug('Removing NSX-Segment from the Exclusion list')
-        networkList = list()
-        for vcdObject in vcdObjList:
+        try:
+            # Getting all networks
+            networkList = list()
             dfw = True if vcdObject.rollback.apiData.get('OrgVDCGroupID') else False
             if vcdObject.rollback.apiData.get('targetOrgVDC', {}).get('@id'):
                 networkList += vcdObject.retrieveNetworkListFromMetadata(
                     vcdObject.rollback.apiData.get('targetOrgVDC', {}).get('@id'), orgVDCType='target',
                     dfwStatus=dfw)
-        dcGroupInfo = dict()
-        for network in networkList:
-            if network['networkType'] == 'NAT_ROUTED' and network.get('ownerRef').get('id'):
-                dataCenterId = network['ownerRef']['id']
-                # Getting datacenter info from nsx-t and saving the response for revision number
-                if not dcGroupInfo.get(network['ownerRef']['id']):
-                    url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                                        nsxtConstants.GET_DATACENTER_BY_ID_API.format(dataCenterId.split(':')[-1]))
-                    response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
-                                                      auth=self.restClientObj.auth)
-                    if response.status_code == requests.codes.ok:
-                        logger.debug('successfully retrieved DataCenterGroup Information from NSX-T')
-                    else:
-                        responseData = json.loads(response.content)
-                        raise Exception(responseData['error_message'])
-                    dataCenterGroup = response.json()
-                    dcGroupInfo[dataCenterId] = {
-                        'name': network['ownerRef']['name'],
-                        '_revision': dataCenterGroup['_revision'],
-                        'pathList': []
-                    }
+            dcGroupInfo = dict()
+            orgVdcDict = dict()
+            for network in networkList:
+                if network['networkType'] == 'NAT_ROUTED' and network.get('ownerRef').get('id'):
+                    # Storing orgVdc if network not scoped to DC group
+                    if network['orgVdc']:
+                        if not orgVdcDict.get(network['orgVdc']['id']):
+                            orgVdcDict[network['orgVdc']['id']] = network['orgVdc']['name']+'-Exclusion-Group'
+                        continue
+                    # Storing DC Group if network scoped to DC group
+                    if not dcGroupInfo.get(network['ownerRef']['id']):
+                        dcGroupInfo[network['ownerRef']['id']] = network['ownerRef']['name']
+            return dcGroupInfo, orgVdcDict
+        except Exception:
+            raise
 
-                dcGroupInfo[dataCenterId]['pathList'].append("/infra/segments/{}".format(network["backingNetworkId"]))
+    def addGroupToExclusionlist(self, vcdObject):
+        """
+        Description: Adding nsx segments of all routed network via groups in exclusion list
+        """
+        if vcdObject.rollback.metadata.get("addGroupToExclusion"):
+            return
+        logger.debug('Adding NSX-Segment via group to the Exclusion list')
+        dcGroupInfo, orgVdcDict = self.getGroupsForExclusion(vcdObject)
+        if orgVdcDict:
+            for orgVdcId, orgVdcName in orgVdcDict.items():
+                    self.createGroupInExclusionList(orgVdcId, orgVdcName)
+        allGroupsInfo = {**dcGroupInfo, **orgVdcDict}
+        # Get exclusion list
+        currentExclusionList = self.getExclusionList()
+        # Update exclusion list members then update exclusion list
+        for groupId, groupName in allGroupsInfo.items():
+            currentExclusionList['members'].append('/infra/domains/default/groups/{}'.format(groupId.split(':')[-1]))
+        self.updateExclusionList(currentExclusionList)
+        logger.debug("Groups added to the exclusion list successfully")
+        vcdObject.createMetaDataInOrgVDC(vcdObject.rollback.apiData.get('sourceOrgVDC', {}).get('@id'),
+                                         metadataDict={'addGroupToExclusion': True}, domain='system')
 
-        # Getting exclusion list from nsx-t
+    def removeGroupFromExclusionlist(self, vcdObject):
+        """
+        Description: Removing nsx segments of networks via group from exclusion list
+        """
+        if vcdObject.rollback.metadata.get("removeGroupFromExclusion"):
+            return
+        logger.debug('Removing NSX-Segment from the Exclusion list')
+        dcGroupInfo, orgVdcDict = self.getGroupsForExclusion(vcdObject)
+        allGroupsInfo = {**dcGroupInfo, **orgVdcDict}
+        # Get exclusion list
+        currentExclusionList = self.getExclusionList()
+        # Update exclusion list members then update exclusion list
+        for groupId, groupName in allGroupsInfo.items():
+            if ('/infra/domains/default/groups/{}'.format(groupId.split(':')[-1])) in currentExclusionList.get('members'):
+                currentExclusionList['members'].remove('/infra/domains/default/groups/{}'.format(groupId.split(':')[-1]))
+        self.updateExclusionList(currentExclusionList)
+        # Deleting extra groups created for org vdc scoped networks if any
+        if orgVdcDict:
+            for orgVdcId, orgVdcName in orgVdcDict.items():
+                url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                                    nsxtConstants.GET_GROUP_BY_ID_API.format(orgVdcId.split(':')[-1]))
+                response = self.restClientObj.delete(url=url, headers=nsxtConstants.NSXT_API_HEADER,
+                                                  auth=self.restClientObj.auth)
+                if response.status_code == requests.codes.ok:
+                    logger.debug('Successfully deleted group in exclusion list')
+                else:
+                    responseData = json.loads(response.content)
+                    raise Exception(responseData['error_message'])
+        logger.debug("Successfully removed NSX-Segment of networks via groups from the exclusion list")
+        vcdObject.createMetaDataInOrgVDC(vcdObject.rollback.apiData.get('sourceOrgVDC', {}).get('@id'),
+                                         metadataDict={'removeGroupFromExclusion': True}, domain='system')
+
+    def updateExclusionList(self, currentExclusionList):
+        """
+        Description : Updates the current exclusion list in nsxt
+        Parameters  : currentExclusionList- updated exclusion list data
+        """
+        # Patching the exclusion list if required
+        logger.debug("Updating the Exclusion List")
         exclusionUrl = "{}{}".format(
             nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
             nsxtConstants.GET_EXCLUSIONLIST_API)
+        exclusionList = json.dumps(currentExclusionList)
+        response = self.restClientObj.patch(url=exclusionUrl, headers=nsxtConstants.NSXT_API_HEADER, data=exclusionList,
+                                            auth=self.restClientObj.auth)
+        if response.status_code == requests.codes.ok:
+            logger.debug('Successfully added/removed groups in the Exclusion List')
+        else:
+            responseData = json.loads(response.content)
+            raise Exception(responseData['error_message'])
+
+    def getExclusionList(self):
+        """
+        Description: Retrieves the exclude list from nsxt
+        :return: returns the exclusion list response
+        """
+        logger.debug("Getting the exclusion list from NSX-T")
+        exclusionUrl = "{}{}".format(
+            nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress), nsxtConstants.GET_EXCLUSIONLIST_API)
         response = self.restClientObj.get(url=exclusionUrl, headers=nsxtConstants.NSXT_API_HEADER,
                                           auth=self.restClientObj.auth)
         if response.status_code == requests.codes.ok:
@@ -1740,67 +1805,37 @@ class NSXTOperations():
         else:
             responseData = json.loads(response.content)
             raise Exception(responseData['error_message'])
-        exclusionList = response.json()
-        callPatch = False
+        return response.json()
 
-        for dcId, dcInfo in dcGroupInfo.items():
-            # payload for adding NSX-Segment
-            payload = {
-                "display_name": dcInfo['name'],
-                "expression": [
-                    {
-                        "value": 'SYSTEM|' + dcId,
-                        "member_type": "Segment",
-                        "key": "Tag",
-                        "operator": "EQUALS",
-                        "scope_operator": "EQUALS",
-                        "resource_type": "Condition"
-                    }
-                ],
-                "resource_type": "Group",
-                "_revision": dcInfo['_revision']
-            }
-            if beforeVMotion:
-                conjunction = {"resource_type": "ConjunctionOperator",
-                               "conjunction_operator": "OR"}
-                segmentData = {"resource_type": "PathExpression",
-                               "paths": dcInfo['pathList']}
-                payload["expression"].append(conjunction)
-                payload["expression"].append(segmentData)
-
-            # Sending the data center group with added/removed segments in payload
-            payload = json.dumps(payload)
-            url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
-                                nsxtConstants.GET_DATACENTER_BY_ID_API.format(dcId.split(':')[-1]))
-            response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payload,
-                                              auth=self.restClientObj.auth)
-            if response.status_code == requests.codes.ok:
-                logger.debug('Successfully updated datacenter group in exclusion list')
-            else:
-                responseData = json.loads(response.content)
-                raise Exception(responseData['error_message'])
-            # adding/removing data center in exclusion list before/after vmotion
-            if not ('/infra/domains/default/groups/{}'.format(dcId.split(':')[-1])) in exclusionList.get(
-                    'members') and beforeVMotion:
-                exclusionList['members'].append('/infra/domains/default/groups/{}'.format(dcId.split(':')[-1]))
-                callPatch = True
-            if ('/infra/domains/default/groups/{}'.format(dcId.split(':')[-1])) in exclusionList.get(
-                    'members') and not beforeVMotion:
-                exclusionList['members'].remove('/infra/domains/default/groups/{}'.format(dcId.split(':')[-1]))
-                callPatch = True
-
-        # Patching the exclusion list if required
-        if callPatch:
-            exclusionList = json.dumps(exclusionList)
-            response = self.restClientObj.patch(url=exclusionUrl, headers=nsxtConstants.NSXT_API_HEADER,
-                                                data=exclusionList,
-                                                auth=self.restClientObj.auth)
-            if response.status_code == requests.codes.ok:
-                logger.debug('Successfully added/removed DataCenterGroup in the Exclusion List')
-            else:
-                responseData = json.loads(response.content)
-                raise Exception(responseData['error_message'])
-
+    def createGroupInExclusionList(self, orgVdcId, orgVdcName):
+        """
+        Description : Creates a group in exclusion list with name and id
+        """
+        # Payload for creation of group
+        payload = {
+            "display_name": orgVdcName,
+            "expression": [
+                {
+                    "value": 'SYSTEM|' + orgVdcId,
+                    "member_type": "Segment",
+                    "key": "Tag",
+                    "operator": "EQUALS",
+                    "scope_operator": "EQUALS",
+                    "resource_type": "Condition"
+                }
+            ],
+            "id": orgVdcId.split(':')[-1]
+        }
+        payload = json.dumps(payload)
+        url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
+                            nsxtConstants.GET_GROUP_BY_ID_API.format(orgVdcId.split(':')[-1]))
+        response = self.restClientObj.put(url=url, headers=nsxtConstants.NSXT_API_HEADER, data=payload,
+                                          auth=self.restClientObj.auth)
+        if response.status_code == requests.codes.ok:
+            logger.debug('Successfully created group in exclusion list')
+        else:
+            responseData = json.loads(response.content)
+            raise Exception(responseData['error_message'])
 
     def deleteLogicalSegments(self):
         """

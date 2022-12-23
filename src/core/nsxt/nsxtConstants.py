@@ -115,7 +115,7 @@ LOGICAL_SEGMENTS_ENDPOINT = "/infra/segments/{}"
 SEGMENT_DETAILS = "/infra/segments"
 
 # Get Data Center uri using id
-GET_DATACENTER_BY_ID_API = '/infra/domains/default/groups/{}'
+GET_GROUP_BY_ID_API = '/infra/domains/default/groups/{}'
 
 # Get Exclusion List uri
 GET_EXCLUSIONLIST_API = '/infra/settings/firewall/security/exclude-list'
