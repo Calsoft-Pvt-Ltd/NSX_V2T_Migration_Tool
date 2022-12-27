@@ -3159,6 +3159,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     if [obj for obj in vcdObjList if hasattr(obj, '__exception__')]:
                         return
                     continue
+            logger.debug("Configured target vdc successfully")
         except:
             logger.error(traceback.format_exc())
             self.__exception__ = True
