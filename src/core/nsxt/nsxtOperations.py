@@ -1721,7 +1721,7 @@ class NSXTOperations():
         """
         Description: Adding nsx segments of all routed network via groups in exclusion list
         """
-        if vcdObject.rollback.metadata.get("addGroupToExclusion"):
+        if vcdObject.rollback.metadata.get("addGroupToExclusion") or not vcdObject.rollback.apiData.get('targetOrgVDCNetworks'):
             return
         logger.debug('Adding NSX-Segment via group to the Exclusion list')
         dcGroupInfo, orgVdcDict = self.getGroupsForExclusion(vcdObject)
@@ -1743,7 +1743,7 @@ class NSXTOperations():
         """
         Description: Removing nsx segments of networks via group from exclusion list
         """
-        if vcdObject.rollback.metadata.get("removeGroupFromExclusion"):
+        if vcdObject.rollback.metadata.get("removeGroupFromExclusion") or not vcdObject.rollback.apiData.get('targetOrgVDCNetworks'):
             return
         logger.debug('Removing NSX-Segment from the Exclusion list')
         dcGroupInfo, orgVdcDict = self.getGroupsForExclusion(vcdObject)
