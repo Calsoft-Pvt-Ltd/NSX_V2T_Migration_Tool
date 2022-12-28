@@ -114,6 +114,11 @@ GET_LOCALE_SERVICES_API = '/infra/tier-0s/{}/locale-services'
 LOGICAL_SEGMENTS_ENDPOINT = "/infra/segments/{}"
 SEGMENT_DETAILS = "/infra/segments"
 
+# Get Data Center uri using id
+GET_GROUP_BY_ID_API = '/infra/domains/default/groups/{}'
+
+# Get Exclusion List uri
+GET_EXCLUSIONLIST_API = '/infra/settings/firewall/security/exclude-list'
 
 # policy API version startswith '3.2' onwards.
 API_VERSION_STARTWITH_3_2 = "3.2"

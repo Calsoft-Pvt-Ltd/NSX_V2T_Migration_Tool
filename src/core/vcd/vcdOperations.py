@@ -1271,7 +1271,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Description : Reconnect Target Edge Gateway to T0 router
         """
         try:
-            if not self.rollback.apiData['targetEdgeGateway']:
+            if not self.rollback.apiData.get('targetEdgeGateway'):
                 logger.debug('Skipping reconnecting target Edge gateway to T0 router'
                              ' as it does not exists')
                 return
@@ -2036,7 +2036,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Description : Disconnect target Org VDC networks
         """
         try:
-            if not self.rollback.apiData['sourceEdgeGateway']:
+            if not self.rollback.apiData['sourceEdgeGateway'] or not self.rollback.apiData.get('targetOrgVDC'):
                 logger.debug('Skipping Target Org VDC Network disconnection as edge '
                              'gateway does not exist.')
                 return
@@ -3159,6 +3159,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     if [obj for obj in vcdObjList if hasattr(obj, '__exception__')]:
                         return
                     continue
+            logger.debug("Configured target vdc successfully")
         except:
             logger.error(traceback.format_exc())
             self.__exception__ = True
