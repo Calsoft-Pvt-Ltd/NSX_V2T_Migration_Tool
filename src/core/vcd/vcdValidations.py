@@ -1636,7 +1636,7 @@ class VCDMigrationValidation:
                                 errorList.append("edge gateway {} subnets not present in segment backed network {}".format(edgeGateway['name'], extNet['name']))
                                 break
                 else:
-                    errorList.insert(0, "External network {} is used by edge Gateway. It's equivalent NSX-T segment backed external network - {}-v2t is not present".format(
+                    errorList.insert(0, "External network {} is used by edge Gateway - {}. It's equivalent NSX-T segment backed external network - {}-v2t is not present".format(
                         uplink['uplinkName'], edgeGateway['name'], uplink['uplinkName']))
         for vlanNet, edgeGatewayList in data['vlanSegmentToGatewayMapping'].items():
             if len(edgeGatewayList) > 1:
