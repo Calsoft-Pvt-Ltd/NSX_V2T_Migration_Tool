@@ -2205,7 +2205,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             edgeGatewayID = targetEdgeGateway['id']
             edgeGatewayName = targetEdgeGateway['name']
             targetStaticRoutes = self.getTargetStaticRouteDetails(edgeGatewayID, edgeGatewayName)
-            if rollback:
+            if rollback and targetStaticRoutes:
                 sourceStaticRoutes[targetEdgeGateway["name"]] += [{"network": targetStaticRoute["networkCidr"],
                                                                    "nextHop": targetStaticRoute["nextHops"][0]["ipAddress"],
                                                                    "interface": targetStaticRoute["nextHops"][0]["scope"]["name"]}
