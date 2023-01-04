@@ -40,7 +40,6 @@ VCloudDirector:
           LoadBalancerVIPSubnet: 192.168.255.128/28
           LoadBalancerServiceNetwork: 192.168.155.1/25
           LoadBalancerServiceNetworkIPv6: fd0c:2fb3:9a78:d746:0000:0000:0000:0001/120
-          EdgeGatewayDeploymentEdgeCluster: Edge-cluster1
           AdvertiseRoutedNetworks: False
           NonDistributedNetworks: False
           serviceNetworkDefinition: 192.168.255.225/27
@@ -53,7 +52,6 @@ VCloudDirector:
           LoadBalancerVIPSubnet: 192.168.255.128/28
           LoadBalancerServiceNetwork: 192.168.155.1/25
           LoadBalancerServiceNetworkIPv6: fd0c:2fb3:9a78:d746:0000:0000:0000:0001/120
-          EdgeGatewayDeploymentEdgeCluster: Edge-cluster1
           AdvertiseRoutedNetworks: False
           NonDistributedNetworks: False
           serviceNetworkDefinition: 192.168.255.225/27

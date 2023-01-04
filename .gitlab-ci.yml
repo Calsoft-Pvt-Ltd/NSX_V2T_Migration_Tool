@@ -86,7 +86,7 @@ build-linux:
 provenance:
   stage: generate-provenance
   rules:
-    - if: $BUILD_VERSION =~ /v1.*/
+    - if: $CI_COMMIT_BRANCH =~ /v1.*/
     - if: $FORCE_PROVENANCE == "true"
   before_script:
     # Prepare Python virtualenv
@@ -156,11 +156,11 @@ provenance:
     - cat ./provenance/merged.json
     - echo "-----------------------------------------------------------------------"
 
-#    # submit the merged provenance to SRP
-#    - |
-#      /srp-tools/srp metadata submit \
-#      --uid "$PROVENANCE_FRAGMENT_UID" \
-#      --path ./provenance/merged.json
+    # submit the merged provenance to SRP
+    - |
+      /srp-tools/srp metadata submit \
+      --uid "$PROVENANCE_FRAGMENT_UID" \
+      --path ./provenance/merged.json
 
   tags:
     - linux

@@ -184,7 +184,7 @@ class VMwareCloudDirectorNSXMigrator():
             releaseData = yaml.safe_load(f)
         self.buildVersion = releaseData['Build']
         self.consoleLogger.info("Build Version: {}".format(releaseData['Build']))
-        self.consoleLogger.info("Build Date: {}".format(releaseData['BuildDate']))
+        self.consoleLogger.info("Release Date: {}".format(releaseData['ReleaseDate']))
 
     def _getVcloudDirectorPassword(self):
         """

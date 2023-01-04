@@ -1636,7 +1636,7 @@ class VCDMigrationValidation:
                                 errorList.append("edge gateway {} subnets not present in segment backed network {}".format(edgeGateway['name'], extNet['name']))
                                 break
                 else:
-                    errorList.insert(0, "External network {} is used by edge Gateway. It's equivalent NSX-T segment backed external network - {}-v2t is not present".format(
+                    errorList.insert(0, "External network {} is used by edge Gateway - {}. It's equivalent NSX-T segment backed external network - {}-v2t is not present".format(
                         uplink['uplinkName'], edgeGateway['name'], uplink['uplinkName']))
         for vlanNet, edgeGatewayList in data['vlanSegmentToGatewayMapping'].items():
             if len(edgeGatewayList) > 1:
@@ -3553,7 +3553,7 @@ class VCDMigrationValidation:
 
         if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
             return []
-        errorList = list()
+        errorList = set()
         # url for getting edge gateway load balancer virtual servers configuration
         url = '{}{}'.format(
             vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
@@ -3571,9 +3571,9 @@ class VCDMigrationValidation:
 
         if not virtualServersData:
             return []
-        virtualSeverIp = list()
+        virtualSeverIp = dict()
         for virtualServer in virtualServersData:
-            virtualSeverIp.append(virtualServer['ipAddress'])
+            virtualSeverIp[virtualServer['name']] = virtualServer['ipAddress']
         # url to retrieve the routing config info
         url = "{}{}/{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                                  vcdConstants.NETWORK_EDGES, edgeGatewayId, vcdConstants.VNIC)
@@ -3585,13 +3585,11 @@ class VCDMigrationValidation:
         else:
             errorResponseData = response.json()
             raise Exception("Failed to get edge gateway {} vnic details due to error {}".format(edgeGatewayId, errorResponseData['message']))
-        gatewayIp = []
         for vnics in vNicsDetails:
-            if vnics['addressGroups']:
-                if vnics['type'] == 'internal':
-                    gatewayIp = vnics['addressGroups']['addressGroup']['primaryAddress']
-        if gatewayIp in virtualSeverIp:
-            errorList.append(gatewayIp)
+            if vnics.get('addressGroups') and vnics['type'] == 'internal':
+                for addressGroup in listify(vnics['addressGroups']['addressGroup']):
+                    if addressGroup['primaryAddress'] in virtualSeverIp.values():
+                        errorList.add(vnics['addressGroups']['addressGroup']['primaryAddress'])
 
         sourceOrgVDCId = self.rollback.apiData['sourceOrgVDC']['@id']
         orgVdcNetworks = self.getOrgVDCNetworks(sourceOrgVDCId, 'sourceOrgVDCNetworks', saveResponse=False)
@@ -3606,10 +3604,10 @@ class VCDMigrationValidation:
             for allocatedIpList in resultList:
                 if allocatedIpList['allocationType'] == 'VM_ALLOCATED':
                     vmIp.append(allocatedIpList['ipAddress'])
-            for virtualServer in virtualSeverIp:
-                if virtualServer in vmIp:
-                    errorList.append(virtualServer)
-                    loadBalancerConfigDict['Virtual server IP is already getting used by VM/GatewayIP of orgvdc network on edge gateway'].append(virtualServer['name'])
+            for vsName, vsIp in virtualSeverIp.items():
+                if vsIp in vmIp or vsIp in errorList:
+                    errorList.add(vsIp)
+                    loadBalancerConfigDict['Virtual server IP is already getting used by VM/GatewayIP of orgvdc network on edge gateway'].append(vsName)
         if errorList:
             return ['Virtual server IP : {} is already getting used by VM/GatewayIP of orgvdc network on edge gateway {}'.format(','.join(errorList), edgeGatewayId)]
         else:
