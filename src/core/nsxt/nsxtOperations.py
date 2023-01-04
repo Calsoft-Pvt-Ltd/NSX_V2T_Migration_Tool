@@ -1721,9 +1721,11 @@ class NSXTOperations():
         """
         Description: Adding nsx segments of all routed network via groups in exclusion list
         """
-        if vcdObject.rollback.metadata.get("addGroupToExclusion") or not vcdObject.rollback.apiData.get('targetOrgVDCNetworks'):
+        if vcdObject.rollback.metadata.get("addGroupToExclusion") or not vcdObject.rollback.apiData.get('targetOrgVDCNetworks')\
+                or not isinstance(vcdObject.rollback.metadata.get('moveVapp'), bool) \
+                or version.parse(self.apiVersion) < version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
             return
-        logger.debug('Adding NSX-Segment via group to the Exclusion list')
+        logger.info('Adding NSX-Segment via group to the Exclusion list')
         dcGroupInfo, orgVdcDict = self.getGroupsForExclusion(vcdObject)
         if orgVdcDict:
             for orgVdcId, orgVdcName in orgVdcDict.items():
@@ -1743,9 +1745,10 @@ class NSXTOperations():
         """
         Description: Removing nsx segments of networks via group from exclusion list
         """
-        if vcdObject.rollback.metadata.get("removeGroupFromExclusion") or not vcdObject.rollback.apiData.get('targetOrgVDCNetworks'):
+        if vcdObject.rollback.metadata.get("removeGroupFromExclusion") or not vcdObject.rollback.apiData.get('targetOrgVDCNetworks')\
+                or not vcdObject.rollback.metadata.get("addGroupToExclusion"):
             return
-        logger.debug('Removing NSX-Segment from the Exclusion list')
+        logger.info('Removing NSX-Segment from the Exclusion list')
         dcGroupInfo, orgVdcDict = self.getGroupsForExclusion(vcdObject)
         allGroupsInfo = {**dcGroupInfo, **orgVdcDict}
         # Get exclusion list
