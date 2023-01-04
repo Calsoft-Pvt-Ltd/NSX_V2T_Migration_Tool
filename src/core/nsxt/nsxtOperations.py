@@ -1725,7 +1725,7 @@ class NSXTOperations():
                 or not isinstance(vcdObject.rollback.metadata.get('moveVapp'), bool) \
                 or version.parse(self.apiVersion) < version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
             return
-        logger.info('Adding NSX-Segment via group to the Exclusion list')
+        logger.info('Adding VMs to NSX-T DFW Exclusion list')
         dcGroupInfo, orgVdcDict = self.getGroupsForExclusion(vcdObject)
         if orgVdcDict:
             for orgVdcId, orgVdcName in orgVdcDict.items():
@@ -1748,7 +1748,7 @@ class NSXTOperations():
         if vcdObject.rollback.metadata.get("removeGroupFromExclusion") or not vcdObject.rollback.apiData.get('targetOrgVDCNetworks')\
                 or not vcdObject.rollback.metadata.get("addGroupToExclusion"):
             return
-        logger.info('Removing NSX-Segment from the Exclusion list')
+        logger.info('Removing VMs from NSX-T DFW Exclusion list')
         dcGroupInfo, orgVdcDict = self.getGroupsForExclusion(vcdObject)
         allGroupsInfo = {**dcGroupInfo, **orgVdcDict}
         # Get exclusion list
