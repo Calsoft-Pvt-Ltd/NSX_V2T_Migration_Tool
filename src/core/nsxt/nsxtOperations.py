@@ -1717,12 +1717,13 @@ class NSXTOperations():
         except Exception:
             raise
 
+    @remediate
     def addGroupToExclusionlist(self, vcdObject):
         """
         Description: Adding nsx segments of all routed network via groups in exclusion list
         """
-        if vcdObject.rollback.metadata.get("addGroupToExclusion") or not vcdObject.rollback.apiData.get('targetOrgVDCNetworks')\
-                or not isinstance(vcdObject.rollback.metadata.get('moveVapp'), bool) \
+        if not vcdObject.rollback.apiData.get('targetOrgVDCNetworks')\
+                or not vcdObject.rollback.apiData['sourceOrgVDC'].get('NoOfvApp', 0) > 0 \
                 or version.parse(self.apiVersion) < version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
             return
         logger.info('Adding VMs to NSX-T DFW Exclusion list')
@@ -1738,15 +1739,15 @@ class NSXTOperations():
             currentExclusionList['members'].append('/infra/domains/default/groups/{}'.format(groupId.split(':')[-1]))
         self.updateExclusionList(currentExclusionList)
         logger.debug("Groups added to the exclusion list successfully")
-        vcdObject.createMetaDataInOrgVDC(vcdObject.rollback.apiData.get('sourceOrgVDC', {}).get('@id'),
-                                         metadataDict={'addGroupToExclusion': True}, domain='system')
 
+    @remediate
     def removeGroupFromExclusionlist(self, vcdObject):
         """
         Description: Removing nsx segments of networks via group from exclusion list
         """
-        if vcdObject.rollback.metadata.get("removeGroupFromExclusion") or not vcdObject.rollback.apiData.get('targetOrgVDCNetworks')\
-                or not vcdObject.rollback.metadata.get("addGroupToExclusion"):
+        if not vcdObject.rollback.apiData.get('targetOrgVDCNetworks') \
+                or not vcdObject.rollback.apiData['sourceOrgVDC'].get('NoOfvApp', 0) > 0 \
+                or version.parse(self.apiVersion) < version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
             return
         logger.info('Removing VMs from NSX-T DFW Exclusion list')
         dcGroupInfo, orgVdcDict = self.getGroupsForExclusion(vcdObject)
@@ -1771,8 +1772,6 @@ class NSXTOperations():
                     responseData = json.loads(response.content)
                     raise Exception(responseData['error_message'])
         logger.debug("Successfully removed NSX-Segment of networks via groups from the exclusion list")
-        vcdObject.createMetaDataInOrgVDC(vcdObject.rollback.apiData.get('sourceOrgVDC', {}).get('@id'),
-                                         metadataDict={'removeGroupFromExclusion': True}, domain='system')
 
     def updateExclusionList(self, currentExclusionList):
         """
