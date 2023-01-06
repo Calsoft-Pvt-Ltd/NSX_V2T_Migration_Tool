@@ -3199,7 +3199,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 if sourceLbConfig['loadBalancer']['enabled'] != "true":
                     logger.debug("LoadBalancer Service is in disabled state in Source Edge Gateway - {}".format(
                         sourceEdgeGateway['name']))
-                    return
+                    continue
 
                 if not float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
                     raise Exception(
