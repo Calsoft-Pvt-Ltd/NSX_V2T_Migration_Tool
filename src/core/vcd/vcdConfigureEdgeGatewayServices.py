@@ -1316,8 +1316,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     if response.status_code == requests.codes.accepted:
                         taskUrl = response.headers['Location']
                         self._checkTaskStatus(taskUrl=taskUrl)
-                        logger.debug("firewall rule {} scope {} updated on target edge gateway {}".format(
-                            firewallRuleData["name"], networkData["name"], targetEdgeGateway["id"]))
                     else:
                         raise Exception("Failed to update firewall rule {} scope".format(firewallRuleData["name"]))
                 logger.debug("Firewall rules scopes updated on target edge gateway {}".format(targetEdgeGateway["name"]))
@@ -3199,7 +3197,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 if sourceLbConfig['loadBalancer']['enabled'] != "true":
                     logger.debug("LoadBalancer Service is in disabled state in Source Edge Gateway - {}".format(
                         sourceEdgeGateway['name']))
-                    return
+                    continue
 
                 if not float(self.version) >= float(vcdConstants.API_VERSION_ZEUS):
                     raise Exception(
