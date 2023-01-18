@@ -910,15 +910,14 @@ class VMwareCloudDirectorNSXMigrator():
                 'Skipping the EdgeGateway Services configuration and Network Switchover as per the input parameters provided')
 
     def runWorkload(self):
-        # Save No of Source vApp to Metadata
-        futures = list()
-        with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
-            for vcdObj in self.vcdObjList:
-                futures.append(executor.submit(vcdObj.savevAppNoToMetadata))
-            waitForThreadToComplete(futures)
-
         # Check if vApp migration is to be performed
         if mainConstants.MOVEVAPP_KEYWORD in self.executeList:
+            # Save No of Source vApp to Metadata
+            futures = list()
+            with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:
+                for vcdObj in self.vcdObjList:
+                    futures.append(executor.submit(vcdObj.savevAppNoToMetadata))
+                waitForThreadToComplete(futures)
             # Migrating IP/s from v-external network to NSX-T segment backed external network
             futures = list()
             with ThreadPoolExecutor(max_workers=self.numberOfParallelMigrations) as executor:

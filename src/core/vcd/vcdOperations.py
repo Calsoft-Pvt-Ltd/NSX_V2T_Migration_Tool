@@ -3557,7 +3557,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # Get metadata and target vApplist.
             targetOrgVdcId = self.rollback.apiData['targetOrgVDC']['@id']
             targetvAppList = self.checkIfSourceVappsExist(targetOrgVdcId, True)
-            sourcevAppNo = self.rollback.apiData['sourceOrgVDC']['NoOfvApp']
+            sourcevAppNo = self.rollback.apiData['sourceOrgVDC'].get('NoOfvApp', 'NA')
             metadata = dict(self.rollback.apiData)
 
             # Add logger for state log.
