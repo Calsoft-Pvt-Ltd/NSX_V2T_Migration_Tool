@@ -21,6 +21,7 @@ import sys
 import threading
 import traceback
 import yaml
+import jsonschema
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 
@@ -984,6 +985,23 @@ class VMwareCloudDirectorNSXMigrator():
             f'Successfully completed migration of NSX-V backed to NSX-T backed for Org VDC/s '
             f'{", ".join([vdc["OrgVDCName"] for vdc in self.inputDict["VCloudDirector"]["SourceOrgVDC"]])}.')
 
+    def validateInputFile(self):
+        """
+            Description : This method runs the validation on input files using jsonSchema.
+        """
+        filepath = os.path.join(mainConstants.rootDir, "userInputJsonSchema.json")
+        fileData = Utilities.readJsonData(filepath)
+        if os.path.basename(self.userInputFilePath) == "samplev2tAssessmentInput.yml":
+            jsonSchema = fileData.get("v2tAssessmentJsonSchema")
+        else:
+            jsonSchema = fileData.get("sampleUserInputJsonSchema")
+        try:
+            jsonschema.validate(instance=self.inputDict, schema=jsonSchema)
+        except Exception as exp:
+            self.consoleLogger.error(
+                "Unable to proceed due to incorrect Details in {} file, Details : {}".format(self.userInputFilePath,
+                                                                                             exp))
+
     def run(self):
         """
         Description : This method runs the migration process of VMware Cloud Director from V2T
@@ -992,6 +1010,7 @@ class VMwareCloudDirectorNSXMigrator():
             # read release version
             self.releaseVersion()
             self.consoleLogger.warning("Log Filepath: {}".format(self.mainLogfile))
+            self.validateInputFile()
 
             # Execute v2tAssessment
             if self.v2tAssessment:
