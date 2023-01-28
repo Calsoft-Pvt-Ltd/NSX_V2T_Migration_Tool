@@ -21,7 +21,8 @@ import sys
 import threading
 import traceback
 import yaml
-import jsonschema
+from schema import Schema, SchemaError
+
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 
@@ -47,6 +48,8 @@ from src.core.vcenter.vcenterApis import VcenterApi
 from src.vcdNSXMigratorCleanup import VMwareCloudDirectorNSXMigratorCleanup
 from src.vcdNSXMigratorAssessmentMode import VMwareCloudDirectorNSXMigratorAssessmentMode
 from src.vcdNSXMigratorV2TAssessment import VMwareCloudDirectorNSXMigratorV2T
+
+from userInputSchemaValidator import userInputValidationMigrationSchema, userInputValidationv2tAssessmentSchema
 
 
 class VMwareCloudDirectorNSXMigrator():
@@ -989,18 +992,17 @@ class VMwareCloudDirectorNSXMigrator():
         """
             Description : This method runs the validation on input files using jsonSchema.
         """
-        filepath = os.path.join(mainConstants.rootDir, "userInputJsonSchema.json")
-        fileData = Utilities.readJsonData(filepath)
-        if os.path.basename(self.userInputFilePath) == "samplev2tAssessmentInput.yml":
-            jsonSchema = fileData.get("v2tAssessmentJsonSchema")
-        else:
-            jsonSchema = fileData.get("sampleUserInputJsonSchema")
         try:
-            jsonschema.validate(instance=self.inputDict, schema=jsonSchema)
+            if os.path.basename(self.userInputFilePath) == "samplev2tAssessmentInput.yml":
+                Schema(userInputValidationv2tAssessmentSchema).validate(self.inputDict)
+            else:
+                Schema(userInputValidationMigrationSchema).validate(self.inputDict)
         except Exception as exp:
             self.consoleLogger.error(
                 "Unable to proceed due to incorrect Details in {} file, Details : {}".format(self.userInputFilePath,
                                                                                              exp))
+            exit(1)
+
 
     def run(self):
         """
