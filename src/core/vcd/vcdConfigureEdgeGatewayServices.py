@@ -3535,6 +3535,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 logger.debug('Uploading the certificate {} for load balancer HTTPS configuration'.format(objectId))
                 self.uploadCertificate(certificate, objectId)
 
+        # Fetching all the newly added certificate after they are uploaded in above else condition
+        lbCertificates = self.getCertificatesFromTenant()
+
         def createIpset(pool):
             ipsetUrl = '{}{}'.format(
                 vcdConstants.OPEN_API_URL.format(self.ipAddress),
