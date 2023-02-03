@@ -3393,7 +3393,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
         def getCertificateRef(vs):
             isTcpCert = False
-            if vs['protocol'] == 'https' and vs['protocol'] == 'tcp':
+            if vs['protocol'] == 'https' or vs['protocol'] == 'tcp':
                 for profile in applicationProfiles:
                     if profile['applicationProfileId'] == vs['applicationProfileId']:
                         certificateObjectId = profile.get('clientSsl', {}).get('serviceCertificate')
@@ -3402,10 +3402,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             isTcpCert = True
 
                         # Certificates payload
-                        return {
-                            'name': certificateObjectId,
-                            'id': lbCertificates[certificateObjectId]
-                        }, isTcpCert
+                        if certificateObjectId:
+                            return {
+                                       'name': certificateObjectId,
+                                       'id': lbCertificates[certificateObjectId]
+                                   }, isTcpCert
+                        else:
+                            return None, isTcpCert
 
             return None, isTcpCert
 
