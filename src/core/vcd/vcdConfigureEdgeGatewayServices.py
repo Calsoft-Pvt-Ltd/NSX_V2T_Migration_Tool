@@ -3396,6 +3396,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             if vs['protocol'] == 'https' or vs['protocol'] == 'tcp':
                 for profile in applicationProfiles:
                     if profile['applicationProfileId'] == vs['applicationProfileId']:
+                        if profile.get('sslPassthrough') == 'true':
+                            return None, isTcpCert
+                        
                         certificateObjectId = profile.get('clientSsl', {}).get('serviceCertificate')
 
                         if vs['protocol'] == 'tcp':
