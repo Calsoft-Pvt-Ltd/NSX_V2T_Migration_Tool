@@ -3415,6 +3415,25 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             return None, isTcpCert
 
+        def setAppProfile(virtualServer):
+            protocol = ''
+            applicationProfileId = virtualServer['applicationProfileId']
+            applicationProfileData = list(filter(
+                lambda profile: profile['applicationProfileId'] == applicationProfileId, applicationProfiles))[0]
+
+            # Check if SSL Passthrough is True for Application Profile linked with Virtual_Server
+            # If It is True update Application Profile Protocol to L4 TCP
+            if applicationProfileData and applicationProfileData.get('sslPassthrough') == 'true':
+                logger.warning("SSL Passthrough with HTTPS protocol is enabled on the Application profile attached "
+                               "to the Virtual Server, So changing HTTPS protocol to L4 TCP protocol for Target side")
+                protocol = "L4"
+
+            if not protocol:
+                protocol = "HTTP" if virtualServer['protocol'] == 'http' else "HTTPS" \
+                    if virtualServer['protocol'] == 'https' else "L4 TLS" if certificateForTCP else "L4"
+
+            return protocol
+
         for virtualServer in virtualServersData:
             certificateRef, certificateForTCP = getCertificateRef(virtualServer)
 
@@ -3425,6 +3444,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     # Incrementing the IPV4 address for next virtual service
                     hostsListInSubnet.pop(0)
                 continue
+
+            protocolUsed = setAppProfile(virtualServer)
 
             payload = {
                 "name": virtualServer["name"],
@@ -3449,15 +3470,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 "servicePorts": [
                     {
                         "portStart": virtualServer["port"],
-                        "sslEnabled": virtualServer["protocol"] == "https"
+                        "sslEnabled": protocolUsed == "HTTPS"
                     }
                 ],
                 'applicationProfile': {
-                    "type":
-                        "HTTP" if virtualServer['protocol'] == 'http'
-                        else "HTTPS" if virtualServer['protocol'] == 'https'
-                        else "L4 TLS" if certificateForTCP
-                        else "L4",
+                    "type": protocolUsed,
                     "systemDefined": True,
                 },
             }
@@ -3599,6 +3616,29 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             else:
                 return 80
 
+        def getHealthMonitor(poolData):
+            monitorType = ''
+            virtualServer = list(filter(lambda vserver: vserver['defaultPoolId'] == poolData['poolId'],
+                                        virtualServersData))
+
+            if virtualServer:
+                applicationProfileId = virtualServer[0]['applicationProfileId']
+                applicationProfileData = list(filter(
+                    lambda profile: profile['applicationProfileId'] == applicationProfileId, applicationProfiles))[0]
+
+                # If SSL Passthrough is True update Pool data health monitor to TCP type and sslEnabled to False
+                if applicationProfileData and applicationProfileData.get('sslPassthrough') == 'true':
+                    logger.warning("SSL Passthrough with HTTPS protocol is enabled so Updating Pool Health Monitor to "
+                                   "TCP type and setting sslEnabled to False")
+                    monitorType = 'TCP'
+
+            if not monitorType:
+                healthMonitorUsedInPool = list(filter(
+                    lambda monitor: monitor['monitorId'] == poolData.get('monitorId', None), healthMonitors))
+                monitorType = healthMonitorMap.get(healthMonitorUsedInPool[0]['type'])
+
+            return monitorType
+
 
         healthMonitorMap = {
             'http': 'HTTP',
@@ -3615,8 +3655,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 logger.debug(f'Pool {poolData["name"]} already created on target edge gateway {targetEdgeGatewayName}')
                 continue
 
-            healthMonitorUsedInPool = list(filter(
-                lambda monitor: monitor['monitorId'] == poolData.get('monitorId', None), healthMonitors))
+            healthMonitorUsedInPool = getHealthMonitor(poolData)
 
             payload = {
                 'description': poolData.get('description', ''),
@@ -3629,7 +3668,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     'LEAST_CONNECTIONS' if poolData['algorithm'] == 'leastconn'
                     else poolData['algorithm'].upper().replace('-', '_'),
                 'healthMonitors': [{
-                    "type": healthMonitorMap.get(healthMonitorUsedInPool[0]['type']),
+                    "type": healthMonitorUsedInPool,
                     "systemDefined": True,
                 }],
                 'persistenceProfile': getPersistenceProfile(poolData),
@@ -3649,14 +3688,14 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 },
                 'caCertificateRefs': [
                     {'name': objectId, 'id': lbCertificates[objectId]} for objectId in objectIdsOfCertificates
-                ] if healthMonitorUsedInPool and healthMonitorUsedInPool[0]['type'] == 'https' else None,
+                ] if healthMonitorUsedInPool and healthMonitorUsedInPool == 'HTTPS' else None,
             }
 
             # Add fields introduced in specific VCD versions
             if float(self.version) >= float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
                 payload.update({
                     'sslEnabled':
-                        True if healthMonitorUsedInPool and healthMonitorUsedInPool[0]['type'] == 'https'
+                        True if healthMonitorUsedInPool and healthMonitorUsedInPool == 'HTTPS'
                         else False,
                 })
 
