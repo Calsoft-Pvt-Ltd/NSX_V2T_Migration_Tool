@@ -4150,12 +4150,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     if not subIpPools:
                         continue
                     # Raise exception if target ext network subnet has only one IP and EmptyPoolOverride flag is False
-                    if subnet["totalIpCount"] == 1:
+                    if subnet["totalIpCount"] == len(set(tuple(d.items()) for d in edgeGatewaySubnetDict[externalNetworkSubnet])):
                         if self.orgVdcInput.get("EmptyIPPoolOverride", False):
                             logger.warning("Skipping removing '{}' IP from source external network - '{}'".format(externalRanges[0]["startAddress"], networkName))
                             continue
                         else:
-                            raise Exception("External Network subnet has only one IP address which cannot be removed. EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
+                            raise Exception("External Network subnet should have atleast one free IP address which cannot be removed."
+                                            " EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
 
                     # creating range of source edge gateway sub allocated pool range
                     subIpRangeList = []
@@ -4713,12 +4714,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     if not sourceEgwSubnets.get(targetExtNetSubnetAddress):
                         continue
 
-                    # Raise exception if target ext network subnet has only one IP and EmptyPoolOverride flag is False
-                    if targetExtNetSubnet["totalIpCount"] == 1:
+                    # Raise exception if target ext network subnet has not any free IP and EmptyPoolOverride flag is False
+
+                    if targetExtNetSubnet["totalIpCount"] == len(sourceEgwSubnets.get(targetExtNetSubnetAddress)):
                         if self.orgVdcInput.get("EmptyIPPoolOverride", False):
                             continue
                         else:
-                            raise Exception("External Network subnet has only one IP address which cannot be removed. EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
+                            raise Exception("External Network subnet should have atleast one free IP address which cannot be removed."
+                                            " EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
 
                     # creating range of target external network pool range
                     targetExtNetIpRange = set()
