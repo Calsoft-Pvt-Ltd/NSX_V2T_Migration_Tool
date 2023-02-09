@@ -3047,7 +3047,8 @@ class VCDMigrationValidation:
 
         # Check for explicit case scenario.
         networkNames = list()
-        if self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks']:
+        if self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks'] and \
+            float(self.version) < float(vcdConstants.API_VERSION_CASTOR_10_4_1):
             # get Non-Dist routing flag from user input and if enabled then raise exception.
             for sourceOrgVDCNetwork in sourceOrgvdcNetworks:
                 if sourceOrgVDCNetwork['networkType'] != 'NAT_ROUTED':
@@ -3074,7 +3075,8 @@ class VCDMigrationValidation:
                 continue
 
             if (self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks']
-                    or sourceOrgVDCNetwork['id'] in implicitNetworks):
+                    or sourceOrgVDCNetwork['id'] in implicitNetworks) and \
+                    float(self.version) < float(vcdConstants.API_VERSION_CASTOR_10_4_1):
                 errorList.append(
                     "DHCP Relay service configured on source edge gateway {} is not supported on target because, OrgVDC network {} will be configured as non-distributed after migration. DHCP Relay is not supported on non-distibuted routed networks.\n".format(
                         edgeGatewayName, sourceOrgVDCNetwork['name']))
