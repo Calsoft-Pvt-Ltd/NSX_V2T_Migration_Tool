@@ -1986,6 +1986,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 # Configure non-distributed network is 'NETWORK' mode, bcz non-dis
                 # tributed routing which does not support DHCP EDGE or RELAY modes
                 if (float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA_10_3_2)
+                        and float(self.version) < float(vcdConstants.API_VERSION_CASTOR_10_4_1)
                         and network['networkType'] == 'NAT_ROUTED'
                         and network['connection']['connectionTypeValue'] == 'NON_DISTRIBUTED'):
                     # get the free IP from the static IP pool of orgvdc network
