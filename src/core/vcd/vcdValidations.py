@@ -3719,6 +3719,24 @@ class VCDMigrationValidation:
                         return ['Failed to get source edge gateway load balancer virtual servers configuration with error code {} \n'.format(response.status_code)]
 
                     for virtualServer in virtualServersData:
+                        # check if SSL Passthrough is enabled
+                        if virtualServer.get('applicationProfileId'):
+                            applicationProfileId = virtualServer['applicationProfileId']
+                            applicationProfiles = responseDict['loadBalancer'].get('applicationProfile') \
+                                if isinstance(responseDict['loadBalancer'].get('applicationProfile'), list) \
+                                else [responseDict['loadBalancer'].get('applicationProfile')]
+
+                            applicationProfileData = list(filter(
+                                lambda profile: profile['applicationProfileId'] == applicationProfileId,
+                                applicationProfiles))[0]
+                            if applicationProfileData and applicationProfileData.get('sslPassthrough') == 'true':
+                                logger.warning("SSL Passthrough enabled with HTTPS protocol in application profile "
+                                               "'{}'. During Migration, Virtual Server '{}' having Application Profile '{}' attached will have its HTTPS protocol auto changed to "
+                                               "TCP type and its default Pool's Health Monitor will be changed "
+                                               "to TCP Health Monitor at Target side".format(
+                                    applicationProfileData['name'], virtualServer['name'],
+                                    applicationProfileData['name']))
+
                         # check for default pool
                         if not virtualServer.get('defaultPoolId', None):
                             loadBalancerErrorList.append("Default pool is not configured in load balancer virtual server '{}'\n".format(virtualServer['name']))
