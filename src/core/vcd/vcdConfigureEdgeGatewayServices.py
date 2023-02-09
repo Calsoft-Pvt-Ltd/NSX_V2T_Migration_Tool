@@ -3393,19 +3393,25 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
         def getCertificateRef(vs):
             isTcpCert = False
-            if vs['protocol'] == 'https' and vs['protocol'] == 'tcp':
+            if vs['protocol'] == 'https' or vs['protocol'] == 'tcp':
                 for profile in applicationProfiles:
                     if profile['applicationProfileId'] == vs['applicationProfileId']:
+                        if profile.get('sslPassthrough') == 'true':
+                            return None, isTcpCert
+                        
                         certificateObjectId = profile.get('clientSsl', {}).get('serviceCertificate')
 
                         if vs['protocol'] == 'tcp':
                             isTcpCert = True
 
                         # Certificates payload
-                        return {
-                            'name': certificateObjectId,
-                            'id': lbCertificates[certificateObjectId]
-                        }, isTcpCert
+                        if certificateObjectId:
+                            return {
+                                       'name': certificateObjectId,
+                                       'id': lbCertificates[certificateObjectId]
+                                   }, isTcpCert
+                        else:
+                            return None, isTcpCert
 
             return None, isTcpCert
 
@@ -3534,6 +3540,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 certificate = nsxvObj.certRetrieval(objectId)
                 logger.debug('Uploading the certificate {} for load balancer HTTPS configuration'.format(objectId))
                 self.uploadCertificate(certificate, objectId)
+
+        # Fetching all the newly added certificate after they are uploaded in above else condition
+        lbCertificates = self.getCertificatesFromTenant()
 
         def createIpset(pool):
             ipsetUrl = '{}{}'.format(
