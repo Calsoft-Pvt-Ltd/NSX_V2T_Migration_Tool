@@ -1647,6 +1647,33 @@ class VCDMigrationValidation:
         return errorList
 
     @isSessionExpired
+    def validateExternalNetworkMultipleSubnets(self):
+        """
+        Description : Validate multiple subnets in directly connected external network
+        Parameters :  orgVDCId - org VDC id (STRING)
+        """
+        multipleSubnetErrorList = list()
+        for edge in self.rollback.apiData.get("isT1Connected", {}):
+            sourceEdgeGateway = list(filter(lambda edgeGateway: edgeGateway["name"] == edge, self.rollback.apiData["sourceEdgeGateway"]))[0]
+            sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
+            defaultGateway = self.getEdgeGatewayDefaultGateway(sourceEdgeGatewayId)
+            for externalNet, subnet in self.rollback.apiData["isT1Connected"][edge].items():
+                gateway = list(subnet)[0][0]
+                segmentId = self.rollback.apiData["segmentToIdMapping"][externalNet + '-v2t']
+                if gateway == defaultGateway:
+                    url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                           segmentId)
+                    response = self.restClientObj.get(url, self.headers)
+                    if response.status_code == requests.codes.ok:
+                        responseDict = response.json()
+                        if len(responseDict["subnets"]["values"]) > 1:
+                            multipleSubnetErrorList.append("External network {}-v2t directly connected to edge gateway - {} has multiple subnets present".format(
+                                externalNet, edge))
+
+        if multipleSubnetErrorList:
+            raise Exception('; '.join(multipleSubnetErrorList))
+
+    @isSessionExpired
     def getOrgVDCAffinityRules(self, orgVDCId):
         """
         Description : Get Org VDC affinity rules
@@ -5430,6 +5457,9 @@ class VCDMigrationValidation:
             # validating whether same subnet exist in source and target External networks
             logger.info('Validating source and target External networks have same subnets')
             self.validateExternalNetworkSubnets()
+
+            # validating whether multiple subnets are present in directly connected external network
+            self.validateExternalNetworkMultipleSubnets()
 
             # Validate whether the external network is linked to NSXT provided in the input file or not
             logger.info('Validating Target External Network with NSXT provided in input file')
