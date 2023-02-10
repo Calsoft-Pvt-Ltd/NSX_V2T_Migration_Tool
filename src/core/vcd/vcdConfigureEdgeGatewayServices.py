@@ -1462,10 +1462,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         subnetsToAdvertise += [subnet['network'] for subnet in ipPrefix['prefixes']
                                                if subnet['action'] == 'PERMIT']
                         break
-            elif self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['AdvertiseRoutedNetworks']:
+            if self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['AdvertiseRoutedNetworks']:
                 # If advertiseRoutedNetworks param is True,
                 # advertise all routed networks subnets connected to this edge gateway
                 subnetsToAdvertise += allRoutedNetworkSubnets
+                enableRouteAdvertisment = True
             if not subnetsToAdvertise:
                 logger.debug(f"Skipping Route Advertisement for target edge gateway '{sourceEdgeGateway['name']}' "
                              f"as there is no subnet present for Route Advertisement")
