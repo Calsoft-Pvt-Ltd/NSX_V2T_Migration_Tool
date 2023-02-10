@@ -3199,11 +3199,13 @@ class VCDMigrationValidation:
 
             errorList = list()
             firewallConfigDict = {
+                "Negate Flag enabled in the source of firewall rule": [],
                 "vNicGroupId present in the source of firewall rule": [],
                 "Direct network used in the source of firewall rule": [],
                 "Isolated network used in the source of firewall rule": [],
                 "Routed Network connected to different edge gateway used in source of firewall rule": [],
                 "Unsupported grouping object type in the source of firewall rule": [],
+                "Negate Flag enabled in the destination of firewall rule": [],
                 "vNicGroupId present in the destination of firewall rule": [],
                 "Direct network used in the destination of firewall rule": [],
                 "Isolated network used in the destination of firewall rule": [],
@@ -3248,6 +3250,9 @@ class VCDMigrationValidation:
                             if firewall['application'].get('service'):
                                 services = firewall['application']['service'] if isinstance(firewall['application']['service'], list) else [firewall['application']['service']]
                         if firewall.get('source'):
+                            if firewall['source'].get('exclude') == 'true':
+                                errorList.append("Negate Flag enabled in the source of firewall rule : '{}'\n".format(firewall['name']))
+                                firewallConfigDict["Negate Flag enabled in the source of firewall rule"].append(firewall['id'])
                             if firewall['source'].get('vnicGroupId'):
                                 errorList.append("vNicGroupId '{}' is present in the source of firewall rule '{}'\n".format(firewall['source']['vnicGroupId'], firewall['name']))
                                 firewallConfigDict["vNicGroupId present in the source of firewall rule"].append(firewall['id'])
@@ -3269,6 +3274,9 @@ class VCDMigrationValidation:
                                         errorList.append("The grouping object type '{}' in the source of firewall rule '{}' is not supported\n".format(groupingobject, firewall['name']))
                                         firewallConfigDict["Unsupported grouping object type in the source of firewall rule"].append(firewall['id'])
                         if firewall.get('destination'):
+                            if firewall['destination'].get('exclude') == 'true':
+                                errorList.append("Negate Flag enabled in the destination of firewall rule : '{}'\n".format(firewall['name']))
+                                firewallConfigDict["Negate Flag enabled in the destination of firewall rule"].append(firewall['id'])
                             if firewall['destination'].get('vnicGroupId'):
                                 errorList.append("vNicGroupId '{}' is present in the destination of firewall rule '{}'\n".format(firewall['destination']['vnicGroupId'], firewall['name']))
                                 firewallConfigDict["vNicGroupId present in the destination of firewall rule"].append(firewall['id'])
