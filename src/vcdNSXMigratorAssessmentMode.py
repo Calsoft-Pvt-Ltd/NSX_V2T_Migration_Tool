@@ -149,6 +149,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating whether source Org VDC placement policies are present in target PVDC': [vcdValidationObj.validateVMPlacementPolicy, sourceOrgVDCId],
                 'Validating storage profiles in source Org VDC and target Provider VDC': [vcdValidationObj.validateStorageProfiles],
                 'Validating if source and target External networks have same subnets': [vcdValidationObj.validateExternalNetworkSubnets],
+                'Validating multiple subnets in directly connected external network': [vcdValidationObj.validateExternalNetworkMultipleSubnets],
                 'Validating Target External Network with NSXT provided in input file': [vcdValidationObj.validateExternalNetworkWithNSXT],
                 'Validating if all edge gateways interfaces are in use': [vcdValidationObj.validateEdgeGatewayUplinks, sourceOrgVDCId, edgeGatewayIdList, True],
                 'Validating whether DHCP is enabled on source Isolated Org VDC network': [vcdValidationObj.validateDHCPEnabledonIsolatedVdcNetworks, orgVdcNetworkList, edgeGatewayIdList, edgeGatewayDeploymentEdgeCluster, nsxtObj],
