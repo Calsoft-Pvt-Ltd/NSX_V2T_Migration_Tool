@@ -3168,8 +3168,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # Delete attribute once not required
             if hasattr(self, '__done__'):
                 delattr(self, '__done__')
-            if hasattr(self, '_dfw_configured'):
-                delattr(self, '_dfw_configured')
 
     def updateRouteRedistributionRules(self, nsxtObj):
         """
