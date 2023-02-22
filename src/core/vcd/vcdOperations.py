@@ -4402,7 +4402,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         'ipRanges': listify(ipScope.get('IpRanges', {}).get('IpRange')),
                     }
                     for ipScope in listify(vAppNetwork['Configuration']['IpScopes']['IpScope'])
-                    if ipScope['IsInherited'] == 'false'
+                    if ipScope['IsInherited'] == 'false' or float(self.version) >= float(vcdConstants.API_VERSION_CASTOR_10_4_1)
                 ]
 
         def getParentNetwork(vAppNetwork):
