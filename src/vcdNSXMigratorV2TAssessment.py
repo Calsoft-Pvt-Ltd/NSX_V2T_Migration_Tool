@@ -821,7 +821,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                              f'edgeGatewaysDetailedReport-{self.currentDateTime}.csv')
 
             if self.edgeGatewayData:
-                with open(edgeGatewaydetailedReportfilename, "w", newline='') as f:
+                with open(edgeGatewaydetailedReportfilename, "w", encoding='utf-8', newline='') as f:
                     writer = csv.writer(f)
                     writer.writerow(["Org Name", "Org VDC Name", "Edge GW name", "Service Name", "Service Validation Error", "Additional details(Object Name/ID)"])
                     writer.writerows(self.edgeGatewayData)
@@ -844,7 +844,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                       f'loadBalancerDetailedReport-{self.currentDateTime}.csv')
 
             if self.loadBalancerData:
-                with open(loadBalancerReportfilename, "w", newline='') as f:
+                with open(loadBalancerReportfilename, "w", encoding='utf-8', newline='') as f:
                     writer = csv.writer(f)
                     writer.writerow(["Org Name", "Org VDC Name", "Edge GW name", "LB Service", "Object Name"])
                     writer.writerows(self.loadBalancerData)
@@ -867,7 +867,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                                   f'v2tAssessmentReport-{self.currentDateTime}.csv')
 
             # Writing data to detailed report csv
-            with open(detailedReportfilename, "w", newline='') as f:
+            with open(detailedReportfilename, "w", encoding='utf-8', newline='') as f:
                 writer = csv.DictWriter(f, fieldnames=self.reportData[0].keys())
                 writer.writeheader()
                 writer.writerows(self.reportData)
@@ -992,7 +992,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
             table.add_row(["Total time taken by V2T-Assessment", f"{timeFormat}"])
 
             # Writing data to summary report csv
-            with open(summaryReportfilename, "w", newline='') as f:
+            with open(summaryReportfilename, "w", encoding='utf-8', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerows(summaryData)
 
