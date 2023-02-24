@@ -3901,7 +3901,12 @@ class VCDMigrationValidation:
                                 staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"]})
                             # Checking next hop IP in external network
                             if vnicData["type"] == "uplink":
-                                externalStaticRoutes.append(staticRoute)
+                                if vnicData["portgroupName"] in self.rollback.apiData.get('isT1Connected', {}).get(edgeGatewayName, {}):
+                                    staticRoute['interface'] = None
+                                    internalStaticRoutes.append(staticRoute)
+                                    staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"], "interface": staticRoute["interface"]})
+                                else:
+                                    externalStaticRoutes.append(staticRoute)
                 else:
                     # When static route interface is set as external/orgVDC network
                     for vnicData in vNicsDetails:
@@ -3915,6 +3920,7 @@ class VCDMigrationValidation:
                         # Checking whether the edge gateway interface is external
                         if vnicData["index"] == vnic and vnicData["type"] == "uplink":
                             if vnicData["portgroupName"] in self.rollback.apiData.get('isT1Connected', {}).get(edgeGatewayName, {}):
+                                staticRoute['interface'] = vnicData["portgroupName"]
                                 internalStaticRoutes.append(staticRoute)
                                 staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"], "interface": staticRoute["interface"]})
                             else:
