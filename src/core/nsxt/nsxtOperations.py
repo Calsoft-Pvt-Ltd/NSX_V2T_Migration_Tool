@@ -459,7 +459,18 @@ class NSXTOperations():
                     # since nsxt 3.0 null coming in data_network_ids while getting edge transport node details
                     if None in dataNetworkList:
                         dataNetworkList.remove(None)
-                    newDataNetworkList = portGroup['moref']
+                    # Getting compute_id from edgeNodeData
+                    compute_id = edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config']['compute_id']
+                    url = "https://cpsbu-tpm-vcsa3.eng.vmware.com/mob/?moid="+compute_id.strip()
+                    # Getting Network from MOBs API (Need correction as it is coming in HTML)
+                    response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER,
+                                                      auth=("administrator@vsphere.local", "VMware1!"))
+                    mobs_resp = response.content
+                    # Checking portgroup in Networks list of bridging edge node vSphere cluster
+                    if portGroup['moref'] in str(mobs_resp):
+                        newDataNetworkList = portGroup['moref']
+                    else:
+                        raise Exception('Bridge Edge Node Port Group not in Network list of bridging edge node vSphere cluster')
                     dataNetworkList.append(newDataNetworkList)
                     edgeNodeData["host_switch_spec"]["host_switches"] = hostSwitchSpec
                     edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config']['data_network_ids'] = dataNetworkList
