@@ -2077,7 +2077,7 @@ class VCDMigrationValidation:
                 sourceDhcpPools = listify(dhcpConfigOut['ipPools'].get('ipPools'))
                 # if the DHCP pools configured using same OrgVDC network then dont validate static pool.
                 for dhcpPool in sourceDhcpPools:
-                    if dhcpPool['defaultGateway'] == orgvdcNetworkGatewayIp:
+                    if dhcpPool.get('defaultGateway', None) == orgvdcNetworkGatewayIp:
                         validateStaticIpPool = False
                         break
                 if not validateStaticIpPool:
@@ -3159,6 +3159,11 @@ class VCDMigrationValidation:
                 responseDict = response.json()
                 if not v2tAssessmentMode and float(self.version) >= float(vcdConstants.API_VERSION_ZEUS) and self.nsxVersion.startswith('2.5.2') and responseDict['enabled']:
                     errorList.append("DHCP is enabled in source edge gateway but not supported in target\n")
+                if responseDict.get('ipPools'):
+                    sourceDhcpPools = listify(responseDict.get('ipPools').get('ipPools'))
+                    dhcpPoolErrorList = [dhcpPool['ipRange'] for dhcpPool in sourceDhcpPools if not dhcpPool.get('defaultGateway')]
+                    if dhcpPoolErrorList:
+                        errorList.append("No Default Gateway present in DHCP pool with range: {} \n".format(','.join(dhcpPoolErrorList)))
                 # checking if static binding is configured in dhcp, if so raising exception if DHCP Binding IP
                 # address overlaps with static IP Pool range on Network
                 if responseDict.get('staticBindings'):
