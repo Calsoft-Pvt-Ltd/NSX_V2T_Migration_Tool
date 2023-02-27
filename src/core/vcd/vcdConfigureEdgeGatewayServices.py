@@ -3403,11 +3403,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         
                         certificateObjectId = profile.get('clientSsl', {}).get('serviceCertificate')
 
-                        if vs['protocol'] == 'tcp':
-                            isTcpCert = True
-
                         # Certificates payload
                         if certificateObjectId:
+                            if vs['protocol'] == 'tcp':
+                                isTcpCert = True
+
                             return {
                                        'name': certificateObjectId,
                                        'id': lbCertificates[certificateObjectId]
