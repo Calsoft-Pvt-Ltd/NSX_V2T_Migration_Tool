@@ -60,6 +60,7 @@ EDGE_GW_SERVICES_VALIDATIONS = {
     'DHCP Binding: Binding IP addresses overlaps with static IP Pool range': 1,
     'DHCP Relay: Domain names are configured': 1,
     'DHCP Relay: More than 8 DHCP servers configured': 1,
+    'Gateway Firewall: Negate Flag enabled': 1,
     'Gateway Firewall: Gateway Interfaces in rule': 1,
     'Gateway Firewall: Networks connected to different edge gateway used': 1,
     'Gateway Firewall: Unsupported grouping object': 1,
@@ -700,6 +701,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
                                             if "SSLVPN service is configured" in result:
                                                 orgVDCResult["SSLVPN service"] = True
                                         if serviceName == "Firewall":
+                                            if "Negate Flag enabled" in result:
+                                                orgVDCResult["Gateway Firewall: Negate Flag enabled"] = True
                                             if "vNicGroupId" in result:
                                                 orgVDCResult["Gateway Firewall: Gateway Interfaces in rule"] = True
                                             if "connected to different edge gateway" in result:
