@@ -1723,8 +1723,7 @@ class NSXTOperations():
         Description: Adding nsx segments of all routed network via groups in exclusion list
         """
         if not vcdObject.rollback.apiData.get('targetOrgVDCNetworks') \
-                or not vcdObject.rollback.apiData['sourceOrgVDC'].get('NoOfvApp', 0) > 0 \
-                or version.parse(self.apiVersion) < version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                or not vcdObject.rollback.apiData['sourceOrgVDC'].get('NoOfvApp', 0) > 0:
             return
         logger.info('Adding VMs to NSX-T DFW Exclusion list')
         dcGroupInfo, orgVdcDict = self.getGroupsForExclusion(vcdObject)
@@ -1746,8 +1745,7 @@ class NSXTOperations():
         Description: Removing nsx segments of networks via group from exclusion list
         """
         if not vcdObject.rollback.apiData.get('targetOrgVDCNetworks') \
-                or not vcdObject.rollback.apiData['sourceOrgVDC'].get('NoOfvApp', 0) > 0 \
-                or version.parse(self.apiVersion) < version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+                or not vcdObject.rollback.apiData['sourceOrgVDC'].get('NoOfvApp', 0) > 0:
             return
         logger.info('Removing VMs from NSX-T DFW Exclusion list')
         dcGroupInfo, orgVdcDict = self.getGroupsForExclusion(vcdObject)
@@ -1822,12 +1820,14 @@ class NSXTOperations():
                     "member_type": "Segment",
                     "key": "Tag",
                     "operator": "EQUALS",
-                    "scope_operator": "EQUALS",
                     "resource_type": "Condition"
                 }
             ],
             "id": orgVdcId.split(':')[-1]
         }
+        if version.parse(self.apiVersion) > version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
+            payload['expression'][0]["scope_operator"] = "EQUALS"
+
         payload = json.dumps(payload)
         url = "{}{}".format(nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
                             nsxtConstants.GET_GROUP_BY_ID_API.format(orgVdcId.split(':')[-1]))
