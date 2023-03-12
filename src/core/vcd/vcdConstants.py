@@ -76,6 +76,12 @@ XML_VCD_NSX_API = "https://{}/network/"
 # external networks uri
 ALL_EXTERNAL_NETWORKS = "externalNetworks"
 
+# ip space url
+IP_SPACES = "ipSpaces"
+
+# external network ip space uplinks
+IP_SPACE_UPLINKS = "ipSpaceUplinks"
+
 # direct network connected to (port group backed) external network backing type
 DIRECT_NETWORK_CONNECTED_TO_PG_BACKED_EXT_NET = "DV_PORTGROUP"
 
@@ -456,6 +462,9 @@ CREATE_APPLICATION_PORT_PROFILE_TASK_NAME = 'createAppPortProfile'
 
 # validate dedicated external network filter api uri
 VALIDATE_DEDICATED_EXTERNAL_NETWORK_FILTER = '?filter=edgeGatewayUplinks.uplinkId=={}'
+
+# validate external network ip space
+VALIDATE_EXTERNAL_NETWORK_IP_SPACES = "?filter=externalNetworkRef.id=={}"
 
 # icmptype if any
 ICMP_ALL = 'ICMPv4-ALL'
