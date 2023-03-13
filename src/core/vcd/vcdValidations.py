@@ -891,6 +891,41 @@ class VCDMigrationValidation:
             ]
             logger.warning(f"Target External Network/s {', '.join(vrfs)} are VRF backed.")
 
+        for extNet, extNetDict in targetExternalNetwork.items():
+            subnetList = list()
+            if extNetDict.get("usingIpSpace"):
+                ipSpaces = self.getProviderGatewayIpSpaces(extNetDict)
+                for ipSpace in ipSpaces:
+                    for internalScope in ipSpace.get("ipSpaceInternalScope", []):
+                        subnetList.append({
+                            "gateway": internalScope.split("/")[0],
+                            "prefixLength": internalScope.split("/")[1],
+                            "dnsSuffix": None,
+                            "dnsServer1": "",
+                            "dnsServer2": "",
+                            "ipRanges": {
+                                "values": [
+                                    {
+                                        "startAddress": ipRange["startIpAddress"],
+                                        "endAddress": ipRange["endIpAddress"]
+                                    }
+                                    for ipRange in ipSpace["ipSpaceRanges"]["ipRanges"]
+                                    if ipaddress.ip_address(ipRange["startIpAddress"]) in
+                                       ipaddress.ip_network(internalScope, strict=False)
+                                ]
+                            },
+                            "enabled": True,
+                            "totalIpCount": sum([ipRange["totalIpCount"] for ipRange in ipSpace["ipSpaceRanges"]["ipRanges"]
+                                            if ipaddress.ip_address(ipRange["startIpAddress"]) in
+                                               ipaddress.ip_network(internalScope, strict=False)]),
+                            "usedIpCount": sum([ipRange["allocatedIpCount"] for ipRange in ipSpace["ipSpaceRanges"]["ipRanges"]
+                                            if ipaddress.ip_address(ipRange["startIpAddress"]) in
+                                               ipaddress.ip_network(internalScope, strict=False)])
+                        })
+
+            if subnetList:
+                extNetDict["subnets"]["values"] = subnetList
+
         self.rollback.apiData['targetExternalNetwork'] = targetExternalNetwork
         return targetExternalNetwork
 
@@ -1525,7 +1560,9 @@ class VCDMigrationValidation:
                     ipaddress.ip_network('{}/{}'.format(externalGateway, externalPrefixLength), strict=False)
                     for externalGateway, externalPrefixLength in sourceExternalGatewayAndPrefixList]
                 if targetExternalNetwork.get("usingIpSpace"):
-                    targetNetworkAddressList = self.getProviderGatewayIpSpacesInternalScopes(targetExternalNetwork)
+                    ipSpaces = self.getProviderGatewayIpSpaces(targetExternalNetwork)
+                    targetNetworkAddressList = [ipaddress.ip_network('{}'.format(internalScope), strict=False)
+                                             for ipSpace in ipSpaces for internalScope in ipSpace.get("ipSpaceInternalScope", [])]
                     data['ipSpaceEnabledEdges'].add(edgeGateway["id"])
                 else:
                     targetExternalGatewayList = [targetExternalGateway['gateway'] for targetExternalGateway in
@@ -1583,7 +1620,9 @@ class VCDMigrationValidation:
             # get external network details from metadata.
             targetExternalNetwork = self.rollback.apiData['targetExternalNetwork'][t0Gateway]
             if targetExternalNetwork.get("usingIpSpace"):
-                targetNetworkAddressList = self.getProviderGatewayIpSpacesInternalScopes(targetExternalNetwork)
+                ipSpaces = self.getProviderGatewayIpSpaces(targetExternalNetwork)
+                targetNetworkAddressList = [ipaddress.ip_network('{}'.format(internalScope), strict=False)
+                                            for ipSpace in ipSpaces for internalScope in ipSpace.get("ipSpaceInternalScope", [])]
                 data['ipSpaceEnabledEdges'].add(edgeGateway["id"])
             else:
                 targetNetworkAddressList = [
@@ -1656,13 +1695,13 @@ class VCDMigrationValidation:
         return errorList
 
     @isSessionExpired
-    def getProviderGatewayIpSpacesInternalScopes(self, gatewayInfo):
+    def getProviderGatewayIpSpaces(self, gatewayInfo):
         """
         Description : Get Provider Gateway IP Space Uplinks Internal Scopes
         Parameters :  gatewayInfo - Provider Gateay Info (DICT)
         """
         logger.debug("Getting Provider Gateway {} IP Space Uplink details".format(gatewayInfo["name"]))
-        targetNetworkAddressList = []
+        ipSpaceList = []
         url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.IP_SPACE_UPLINKS,
                               vcdConstants.VALIDATE_EXTERNAL_NETWORK_IP_SPACES.format(gatewayInfo["id"]))
         headers = {'Authorization': self.headers['Authorization'],
@@ -1681,12 +1720,10 @@ class VCDMigrationValidation:
             ipSpaceResponse = self.restClientObj.get(ipSpaceUrl, headers)
             if ipSpaceResponse.status_code == requests.codes.ok:
                 ipSpaceResponseDict = response.json()
-                targetNetworkAddressList += [ipaddress.ip_network('{}'.format(internalScope), strict=False)
-                                             for internalScope in
-                                             ipSpaceResponseDict.get("ipSpaceInternalScope", [])]
+                ipSpaceList.append(ipSpaceResponseDict)
             else:
                 raise Exception("Failed to fetch IP Space {} details".format(ipSpace["ipSpaceRef"]["name"]))
-        return targetNetworkAddressList
+        return ipSpaceList
 
     @isSessionExpired
     def validateExternalNetworkMultipleSubnets(self):
