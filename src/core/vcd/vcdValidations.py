@@ -1647,6 +1647,33 @@ class VCDMigrationValidation:
         return errorList
 
     @isSessionExpired
+    def validateExternalNetworkMultipleSubnets(self):
+        """
+        Description : Validate multiple subnets in directly connected external network
+        Parameters :  orgVDCId - org VDC id (STRING)
+        """
+        multipleSubnetErrorList = list()
+        for edge in self.rollback.apiData.get("isT1Connected", {}):
+            sourceEdgeGateway = list(filter(lambda edgeGateway: edgeGateway["name"] == edge, self.rollback.apiData["sourceEdgeGateway"]))[0]
+            sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
+            defaultGateway = self.getEdgeGatewayDefaultGateway(sourceEdgeGatewayId)
+            for externalNet, subnet in self.rollback.apiData["isT1Connected"][edge].items():
+                gateway = list(subnet)[0][0]
+                segmentId = self.rollback.apiData["segmentToIdMapping"][externalNet + '-v2t']
+                if gateway == defaultGateway:
+                    url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                           segmentId)
+                    response = self.restClientObj.get(url, self.headers)
+                    if response.status_code == requests.codes.ok:
+                        responseDict = response.json()
+                        if len(responseDict["subnets"]["values"]) > 1:
+                            multipleSubnetErrorList.append("External network {}-v2t directly connected to edge gateway - {} has multiple subnets present".format(
+                                externalNet, edge))
+
+        if multipleSubnetErrorList:
+            raise Exception('; '.join(multipleSubnetErrorList))
+
+    @isSessionExpired
     def getOrgVDCAffinityRules(self, orgVDCId):
         """
         Description : Get Org VDC affinity rules
@@ -2050,7 +2077,7 @@ class VCDMigrationValidation:
                 sourceDhcpPools = listify(dhcpConfigOut['ipPools'].get('ipPools'))
                 # if the DHCP pools configured using same OrgVDC network then dont validate static pool.
                 for dhcpPool in sourceDhcpPools:
-                    if dhcpPool['defaultGateway'] == orgvdcNetworkGatewayIp:
+                    if dhcpPool.get('defaultGateway', None) == orgvdcNetworkGatewayIp:
                         validateStaticIpPool = False
                         break
                 if not validateStaticIpPool:
@@ -3047,7 +3074,8 @@ class VCDMigrationValidation:
 
         # Check for explicit case scenario.
         networkNames = list()
-        if self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks']:
+        if self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks'] and \
+            float(self.version) < float(vcdConstants.API_VERSION_CASTOR_10_4_1):
             # get Non-Dist routing flag from user input and if enabled then raise exception.
             for sourceOrgVDCNetwork in sourceOrgvdcNetworks:
                 if sourceOrgVDCNetwork['networkType'] != 'NAT_ROUTED':
@@ -3074,7 +3102,8 @@ class VCDMigrationValidation:
                 continue
 
             if (self.orgVdcInput['EdgeGateways'][edgeGatewayName]['NonDistributedNetworks']
-                    or sourceOrgVDCNetwork['id'] in implicitNetworks):
+                    or sourceOrgVDCNetwork['id'] in implicitNetworks) and \
+                    float(self.version) < float(vcdConstants.API_VERSION_CASTOR_10_4_1):
                 errorList.append(
                     "DHCP Relay service configured on source edge gateway {} is not supported on target because, OrgVDC network {} will be configured as non-distributed after migration. DHCP Relay is not supported on non-distibuted routed networks.\n".format(
                         edgeGatewayName, sourceOrgVDCNetwork['name']))
@@ -3130,6 +3159,11 @@ class VCDMigrationValidation:
                 responseDict = response.json()
                 if not v2tAssessmentMode and float(self.version) >= float(vcdConstants.API_VERSION_ZEUS) and self.nsxVersion.startswith('2.5.2') and responseDict['enabled']:
                     errorList.append("DHCP is enabled in source edge gateway but not supported in target\n")
+                if responseDict.get('ipPools'):
+                    sourceDhcpPools = listify(responseDict.get('ipPools').get('ipPools'))
+                    dhcpPoolErrorList = [dhcpPool['ipRange'] for dhcpPool in sourceDhcpPools if not dhcpPool.get('defaultGateway')]
+                    if dhcpPoolErrorList:
+                        errorList.append("No Default Gateway present in DHCP pool with range: {} \n".format(','.join(dhcpPoolErrorList)))
                 # checking if static binding is configured in dhcp, if so raising exception if DHCP Binding IP
                 # address overlaps with static IP Pool range on Network
                 if responseDict.get('staticBindings'):
@@ -3170,11 +3204,13 @@ class VCDMigrationValidation:
 
             errorList = list()
             firewallConfigDict = {
+                "Negate Flag enabled in the source of firewall rule": [],
                 "vNicGroupId present in the source of firewall rule": [],
                 "Direct network used in the source of firewall rule": [],
                 "Isolated network used in the source of firewall rule": [],
                 "Routed Network connected to different edge gateway used in source of firewall rule": [],
                 "Unsupported grouping object type in the source of firewall rule": [],
+                "Negate Flag enabled in the destination of firewall rule": [],
                 "vNicGroupId present in the destination of firewall rule": [],
                 "Direct network used in the destination of firewall rule": [],
                 "Isolated network used in the destination of firewall rule": [],
@@ -3219,6 +3255,9 @@ class VCDMigrationValidation:
                             if firewall['application'].get('service'):
                                 services = firewall['application']['service'] if isinstance(firewall['application']['service'], list) else [firewall['application']['service']]
                         if firewall.get('source'):
+                            if firewall['source'].get('exclude') == 'true':
+                                errorList.append("Negate Flag enabled in the source of firewall rule : '{}'\n".format(firewall['name']))
+                                firewallConfigDict["Negate Flag enabled in the source of firewall rule"].append(firewall['id'])
                             if firewall['source'].get('vnicGroupId'):
                                 errorList.append("vNicGroupId '{}' is present in the source of firewall rule '{}'\n".format(firewall['source']['vnicGroupId'], firewall['name']))
                                 firewallConfigDict["vNicGroupId present in the source of firewall rule"].append(firewall['id'])
@@ -3240,6 +3279,9 @@ class VCDMigrationValidation:
                                         errorList.append("The grouping object type '{}' in the source of firewall rule '{}' is not supported\n".format(groupingobject, firewall['name']))
                                         firewallConfigDict["Unsupported grouping object type in the source of firewall rule"].append(firewall['id'])
                         if firewall.get('destination'):
+                            if firewall['destination'].get('exclude') == 'true':
+                                errorList.append("Negate Flag enabled in the destination of firewall rule : '{}'\n".format(firewall['name']))
+                                firewallConfigDict["Negate Flag enabled in the destination of firewall rule"].append(firewall['id'])
                             if firewall['destination'].get('vnicGroupId'):
                                 errorList.append("vNicGroupId '{}' is present in the destination of firewall rule '{}'\n".format(firewall['destination']['vnicGroupId'], firewall['name']))
                                 firewallConfigDict["vNicGroupId present in the destination of firewall rule"].append(firewall['id'])
@@ -3719,6 +3761,24 @@ class VCDMigrationValidation:
                         return ['Failed to get source edge gateway load balancer virtual servers configuration with error code {} \n'.format(response.status_code)]
 
                     for virtualServer in virtualServersData:
+                        # check if SSL Passthrough is enabled
+                        if virtualServer.get('applicationProfileId'):
+                            applicationProfileId = virtualServer['applicationProfileId']
+                            applicationProfiles = responseDict['loadBalancer'].get('applicationProfile') \
+                                if isinstance(responseDict['loadBalancer'].get('applicationProfile'), list) \
+                                else [responseDict['loadBalancer'].get('applicationProfile')]
+
+                            applicationProfileData = list(filter(
+                                lambda profile: profile['applicationProfileId'] == applicationProfileId,
+                                applicationProfiles))[0]
+                            if applicationProfileData and applicationProfileData.get('sslPassthrough') == 'true':
+                                logger.warning("SSL Passthrough enabled with HTTPS protocol in application profile "
+                                               "'{}'. During Migration, Virtual Server '{}' having Application Profile '{}' attached will have its HTTPS protocol auto changed to "
+                                               "TCP type and its default Pool's Health Monitor will be changed "
+                                               "to TCP Health Monitor at Target side".format(
+                                    applicationProfileData['name'], virtualServer['name'],
+                                    applicationProfileData['name']))
+
                         # check for default pool
                         if not virtualServer.get('defaultPoolId', None):
                             loadBalancerErrorList.append("Default pool is not configured in load balancer virtual server '{}'\n".format(virtualServer['name']))
@@ -3846,7 +3906,12 @@ class VCDMigrationValidation:
                                 staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"]})
                             # Checking next hop IP in external network
                             if vnicData["type"] == "uplink":
-                                externalStaticRoutes.append(staticRoute)
+                                if vnicData["portgroupName"] in self.rollback.apiData.get('isT1Connected', {}).get(edgeGatewayName, {}):
+                                    staticRoute['interface'] = None
+                                    internalStaticRoutes.append(staticRoute)
+                                    staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"], "interface": staticRoute["interface"]})
+                                else:
+                                    externalStaticRoutes.append(staticRoute)
                 else:
                     # When static route interface is set as external/orgVDC network
                     for vnicData in vNicsDetails:
@@ -3860,6 +3925,7 @@ class VCDMigrationValidation:
                         # Checking whether the edge gateway interface is external
                         if vnicData["index"] == vnic and vnicData["type"] == "uplink":
                             if vnicData["portgroupName"] in self.rollback.apiData.get('isT1Connected', {}).get(edgeGatewayName, {}):
+                                staticRoute['interface'] = vnicData["portgroupName"]
                                 internalStaticRoutes.append(staticRoute)
                                 staticRouteMetadataList.append({"network": staticRoute["network"], "nextHop": staticRoute["nextHop"], "interface": staticRoute["interface"]})
                             else:
@@ -5410,6 +5476,9 @@ class VCDMigrationValidation:
             # validating whether same subnet exist in source and target External networks
             logger.info('Validating source and target External networks have same subnets')
             self.validateExternalNetworkSubnets()
+
+            # validating whether multiple subnets are present in directly connected external network
+            self.validateExternalNetworkMultipleSubnets()
 
             # Validate whether the external network is linked to NSXT provided in the input file or not
             logger.info('Validating Target External Network with NSXT provided in input file')

@@ -3168,8 +3168,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # Delete attribute once not required
             if hasattr(self, '__done__'):
                 delattr(self, '__done__')
-            if hasattr(self, '_dfw_configured'):
-                delattr(self, '_dfw_configured')
 
     def updateRouteRedistributionRules(self, nsxtObj):
         """
@@ -4150,12 +4148,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     if not subIpPools:
                         continue
                     # Raise exception if target ext network subnet has only one IP and EmptyPoolOverride flag is False
-                    if subnet["totalIpCount"] == 1:
+                    if subnet["totalIpCount"] == len(set(tuple(d.items()) for d in edgeGatewaySubnetDict[externalNetworkSubnet])):
                         if self.orgVdcInput.get("EmptyIPPoolOverride", False):
                             logger.warning("Skipping removing '{}' IP from source external network - '{}'".format(externalRanges[0]["startAddress"], networkName))
                             continue
                         else:
-                            raise Exception("External Network subnet has only one IP address which cannot be removed. EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
+                            raise Exception("External Network subnet should have atleast one free IP address which cannot be removed."
+                                            " EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
 
                     # creating range of source edge gateway sub allocated pool range
                     subIpRangeList = []
@@ -4403,7 +4402,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         'ipRanges': listify(ipScope.get('IpRanges', {}).get('IpRange')),
                     }
                     for ipScope in listify(vAppNetwork['Configuration']['IpScopes']['IpScope'])
-                    if ipScope['IsInherited'] == 'false'
+                    if ipScope['IsInherited'] == 'false' or float(self.version) >= float(vcdConstants.API_VERSION_CASTOR_10_4_1)
                 ]
 
         def getParentNetwork(vAppNetwork):
@@ -4713,12 +4712,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     if not sourceEgwSubnets.get(targetExtNetSubnetAddress):
                         continue
 
-                    # Raise exception if target ext network subnet has only one IP and EmptyPoolOverride flag is False
-                    if targetExtNetSubnet["totalIpCount"] == 1:
+                    # Raise exception if target ext network subnet has not any free IP and EmptyPoolOverride flag is False
+
+                    if targetExtNetSubnet["totalIpCount"] == len(sourceEgwSubnets.get(targetExtNetSubnetAddress)):
                         if self.orgVdcInput.get("EmptyIPPoolOverride", False):
                             continue
                         else:
-                            raise Exception("External Network subnet has only one IP address which cannot be removed. EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
+                            raise Exception("External Network subnet should have atleast one free IP address which cannot be removed."
+                                            " EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
 
                     # creating range of target external network pool range
                     targetExtNetIpRange = set()
