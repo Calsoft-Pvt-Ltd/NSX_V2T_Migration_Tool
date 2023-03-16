@@ -2855,11 +2855,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 orgVDCNetworkList = self.retrieveNetworkListFromMetadata(sourceOrgVDCId, orgVDCType='source')
                 # Iterating over source org vdc networks to find IP's used by VM's connected to direct shared network
                 for sourceOrgVDCNetwork in orgVDCNetworkList:
-                    if sourceOrgVDCNetwork['networkType'] == "DIRECT" and \
-                            (sourceOrgVDCNetwork['shared'] or not self.orgVdcInput.get('LegacyDirectNetwork', False)):
-                        if float(self.version) > float(vcdConstants.API_VERSION_ANDROMEDA_10_3_3) and sourceOrgVDCNetwork['shared'] and \
-                                self.orgVdcInput.get('LegacyDirectNetwork', False):
-                            continue
+                    if sourceOrgVDCNetwork['networkType'] == "DIRECT":
                         # url to retrieve the networks with external network id
                         url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                               vcdConstants.ALL_ORG_VDC_NETWORKS,
@@ -2869,7 +2865,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         response = self.restClientObj.get(url, self.headers)
                         responseDict = response.json()
                         if response.status_code == requests.codes.ok:
-                            if int(responseDict['resultTotal']) > 1:
+                            if (int(responseDict['resultTotal']) > 1 and not self.orgVdcInput.get('LegacyDirectNetwork', False)) or \
+                                responseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
                                 sourceOrgVDCNetworkSubnetList = [ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
                                                                         for subnet in sourceOrgVDCNetwork['subnets']['values']]
                                 directNetworkId = sourceOrgVDCNetwork['id'].split(':')[-1]
@@ -6102,21 +6099,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             responseDict = response.json()
             if response.status_code == requests.codes.ok:
                 if int(responseDict['resultTotal']) > 1:
-                    if not orgvdcNetwork['shared']:
-                        if self.orgVdcInput.get('LegacyDirectNetwork', False):
-                            # Service direct network legacy implementation
-                            payloadDict = self.extendedParentNetworkPayload(orgvdcNetwork, Shared=orgvdcNetwork['shared'])
-                        else:
-                            # Service direct network default implementation
-                            payloadDict = self.v2tBackedNetworkPayload(parentNetworkId, orgvdcNetwork, Shared=False)
-
+                    if self.orgVdcInput.get('LegacyDirectNetwork', False):
+                        # Service direct network legacy implementation
+                        payloadDict = self.extendedParentNetworkPayload(orgvdcNetwork, Shared=orgvdcNetwork['shared'])
                     else:
-                        if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA_10_3_3):
-                            # Shared service direct network implementation
-                            payloadDict = self.v2tBackedNetworkPayload(parentNetworkId, orgvdcNetwork, Shared=True)
-                        else:
-                            # Service direct network legacy implementation
-                            payloadDict = self.extendedParentNetworkPayload(orgvdcNetwork, Shared=orgvdcNetwork['shared'])
+                        # Service direct network default implementation
+                        payloadDict = self.v2tBackedNetworkPayload(parentNetworkId, orgvdcNetwork, Shared=orgvdcNetwork['shared'])
                 else:
                     # Dedicated direct network implementation
                     segmentName, payloadDict = self.importedNetworkPayload(parentNetworkId, orgvdcNetwork, inputDict, nsxObj)
