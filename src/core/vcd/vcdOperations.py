@@ -163,6 +163,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # Use dedicated external network if BGP is configured
             # or AdvertiseRoutedNetworks parameter is set to True
 
+
             if (isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == "true"
                     or self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']]['AdvertiseRoutedNetworks']):
                 dedicated = True
@@ -177,15 +178,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             if self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'):
                 # Fetch edge cluster id
-                edgeClusterId = nsxObj.fetchEdgeClusterDetails(
-                    self.orgVdcInput["EdgeGatewayDeploymentEdgeCluster"]).get(
-                    'id')
+                edgeClusterId = nsxObj.fetchEdgeClusterDetails(self.orgVdcInput["EdgeGatewayDeploymentEdgeCluster"]).get('id')
             else:
                 edgeClusterId = nsxObj.fetchEdgeClusterIdForTier0Gateway(
                     externalDict['networkBackings']['values'][0]['name'])
 
             # Prepare payload for edgeGatewayUplinks->subnets->values
-
             subnetData = []
             if not externalDict.get('usingIpSpace'):
                 if sourceEdgeGatewayDict['name'] in data['isT0Connected']:
@@ -256,7 +254,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # Checking if default edge gateway is configured on edge gateway
             # and Setting primary ip to be used for edge gateway creation
             defaultGateway = self.getEdgeGatewayDefaultGateway(sourceEdgeGatewayId)
-            for subnet in payloadData['edgeGatewayUplinks'][0]['subnets'].get('values', []):
+            for subnet in payloadData['edgeGatewayUplinks'][0].get('subnets', {}).get('values', []):
                 if subnet['gateway'] != defaultGateway:
                     subnet['primaryIp'] = None
 
