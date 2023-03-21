@@ -1749,7 +1749,7 @@ class VCDMigrationValidation:
         filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', networkList))
 
         for i in range(len(filteredList)):
-            for j in range(i, len(filteredList)):
+            for j in range(i + 1, len(filteredList)):
                 n1 = ipaddress.ip_network("{}/{}".format(filteredList[i]["subnets"]["values"][0]["gateway"],
                                                          filteredList[i]["subnets"]["values"][0]["prefixLength"]), strict=False)
                 n2 = ipaddress.ip_network("{}/{}".format(filteredList[j]["subnets"]["values"][0]["gateway"],
@@ -1759,7 +1759,7 @@ class VCDMigrationValidation:
                         errorList.append(
                             "Org VDC network - {} from Org VDC {} has Overlapping subnets with Org VDC network {} from Org VDC {}\n".format(
                                 filteredList[i]["name"], self.vdcName, filteredList[j]["name"], filteredList[j]["orgVdc"]["name"]))
-                    if filteredList[j]["orgVdc"]["id"] == vdcId:
+                    elif filteredList[j]["orgVdc"]["id"] == vdcId:
                         errorList.append(
                             "Org VDC network - {} from Org VDC {} has Overlapping subnets with Org VDC network {} from Org VDC {}\n".format(
                                 filteredList[j]["name"], self.vdcName, filteredList[i]["name"], filteredList[i]["orgVdc"]["name"]))
