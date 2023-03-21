@@ -239,12 +239,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         }
                         payloadData['edgeGatewayUplinks'].append(uplinkDict)
 
-            # Checking if default edge gateway is configured on edge gateway
-            # and Setting primary ip to be used for edge gateway creation
-            defaultGateway = self.getEdgeGatewayDefaultGateway(sourceEdgeGatewayId)
-            for subnet in payloadData['edgeGatewayUplinks'][0].get('subnets', {}).get('values', []):
-                if subnet['gateway'] != defaultGateway:
-                    subnet['primaryIp'] = None
+            if payloadData['edgeGatewayUplinks'][0].get('subnets'):
+                # Checking if default edge gateway is configured on edge gateway
+                # and Setting primary ip to be used for edge gateway creation
+                defaultGateway = self.getEdgeGatewayDefaultGateway(sourceEdgeGatewayId)
+                for subnet in payloadData['edgeGatewayUplinks'][0].get('subnets', {}).get('values', []):
+                    if subnet['gateway'] != defaultGateway:
+                        subnet['primaryIp'] = None
 
             # edge gateway create URL
             url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS)
