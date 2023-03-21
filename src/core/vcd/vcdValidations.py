@@ -891,7 +891,7 @@ class VCDMigrationValidation:
             ]
             logger.warning(f"Target External Network/s {', '.join(vrfs)} are VRF backed.")
 
-        ipSpaceProviderGateways = [network["name"] for network in targetExternalNetwork if targetExternalNetwork[network].get('usingIpSpace')]
+        ipSpaceProviderGateways = [network for network in targetExternalNetwork if targetExternalNetwork[network].get('usingIpSpace')]
         self.rollback.apiData['targetExternalNetwork'] = targetExternalNetwork
         self.rollback.apiData['ipSpaceProviderGateways'] = ipSpaceProviderGateways
         logger.debug("IP Space enabled Provider Gateways - {}".format(ipSpaceProviderGateways))
@@ -1724,7 +1724,7 @@ class VCDMigrationValidation:
                                           vcdConstants.IP_SPACES, ipSpaceId)
             ipSpaceResponse = self.restClientObj.get(ipSpaceUrl, headers)
             if ipSpaceResponse.status_code == requests.codes.ok:
-                ipSpaceResponseDict = response.json()
+                ipSpaceResponseDict = ipSpaceResponse.json()
                 ipSpaceList.append(ipSpaceResponseDict)
             else:
                 raise Exception("Failed to fetch IP Space {} details".format(ipSpace["ipSpaceRef"]["name"]))
