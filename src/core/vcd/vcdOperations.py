@@ -87,61 +87,50 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             logger.debug("Updating Target External network {} with sub allocated ip pools".format(targetExtNetName))
             targetExtNetData = self.getExternalNetworkByName(targetExtNetName)
             if targetExtNetData.get("usingIpSpace"):
-                self._updateTargetNetworkIpSpaceUplinkRanges(targetExtNetData, sourceEgwSubnets)
+                ipSpaces = self.getProviderGatewayIpSpaces(targetExtNetData)
+                for edgeGatewaySubnet, edgeGatewayIpRange in sourceEgwSubnets.items():
+                    for ipSpace in ipSpaces:
+                        if [internalScope for internalScope in ipSpace["ipSpaceInternalScope"]
+                            if edgeGatewaySubnet.subnet_of(
+                                ipaddress.ip_network('{}'.format(internalScope), strict=False))]:
+                            pass
+                            # self._prepareIpSpaceRanges(ipSpace, edgeGatewayIpRange, merge=True)
+                for ipSpace in ipSpaces:
+                    url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.IP_SPACES,
+                                           ipSpace["id"])
+                    self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+                    response = self.restClientObj.put(url, self.headers, data=json.dumps(ipSpace))
+                    if response.status_code == requests.codes.accepted:
+                        taskUrl = response.headers['Location']
+                        self._checkTaskStatus(taskUrl=taskUrl)
+                        logger.debug('IP Space {} updated successfully with sub allocated ip pools.'.format(
+                            ipSpace['name']))
+                    else:
+                        errorResponse = response.json()
+                        raise Exception('Failed to update IP Space {} with sub allocated ip pools - {}'.format(
+                            ipSpace['name'], errorResponse['message']))
             else:
-                self._updateTargetNetworkPools(targetExtNetData, sourceEgwSubnets)
+                for targetExtNetSubnet in targetExtNetData['subnets']['values']:
+                    targetExtNetSubnetAddress = ipaddress.ip_network(
+                        '{}/{}'.format(targetExtNetSubnet['gateway'], targetExtNetSubnet['prefixLength']), strict=False)
+                    targetExtNetSubnet['ipRanges']['values'].extend(sourceEgwSubnets.get(targetExtNetSubnetAddress, []))
+
+                url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                       vcdConstants.ALL_EXTERNAL_NETWORKS, targetExtNetData['id'])
+                self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+                response = self.restClientObj.put(url, self.headers, data=json.dumps(targetExtNetData))
+                if response.status_code == requests.codes.accepted:
+                    taskUrl = response.headers['Location']
+                    self._checkTaskStatus(taskUrl=taskUrl)
+                    logger.debug('Target External network {} updated successfully with sub allocated ip pools.'.format(
+                        targetExtNetData['name']))
+                else:
+                    errorResponse = response.json()
+                    raise Exception('Failed to update External network {} with sub allocated ip pools - {}'.format(
+                        targetExtNetData['name'], errorResponse['message']))
 
         # Releasing lock
         self.lock.release()
-
-    def _updateTargetNetworkIpSpaceUplinkRanges(self, targetExtNetData, sourceEgwSubnets):
-        ipSpaces = self.getProviderGatewayIpSpaces(targetExtNetData)
-        for edgeGatewaySubnet, edgeGatewayIpRange in sourceEgwSubnets.items():
-            for ipSpace in ipSpaces:
-                if [internalScope for internalScope in ipSpace["ipSpaceInternalScope"]
-                    if edgeGatewaySubnet.subnet_of(ipaddress.ip_network('{}'.format(internalScope), strict=False))]:
-                        pass
-                        #self._prepareIpSpaceRanges(ipSpace, edgeGatewayIpRange, merge=True)
-        for ipSpace in ipSpaces:
-            url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.IP_SPACES, ipSpace["id"])
-            self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-            response = self.restClientObj.put(url, self.headers, data=json.dumps(ipSpace))
-            if response.status_code == requests.codes.accepted:
-                taskUrl = response.headers['Location']
-                self._checkTaskStatus(taskUrl=taskUrl)
-                logger.debug('IP Space {} updated successfully with sub allocated ip pools.'.format(
-                    ipSpace['name']))
-            else:
-                errorResponse = response.json()
-                raise Exception('Failed to update IP Space {} with sub allocated ip pools - {}'.format(
-                    ipSpace['name'], errorResponse['message']))
-
-    def _updateTargetNetworkPools(self, targetExtNetData, sourceEgwSubnets):
-        for targetExtNetSubnet in targetExtNetData['subnets']['values']:
-            targetExtNetSubnetAddress = ipaddress.ip_network(
-                '{}/{}'.format(targetExtNetSubnet['gateway'], targetExtNetSubnet['prefixLength']), strict=False)
-            targetExtNetSubnet['ipRanges']['values'].extend(sourceEgwSubnets.get(targetExtNetSubnetAddress, []))
-
-        url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                               vcdConstants.ALL_EXTERNAL_NETWORKS, targetExtNetData['id'])
-        self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-        response = self.restClientObj.put(url, self.headers, data=json.dumps(targetExtNetData))
-        if response.status_code == requests.codes.accepted:
-            taskUrl = response.headers['Location']
-            self._checkTaskStatus(taskUrl=taskUrl)
-            logger.debug('Target External network {} updated successfully with sub allocated ip pools.'.format(
-                targetExtNetData['name']))
-        else:
-            errorResponse = response.json()
-            raise Exception('Failed to update External network {} with sub allocated ip pools - {}'.format(
-                targetExtNetData['name'], errorResponse['message']))
-
-    def _prepareIpSpaceRanges(self, ipSpace, edgeGatewayIpRange, merge=False):
-        def split_ip(range):
-            return ipaddress.ip_address(range["startIpAddress"]), ipaddress.ip_address(range["endIpAddress"])
-
-        ranges = [split_ip(range) for range in ipSpace["ipSpaceRanges"]["ipRanges"]]
-        ranges.sort(key=operator.itemgetter(0, 1))
 
     def _createEdgeGateway(self, nsxObj):
         data = self.rollback.apiData
@@ -216,8 +205,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     }
                 ],
                 'distributedRoutingEnabled': False,
-                'serviceNetworkDefinition': self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']][
-                    'serviceNetworkDefinition'],
+                'serviceNetworkDefinition': self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']]['serviceNetworkDefinition'],
                 'orgVdc': {
                     'name': data['targetOrgVDC']['@name'],
                     'id': data['targetOrgVDC']['@id'],
