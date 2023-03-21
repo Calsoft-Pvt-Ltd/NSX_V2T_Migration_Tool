@@ -1751,9 +1751,9 @@ class VCDMigrationValidation:
         for i in range(len(filteredList)):
             for j in range(i, len(filteredList)):
                 n1 = ipaddress.ip_network("{}/{}".format(filteredList[i]["subnets"]["values"][0]["gateway"],
-                                                         filteredList[i]["subnets"]["values"][0]["prefixLength"]))
+                                                         filteredList[i]["subnets"]["values"][0]["prefixLength"]), strict=False)
                 n2 = ipaddress.ip_network("{}/{}".format(filteredList[j]["subnets"]["values"][0]["gateway"],
-                                                         filteredList[j]["subnets"]["values"][0]["prefixLength"]))
+                                                         filteredList[j]["subnets"]["values"][0]["prefixLength"]), strict=False)
                 if n1.overlaps(n2):
                     if filteredList[i]["orgVdc"]["id"] == vdcId:
                         errorList.append(
