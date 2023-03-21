@@ -891,9 +891,10 @@ class VCDMigrationValidation:
             ]
             logger.warning(f"Target External Network/s {', '.join(vrfs)} are VRF backed.")
 
+        ipSpaceProviderGateways = [network["name"] for network in targetExternalNetwork if targetExternalNetwork[network].get('usingIpSpace')]
         self.rollback.apiData['targetExternalNetwork'] = targetExternalNetwork
-        for name, t0Gateway in targetExternalNetwork.items():
-            self.getProviderGatewaySubnetDict(t0Gateway)
+        self.rollback.apiData['ipSpaceProviderGateways'] = ipSpaceProviderGateways
+        logger.debug("IP Space enabled Provider Gateways - {}".format(ipSpaceProviderGateways))
         return targetExternalNetwork
 
     def getProviderGatewaySubnetDict(self, t0Gateway):
@@ -1735,31 +1736,35 @@ class VCDMigrationValidation:
         Description : Validate whether Org VDC network connected to IP Space enabled edges have overlapping subnets within the organization
         """
         networkList = list()
+        errorList = list()
+        vdcId = self.rollback.apiData.get("sourceOrgVDC", {}).get("@id")
         for vcdObj in vcdObjList:
             if not [edgeGateway for edgeGateway in vcdObj.rollback.apiData["sourceEdgeGateway"]
                 if vcdObj.orgVdcInput['EdgeGateways'][edgeGateway['name']]['Tier0Gateways'] in
-                   vcdObj.rollback.apiData["ipSpaceEnabledPGWDict"]]:
+                   vcdObj.rollback.apiData["ipSpaceProviderGateways"]]:
                 continue
             networkList += vcdObj.getOrgVDCNetworks(vcdObj.rollback.apiData.get("sourceOrgVDC", {}).get("@id"),
                                                     'sourceOrgVDCNetworks', saveResponse=False)
         # List of non-direct networks i.e Routed, Isolated
         filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', networkList))
-        overLappingNetworkList  = list()
 
         for i in range(len(filteredList)):
-            overlappingNetworks = set()
             for j in range(i, len(filteredList)):
                 n1 = ipaddress.ip_network("{}/{}".format(filteredList[i]["subnets"]["values"][0]["gateway"],
                                                          filteredList[i]["subnets"]["values"][0]["prefixLength"]))
-                n2 = n1 = ipaddress.ip_network("{}/{}".format(filteredList[i + 1]["subnets"]["values"][0]["gateway"],
-                                                         filteredList[i + 1]["subnets"]["values"][0]["prefixLength"]))
+                n2 = ipaddress.ip_network("{}/{}".format(filteredList[j]["subnets"]["values"][0]["gateway"],
+                                                         filteredList[j]["subnets"]["values"][0]["prefixLength"]))
                 if n1.overlaps(n2):
-                    overlappingNetworks.add(filteredList[i]["name"])
-                    overlappingNetworks.add(filteredList[j]["name"])
-            if overlappingNetworks:
-                overLappingNetworkList.append()
-        if overLappingNetworkList:
-            logger.warning("{} following networks have overlapping subnets".format(overLappingNetworkList))
+                    if filteredList[i]["orgVdc"]["id"] == vdcId:
+                        errorList.append(
+                            "Org VDC network - {} from Org VDC {} has Overlapping subnets with Org VDC network {} from Org VDC {}\n".format(
+                                filteredList[i]["name"], self.vdcName, filteredList[j]["name"], filteredList[j]["orgVdc"]["name"]))
+                    if filteredList[j]["orgVdc"]["id"] == vdcId:
+                        errorList.append(
+                            "Org VDC network - {} from Org VDC {} has Overlapping subnets with Org VDC network {} from Org VDC {}\n".format(
+                                filteredList[j]["name"], self.vdcName, filteredList[i]["name"], filteredList[i]["orgVdc"]["name"]))
+        if errorList:
+            raise Exception(errorList)
 
     @isSessionExpired
     def validateExternalNetworkMultipleSubnets(self):
