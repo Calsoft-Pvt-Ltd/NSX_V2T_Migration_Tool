@@ -891,43 +891,50 @@ class VCDMigrationValidation:
             ]
             logger.warning(f"Target External Network/s {', '.join(vrfs)} are VRF backed.")
 
-        for extNet, extNetDict in targetExternalNetwork.items():
-            subnetList = list()
-            if extNetDict.get("usingIpSpace"):
-                ipSpaces = self.getProviderGatewayIpSpaces(extNetDict)
-                for ipSpace in ipSpaces:
-                    for internalScope in ipSpace.get("ipSpaceInternalScope", []):
-                        subnetList.append({
-                            "gateway": internalScope.split("/")[0],
-                            "prefixLength": internalScope.split("/")[1],
-                            "dnsSuffix": None,
-                            "dnsServer1": "",
-                            "dnsServer2": "",
-                            "ipRanges": {
-                                "values": [
-                                    {
-                                        "startAddress": ipRange["startIpAddress"],
-                                        "endAddress": ipRange["endIpAddress"]
-                                    }
-                                    for ipRange in ipSpace["ipSpaceRanges"]["ipRanges"]
-                                    if ipaddress.ip_address(ipRange["startIpAddress"]) in
-                                       ipaddress.ip_network(internalScope, strict=False)
-                                ]
-                            },
-                            "enabled": True,
-                            "totalIpCount": sum([ipRange["totalIpCount"] for ipRange in ipSpace["ipSpaceRanges"]["ipRanges"]
-                                            if ipaddress.ip_address(ipRange["startIpAddress"]) in
-                                               ipaddress.ip_network(internalScope, strict=False)]),
-                            "usedIpCount": sum([ipRange["allocatedIpCount"] for ipRange in ipSpace["ipSpaceRanges"]["ipRanges"]
-                                            if ipaddress.ip_address(ipRange["startIpAddress"]) in
-                                               ipaddress.ip_network(internalScope, strict=False)])
-                        })
-
-            if subnetList:
-                extNetDict["subnets"]["values"] = subnetList
-
         self.rollback.apiData['targetExternalNetwork'] = targetExternalNetwork
+        for name, t0Gateway in targetExternalNetwork.items():
+            self.getProviderGatewaySubnetDict(t0Gateway)
         return targetExternalNetwork
+
+    def getProviderGatewaySubnetDict(self, t0Gateway):
+        """
+        Description :   Create Subnet Dict from entity provided
+        Parameters  :   t0Gateway (DICT)
+        """
+        ipSpaceEnabledPGWDict = self.rollback.apiData.get("ipSpaceEnabledPGWDict", {})
+        subnetList = list()
+        if t0Gateway.get("usingIpSpace"):
+            ipSpaces = self.getProviderGatewayIpSpaces(t0Gateway)
+            for ipSpace in ipSpaces:
+                for internalScope in ipSpace.get("ipSpaceInternalScope", []):
+                    subnetList.append({
+                        "gateway": internalScope.split("/")[0],
+                        "prefixLength": internalScope.split("/")[1],
+                        "dnsSuffix": None,
+                        "dnsServer1": "",
+                        "dnsServer2": "",
+                        "ipRanges": {
+                            "values": [
+                                {
+                                    "startAddress": ipRange["startIpAddress"],
+                                    "endAddress": ipRange["endIpAddress"]
+                                }
+                                for ipRange in ipSpace["ipSpaceRanges"]["ipRanges"]
+                                if ipaddress.ip_address(ipRange["startIpAddress"]) in
+                                   ipaddress.ip_network(internalScope, strict=False)
+                            ]
+                        },
+                        "enabled": True,
+                        "totalIpCount": sum([ipRange["totalIpCount"] for ipRange in ipSpace["ipSpaceRanges"]["ipRanges"]
+                                             if ipaddress.ip_address(ipRange["startIpAddress"]) in
+                                             ipaddress.ip_network(internalScope, strict=False)]),
+                        "usedIpCount": sum(
+                            [ipRange["allocatedIpCount"] for ipRange in ipSpace["ipSpaceRanges"]["ipRanges"]
+                             if ipaddress.ip_address(ipRange["startIpAddress"]) in
+                             ipaddress.ip_network(internalScope, strict=False)])
+                    })
+            ipSpaceEnabledPGWDict[t0Gateway["name"]] = subnetList
+            self.rollback.apiData["ipSpaceEnabledPGWDict"] = ipSpaceEnabledPGWDict
 
     @isSessionExpired
     def validateEdgeGatewayToExternalNetworkMapping(self,sourceEdgeGatewayData):
@@ -1535,7 +1542,6 @@ class VCDMigrationValidation:
             data = self.rollback.apiData
             # creating metadata keys for edge gateways connected to T0/T1 on target
             data['isT0Connected'] = dict()
-            data['ipSpaceEnabledEdges'] = set()
             # Get external network to gateway mapping from orgvdc data
             errorList = list()
             gatewayErrorList  = list()
@@ -1563,7 +1569,6 @@ class VCDMigrationValidation:
                     ipSpaces = self.getProviderGatewayIpSpaces(targetExternalNetwork)
                     targetNetworkAddressList = [ipaddress.ip_network('{}'.format(internalScope), strict=False)
                                              for ipSpace in ipSpaces for internalScope in ipSpace.get("ipSpaceInternalScope", [])]
-                    data['ipSpaceEnabledEdges'].add(edgeGateway["id"])
                 else:
                     targetExternalGatewayList = [targetExternalGateway['gateway'] for targetExternalGateway in
                                                  targetExternalNetwork['subnets']['values']]
@@ -1623,7 +1628,6 @@ class VCDMigrationValidation:
                 ipSpaces = self.getProviderGatewayIpSpaces(targetExternalNetwork)
                 targetNetworkAddressList = [ipaddress.ip_network('{}'.format(internalScope), strict=False)
                                             for ipSpace in ipSpaces for internalScope in ipSpace.get("ipSpaceInternalScope", [])]
-                data['ipSpaceEnabledEdges'].add(edgeGateway["id"])
             else:
                 targetNetworkAddressList = [
                     ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
@@ -1724,6 +1728,38 @@ class VCDMigrationValidation:
             else:
                 raise Exception("Failed to fetch IP Space {} details".format(ipSpace["ipSpaceRef"]["name"]))
         return ipSpaceList
+
+    @isSessionExpired
+    def validateOvelappingNetworksubnets(self, vcdObjList):
+        """
+        Description : Validate whether Org VDC network connected to IP Space enabled edges have overlapping subnets within the organization
+        """
+        networkList = list()
+        for vcdObj in vcdObjList:
+            if not [edgeGateway for edgeGateway in vcdObj.rollback.apiData["sourceEdgeGateway"]
+                if vcdObj.orgVdcInput['EdgeGateways'][edgeGateway['name']]['Tier0Gateways'] in
+                   vcdObj.rollback.apiData["ipSpaceEnabledPGWDict"]]:
+                continue
+            networkList += vcdObj.getOrgVDCNetworks(vcdObj.rollback.apiData.get("sourceOrgVDC", {}).get("@id"),
+                                                    'sourceOrgVDCNetworks', saveResponse=False)
+        # List of non-direct networks i.e Routed, Isolated
+        filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', networkList))
+        overLappingNetworkList  = list()
+
+        for i in range(len(filteredList)):
+            overlappingNetworks = set()
+            for j in range(i, len(filteredList)):
+                n1 = ipaddress.ip_network("{}/{}".format(filteredList[i]["subnets"]["values"][0]["gateway"],
+                                                         filteredList[i]["subnets"]["values"][0]["prefixLength"]))
+                n2 = n1 = ipaddress.ip_network("{}/{}".format(filteredList[i + 1]["subnets"]["values"][0]["gateway"],
+                                                         filteredList[i + 1]["subnets"]["values"][0]["prefixLength"]))
+                if n1.overlaps(n2):
+                    overlappingNetworks.add(filteredList[i]["name"])
+                    overlappingNetworks.add(filteredList[j]["name"])
+            if overlappingNetworks:
+                overLappingNetworkList.append()
+        if overLappingNetworkList:
+            logger.warning("{} following networks have overlapping subnets".format(overLappingNetworkList))
 
     @isSessionExpired
     def validateExternalNetworkMultipleSubnets(self):
@@ -5465,7 +5501,7 @@ class VCDMigrationValidation:
 
     @description("Performing OrgVDC related validations")
     @remediate
-    def orgVDCValidations(self, inputDict, sourceOrgVDCId, nsxtObj, nsxvObj):
+    def orgVDCValidations(self, inputDict, sourceOrgVDCId, vcdObjList, nsxtObj, nsxvObj):
         """
         Description : Pre migration validation tasks for org vdc
         Parameters  : inputDict      -  dictionary of all the input yaml file key/values (DICT)
@@ -5555,6 +5591,10 @@ class VCDMigrationValidation:
             # validating whether same subnet exist in source and target External networks
             logger.info('Validating source and target External networks have same subnets')
             self.validateExternalNetworkSubnets()
+
+            # checking overlapping subnets of org vdc networks belonging to org vdcs mentioned in input file
+            logger.info("Validating ovelapping subnets in case of IP Space enabled edges")
+            self.validateOvelappingNetworksubnets(vcdObjList)
 
             # validating whether multiple subnets are present in directly connected external network
             self.validateExternalNetworkMultipleSubnets()
@@ -5867,7 +5907,7 @@ class VCDMigrationValidation:
 
             if any([
                     # Performing org vdc related validations
-                    self.orgVDCValidations(inputDict, sourceOrgVDCId, nsxtObj, nsxvObj),
+                    self.orgVDCValidations(inputDict, sourceOrgVDCId, vcdObjList, nsxtObj, nsxvObj),
                     # Performing services related validations
                     self.servicesValidations(sourceOrgVDCId, nsxtObj, nsxvObj) if validateServices else False,
                     # Performing vApp related validations
