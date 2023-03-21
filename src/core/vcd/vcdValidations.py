@@ -1579,8 +1579,8 @@ class VCDMigrationValidation:
                         ipaddress.ip_network('{}/{}'.format(externalGateway, externalPrefixLength), strict=False)
                         for externalGateway, externalPrefixLength in
                         zip(targetExternalGatewayList, targetExternalPrefixLengthList)]
-                if not all(sourceNetworkAddress in targetNetworkAddressList for sourceNetworkAddress in
-                           sourceNetworkAddressList):
+                if not all(any([sourceNetworkAddress.subnet_of(targetSubnet) for targetSubnet in targetNetworkAddressList])
+                           for sourceNetworkAddress in sourceNetworkAddressList):
                     gatewayErrorList.append(edgeGateway["id"])
                     errorList.append(
                         'All the Source External Networks Subnets are not present in Target External Network - {} for edgeGateway {}.'.format(
