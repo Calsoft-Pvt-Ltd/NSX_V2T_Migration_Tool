@@ -156,9 +156,109 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if sourceEdgeGatewayDict['name'] in targetEdgeGatewayNames:
                 continue
 
-            payloadData = self._createEdgeGatewayTier0Payload(sourceEdgeGatewayDict, nsxObj)
+            sourceEdgeGatewayId = sourceEdgeGatewayDict['id'].split(':')[-1]
 
-            self._createEdgeGatewaySegmentPayload(sourceEdgeGatewayDict, payloadData)
+            # Prepare payload for edgeGatewayUplinks->dedicated
+            bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
+            # Use dedicated external network if BGP is configured
+            # or AdvertiseRoutedNetworks parameter is set to True
+
+            if (isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == "true"
+                    or self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']]['AdvertiseRoutedNetworks']):
+                dedicated = True
+            else:
+                dedicated = False
+
+            t0Gateway = self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']]['Tier0Gateways']
+
+            # Prepare payload for edgeClusterConfig->primaryEdgeCluster->backingId
+            # Checking if edge cluster is specified in user input yaml
+            externalDict = self.getExternalNetworkByName(t0Gateway)
+
+            if self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'):
+                # Fetch edge cluster id
+                edgeClusterId = nsxObj.fetchEdgeClusterDetails(
+                    self.orgVdcInput["EdgeGatewayDeploymentEdgeCluster"]).get(
+                    'id')
+            else:
+                edgeClusterId = nsxObj.fetchEdgeClusterIdForTier0Gateway(
+                    externalDict['networkBackings']['values'][0]['name'])
+
+            # Prepare payload for edgeGatewayUplinks->subnets->values
+
+            subnetData = []
+            if not externalDict.get('usingIpSpace'):
+                if sourceEdgeGatewayDict['name'] in data['isT0Connected']:
+                    # Adding only those subnets to T0 subnet data that are going to be connected to external network via T0
+                    gatewayList = [subnetData[0] for subnetData in
+                                   data['isT0Connected'][sourceEdgeGatewayDict['name']][t0Gateway]]
+                    for uplink in sourceEdgeGatewayDict['edgeGatewayUplinks']:
+                        if uplink['subnets']['values'][0]['gateway'] in gatewayList:
+                            subnetData += uplink['subnets']['values']
+                else:
+                    # In case target edge gateway is not going to be connected to T0, a dummy T0/VRF is necessary
+                    # Adding first subnet from dummy T0 because payload demands atleast one subnet
+                    subnetData = [subnet for subnet in externalDict['subnets']['values'] if
+                                  subnet['totalIpCount'] != subnet['usedIpCount']]
+                    subnetData = [subnetData[0]]
+                    subnetData[0]['ipRanges'] = {'values': []}
+
+            payloadData = {
+                'name': sourceEdgeGatewayDict['name'],
+                'description': sourceEdgeGatewayDict.get('description') or '',
+                'edgeGatewayUplinks': [
+                    {
+                        'uplinkId': externalDict['id'],
+                        'uplinkName': externalDict['name'],
+                        'connected': False,
+                        'dedicated': dedicated,
+                        'subnets': {
+                            'values': subnetData
+                        } if subnetData else None
+                    }
+                ],
+                'distributedRoutingEnabled': False,
+                'serviceNetworkDefinition': self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']][
+                    'serviceNetworkDefinition'],
+                'orgVdc': {
+                    'name': data['targetOrgVDC']['@name'],
+                    'id': data['targetOrgVDC']['@id'],
+                },
+                'ownerRef': {
+                    "name": data['targetOrgVDC']['@name'],
+                    "id": data['targetOrgVDC']['@id'],
+                },
+                'orgRef': {
+                    'name': data['Organization']['@name'],
+                    'id': data['Organization']['@id'],
+                },
+                "edgeClusterConfig": {
+                    "primaryEdgeCluster": {
+                        "backingId": edgeClusterId
+                    }
+                },
+            }
+
+            # Checking if target edge gateway is going to be connected to segment backed network directly
+            if sourceEdgeGatewayDict['name'] in data.get('isT1Connected', []):
+                for uplink in sourceEdgeGatewayDict['edgeGatewayUplinks']:
+                    if uplink['uplinkName'] in data['isT1Connected'][sourceEdgeGatewayDict['name']]:
+                        # Adding respective uplinks to target edge gateway payload
+                        uplinkDict = {
+                            'uplinkId': data['segmentToIdMapping'][uplink['uplinkName'] + '-v2t'],
+                            'uplinkName': uplink['uplinkName'] + '-v2t',
+                            'subnets': {
+                                'values': uplink['subnets']['values']
+                            }
+                        }
+                        payloadData['edgeGatewayUplinks'].append(uplinkDict)
+
+            # Checking if default edge gateway is configured on edge gateway
+            # and Setting primary ip to be used for edge gateway creation
+            defaultGateway = self.getEdgeGatewayDefaultGateway(sourceEdgeGatewayId)
+            for subnet in payloadData['edgeGatewayUplinks'][0]['subnets'].get('values', []):
+                if subnet['gateway'] != defaultGateway:
+                    subnet['primaryIp'] = None
 
             # edge gateway create URL
             url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS)
@@ -173,114 +273,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 errorResponse = response.json()
                 raise Exception(
                     'Failed to create target Org VDC Edge Gateway - {}'.format(errorResponse['message']))
-
-    def _createEdgeGatewayTier0Payload(self, sourceEdgeGatewayDict, nsxObj):
-        data = self.rollback.apiData
-        sourceEdgeGatewayId = sourceEdgeGatewayDict['id'].split(':')[-1]
-        # Prepare payload for edgeGatewayUplinks->dedicated
-        bgpConfigDict = self.getEdgegatewayBGPconfig(sourceEdgeGatewayId, validation=False)
-        # Use dedicated external network if BGP is configured
-        # or AdvertiseRoutedNetworks parameter is set to True
-
-        if (isinstance(bgpConfigDict, dict) and bgpConfigDict['enabled'] == "true"
-                or self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']]['AdvertiseRoutedNetworks']):
-            dedicated = True
-        else:
-            dedicated = False
-
-        t0Gateway = self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']]['Tier0Gateways']
-
-        # Prepare payload for edgeClusterConfig->primaryEdgeCluster->backingId
-        # Checking if edge cluster is specified in user input yaml
-        externalDict = self.getExternalNetworkByName(t0Gateway)
-
-        if self.orgVdcInput.get('EdgeGatewayDeploymentEdgeCluster'):
-            # Fetch edge cluster id
-            edgeClusterId = nsxObj.fetchEdgeClusterDetails(self.orgVdcInput["EdgeGatewayDeploymentEdgeCluster"]).get(
-                'id')
-        else:
-            edgeClusterId = nsxObj.fetchEdgeClusterIdForTier0Gateway(
-                externalDict['networkBackings']['values'][0]['name'])
-
-        # Prepare payload for edgeGatewayUplinks->subnets->values
-
-        subnetData = []
-        if not t0Gateway.get('usingIpSpace'):
-            if sourceEdgeGatewayDict['name'] in data['isT0Connected']:
-                # Adding only those subnets to T0 subnet data that are going to be connected to external network via T0
-                gatewayList = [subnetData[0] for subnetData in
-                               data['isT0Connected'][sourceEdgeGatewayDict['name']][t0Gateway]]
-                for uplink in sourceEdgeGatewayDict['edgeGatewayUplinks']:
-                    if uplink['subnets']['values'][0]['gateway'] in gatewayList:
-                        subnetData += uplink['subnets']['values']
-            else:
-                # In case target edge gateway is not going to be connected to T0, a dummy T0/VRF is necessary
-                # Adding first subnet from dummy T0 because payload demands atleast one subnet
-                subnetData = [subnet for subnet in externalDict['subnets']['values'] if
-                              subnet['totalIpCount'] != subnet['usedIpCount']]
-                subnetData = [subnetData[0]]
-                subnetData[0]['ipRanges'] = {'values': []}
-
-        payloadData = {
-            'name': sourceEdgeGatewayDict['name'],
-            'description': sourceEdgeGatewayDict.get('description') or '',
-            'edgeGatewayUplinks': [
-                {
-                    'uplinkId': externalDict['id'],
-                    'uplinkName': externalDict['name'],
-                    'connected': False,
-                    'dedicated': dedicated,
-                    'subnets': {
-                        'values': subnetData
-                    } if subnetData else None
-                }
-            ],
-            'distributedRoutingEnabled': False,
-            'serviceNetworkDefinition': self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayDict['name']][
-                'serviceNetworkDefinition'],
-            'orgVdc': {
-                'name': data['targetOrgVDC']['@name'],
-                'id': data['targetOrgVDC']['@id'],
-            },
-            'ownerRef': {
-                "name": data['targetOrgVDC']['@name'],
-                "id": data['targetOrgVDC']['@id'],
-            },
-            'orgRef': {
-                'name': data['Organization']['@name'],
-                'id': data['Organization']['@id'],
-            },
-            "edgeClusterConfig": {
-                "primaryEdgeCluster": {
-                    "backingId": edgeClusterId
-                }
-            },
-        }
-        return payloadData
-
-    def _createEdgeGatewaySegmentPayload(self, sourceEdgeGatewayDict, payloadData):
-        data = self.rollback.apiData
-        sourceEdgeGatewayId = sourceEdgeGatewayDict['id'].split(':')[-1]
-        # Checking if target edge gateway is going to be connected to segment backed network directly
-        if sourceEdgeGatewayDict['name'] in data.get('isT1Connected', []):
-            for uplink in sourceEdgeGatewayDict['edgeGatewayUplinks']:
-                if uplink['uplinkName'] in data['isT1Connected'][sourceEdgeGatewayDict['name']]:
-                    # Adding respective uplinks to target edge gateway payload
-                    uplinkDict = {
-                        'uplinkId': data['segmentToIdMapping'][uplink['uplinkName'] + '-v2t'],
-                        'uplinkName': uplink['uplinkName'] + '-v2t',
-                        'subnets': {
-                            'values': uplink['subnets']['values']
-                        }
-                    }
-                    payloadData['edgeGatewayUplinks'].append(uplinkDict)
-
-        # Checking if default edge gateway is configured on edge gateway
-        # and Setting primary ip to be used for edge gateway creation
-        defaultGateway = self.getEdgeGatewayDefaultGateway(sourceEdgeGatewayId)
-        for subnet in payloadData['edgeGatewayUplinks'][0]['subnets'].get('values', []):
-            if subnet['gateway'] != defaultGateway:
-                subnet['primaryIp'] = None
 
     @description("creation of target Org VDC Edge Gateway")
     @remediate
