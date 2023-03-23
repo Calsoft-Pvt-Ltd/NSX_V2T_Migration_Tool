@@ -158,6 +158,26 @@ class VcenterApi():
         except Exception:
             raise
 
+    def mobsApi(self,compute_id):
+        """
+        Description : This method sends response of MOBS API to updateEdgeTransportNodes in nsxtOperations
+        compute_id : cluster name of Edge Transport Node
+        """
+        try:
+            url = constants.MOBS_API.format(hostname=self.ipAddress)
+            url = url + compute_id
+            response = self.restClientObj.get(url=url, headers=self.headers, auth=(self.username, self.password))
+
+            if response.status_code == requests.codes.ok:
+                logger.debug("Successfully got MOBS response")
+                return response
+            else:
+                raise Exception(response)
+        except Exception as err:
+            logger.debug(traceback.format_exc())
+            raise Exception(f"Failed to get MOBS response due to error response- {str(err)}")
+
+
     def fetchClusterResourcePoolMapping(self):
         """
             Description : This method creates mappings of cluster and resource pools
