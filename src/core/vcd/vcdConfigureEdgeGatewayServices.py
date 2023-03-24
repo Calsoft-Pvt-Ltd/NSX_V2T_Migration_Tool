@@ -819,19 +819,18 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 # if the destinationPorts is getting empty or None then return 'any'
                 if not value['applicationPorts'][0]['destinationPorts']:
                     value['applicationPorts'][0]['destinationPorts'] = ['any']
+                portString = ""
+                for portValue in value['applicationPorts'][0]['destinationPorts']:
+                    portString = portString + ',' + portValue
                 if value['scope'] == 'SYSTEM':
                     applicationPortProfilesDict[
                         'SYSTEM-{}-{}'.format(
-                            value['applicationPorts'][0]['protocol'],
-                            value['applicationPorts'][0]['destinationPorts'][0])
-                    ] = value
+                            value['applicationPorts'][0]['protocol'], portString[1:])] = value
                 elif value['scope'] == 'TENANT' and isinstance(value.get('orgRef'), dict):
                     applicationPortProfilesDict[
                         'TENANT-{}-{}-{}'.format(
                             value['orgRef']['id'],
-                            value['applicationPorts'][0]['protocol'],
-                            value['applicationPorts'][0]['destinationPorts'][0])
-                    ] = value
+                            value['applicationPorts'][0]['protocol'], portString[1:])] = value
         return applicationPortProfilesDict
 
     @isSessionExpired
@@ -849,18 +848,17 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             protocol = protocol.upper()
             value = applicationPortProfilesDict.get(f"SYSTEM-{protocol}-{port}") or \
                     applicationPortProfilesDict.get(f"TENANT-{data['Organization']['@id']}-{protocol}-{port}")
-            if value and len(value['applicationPorts'][0]['destinationPorts']) == 1:
+            if value:
                 logger.debug(f"Application Port Profile {value['id']} for the {protocol}-{port} retrieved successfully")
                 return value['name'], value['id']
             else:
                 url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                     vcdConstants.APPLICATION_PORT_PROFILES)
-
                 payloadDict = {
                     "name": "CUSTOM-" + protocol + "-" + port,
                     "applicationPorts": [{
                         "protocol": protocol,
-                        "destinationPorts": [port]
+                        "destinationPorts": listify(port.split(','))
                     }],
                     "orgRef": {
                         "name": data['Organization']['@name'],
@@ -879,7 +877,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     customID = 'urn:vcloud:applicationPortProfile:' + portprofileID
                     payloadDict['id'] = customID
                     applicationPortProfilesDict[
-                        'TENANT-{}-{}-{}'.format(payloadDict['orgRef']['id'], payloadDict['applicationPorts'][0]['protocol'], payloadDict['applicationPorts'][0]['destinationPorts'][0])] = payloadDict
+                        'TENANT-{}-{}-{}'.format(payloadDict['orgRef']['id'], payloadDict['applicationPorts'][0]['protocol'], port)] = payloadDict
                     return payloadDict['name'], payloadDict['id']
                 response = response.json()
                 raise Exception('Failed to create application port profile {} '.format(response['message']))
