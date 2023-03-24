@@ -3231,12 +3231,37 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # get api call to retrieve the target org vdc details
             targetOrgVDCResponse = self.restClientObj.get(url, self.headers)
             targetOrgVDCResponseDict = self.vcdUtils.parseXml(targetOrgVDCResponse.content)
+
+            # targetStorageProfileIDsList holds list the IDs of the target org vdc storage profiles
+            targetStorageProfileIDsList = []
+            # targetStorageProfilesList holds the list of dictionaries of details of each target org vdc storage profile
+            targetStorageProfilesList = []
             # retrieving target org vdc storage profiles list
             targetOrgVDCStorageList = targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles'][
                 'VdcStorageProfile'] if isinstance(
                 targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'], list) else [
                 targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile']]
 
+            for storageProfile in targetOrgVDCStorageList:
+                targetStorageProfilesList.append(storageProfile)
+                targetStorageProfileIDsList.append(storageProfile['@id'])
+
+            # targetOrgVDCCatalogDetails will hold list of only catalogs present in the target org vdc
+            targetOrgVDCCatalogDetails = []
+            # targetOrgVDCCatalogNameList will hold name of target org vdc catalogs
+            targetOrgVDCCatalogNameList = []
+            # iterating over all the organization catalogs
+            for catalog in orgCatalogs:
+                # get api call to retrieve the catalog details
+                catalogResponse = self.restClientObj.get(catalog['@href'], headers=self.headers)
+                catalogResponseDict = self.vcdUtils.parseXml(catalogResponse.content)
+                if catalogResponseDict['AdminCatalog'].get('CatalogStorageProfiles'):
+                    # checking if catalogs storage profile is same from target org vdc storage profile by matching the ID of storage profile
+                    if catalogResponseDict['AdminCatalog']['CatalogStorageProfiles']['VdcStorageProfile'][
+                            '@id'] in targetStorageProfileIDsList:
+                        # creating the list of catalogs from source org vdc
+                        targetOrgVDCCatalogDetails.append(catalogResponseDict['AdminCatalog'])
+                        targetOrgVDCCatalogNameList.append(catalogResponseDict['AdminCatalog']["@name"])
             # iterating over the source org vdc catalogs to migrate them to target org vdc
             for srcCatalog in sourceOrgVDCCatalogDetails:
                 logger.debug("Migrating source Org VDC specific Catalogs")
@@ -3253,7 +3278,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 payloadDict = {'catalogName': srcCatalog['@name'] + '-v2t',
                                'storageProfileHref': storageProfileHref,
                                'catalogDescription': srcCatalog['Description'] if srcCatalog.get('Description') else ''}
-                catalogId = self.createCatalog(payloadDict, orgId)
+                if payloadDict['catalogName'] not in targetOrgVDCCatalogNameList:
+                    catalogId = self.createCatalog(payloadDict, orgId)
+                else:
+                    catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
+                    targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
 
                 if catalogId:
                     # empty catalogs
@@ -3402,7 +3431,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                    'storageProfileHref': defaultTargetStorageProfileHref,
                                    'catalogDescription': catalog['catalogDescription']}
                     # create api call to create a new place holder catalog
-                    catalogId = self.createCatalog(payloadDict, orgId)
+                    if payloadDict['catalogName'] not in targetOrgVDCCatalogNameList:
+                        catalogId = self.createCatalog(payloadDict, orgId)
+                    else:
+                        catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
+                                                targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
                     if catalogId:
 
                         vAppTemplateCatalogItemList = []
