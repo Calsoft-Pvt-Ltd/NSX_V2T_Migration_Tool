@@ -2865,8 +2865,17 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         response = self.restClientObj.get(url, self.headers)
                         responseDict = response.json()
                         if response.status_code == requests.codes.ok:
+                            # Checking the external network backing
+                            extNetUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                         vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                                         sourceOrgVDCNetwork['parentNetworkId']['id'])
+                            extNetResponse = self.restClientObj.get(extNetUrl, self.headers)
+                            extNetResponseDict = extNetResponse.json()
+                            if extNetResponse.status_code != requests.codes.ok:
+                                raise Exception('Failed to get external network {} details with error - {}'.format(
+                                    sourceOrgVDCNetwork['parentNetworkId']['name'], extNetResponseDict["message"]))
                             if (int(responseDict['resultTotal']) > 1 and not self.orgVdcInput.get('LegacyDirectNetwork', False)) or \
-                                responseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
+                                extNetResponseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
                                 sourceOrgVDCNetworkSubnetList = [ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
                                                                         for subnet in sourceOrgVDCNetwork['subnets']['values']]
                                 directNetworkId = sourceOrgVDCNetwork['id'].split(':')[-1]
