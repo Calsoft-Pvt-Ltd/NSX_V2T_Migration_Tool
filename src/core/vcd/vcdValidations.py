@@ -897,46 +897,6 @@ class VCDMigrationValidation:
         logger.debug("IP Space enabled Provider Gateways - {}".format(ipSpaceProviderGateways))
         return targetExternalNetwork
 
-    def getProviderGatewaySubnetDict(self, t0Gateway):
-        """
-        Description :   Create Subnet Dict from entity provided
-        Parameters  :   t0Gateway (DICT)
-        """
-        ipSpaceEnabledPGWDict = self.rollback.apiData.get("ipSpaceEnabledPGWDict", {})
-        subnetList = list()
-        if t0Gateway.get("usingIpSpace"):
-            ipSpaces = self.getProviderGatewayIpSpaces(t0Gateway)
-            for ipSpace in ipSpaces:
-                for internalScope in ipSpace.get("ipSpaceInternalScope", []):
-                    subnetList.append({
-                        "gateway": internalScope.split("/")[0],
-                        "prefixLength": internalScope.split("/")[1],
-                        "dnsSuffix": None,
-                        "dnsServer1": "",
-                        "dnsServer2": "",
-                        "ipRanges": {
-                            "values": [
-                                {
-                                    "startAddress": ipRange["startIpAddress"],
-                                    "endAddress": ipRange["endIpAddress"]
-                                }
-                                for ipRange in ipSpace["ipSpaceRanges"]["ipRanges"]
-                                if ipaddress.ip_address(ipRange["startIpAddress"]) in
-                                   ipaddress.ip_network(internalScope, strict=False)
-                            ]
-                        },
-                        "enabled": True,
-                        "totalIpCount": sum([ipRange["totalIpCount"] for ipRange in ipSpace["ipSpaceRanges"]["ipRanges"]
-                                             if ipaddress.ip_address(ipRange["startIpAddress"]) in
-                                             ipaddress.ip_network(internalScope, strict=False)]),
-                        "usedIpCount": sum(
-                            [ipRange["allocatedIpCount"] for ipRange in ipSpace["ipSpaceRanges"]["ipRanges"]
-                             if ipaddress.ip_address(ipRange["startIpAddress"]) in
-                             ipaddress.ip_network(internalScope, strict=False)])
-                    })
-            ipSpaceEnabledPGWDict[t0Gateway["name"]] = subnetList
-            self.rollback.apiData["ipSpaceEnabledPGWDict"] = ipSpaceEnabledPGWDict
-
     @isSessionExpired
     def validateEdgeGatewayToExternalNetworkMapping(self,sourceEdgeGatewayData):
         """
@@ -1745,12 +1705,12 @@ class VCDMigrationValidation:
         return resultList
 
     @isSessionExpired
-    def allocate(self, ipSpaceId, entityType, entity, returnOutput=False):
+    def allocate(self, ipSpaceId, entityType, entity, ipSpaceName, returnOutput=False):
         """
         Description : Allocate IP_PREFIX/FLOATING_IP from IP Space to Organization
         """
         orgId = self.rollback.apiData.get('Organization', {}).get('@id')
-        logger.debug("Allocating {} - {} from Private IP Space {} to Organization {}".format(entityType, entity, entity, orgId))
+        logger.debug("Allocating '{}' - '{}' from Private IP Space - '{}' to Organization - '{}'".format(entityType, entity, ipSpaceName, orgId))
         url = "{}{}".format(vcdConstants.OPEN_API_URL.FORMAT(self.ipAddress), vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId))
         headers = {'Authorization': self.headers['Authorization'],
                    'Accept': vcdConstants.OPEN_API_CONTENT_TYPE,
@@ -1765,12 +1725,12 @@ class VCDMigrationValidation:
             taskUrl = response.headers['Location']
             # checking the status of the creating org vdc network task
             output = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
-            logger.debug('{} - {} from IP Space {} allocated to {}'.format(entityType, entity, ipSpaceId, orgId))
+            logger.debug("'{}' - '{}' from IP Space - '{}' successfully allocated to - '{}'".format(entityType, entity, ipSpaceName, orgId))
         else:
             errorResponse = response.json()
             raise Exception(
-                'Failed to allocate {} - {} from Private IP Space {} to Organization {} with error message - {}'.format(
-                    entityType, entity, entity, orgId, errorResponse['message']))
+                "Failed to allocate '{}' - '{}' from Private IP Space - '{}' to Organization - '{}' with error message - {}".format(
+                    entityType, entity, ipSpaceName, orgId, errorResponse['message']))
         if returnOutput:
             return output
 
@@ -1793,9 +1753,9 @@ class VCDMigrationValidation:
         filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', networkList))
 
         for i in range(len(filteredList)):
+            n1 = ipaddress.ip_network("{}/{}".format(filteredList[i]["subnets"]["values"][0]["gateway"],
+                                                     filteredList[i]["subnets"]["values"][0]["prefixLength"]), strict=False)
             for j in range(i + 1, len(filteredList)):
-                n1 = ipaddress.ip_network("{}/{}".format(filteredList[i]["subnets"]["values"][0]["gateway"],
-                                                         filteredList[i]["subnets"]["values"][0]["prefixLength"]), strict=False)
                 n2 = ipaddress.ip_network("{}/{}".format(filteredList[j]["subnets"]["values"][0]["gateway"],
                                                          filteredList[j]["subnets"]["values"][0]["prefixLength"]), strict=False)
                 if n1.overlaps(n2):

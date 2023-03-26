@@ -27,7 +27,7 @@ VCD_10_3_2_1_BUILD = '10.3.2.19442122'
 API_VERSION_ANDROMEDA_10_3_3 = "36.3"
 API_VERSION_BETELGEUSE_10_4 = "37.0"
 API_VERSION_CASTOR_10_4_1 = "37.1"
-API_VERSION_10_4_2 = "37.2"
+API_10_4_2_BUILD = "37.2"
 
 # vm Affinity rule url
 AFFINITY_URL = "https://{}/api/vdc/{}/vmAffinityRules/"
@@ -78,7 +78,7 @@ XML_VCD_NSX_API = "https://{}/network/"
 ALL_EXTERNAL_NETWORKS = "externalNetworks"
 
 # create IP Spaces
-CREATE_IP_SPACES = "ipSapces"
+CREATE_IP_SPACES = "ipSpaces"
 
 # update IP Spaces
 UPDATE_IP_SPACES = "ipSpaces/{}"

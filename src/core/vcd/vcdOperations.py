@@ -94,7 +94,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             if edgeGatewaySubnet.subnet_of(
                                 ipaddress.ip_network('{}'.format(internalScope), strict=False))]:
                             pass
-                            # self._prepareIpSpaceRanges(ipSpace, edgeGatewayIpRange, merge=True)
+                            #self._prepareIpSpaceRanges(ipSpace, edgeGatewayIpRange)
                 for ipSpace in ipSpaces:
                     url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.UPDATE_IP_SPACES.format(ipSpace["id"]))
                     self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
@@ -102,11 +102,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     if response.status_code == requests.codes.accepted:
                         taskUrl = response.headers['Location']
                         self._checkTaskStatus(taskUrl=taskUrl)
-                        logger.debug('IP Space {} updated successfully with sub allocated ip pools.'.format(
+                        logger.debug("Provider Gateway IP Space uplink - '{}' updated successfully with sub allocated ip pools.".format(
                             ipSpace['name']))
                     else:
                         errorResponse = response.json()
-                        raise Exception('Failed to update IP Space {} with sub allocated ip pools - {}'.format(
+                        raise Exception("Provider Gateway IP Space uplink - '{}' with sub allocated ip pools - {}".format(
                             ipSpace['name'], errorResponse['message']))
             else:
                 for targetExtNetSubnet in targetExtNetData['subnets']['values']:
@@ -188,6 +188,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                   subnet['totalIpCount'] != subnet['usedIpCount']]
                     subnetData = [subnetData[0]]
                     subnetData[0]['ipRanges'] = {'values': []}
+                    subnetData[0]['primaryIp'] = None
 
             payloadData = {
                 'name': sourceEdgeGatewayDict['name'],
@@ -237,14 +238,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             }
                         }
                         payloadData['edgeGatewayUplinks'].append(uplinkDict)
-
-            if payloadData['edgeGatewayUplinks'][0].get('subnets'):
-                # Checking if default edge gateway is configured on edge gateway
-                # and Setting primary ip to be used for edge gateway creation
-                defaultGateway = self.getEdgeGatewayDefaultGateway(sourceEdgeGatewayId)
-                for subnet in payloadData['edgeGatewayUplinks'][0].get('subnets', {}).get('values', []):
-                    if subnet['gateway'] != defaultGateway:
-                        subnet['primaryIp'] = None
 
             # edge gateway create URL
             url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS)
@@ -590,7 +583,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             ipSpaceEnabledEdges = [edge["id"] for edge in data['sourceEdgeGateway']
                                                 if self.orgVdcInput['EdgeGateways'][edge["name"]]['Tier0Gateways']
                                                 in data['ipSpaceProviderGateways']]
-            if not (float(self.version) >= float(vcdConstants.API_VERSION_10_4_2) and ipSpaceEnabledEdges):
+            if not (float(self.version) >= float(vcdConstants.API_10_4_2_BUILD) and ipSpaceEnabledEdges):
                 return
 
             logger.info("Creating Private IP Spaces for Target Org VDC Networks")
@@ -648,7 +641,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     privateIpSpace = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
                     logger.debug('Private IP Space for network {} created successfully.'.format(sourceOrgVDCNetwork['name'] + '-v2t'))
                     privateIpSpaces[privateIpSpace["owner"]["name"]].append(privateIpSpace["owner"]["id"])
-                    self.allocate(privateIpSpace["id"], 'IP_PREFIX', privateIpSpace["owner"]["name"])
+                    self.allocate(privateIpSpace["owner"]["id"], 'IP_PREFIX', privateIpSpace["owner"]["name"], privateIpSpace["owner"]["name"])
                 else:
                     errorResponse = response.json()
                     raise Exception(
@@ -1068,7 +1061,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         ipSpaceEnabledEdges = [edge["id"] for edge in data['sourceEdgeGateway']
                                if self.orgVdcInput['EdgeGateways'][edge["name"]]['Tier0Gateways']
                                in data['ipSpaceProviderGateways']]
-        if not (float(self.version) >= float(vcdConstants.API_VERSION_10_4_2) and ipSpaceEnabledEdges):
+        if not (float(self.version) >= float(vcdConstants.API_10_4_2_BUILD) and ipSpaceEnabledEdges):
             return
         logger.info("Removing Private IP Spaces used by target Org VDC Networks")
         privateIpSpacesIdList = [ipSpace["id"] for ipSpace in self.fetchAllIpSpaces() if ipSpace["type"] == "PRIVATE"]
@@ -1102,7 +1095,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             headers = {'Authorization': self.headers['Authorization'],
                        'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
             floatingIpList = self.getPaginatedResults("Floating IPs", floatingIpUrl, headers, urlFilter="filter=type==FLOATING_IP")
-            for ip in data["floatingIps"]:
+            for ip in data["floatingIps"][ipSpace]:
                 for floatingIp in floatingIpList:
                     if ip == floatingIp["value"] and floatingIp["usageState"] == "UNUSED":
                         deleteUrl = "{}/{}".format(floatingIpUrl, floatingIp["id"])

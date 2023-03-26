@@ -674,7 +674,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 if ipaddress.ip_address(ip) in ipaddress.ip_network(scope, strict=False)]):
                             if ip in floatingIpDict.get(ipSpace["id"]):
                                 break
-                            self.allocate(ipSpace["id"], 'FLOATING_IP', ip)
+                            self.allocate(ipSpace["id"], 'FLOATING_IP', ip, ipSpace["name"])
                             floatingIpDict[ipSpace["id"]].append(ip)
                             break
         except Exception:
