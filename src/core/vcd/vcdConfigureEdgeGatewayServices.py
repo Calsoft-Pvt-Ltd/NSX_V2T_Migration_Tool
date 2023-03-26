@@ -54,6 +54,12 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                              'not exists')
                 return
 
+            ipSpaceEnabledEdges = [edge["id"] for edge in self.rollback.apiData['sourceEdgeGateway']
+                                   if self.orgVdcInput['EdgeGateways'][edge["name"]]['Tier0Gateways']
+                                   in self.rollback.apiData['ipSpaceProviderGateways']]
+            if ipSpaceEnabledEdges:
+                self.allocateFloatingIps()
+
             if not self.rollback.metadata.get("configureServices"):
                 logger.info('Configuring Target Edge gateway services.')
 
@@ -641,6 +647,48 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             vcdCertificateStore[nsxvCertPem] = vcdCert
 
         return vcdCert
+
+    @description("Allocation of Floating IPs")
+    @remediate
+    def allocateFloatingIps(self):
+        """
+        Description :   Allocates Floating IPs used by source edge gateways
+        """
+        try:
+            logger.debug("Allocating Floating IPs to Organization - {}".format(self.rollback.apiData.get('Organization', {}).get('@name')))
+            floatingIpDict = self.rollback.apiData.get("floatingIps") or defaultdict(list)
+            for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
+                t0Gateway = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway["name"]]['Tier0Gateways']
+                if t0Gateway not in self.rollback.apiData['ipSpaceProviderGateways']:
+                    continue
+                sourceEdgeGatewayIps = []
+                for edgeGatewayUplink in sourceEdgeGateway['edgeGatewayUplinks']:
+                    for subnet in edgeGatewayUplink["subnets"]["values"]:
+                        for range in subnet["ipRanges"]["values"]:
+                            sourceEdgeGatewayIps.extend(self.returnIpListFromRange(range["startAddress"], range["endAddress"]))
+                targetExternalNetwork = self.rollback.apiData['targetExternalNetwork'][t0Gateway]
+                ipSpaces = self.getProviderGatewayIpSpaces(targetExternalNetwork)
+                for ip in sourceEdgeGatewayIps:
+                    for ipSpace in ipSpaces:
+                        if any([scope for scope in ipSpace.get("ipSpaceInternalScope", [])
+                                if ipaddress.ip_address(ip) in ipaddress.ip_network(scope, strict=False)]):
+                            if ip in floatingIpDict.get(ipSpace["id"]):
+                                break
+                            self.allocate(ipSpace["id"], 'FLOATING_IP', ip)
+                            floatingIpDict[ipSpace["id"]].append(ip)
+                            break
+        except Exception:
+            # Saving metadata in org VDC
+            self.saveMetadataInOrgVdc()
+            raise
+
+    def returnIpListFromRange(self,start, end):
+        """
+        Return IPs in IPv4 range, inclusive.
+        """
+        start_int = int(ipaddress.ip_address(start).packed.hex(), 16)
+        end_int = int(ipaddress.ip_address(end).packed.hex(), 16)
+        return [ipaddress.ip_address(ip).exploded for ip in range(start_int, end_int + 1)]
 
     @description("configuration of Target IPSEC")
     @remediate

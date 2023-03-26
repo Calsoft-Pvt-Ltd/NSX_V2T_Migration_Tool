@@ -96,8 +96,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             pass
                             # self._prepareIpSpaceRanges(ipSpace, edgeGatewayIpRange, merge=True)
                 for ipSpace in ipSpaces:
-                    url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.IP_SPACES,
-                                           ipSpace["id"])
+                    url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.UPDATE_IP_SPACES.format(ipSpace["id"]))
                     self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
                     response = self.restClientObj.put(url, self.headers, data=json.dumps(ipSpace))
                     if response.status_code == requests.codes.accepted:
@@ -580,6 +579,86 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         except:
             raise
 
+    @description("creation of private IP Spaces")
+    @remediate
+    def createPrivateIpSpacesForNetworks(self, sourceOrgVDCNetworks):
+        """
+        Description : Creates Private IP Space for source org vdc network
+        """
+        try:
+            data = self.rollback.apiData
+            ipSpaceEnabledEdges = [edge["id"] for edge in data['sourceEdgeGateway']
+                                                if self.orgVdcInput['EdgeGateways'][edge["name"]]['Tier0Gateways']
+                                                in data['ipSpaceProviderGateways']]
+            if not (float(self.version) >= float(vcdConstants.API_VERSION_10_4_2) and ipSpaceEnabledEdges):
+                return
+
+            logger.info("Creating Private IP Spaces for Target Org VDC Networks")
+            privateIpSpaces = data.get("privateIpSpaces", {})
+            for sourceOrgVDCNetwork in sourceOrgVDCNetworks:
+                # Private IP Spaces are not created for direct Networks
+                if sourceOrgVDCNetwork['networkType'] == "DIRECT":
+                    continue
+                # Private IP Spaces are not create for Routed Network connected to Non IP Space Enabled Edges
+                if sourceOrgVDCNetwork['networkType'] == "NAT_ROUTED" and sourceOrgVDCNetwork['connection']['routerRef']['id'] not in ipSpaceEnabledEdges:
+                    continue
+                # Skipping if Private IP Space already exists
+                if "{}/{}".format(sourceOrgVDCNetwork['subnets']['values'][0]['gateway'],
+                                    sourceOrgVDCNetwork['subnets']['values'][0]['prefixLength']) in privateIpSpaces:
+                    continue
+                url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.CREATE_IP_SPACES)
+                headers = {'Authorization': self.headers['Authorization'],
+                            'Accept': vcdConstants.OPEN_API_CONTENT_TYPE,
+                            'Content-Type': vcdConstants.OPEN_API_CONTENT_TYPE,
+                            'X-VMWARE-VCLOUD-TENANT-CONTEXT': self.rollback.apiData.get('Organization', {}).get('@id')}
+                payloadDict = {
+                    "name": "{}/{}".format(sourceOrgVDCNetwork['subnets']['values'][0]['gateway'],
+                                            sourceOrgVDCNetwork['subnets']['values'][0]['prefixLength']),
+                    "type": "PRIVATE",
+                    "ipSpaceInternalScope": [
+                        "{}/{}".format(sourceOrgVDCNetwork['subnets']['values'][0]['gateway'],
+                                        sourceOrgVDCNetwork['subnets']['values'][0]['prefixLength'])
+                    ],
+                    "ipSpaceRanges": None,
+                    "ipSpacePrefixes": [
+                        {
+                            "ipPrefixSequence": [
+                                {
+                                    "startingPrefixIpAddress": sourceOrgVDCNetwork['subnets']['values'][0]['gateway'],
+                                    "prefixLength": sourceOrgVDCNetwork['subnets']['values'][0]['prefixLength'],
+                                    "totalPrefixCount": 1,
+                                    "id": None
+                                }
+                            ]
+                        }
+                    ],
+                    "description": "",
+                    "routeAdvertisementEnabled": False,
+                    "ipSpaceExternalScope": None,
+                    "orgRef": {
+                        "id": self.rollback.apiData.get('Organization', {}).get('@id'),
+                        "name": self.rollback.apiData.get('Organization', {}).get('@name')
+                    }
+                }
+                payloadData = json.dumps(payloadDict)
+                response = self.restClientObj.post(url, headers=headers, data=payloadData)
+                if response.status_code == requests.codes.accepted:
+                    taskUrl = response.headers['Location']
+                    # checking the status of the creating org vdc network task
+                    privateIpSpace = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
+                    logger.debug('Private IP Space for network {} created successfully.'.format(sourceOrgVDCNetwork['name'] + '-v2t'))
+                    privateIpSpaces[privateIpSpace["owner"]["name"]].append(privateIpSpace["owner"]["id"])
+                    self.allocate(privateIpSpace["id"], 'IP_PREFIX', privateIpSpace["owner"]["name"])
+                else:
+                    errorResponse = response.json()
+                    raise Exception(
+                        'Failed to create Private IP Space for network - {}'.format(sourceOrgVDCNetwork['name'] + '-v2t',
+                                                                                 errorResponse['message']))
+        except Exception:
+            # Saving metadata in org VDC
+            self.saveMetadataInOrgVdc()
+            raise
+
     @description("creation of target DNAT for non distributed OrgVDC Networks")
     @remediate
     def configureTargetDnatForDns(self):
@@ -979,6 +1058,62 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     'Failed to delete Org VDC networks {} - as it is in use'.format(orgVDCNetworksErrorList))
         except Exception:
             raise
+
+    @isSessionExpired
+    def deletePrivateIpSpaces(self):
+        """
+        Description :   Deletes all the private IP Spaces creates by the tool
+        """
+        data = self.rollback.apiData
+        ipSpaceEnabledEdges = [edge["id"] for edge in data['sourceEdgeGateway']
+                               if self.orgVdcInput['EdgeGateways'][edge["name"]]['Tier0Gateways']
+                               in data['ipSpaceProviderGateways']]
+        if not (float(self.version) >= float(vcdConstants.API_VERSION_10_4_2) and ipSpaceEnabledEdges):
+            return
+        logger.info("Removing Private IP Spaces used by target Org VDC Networks")
+        privateIpSpacesIdList = [ipSpace["id"] for ipSpace in self.fetchAllIpSpaces() if ipSpace["type"] == "PRIVATE"]
+        for ipSpaceName, ipSpaceId in self.rollback.apiData.get("privateIpSpaces", {}).items():
+            if ipSpaceId not in privateIpSpacesIdList:
+                continue
+            url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId))
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.OPEN_API_CONTENT_TYPE,
+                       'Content-Type': vcdConstants.OPEN_API_CONTENT_TYPE,
+                       'X-VMWARE-VCLOUD-TENANT-CONTEXT': self.rollback.apiData.get('Organization', {}).get('@id')}
+            response = self.restClientObj.delete(url, headers=headers)
+            if response.status_code == requests.codes.accepted:
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug('Private IP Space - {} deleted successsfully'.format(ipSpaceName))
+            else:
+                logger.debug('Failed to delete Private IP Space - {}.{}'.format(ipSpaceName,
+                                                                                      response.json()['message']))
+
+    @isSessionExpired
+    def releaseFloatingIps(self):
+        """
+        Description :   Deletes all the Edge Gateways in the specified NSX-V Backed OrgVDC
+        """
+        data = self.rollback.apiData
+        for ipSpace in data.get("floatingIps", {}):
+            floatingIpUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                   vcdConstants.UPDATE_IP_SPACES.format(ipSpace), vcdConstants.IP_SPACE_ALLOCATIONS)
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+            floatingIpList = self.getPaginatedResults("Floating IPs", floatingIpUrl, headers, urlFilter="filter=type==FLOATING_IP")
+            for ip in data["floatingIps"]:
+                for floatingIp in floatingIpList:
+                    if ip == floatingIp["value"] and floatingIp["usageState"] == "UNUSED":
+                        deleteUrl = "{}/{}".format(floatingIpUrl, floatingIp["id"])
+                        response = self.restClientObj.delete(deleteUrl, headers)
+                        if response.status_code == requests.codes.accepted:
+                            taskUrl = response.headers['Location']
+                            self._checkTaskStatus(taskUrl=taskUrl)
+                            logger.debug("Floating IP {} released from IP Space {}".format(ip, ipSpace))
+                        else:
+                            logger.debug('Failed to release floating IP {} from IP Space {}.{}'.format(ip, ipSpace,
+                                                                                                  response.json()['message']))
 
     @isSessionExpired
     def deleteNsxVBackedOrgVDCEdgeGateways(self, orgVDCId):
@@ -3027,6 +3162,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             # only if source org vdc networks exist
             if orgVdcNetworkList:
+                # creating private IP Spaces for Org VDC Networks
+                self.createPrivateIpSpacesForNetworks(orgVdcNetworkList)
                 # creating target Org VDC networks
                 self.createOrgVDCNetwork(orgVdcNetworkList, inputDict, nsxObj, implicitNetworks)
                 # disconnecting target Org VDC networks
@@ -4733,72 +4870,75 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             for targetExtNetName, sourceEgwSubnets in edgeGatewaySubnetDict.items():
                 logger.debug("Updating Target External network {} with sub allocated ip pools".format(targetExtNetName))
                 targetExtNetData = self.getExternalNetworkByName(targetExtNetName)
-                for targetExtNetSubnet in targetExtNetData['subnets']['values']:
-                    targetExtNetSubnetAddress = ipaddress.ip_network(
-                        '{}/{}'.format(targetExtNetSubnet['gateway'], targetExtNetSubnet['prefixLength']), strict=False)
-
-                    #  Continue if source edge gateway has no IP from the specific subnet
-                    if not sourceEgwSubnets.get(targetExtNetSubnetAddress):
-                        continue
-
-                    # Raise exception if target ext network subnet has not any free IP and EmptyPoolOverride flag is False
-
-                    if targetExtNetSubnet["totalIpCount"] == len(sourceEgwSubnets.get(targetExtNetSubnetAddress)):
-                        if self.orgVdcInput.get("EmptyIPPoolOverride", False):
-                            continue
-                        else:
-                            raise Exception("External Network subnet should have atleast one free IP address which cannot be removed."
-                                            " EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
-
-                    # creating range of target external network pool range
-                    targetExtNetIpRange = set()
-                    for externalRange in targetExtNetSubnet['ipRanges']['values']:
-                        targetExtNetIpRange.update(self.createIpRange(
-                            '{}/{}'.format(targetExtNetSubnet['gateway'], targetExtNetSubnet['prefixLength']),
-                            externalRange['startAddress'], externalRange['endAddress']
-                        ))
-                    targetExtNetIpRange = set(targetExtNetIpRange)
-
-                    # creating range of source edge gateway ip range
-                    sourceEdgeGatewaySubIpRange = set()
-                    for ipRange in sourceEgwSubnets.get(targetExtNetSubnetAddress, []):
-                        sourceEdgeGatewaySubIpRange.update(self.createIpRange(
-                            '{}/{}'.format(targetExtNetSubnet['gateway'], targetExtNetSubnet['prefixLength']),
-                            ipRange['startAddress'], ipRange['endAddress']
-                        ))
-
-                    # removing the source edge gateway's static ips from target external ip list
-                    targetExtNetIpRange = targetExtNetIpRange.difference(sourceEdgeGatewaySubIpRange)
-
-                    # creating the range of each single ip in target external network's ips
-                    targetExtNetSubnet['ipRanges']['values'] = self.createExternalNetworkSubPoolRangePayload(
-                        targetExtNetIpRange)
-
-                payloadData = json.dumps(targetExtNetData)
-
-                # url to update the target external networks
-                url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                       vcdConstants.ALL_EXTERNAL_NETWORKS,
-                                       targetExtNetData['id'])
-
-                # setting the content type to json
-                self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
-
-                # put api call to update the target external networks
-                apiResponse = self.restClientObj.put(url, self.headers, data=payloadData)
-                if apiResponse.status_code == requests.codes.accepted:
-                    taskUrl = apiResponse.headers['Location']
-                    self._checkTaskStatus(taskUrl=taskUrl)
-                    logger.debug("Successfully reset the target external network '{}' to its initial state".format(
-                        targetExtNetData['name']))
+                if targetExtNetData.get("usingIpSpace"):
+                    pass
                 else:
-                    errorDict = apiResponse.json()
-                    msg = "Failed to update External network {} with sub allocated ip pools - {}".format(
-                        targetExtNetData['name'], errorDict['message'])
-                    if "provided list 'ipRanges.values' should have at least one" in errorDict.get("message", ""):
-                        msg += " Add one extra IP address to static pool of external network - {}".format(
-                            targetExtNetData['name'])
-                    raise Exception(msg)
+                    for targetExtNetSubnet in targetExtNetData['subnets']['values']:
+                        targetExtNetSubnetAddress = ipaddress.ip_network(
+                            '{}/{}'.format(targetExtNetSubnet['gateway'], targetExtNetSubnet['prefixLength']), strict=False)
+
+                        #  Continue if source edge gateway has no IP from the specific subnet
+                        if not sourceEgwSubnets.get(targetExtNetSubnetAddress):
+                            continue
+
+                        # Raise exception if target ext network subnet has not any free IP and EmptyPoolOverride flag is False
+
+                        if targetExtNetSubnet["totalIpCount"] == len(sourceEgwSubnets.get(targetExtNetSubnetAddress)):
+                            if self.orgVdcInput.get("EmptyIPPoolOverride", False):
+                                continue
+                            else:
+                                raise Exception("External Network subnet should have atleast one free IP address which cannot be removed."
+                                                " EmptyPoolOverride flag must be set to true to perform successfull rollback/cleanup")
+
+                        # creating range of target external network pool range
+                        targetExtNetIpRange = set()
+                        for externalRange in targetExtNetSubnet['ipRanges']['values']:
+                            targetExtNetIpRange.update(self.createIpRange(
+                                '{}/{}'.format(targetExtNetSubnet['gateway'], targetExtNetSubnet['prefixLength']),
+                                externalRange['startAddress'], externalRange['endAddress']
+                            ))
+                        targetExtNetIpRange = set(targetExtNetIpRange)
+
+                        # creating range of source edge gateway ip range
+                        sourceEdgeGatewaySubIpRange = set()
+                        for ipRange in sourceEgwSubnets.get(targetExtNetSubnetAddress, []):
+                            sourceEdgeGatewaySubIpRange.update(self.createIpRange(
+                                '{}/{}'.format(targetExtNetSubnet['gateway'], targetExtNetSubnet['prefixLength']),
+                                ipRange['startAddress'], ipRange['endAddress']
+                            ))
+
+                        # removing the source edge gateway's static ips from target external ip list
+                        targetExtNetIpRange = targetExtNetIpRange.difference(sourceEdgeGatewaySubIpRange)
+
+                        # creating the range of each single ip in target external network's ips
+                        targetExtNetSubnet['ipRanges']['values'] = self.createExternalNetworkSubPoolRangePayload(
+                            targetExtNetIpRange)
+
+                    payloadData = json.dumps(targetExtNetData)
+
+                    # url to update the target external networks
+                    url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                           vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                           targetExtNetData['id'])
+
+                    # setting the content type to json
+                    self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
+
+                    # put api call to update the target external networks
+                    apiResponse = self.restClientObj.put(url, self.headers, data=payloadData)
+                    if apiResponse.status_code == requests.codes.accepted:
+                        taskUrl = apiResponse.headers['Location']
+                        self._checkTaskStatus(taskUrl=taskUrl)
+                        logger.debug("Successfully reset the target external network '{}' to its initial state".format(
+                            targetExtNetData['name']))
+                    else:
+                        errorDict = apiResponse.json()
+                        msg = "Failed to update External network {} with sub allocated ip pools - {}".format(
+                            targetExtNetData['name'], errorDict['message'])
+                        if "provided list 'ipRanges.values' should have at least one" in errorDict.get("message", ""):
+                            msg += " Add one extra IP address to static pool of external network - {}".format(
+                                targetExtNetData['name'])
+                        raise Exception(msg)
 
         except Exception:
             raise

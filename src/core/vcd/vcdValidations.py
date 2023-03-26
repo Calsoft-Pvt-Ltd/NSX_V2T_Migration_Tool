@@ -1720,8 +1720,8 @@ class VCDMigrationValidation:
         for ipSpace in responseDict["values"]:
             logger.debug("Getting IP Space {} details".format(ipSpace["name"]))
             ipSpaceId = ipSpace["ipSpaceRef"]["id"]
-            ipSpaceUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                          vcdConstants.IP_SPACES, ipSpaceId)
+            ipSpaceUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                          vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId))
             ipSpaceResponse = self.restClientObj.get(ipSpaceUrl, headers)
             if ipSpaceResponse.status_code == requests.codes.ok:
                 ipSpaceResponseDict = ipSpaceResponse.json()
@@ -1729,6 +1729,50 @@ class VCDMigrationValidation:
             else:
                 raise Exception("Failed to fetch IP Space {} details".format(ipSpace["ipSpaceRef"]["name"]))
         return ipSpaceList
+
+    @isSessionExpired
+    def fetchAllIpSpaces(self):
+        """
+        Description : Fetches all the IP Spaces in an Organization
+        """
+        logger.debug('Getting IP Spaces from Organization')
+        url = "{}{}/summaries".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.CREATE_IP_SPACES)
+        headers = {'Authorization': self.headers['Authorization'],
+                   'Accept': vcdConstants.OPEN_API_CONTENT_TYPE,
+                   'X-VMWARE-VCLOUD-TENANT-CONTEXT': self.rollback.apiData.get('Organization', {}).get('@id')}
+
+        resultList = self.getPaginatedResults("IP Spaces", url, headers, pageSize=15)
+        return resultList
+
+    @isSessionExpired
+    def allocate(self, ipSpaceId, entityType, entity, returnOutput=False):
+        """
+        Description : Allocate IP_PREFIX/FLOATING_IP from IP Space to Organization
+        """
+        orgId = self.rollback.apiData.get('Organization', {}).get('@id')
+        logger.debug("Allocating {} - {} from Private IP Space {} to Organization {}".format(entityType, entity, entity, orgId))
+        url = "{}{}".format(vcdConstants.OPEN_API_URL.FORMAT(self.ipAddress), vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId))
+        headers = {'Authorization': self.headers['Authorization'],
+                   'Accept': vcdConstants.OPEN_API_CONTENT_TYPE,
+                   'X-VMWARE-VCLOUD-TENANT-CONTEXT': orgId}
+        payloadDict = {
+            "type": entityType,
+            "value": entity
+        }
+        payloadData = json.dumps(payloadDict)
+        response = self.restClientObj.post(url, headers=headers, data=payloadData)
+        if response.status_code == requests.codes.accepted:
+            taskUrl = response.headers['Location']
+            # checking the status of the creating org vdc network task
+            output = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
+            logger.debug('{} - {} from IP Space {} allocated to {}'.format(entityType, entity, ipSpaceId, orgId))
+        else:
+            errorResponse = response.json()
+            raise Exception(
+                'Failed to allocate {} - {} from Private IP Space {} to Organization {} with error message - {}'.format(
+                    entityType, entity, entity, orgId, errorResponse['message']))
+        if returnOutput:
+            return output
 
     @isSessionExpired
     def validateOvelappingNetworksubnets(self, vcdObjList):
