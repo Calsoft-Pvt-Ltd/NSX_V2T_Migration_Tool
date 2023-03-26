@@ -3208,7 +3208,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if advertisedSubnets:
                 nsxtObj.createRouteRedistributionRule(vrfData, t0Gateway, routeRedistributionRules)
 
-    def migrateCatalogItems(self, sourceOrgVDCId, targetOrgVDCId, orgName):
+    def migrateCatalogItems(self, sourceOrgVDCId, targetOrgVDCId, orgName, timeout):
         """
         Description : Migrating Catalog Items - vApp Templates and Media & deleting catalog thereafter
         Parameters  :   sourceOrgVDCId  - source Org VDC id (STRING)
@@ -3291,7 +3291,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         # creating payload data to move media
                         payloadDict = {'catalogItemName': catalogItem['@name'],
                                        'catalogItemHref': catalogItem['@href']}
-                        self.moveCatalogItem(payloadDict, catalogId)
+                        self.moveCatalogItem(payloadDict, catalogId, timeout)
 
                     # moving each catalog item from the 'vAppTemplateCatalogItemList' to target catalog created above
                     for catalogItem in vAppTemplateCatalogItemList:
@@ -3299,7 +3299,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         # creating payload data to move vapp template
                         payloadDict = {'catalogItemName': catalogItem['@name'],
                                        'catalogItemHref': catalogItem['@href']}
-                        self.moveCatalogItem(payloadDict, catalogId)
+                        self.moveCatalogItem(payloadDict, catalogId, timeout)
 
                     # deleting the source org vdc catalog
                     self.deleteSourceCatalog(srcCatalog['@href'], srcCatalog)
@@ -3426,7 +3426,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 payloadDict = {'catalogItemName': catalogItem['@name'],
                                                'catalogItemHref': catalogItem['catalogItemHref']}
                                 # move api call to migrate the catalog item
-                                self.moveCatalogItem(payloadDict, catalogId)
+                                self.moveCatalogItem(payloadDict, catalogId, timeout)
 
                         # iterating over the catalog items in mediaCatalogItemList
                         for catalogItem in vAppTemplateCatalogItemList:
@@ -3437,7 +3437,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 payloadDict = {'catalogItemName': catalogItem['@name'],
                                                'catalogItemHref': catalogItem['catalogItemHref']}
                                 # move api call to migrate the catalog item
-                                self.moveCatalogItem(payloadDict, catalogId)
+                                self.moveCatalogItem(payloadDict, catalogId, timeout)
 
                         catalogData = {'@name': catalog['catalogName'],
                                        '@href': catalog['catalogHref'],
@@ -4840,7 +4840,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
-    def moveCatalogItem(self, catalogItem, catalogId):
+    def moveCatalogItem(self, catalogItem, catalogId, timeout):
         """
         Description :   Moves the catalog Item
         Parameters : catalogItem - catalog item payload (DICT)
@@ -4866,7 +4866,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 taskUrl = task["@href"]
                 if taskUrl:
                     # checking the status of moving catalog item task
-                    self._checkTaskStatus(taskUrl=taskUrl)
+                    self._checkTaskStatus(taskUrl=taskUrl, timeoutForTask=timeout)
                 logger.debug("Catalog Item '{}' moved successfully".format(catalogItem['catalogItemName']))
             else:
                 raise Exception('Failed to move catalog item - {}'.format(responseDict['Error']['@message']))

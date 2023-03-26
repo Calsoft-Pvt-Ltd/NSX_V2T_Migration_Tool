@@ -796,7 +796,8 @@ class VMwareCloudDirectorNSXMigrator():
         passFilePath = self.passFile if self.passFile else self.defaultPassFileName
 
         cleanupObjectsList = [
-            VMwareCloudDirectorNSXMigratorCleanup(orgVDCDict, self.inputDict, vcdObj, nsxtObj, passFilePath)
+            VMwareCloudDirectorNSXMigratorCleanup(orgVDCDict, self.inputDict, vcdObj, nsxtObj, passFilePath, self.timeoutForVappMigration
+                                                  )
             for orgVDCDict, nsxtObj, vcdObj in zip(
                 self.inputDict["VCloudDirector"]["SourceOrgVDC"], self.nsxtObjList, self.vcdObjList)
         ]
