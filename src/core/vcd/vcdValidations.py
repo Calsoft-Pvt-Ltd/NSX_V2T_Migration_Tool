@@ -1592,7 +1592,7 @@ class VCDMigrationValidation:
 
                 if all(uplinkAddress in targetNetworkAddressList for uplinkAddress in uplinkAddressList):
                     if t0Gateway in data['isT0Connected'].get(edgeGateway['name'], {}):
-                        data['isT0Connected'][edgeGateway['name']][t0Gateway].append(uplinkGatewayAndPrefixList)
+                        data['isT0Connected'][edgeGateway['name']][t0Gateway].update(uplinkGatewayAndPrefixList)
                     else:
                         data['isT0Connected'][edgeGateway['name']] = {t0Gateway: uplinkGatewayAndPrefixList}
                     continue
