@@ -6097,6 +6097,19 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             response = self.restClientObj.get(url, self.headers)
             responseDict = response.json()
             if response.status_code == requests.codes.ok:
+                # Implementation for Direct Network connected to VXLAN backed External Network irrespective of the dedicated/non-dedicated or shared/non-shared status. 
+                extNetUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                  parentNetworkId['id'])
+                extNetResponse = self.restClientObj.get(extNetUrl, self.headers)
+                extNetResponseDict =extNetResponse.json()
+                if extNetResponse.status_code == requests.codes.ok:
+                    if extNetResponseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
+                        payloadDict = self.v2tBackedNetworkPayload(parentNetworkId, orgvdcNetwork, Shared=orgvdcNetwork['shared'])
+                        payloadData = json.dumps(payloadDict)
+                        return segmentName, payloadData
+                else:
+                    raise Exception('Failed to get external network {} details with error - {}'.format(
+                            parentNetworkId['name'], extNetResponseDict["message"]))
                 if int(responseDict['resultTotal']) > 1:
                     if not orgvdcNetwork['shared']:
                         if self.orgVdcInput.get('LegacyDirectNetwork', False):
