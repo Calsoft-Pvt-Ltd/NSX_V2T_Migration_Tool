@@ -3217,7 +3217,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if advertisedSubnets:
                 nsxtObj.createRouteRedistributionRule(vrfData, t0Gateway, routeRedistributionRules)
 
-    def migrateCatalogItems(self, sourceOrgVDCId, targetOrgVDCId, orgName):
+    def migrateCatalogItems(self, sourceOrgVDCId, targetOrgVDCId, orgName, timeout):
         """
         Description : Migrating Catalog Items - vApp Templates and Media & deleting catalog thereafter
         Parameters  :   sourceOrgVDCId  - source Org VDC id (STRING)
@@ -3240,12 +3240,37 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # get api call to retrieve the target org vdc details
             targetOrgVDCResponse = self.restClientObj.get(url, self.headers)
             targetOrgVDCResponseDict = self.vcdUtils.parseXml(targetOrgVDCResponse.content)
+
+            # targetStorageProfileIDsList holds list the IDs of the target org vdc storage profiles
+            targetStorageProfileIDsList = []
+            # targetStorageProfilesList holds the list of dictionaries of details of each target org vdc storage profile
+            targetStorageProfilesList = []
             # retrieving target org vdc storage profiles list
             targetOrgVDCStorageList = targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles'][
                 'VdcStorageProfile'] if isinstance(
                 targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'], list) else [
                 targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile']]
 
+            for storageProfile in targetOrgVDCStorageList:
+                targetStorageProfilesList.append(storageProfile)
+                targetStorageProfileIDsList.append(storageProfile['@id'])
+
+            # targetOrgVDCCatalogDetails will hold list of only catalogs present in the target org vdc
+            targetOrgVDCCatalogDetails = []
+            # targetOrgVDCCatalogNameList will hold name of target org vdc catalogs
+            targetOrgVDCCatalogNameList = []
+            # iterating over all the organization catalogs
+            for catalog in orgCatalogs:
+                # get api call to retrieve the catalog details
+                catalogResponse = self.restClientObj.get(catalog['@href'], headers=self.headers)
+                catalogResponseDict = self.vcdUtils.parseXml(catalogResponse.content)
+                if catalogResponseDict['AdminCatalog'].get('CatalogStorageProfiles'):
+                    # checking if catalogs storage profile is same from target org vdc storage profile by matching the ID of storage profile
+                    if catalogResponseDict['AdminCatalog']['CatalogStorageProfiles']['VdcStorageProfile'][
+                            '@id'] in targetStorageProfileIDsList:
+                        # creating the list of catalogs from source org vdc
+                        targetOrgVDCCatalogDetails.append(catalogResponseDict['AdminCatalog'])
+                        targetOrgVDCCatalogNameList.append(catalogResponseDict['AdminCatalog']["@name"])
             # iterating over the source org vdc catalogs to migrate them to target org vdc
             for srcCatalog in sourceOrgVDCCatalogDetails:
                 logger.debug("Migrating source Org VDC specific Catalogs")
@@ -3262,7 +3287,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 payloadDict = {'catalogName': srcCatalog['@name'] + '-v2t',
                                'storageProfileHref': storageProfileHref,
                                'catalogDescription': srcCatalog['Description'] if srcCatalog.get('Description') else ''}
-                catalogId = self.createCatalog(payloadDict, orgId)
+                if payloadDict['catalogName'] not in targetOrgVDCCatalogNameList:
+                    catalogId = self.createCatalog(payloadDict, orgId)
+                else:
+                    catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
+                    targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
 
                 if catalogId:
                     # empty catalogs
@@ -3300,7 +3329,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         # creating payload data to move media
                         payloadDict = {'catalogItemName': catalogItem['@name'],
                                        'catalogItemHref': catalogItem['@href']}
-                        self.moveCatalogItem(payloadDict, catalogId)
+                        self.moveCatalogItem(payloadDict, catalogId, timeout)
 
                     # moving each catalog item from the 'vAppTemplateCatalogItemList' to target catalog created above
                     for catalogItem in vAppTemplateCatalogItemList:
@@ -3308,7 +3337,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         # creating payload data to move vapp template
                         payloadDict = {'catalogItemName': catalogItem['@name'],
                                        'catalogItemHref': catalogItem['@href']}
-                        self.moveCatalogItem(payloadDict, catalogId)
+                        self.moveCatalogItem(payloadDict, catalogId, timeout)
 
                     # deleting the source org vdc catalog
                     self.deleteSourceCatalog(srcCatalog['@href'], srcCatalog)
@@ -3411,7 +3440,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                    'storageProfileHref': defaultTargetStorageProfileHref,
                                    'catalogDescription': catalog['catalogDescription']}
                     # create api call to create a new place holder catalog
-                    catalogId = self.createCatalog(payloadDict, orgId)
+                    if payloadDict['catalogName'] not in targetOrgVDCCatalogNameList:
+                        catalogId = self.createCatalog(payloadDict, orgId)
+                    else:
+                        catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
+                                                targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
                     if catalogId:
 
                         vAppTemplateCatalogItemList = []
@@ -3435,7 +3468,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 payloadDict = {'catalogItemName': catalogItem['@name'],
                                                'catalogItemHref': catalogItem['catalogItemHref']}
                                 # move api call to migrate the catalog item
-                                self.moveCatalogItem(payloadDict, catalogId)
+                                self.moveCatalogItem(payloadDict, catalogId, timeout)
 
                         # iterating over the catalog items in mediaCatalogItemList
                         for catalogItem in vAppTemplateCatalogItemList:
@@ -3446,7 +3479,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 payloadDict = {'catalogItemName': catalogItem['@name'],
                                                'catalogItemHref': catalogItem['catalogItemHref']}
                                 # move api call to migrate the catalog item
-                                self.moveCatalogItem(payloadDict, catalogId)
+                                self.moveCatalogItem(payloadDict, catalogId, timeout)
 
                         catalogData = {'@name': catalog['catalogName'],
                                        '@href': catalog['catalogHref'],
@@ -4376,7 +4409,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             logger.warning("Successfully updated static pool of OrgVDC network {}.".format(networkName))
 
     @isSessionExpired
-    def createMoveVappNetworkPayload(self, vAppData, targetOrgVDCNetworkList, filePath, rollback=False):
+    def createMoveVappNetworkPayload(self, vAppData, targetOrgVDCNetworkList, filePath, directNetworkIdList, rollback=False):
         """
             Description :   Prepares the network config payload for moving the vApp
             Parameters  :   vAppData  -   Information related to a specific vApp (DICT)
@@ -4410,9 +4443,47 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         'dnsSuffix': ipScope.get('DnsSuffix'),
                         'ipRanges': listify(ipScope.get('IpRanges', {}).get('IpRange')),
                     }
-                    for ipScope in listify(vAppNetwork['Configuration']['IpScopes']['IpScope'])
-                    if ipScope['IsInherited'] == 'false' or float(self.version) >= float(vcdConstants.API_VERSION_CASTOR_10_4_1)
+                    for ipScope in getIpScopes(vAppNetwork)
+                    if ipScope['IsInherited'] == 'false' or float(self.version) >= float(vcdConstants.API_10_4_2_BUILD)
                 ]
+
+        def getIpScopes(vAppNetwork):
+            """Get vapp network ipscopes config"""
+            if vAppNetwork['Configuration'].get('ParentNetwork', {}).get('@id') not in directNetworkIdList:
+                return listify(vAppNetwork['Configuration']['IpScopes']['IpScope'])
+
+            ipList = list()
+            if vAppNetwork['Configuration'].get('RouterInfo', {}).get('ExternalIp'):
+                ipList.append(vAppNetwork['Configuration']['RouterInfo']['ExternalIp'])
+                for ipScope in listify(vAppNetwork['Configuration']['IpScopes']['IpScope']):
+                    for ip in set(ipList):
+                        if ipaddress.ip_address(ip) in ipaddress.ip_network("{}/{}".format(
+                                ipScope["Gateway"], ipScope.get('SubnetPrefixLength', 1)), strict=False):
+                            return [ipScope]
+
+            vmList = vAppData['Children']['Vm'] if isinstance(vAppData['Children']['Vm'], list) else [vAppData['Children']['Vm']]
+            # iterating over vms in the vapp
+            for vm in vmList:
+                if vm.get('NetworkConnectionSection') and \
+                        vm['NetworkConnectionSection'].get('NetworkConnection'):
+                    vmNetworkSpec = vm['NetworkConnectionSection']['NetworkConnection'] \
+                        if isinstance(vm['NetworkConnectionSection']['NetworkConnection'], list) \
+                        else [vm['NetworkConnectionSection']['NetworkConnection']]
+                    for network in vmNetworkSpec:
+                        if network['@network'] == vAppNetwork['@networkName']:
+                            if network.get('ExternalIpAddress'):
+                                ipList.append(network['ExternalIpAddress'])
+                            elif network.get('IpAddress'):
+                                ipList.append(network['IpAddress'])
+
+            for ipScope in listify(vAppNetwork['Configuration']['IpScopes']['IpScope']):
+                for ip in set(ipList):
+                    if ipaddress.ip_address(ip) in ipaddress.ip_network("{}/{}".format(
+                            ipScope["Gateway"], ipScope.get('SubnetPrefixLength', 1)), strict=False):
+                        return [ipScope]
+
+            targetIpScope = listify(vAppNetwork['Configuration']['IpScopes']['IpScope'])
+            return [targetIpScope[0]]
 
         def getParentNetwork(vAppNetwork):
             """Get target network's parent network"""
@@ -4499,7 +4570,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         ).strip("\"")
 
     @isSessionExpired
-    def moveVappApiCall(self, vApp, targetOrgVDCNetworkList, targetOrgVDCId, filePath, timeout, sourceOrgVDCName=None, rollback=False):
+    def moveVappApiCall(self, vApp, targetOrgVDCNetworkList, targetOrgVDCId, filePath, timeout, directNetworkIdList, sourceOrgVDCName=None, rollback=False):
         """
             Description :   Prepares the payload for moving the vApp and sends post api call for it
             Parameters  :   vApp  -   Information related to a specific vApp (DICT)
@@ -4537,7 +4608,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         # self.updateRoutedOrgVdcNetworkStaticIpPool(vAppData)
         payloadDict = {
             'vAppHref': vApp['@href'],
-            'networkConfig': self.createMoveVappNetworkPayload(vAppData, targetOrgVDCNetworkList, filePath, rollback),
+            'networkConfig': self.createMoveVappNetworkPayload(vAppData, targetOrgVDCNetworkList, filePath, directNetworkIdList, rollback),
             'vmDetails': self.createMoveVappVmPayload(vApp, targetOrgVDCId, rollback=rollback),
         }
         payloadData = self.vcdUtils.createPayload(
@@ -4595,7 +4666,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 logger.info("RollBack: Migrating Target vApps")
             elif rollback and not reduce(lambda x, y: x+y, vAppData):
                 return
-
+            orgvdcDirectNetworksIdList = list()
+            for vcdObj in vcdObjList:
+                networkType = 'targetOrgVDCNetworks' if rollback else 'sourceOrgVDCNetworks'
+                orgvdcDirectNetworksIdList.extend(
+                    [vcdObj.rollback.apiData[networkType][network]["id"].split(":")[-1] for network in vcdObj.rollback.apiData[networkType]
+                     if vcdObj.rollback.apiData[networkType][network]["networkType"] == "DIRECT"])
             for vcdObj, sourceOrgVDCId, targetOrgVDCId, targetOrgVDCNetworks, sourceOrgVDCName, vAppList in zip_longest(
                     vcdObjList,
                     sourceOrgVDCIdList,
@@ -4610,7 +4686,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 for vApp in vAppList:
                     # Spawning threads for move vApp call
                     self.thread.spawnThread(vcdObj.moveVappApiCall, vApp, targetOrgVDCNetworks, targetOrgVDCId, filePath,
-                                            timeout, sourceOrgVDCName=sourceOrgVDCName, rollback=rollback, block=True)
+                                            timeout, orgvdcDirectNetworksIdList, sourceOrgVDCName=sourceOrgVDCName, rollback=rollback, block=True)
             # Blocking the main thread until all the threads complete execution
             self.thread.joinThreads()
 
@@ -4849,7 +4925,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
-    def moveCatalogItem(self, catalogItem, catalogId):
+    def moveCatalogItem(self, catalogItem, catalogId, timeout):
         """
         Description :   Moves the catalog Item
         Parameters : catalogItem - catalog item payload (DICT)
@@ -4875,7 +4951,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 taskUrl = task["@href"]
                 if taskUrl:
                     # checking the status of moving catalog item task
-                    self._checkTaskStatus(taskUrl=taskUrl)
+                    self._checkTaskStatus(taskUrl=taskUrl, timeoutForTask=timeout)
                 logger.debug("Catalog Item '{}' moved successfully".format(catalogItem['catalogItemName']))
             else:
                 raise Exception('Failed to move catalog item - {}'.format(responseDict['Error']['@message']))
@@ -6107,6 +6183,19 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             response = self.restClientObj.get(url, self.headers)
             responseDict = response.json()
             if response.status_code == requests.codes.ok:
+                # Implementation for Direct Network connected to VXLAN backed External Network irrespective of the dedicated/non-dedicated or shared/non-shared status. 
+                extNetUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                  parentNetworkId['id'])
+                extNetResponse = self.restClientObj.get(extNetUrl, self.headers)
+                extNetResponseDict =extNetResponse.json()
+                if extNetResponse.status_code == requests.codes.ok:
+                    if extNetResponseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
+                        payloadDict = self.v2tBackedNetworkPayload(parentNetworkId, orgvdcNetwork, Shared=orgvdcNetwork['shared'])
+                        payloadData = json.dumps(payloadDict)
+                        return segmentName, payloadData
+                else:
+                    raise Exception('Failed to get external network {} details with error - {}'.format(
+                            parentNetworkId['name'], extNetResponseDict["message"]))
                 if int(responseDict['resultTotal']) > 1:
                     if self.orgVdcInput.get('LegacyDirectNetwork', False):
                         # Service direct network legacy implementation
