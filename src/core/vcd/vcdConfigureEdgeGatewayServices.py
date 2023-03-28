@@ -4186,6 +4186,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
                 # Preparing payload with parameters which will be common in all DC groups
                 # source firewall groups, destination firewall groups will added as per scope of rule
+                # Add fields for DFW Negated rule support for sourceGroupsExcluded and destinationGroupsExcluded
                 payloadDict = {
                     'name':
                         l3rule['name'] if l3rule['name'] == f"rule-{l3rule['@id']}"
@@ -4201,6 +4202,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         'OUT' if l3rule['direction'] == 'out'
                         else 'IN' if l3rule['direction'] == 'in'
                         else 'IN_OUT',
+                    'sourceGroupsExcluded': l3rule.get('sources', {}).get('@excluded', False),
+                    'destinationGroupsExcluded': l3rule.get('destinations', {}).get('@excluded', False)
                 }
 
                 # updating the payload with application port profiles
