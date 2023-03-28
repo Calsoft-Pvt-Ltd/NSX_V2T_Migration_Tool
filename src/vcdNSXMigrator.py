@@ -24,6 +24,10 @@ import yaml
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 
+# Importing and Setting _MAXHEADERS = 500(to take care of APIs returning a lot of response headers)
+import http.client
+http.client._MAXHEADERS = 500
+
 # Set path till src folder in PYTHONPATH
 cwd = os.getcwd()
 parentDir = os.path.abspath(os.path.join(cwd, os.pardir))
