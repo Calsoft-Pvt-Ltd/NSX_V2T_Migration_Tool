@@ -6866,11 +6866,33 @@ class VCDMigrationValidation:
             Parameter : sourceOrgVdcList - List of all sourceOrgVdc.
         """
         try:
-            if orgVdcNetworkSharedList:
+            # List that excludes service direct network as they are not migrated by data center group mechanism
+            NonServiceDirectSharedNetworkList  = list()
+            for network in orgVdcNetworkSharedList:
+                if network["networkType"] != "DIRECT":
+                    NonServiceDirectSharedNetworkList.append(network)
+                else:
+                    # url to retrieve the networks with external network id
+                    url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                          vcdConstants.ALL_ORG_VDC_NETWORKS,
+                                          vcdConstants.QUERY_EXTERNAL_NETWORK.format(
+                                              network['parentNetworkId']['id']))
+                    # get api call to retrieve the networks with external network id
+                    response = self.restClientObj.get(url, self.headers)
+                    if response.status_code == requests.codes.ok:
+                        responseDict = response.json()
+                        if not int(responseDict['resultTotal']) > 1:
+                            NonServiceDirectSharedNetworkList.append(network)
+                    else:
+                        raise Exception("Failed to fetch external network {} details".format(
+                            network['parentNetworkId']['name']))
+
+            if NonServiceDirectSharedNetworkList:
                 if len(sourceOrgVdcList) > vcdConstants.MAX_ORGVDC_COUNT:
                     raise Exception("In case of shared networks, the number of OrgVdcs to be parallely migrated should not be more than {}.".format(vcdConstants.MAX_ORGVDC_COUNT))
             else:
-                logger.debug("No shared networks are present")
+                if not orgVdcNetworkSharedList:
+                    logger.debug("No shared networks are present")
         except:
             raise
 
