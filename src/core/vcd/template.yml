@@ -36,8 +36,12 @@ vCloudDirector:
       <root:InstantiationParams>
         <root:NetworkConnectionSection>
           <ns7:Info>Network Connection Section</ns7:Info>
+          {% if primaryNetworkConnectionIndex %}
           <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
+          {% endif %}
+          {% if vmNetworkConnectionDetails %}
           {{vmNetworkConnectionDetails}}
+          {% endif %}
         </root:NetworkConnectionSection>
         {% if vAppVMDiskStorageProfileDetails %}
         {{vAppVMDiskStorageProfileDetails}}
@@ -54,8 +58,12 @@ vCloudDirector:
       <root:InstantiationParams>
         <root:NetworkConnectionSection>
           <ns7:Info>Specifies the available VM network connections</ns7:Info>
+          {% if primaryNetworkConnectionIndex %}
           <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
+          {% endif %}
+          {% if vmNetworkConnectionDetails %}
           {{vmNetworkConnectionDetails}}
+          {% endif %}
         </root:NetworkConnectionSection>
         {% if vAppVMDiskStorageProfileDetails %}
         {{vAppVMDiskStorageProfileDetails}}
@@ -75,8 +83,12 @@ vCloudDirector:
       <root:InstantiationParams>
         <root:NetworkConnectionSection>
           <ns7:Info>Specifies the available VM network connections</ns7:Info>
+          {% if primaryNetworkConnectionIndex %}
           <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
+          {% endif %}
+          {% if vmNetworkConnectionDetails %}
           {{vmNetworkConnectionDetails}}
+          {% endif %}
         </root:NetworkConnectionSection>
         {% if vAppVMDiskStorageProfileDetails %}
         {{vAppVMDiskStorageProfileDetails}}
@@ -96,8 +108,12 @@ vCloudDirector:
       <root:InstantiationParams>
         <root:NetworkConnectionSection>
           <ns7:Info>Specifies the available VM network connections</ns7:Info>
+          {% if primaryNetworkConnectionIndex %}
           <root:PrimaryNetworkConnectionIndex>{{primaryNetworkConnectionIndex}}</root:PrimaryNetworkConnectionIndex>
+          {% endif %}
+          {% if vmNetworkConnectionDetails %}
           {{vmNetworkConnectionDetails}}
+          {% endif %}
         </root:NetworkConnectionSection>
         {% if vAppVMDiskStorageProfileDetails %}
         {{vAppVMDiskStorageProfileDetails}}

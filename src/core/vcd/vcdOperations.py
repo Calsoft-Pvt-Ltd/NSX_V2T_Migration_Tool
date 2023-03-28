@@ -1403,7 +1403,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             vmList = listify(responseDict['VApp']['Children']['Vm'])
             networkTypes = {
                 vAppNetwork['@networkName']: vAppNetwork['Configuration']['FenceMode']
-                for vAppNetwork in listify(responseDict['VApp']['NetworkConfigSection']['NetworkConfig'])
+                for vAppNetwork in listify(responseDict['VApp']['NetworkConfigSection'].get('NetworkConfig', []))
             }
             # iterating over the vms in vapp
             for vm in vmList:
@@ -1452,15 +1452,16 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     storageProfileHref = ''
 
                 # gathering the vm's data required to create payload data and appending the dict to the 'vmInVappList'.
+                # update primaryNetworkConnectionIndex value for No NIC present at VM level set default value None
                 vmInVappList.append(
                     {'name': vm['@name'], 'description': vm['Description'] if vm.get('Description') else '',
-                     'href': vm['@href'], 'networkConnectionSection': vm['NetworkConnectionSection'],
-                     'storageProfileHref': storageProfileHref, 'state': responseDict['VApp']['@status'],
-                     'computePolicyName': computePolicyName, 'computePolicyId': computePolicyId,
-                     'sizingPolicyHref': sizingPolicyHref,
-                     'primaryNetworkConnectionIndex': vm['NetworkConnectionSection']['PrimaryNetworkConnectionIndex'],
-                     'diskSection': diskSection if diskSection else None,
-                     'hardwareVersion': hardwareVersion})
+                    'href': vm['@href'], 'networkConnectionSection': vm['NetworkConnectionSection'],
+                    'storageProfileHref': storageProfileHref, 'state': responseDict['VApp']['@status'],
+                    'computePolicyName': computePolicyName, 'computePolicyId': computePolicyId,
+                    'sizingPolicyHref': sizingPolicyHref,
+                    'primaryNetworkConnectionIndex': vm['NetworkConnectionSection'].get('PrimaryNetworkConnectionIndex'),
+                    'diskSection': diskSection if diskSection else None,
+                    'hardwareVersion': hardwareVersion})
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
             # iterating over the above saved vms list of source vapp
             for vm in vmInVappList:
@@ -1470,7 +1471,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     state = "false"
                 else:
                     state = "true"
-                networkConnectionList = listify(vm['networkConnectionSection']['NetworkConnection'])
+                networkConnectionList = listify(vm['networkConnectionSection'].get('NetworkConnection', []))
                 networkConnectionPayloadData = ''
                 # creating payload for mutiple/single network connections in a vm
                 for networkConnection in networkConnectionList:
@@ -1566,12 +1567,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     vAppVMDiskStorageProfileData = None
 
                 # handling the case:- if both compute policy & sizing policy are absent
+                # update primaryNetworkConnectionIndex value for No NIC present at VM level set default value None
                 if not vm["computePolicyName"] and not vm['sizingPolicyHref']:
                     payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
                                    'storageProfileHref': vm['storageProfileHref'],
                                    'vmNetworkConnectionDetails': networkConnectionPayloadData,
                                    'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
-                                   'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
+                                   'primaryNetworkConnectionIndex': vm['networkConnectionSection'].get('PrimaryNetworkConnectionIndex')
+                                   }
                     payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                               componentName=vcdConstants.COMPONENT_NAME,
                                                               templateName=vcdConstants.MOVE_VAPP_VM_TEMPLATE)
@@ -1610,12 +1613,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             raise Exception(
                                 'Could not find placement policy {} in target Org VDC.'.format(vm["computePolicyName"]))
                         # creating the payload dictionary
+                        # update primaryNetworkConnectionIndex value for No NIC present at VM level set default value None
                         payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
                                        'storageProfileHref': vm['storageProfileHref'],
                                        'vmPlacementPolicyHref': href,
                                        'vmNetworkConnectionDetails': networkConnectionPayloadData,
                                        'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
-                                       'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
+                                       'primaryNetworkConnectionIndex': vm['networkConnectionSection'].get('PrimaryNetworkConnectionIndex')
+                                       }
                         # creating the payload data
                         payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                                   componentName=vcdConstants.COMPONENT_NAME,
@@ -1623,13 +1628,15 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     # handling the case:- if sizing policy is present and compute policy is absent
                     elif vm['sizingPolicyHref'] and not vm["computePolicyName"]:
                         # creating the payload dictionary
+                        # update primaryNetworkConnectionIndex value for No NIC present at VM level set default value None
                         payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
                                        'storageProfileHref': vm['storageProfileHref'],
                                        'sizingPolicyHref': vm['sizingPolicyHref'],
                                        'vmNetworkConnectionDetails': networkConnectionPayloadData,
                                        'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
-                                       'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
-                        # creating the pauload data
+                                       'primaryNetworkConnectionIndex': vm['networkConnectionSection'].get('PrimaryNetworkConnectionIndex')
+                                       }
+                        # creating the payload data
                         payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                                   componentName=vcdConstants.COMPONENT_NAME,
                                                                   templateName=vcdConstants.MOVE_VAPP_VM_SIZING_POLICY_TEMPLATE)
@@ -1666,12 +1673,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             raise Exception(
                                 'Could not find placement policy {} in target Org VDC.'.format(vm["computePolicyName"]))
                         # creating the payload dictionary
+                        # update primaryNetworkConnectionIndex value for No NIC present at VM level set default value None
                         payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
                                        'storageProfileHref': vm['storageProfileHref'],
                                        'vmPlacementPolicyHref': href, 'sizingPolicyHref': vm['sizingPolicyHref'],
                                        'vmNetworkConnectionDetails': networkConnectionPayloadData,
                                        'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
-                                       'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
+                                       'primaryNetworkConnectionIndex': vm['networkConnectionSection'].get('PrimaryNetworkConnectionIndex')
+                                       }
                         # creating the pauload data
                         payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                                   componentName=vcdConstants.COMPONENT_NAME,
@@ -4330,7 +4339,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
             Description : Update the static IP pool of OrgVDC network. Called during routed vapp migration
         """
-        for vAppNetwork in listify(vAppData['NetworkConfigSection']['NetworkConfig']):
+        for vAppNetwork in listify(vAppData['NetworkConfigSection'].get('NetworkConfig', [])):
             if vAppNetwork['Configuration']['FenceMode'] != 'natRouted':
                 continue
 
@@ -4537,14 +4546,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             ]
         else:
             # TODO pranshu: Need to test this section
-            networkConfig = [
-                {
-                    'name': 'none',
-                    'description': '',
-                    'fenceMode': 'bridged',
-                    'isDeployed': 'true',
-                }
-            ]
+            networkConfig = []
 
         return self.vcdUtils.createPayload(
             filePath,
