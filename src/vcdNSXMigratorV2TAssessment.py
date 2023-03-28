@@ -102,6 +102,7 @@ DFW_VALIDATIONS = {
 }
 
 VALIDATION_CLASSIFICATION = {
+    'vApp name exceeds 118 char': 1,
     'Unsupported vApps/VMs': 1,
     'Unsupported Routed vApp Network Configuration': 1,
     'Fencing enabled on vApps': 1,
@@ -290,6 +291,7 @@ class VMwareCloudDirectorNSXMigratorV2T:
 
             # Validation methods reference
             self.vcdValidationMapping = {
+                'vApp name exceeds 118 char': [self.vcdValidationObj.validateVappNameLength, vdcId],
                 'Unsupported vApps/VMs': [self.vcdValidationObj.validateSourceSuspendedVMsInVapp, vdcId],
                 'Unsupported Routed vApp Network Configuration': [self.vcdValidationObj.validateRoutedVappNetworks, vdcId, True, None],
                 'Fencing enabled on vApps': [self.vcdValidationObj.validateVappFencingMode, vdcId],
