@@ -1048,6 +1048,29 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
+    def validateVappNameLength(self, orgVDCId):
+        """
+        Description :   Retrieves the list of vApps in the Source Org VDC and checks whether vApp name exceeds 118 character limit.
+        Returns     :   []
+        """
+        try: 
+            logger.debug("Getting Org VDC vApps List and checking whether any vApp violates the 118 character limit for vApp name") 
+            longNameVappList = list() 
+            orgVDCId = orgVDCId.split(':')[-1] 
+            sourceVappsList = self.getOrgVDCvAppsList(orgVDCId) 
+            if not sourceVappsList: 
+                return 
+            
+            # checking if the vApp name exceeds 118 characters 
+            for vApp in sourceVappsList: 
+                if len(vApp['@name']) > 118: 
+                    longNameVappList.append(vApp['@name']) 
+            if longNameVappList: 
+                raise ValidationError('The name of vApps "{}" exceeds 118 character limit.'.format(','.join(longNameVappList))) 
+        except Exception: 
+            raise
+
+    @isSessionExpired
     def getOrgVDCvAppsList(self, orgVDCId):
         """
         Description :   Retrieves the list of vApps in the Source Org VDC
@@ -5577,6 +5600,10 @@ class VCDMigrationValidation:
         Parameters  : sourceOrgVDCId -  ID of source org vdc (STRING)
         """
         try:
+            # validating whether vApp name exceeds 118 character limit
+            logger.info('Validating whether vApp name exceeds 118 character limit')
+            self.validateVappNameLength(sourceOrgVDCId)
+
             # validating whether there are empty vapps in source org vdc
             logger.info('Validating if empty vApps or vApps in failed creation/unresolved/unrecognized/inconsistent state do not exist in source org VDC')
             self.validateNoEmptyVappsExistInSourceOrgVDC(sourceOrgVDCId)
