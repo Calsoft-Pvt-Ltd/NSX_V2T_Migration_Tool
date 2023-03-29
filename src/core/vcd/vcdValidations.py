@@ -5646,8 +5646,6 @@ class VCDMigrationValidation:
         else:
             return True
 
-    @description("Performing vlan segment check in case of multiple Org VDCs")
-    @remediate
     def checkVlanSegmentFromMultipleVDCs(self, vcdObjList):
         """
         Description : Validation vlan segment backed to multiple edge gateways belonging to dofferent VDCs
