@@ -3282,7 +3282,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                'storageProfileHref': storageProfileHref,
                                'catalogDescription': srcCatalog['Description'] if srcCatalog.get('Description') else ''}
                 if payloadDict['catalogName'] not in targetOrgVDCCatalogNameList:
-                    catalogId = self.createCatalog(payloadDict, orgId)
+                    # owner is a dictionary and it contains href, type and name of owner of the catalog
+                    owner = srcCatalog.get('Owner', {}).get('User')
+                    catalogId = self.createCatalog(payloadDict, orgId, owner)
                 else:
                     catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
                     targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
@@ -3418,11 +3420,16 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             catalogResponseDict = self.getCatalogDetails(catalogItem['catalogHref'])
                             catalogItem['catalogDescription'] = catalogResponseDict['description'] if catalogResponseDict.get('description') else ''
                             catalogItemDetailsList.append(catalogItem)
+                            # URL for catalog owner
+                            catalogOwnerUrl = "{}/{}".format(str(catalogItem['catalogHref']), "owner")
+                            # Getting Catalog Owner details
+                            catalogOwnerDict = self.getCatalogOwner(catalogOwnerUrl)
                             if resource['catalogName'] not in catalogNameList:
                                 catalogNameList.append(resource['catalogName'])
                                 catalog = {'catalogName': resource['catalogName'],
                                            'catalogHref': catalogItem['catalogHref'],
-                                           'catalogDescription': catalogResponseDict['description'] if catalogResponseDict.get('description') else ''}
+                                           'catalogDescription': catalogResponseDict['description'] if catalogResponseDict.get('description') else '',
+                                           'catalogOwner': catalogOwnerDict.get('user')}
                                 catalogDetailsList.append(catalog)
                 # deleting the temporary list since no more needed
                 del catalogNameList
@@ -3433,9 +3440,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     payloadDict = {'catalogName': catalog['catalogName'] + '-v2t',
                                    'storageProfileHref': defaultTargetStorageProfileHref,
                                    'catalogDescription': catalog['catalogDescription']}
+                    # owner is a dictionary and it contains href, type, name, otherAttributes and id of owner of the catalog(also adding @ prefix in keys)
+                    if catalog.get('catalogOwner'):
+                        owner = {'@' + str(key): value for key, value in catalog['catalogOwner'].items()}
+                    else:
+                        owner = None
                     # create api call to create a new place holder catalog
                     if payloadDict['catalogName'] not in targetOrgVDCCatalogNameList:
-                        catalogId = self.createCatalog(payloadDict, orgId)
+                        catalogId = self.createCatalog(payloadDict, orgId, owner)
                     else:
                         catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
                                                 targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
@@ -4873,11 +4885,66 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
-    def createCatalog(self, catalog, orgId):
+    def getCatalogOwner(self, catalogOwnerHref):
+        """
+        Description :   Returns the details of the catalog owner
+        Parameters: catalogHref - href of catalog owner for which details required (STRING)
+        """
+        try:
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
+            catalogOwnerResponse = self.restClientObj.get(catalogOwnerHref, headers)
+            if catalogOwnerResponse.status_code == requests.codes.ok:
+                catalogOwnerResponseDict = catalogOwnerResponse.json()
+                return catalogOwnerResponseDict
+            else:
+                errorDict = catalogOwnerResponse.json()
+                raise Exception("Failed to retrieve the catalog owner details: {}".format(errorDict['message']))
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def updateCatalogOwner(self, owner, catalogResponseDict):
+        """
+                Description :   Updates catalog owner to whomever created the catalog in source side
+                Parameters: owner - dict containing owner details like href, type, name
+                            catalogResponseDict - catalog dict which is POST API response content for creating catalog
+        """
+        try:
+            # create PUT API catalog url
+            putUrl = "{}/{}".format(str(catalogResponseDict['AdminCatalog']['@href']), "owner")
+            # creating the payload
+            payloadData = {
+                "user": {
+                    "href": owner['@href'],
+                    "type": owner['@type'],
+                    "name": owner['@name']}
+                }
+            payloadData = json.dumps(payloadData)
+            # setting headers
+            headers = {'Authorization': self.headers['Authorization'],
+                         'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER,
+                         'Content-Type': vcdConstants.GENERAL_JSON_CONTENT_TYPE_HEADER}
+            # PUT API for updating catalog owner
+            updateCatalogOwner = self.restClientObj.put(putUrl, headers, data=payloadData)
+
+            if updateCatalogOwner.status_code == (requests.codes.no_content or requests.codes.ok):
+                logger.debug("Catalog '{}' owner updated successfully".format(catalogResponseDict['AdminCatalog']['@name']))
+            else:
+                errorDict = self.vcdUtils.parseXml(updateCatalogOwner.content)
+                raise Exception("Failed to update Catalog '{}' owner : {}".format(catalogResponseDict['AdminCatalog']['@name'],
+                                                                            errorDict['Error']['@message']))
+
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def createCatalog(self, catalog, orgId, owner):
         """
         Description :   Creates an empty placeholder catalog
         Parameters: catalog - payload dict for creating catalog (DICT)
                     orgId - Organization Id where catalog is to be created (STRING)
+                    owner - owner dict containing details of Owner
         """
         try:
             # create catalog url
@@ -4902,6 +4969,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 createCatalogResponseDict = self.vcdUtils.parseXml(createCatalogResponse.content)
                 # getting the newly created target catalog id
                 catalogId = createCatalogResponseDict["AdminCatalog"]["@id"].split(':')[-1]
+
+                # Checking if catalog owner is system or not
+                # if not system than updating the owner in above created Target Catalog
+                if owner and owner.get('@name') != vcdConstants.ADMIN_USER:
+                    # calling function to update owner of catalog
+                    self.updateCatalogOwner(owner, createCatalogResponseDict)
+
                 return catalogId
             else:
                 errorDict = self.vcdUtils.parseXml(createCatalogResponse.content)
