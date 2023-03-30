@@ -6735,18 +6735,17 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def checkSharedNetworksUsedByOrgVdc(self, inputDict, differentOwners=False):
+    def checkSharedNetworksUsedByOrgVdc(self, orgName, sourceOrgVdcList, differentOwners=False):
         """"
             This method will take inputDict as a input and returns list sharednetworks from orgVdc Networks.
         """
         try:
             # Iterating over the list org vdc/s to fetch the org vdc id
             orgVDCIdList = list()
-            for orgVDCDict in inputDict["VCloudDirector"]["SourceOrgVDC"]:
-                orgUrl = self.getOrgUrl(inputDict["VCloudDirector"]["Organization"]["OrgName"])
+            for orgVDCName in sourceOrgVdcList:
+                orgUrl = self.getOrgUrl(orgName)
                 # Fetch org vdc id
-                sourceOrgVDCId = self.getOrgVDCDetails(orgUrl, orgVDCDict["OrgVDCName"], 'sourceOrgVDC',
-                                                       saveResponse=False)
+                sourceOrgVDCId = self.getOrgVDCDetails(orgUrl, orgVDCName, 'sourceOrgVDC', saveResponse=False)
                 orgVDCIdList.append(sourceOrgVDCId)
 
             networkList = list()
@@ -6780,11 +6779,15 @@ class VCDMigrationValidation:
             # get vApp network list which uses shared network using query API.
             vAppList = []
             resultList = []
+            # network-vApp mapping dict
+            networkToVappIdListMappingDict = dict()
             headers = {'X-VMWARE-VCLOUD-TENANT-CONTEXT': uuid,
                        'Accept': 'application/*+json;version={}'.format(self.version),
                        'Authorization': self.bearerToken}
             for orgVDCNetwork in orgVdcNetworkSharedList:
+                vAppToNetworkList = []
                 networkName = orgVDCNetwork['name']
+                networkId = orgVDCNetwork['id']
                 queryUrl = vcdConstants.XML_API_URL.format(
                     self.ipAddress) + "query?type=vAppNetwork&filter=(linkNetworkName=={})".format(networkName)
                 # response = self.restClientObj.get(queryUrl, headers=headers, auth=self.restClientObj.auth)
@@ -6807,20 +6810,20 @@ class VCDMigrationValidation:
                         if response.status_code == requests.codes.ok:
                             responseDict = response.json()
                             resultList.extend(responseDict['record'])
+                            vAppToNetworkList.extend(responseDict['record'])
                             pageSizeCount += len(responseDict['record'])
                             logger.debug('Media details result pageSize = {}'.format(pageSizeCount))
                             pageNo += 1
                             resultTotal = responseDict['total']
                     logger.debug('Total vApp network details result count = {}'.format(len(resultList)))
                     logger.debug('vApp network details successfully retrieved')
-                for record in resultList:
-                    vAppList.append(record['vAppName'])
-            return vAppList
+                networkToVappIdListMappingDict[networkId] = [vApp['vApp'].split('/')[-1] for vApp in vAppToNetworkList]
+            return networkToVappIdListMappingDict
         except:
             raise
 
     @isSessionExpired
-    def getOrgVdcOfvApp(self, vAppList):
+    def getOrgVdcOfvApp(self, networkToVappIdListMappingDict, v2tAssessment=False):
         """
             This method takes vApplist as a input and return list of OrgVdc which belong to vApp.
             Parameter : vAppList - List of all vApp which is using shared network.
@@ -6831,6 +6834,7 @@ class VCDMigrationValidation:
             orgVdcvApplist = []
             orgVdcNameList = []
             resultList = []
+            networkToVdcDict = defaultdict(list)
             headers = {'X-VMWARE-VCLOUD-TENANT-CONTEXT': uuid,
                        'Accept': 'application/*+json;version={}'.format(self.version),
                        'Authorization': self.bearerToken}
@@ -6860,12 +6864,17 @@ class VCDMigrationValidation:
                 logger.debug('Total vApp details result count = {}'.format(len(resultList)))
             for record in resultList:
                 tempDict = {}
-                if record['name'] in vAppList:
-                    tempDict['name'] = record['name']
-                    tempDict['orgvdc'] = record['vdcName']
-                    orgVdcNameList.append(record['vdcName'])
-                    orgVdcvApplist.append(tempDict)
-            return orgVdcvApplist, orgVdcNameList
+                for networkId, vAppIdList in networkToVappIdListMappingDict.items():
+                    if record['href'].split("/")[-1] in vAppIdList:
+                        tempDict['name'] = record['name']
+                        tempDict['orgvdc'] = record['vdcName']
+                        orgVdcNameList.append(record['vdcName'])
+                        orgVdcvApplist.append(tempDict)
+                        networkToVdcDict[networkId].append(record['vdcName'])
+            if not v2tAssessment:
+                return orgVdcvApplist, orgVdcNameList
+            else:
+                return networkToVdcDict
         except:
             raise
 
@@ -6929,22 +6938,21 @@ class VCDMigrationValidation:
         except:
             raise
 
-    def checkIfOwnerOfSharedNetworkAreBeingMigrated(self, inputDict):
+    def checkIfOwnerOfSharedNetworkAreBeingMigrated(self, orgName, sourceOrgVdcList):
         """
         Description: Check if owner of shared networks are also part of this migration or not
         """
         try:
             ownersOfSharedNetworks = list()
-            orgVDCNameListToBeMigrated = [orgvdc['OrgVDCName'] for orgvdc in inputDict["VCloudDirector"]["SourceOrgVDC"]]
             networkOwnerMapping = dict()
             # get list shared network
-            orgVdcNetworkSharedList = self.checkSharedNetworksUsedByOrgVdc(inputDict, differentOwners=True)
+            orgVdcNetworkSharedList = self.checkSharedNetworksUsedByOrgVdc(orgName, sourceOrgVdcList, differentOwners=True)
             for network in orgVdcNetworkSharedList:
-                # get list of vApp which uses this shared network.
-                vAppList = self.getVappUsingSharedNetwork([network])
+                # get network to list of vApp Ids which uses this shared network mapping dictionary.
+                networkToVappIdListMappingDict = self.getVappUsingSharedNetwork([network])
 
                 # get OrgVDC which belongs to vApp which uses shared network.
-                _, orgVdcNameList = self.getOrgVdcOfvApp(vAppList)
+                _, orgVdcNameList = self.getOrgVdcOfvApp(networkToVappIdListMappingDict)
 
                 # Adding data to network owner mapping
                 networkOwnerMapping[network['id']] = [network['ownerRef']['name'], orgVdcNameList]
@@ -6953,9 +6961,9 @@ class VCDMigrationValidation:
 
             # If any vapp part of the org vdc's undergoing migration, then fetch the owner of shared networks
             for networkUsageData in networkOwnerMapping.values():
-                if [orgvdc for orgvdc in networkUsageData[1] if orgvdc in orgVDCNameListToBeMigrated]:
+                if [orgvdc for orgvdc in networkUsageData[1] if orgvdc in sourceOrgVdcList]:
                     ownersOfSharedNetworks.append(networkUsageData[0])
-            ownersOfSharedNetworksNotPartOfMigration = [orgvdc for orgvdc in set(ownersOfSharedNetworks) if orgvdc not in orgVDCNameListToBeMigrated]
+            ownersOfSharedNetworksNotPartOfMigration = [orgvdc for orgvdc in set(ownersOfSharedNetworks) if orgvdc not in sourceOrgVdcList]
 
             if ownersOfSharedNetworksNotPartOfMigration:
                 raise Exception(f"{', '.join(ownersOfSharedNetworksNotPartOfMigration)} are owners of shared networks, so they also need to added in input file for migration")
@@ -7026,19 +7034,20 @@ class VCDMigrationValidation:
             # Shared networks are supported starting from Andromeda build
             if float(self.version) >= float(vcdConstants.API_VERSION_ANDROMEDA):
                 # Get source OrgVdc names from input file.
+                orgName = inputDict["VCloudDirector"]["Organization"]["OrgName"]
                 sourceOrgVdcData = inputDict["VCloudDirector"]["SourceOrgVDC"]
                 sourceOrgVdcList = []
                 for orgvdc in sourceOrgVdcData:
                     sourceOrgVdcList.append(orgvdc['OrgVDCName'])
 
                 # get list shared network
-                orgVdcNetworkSharedList = self.checkSharedNetworksUsedByOrgVdc(inputDict)
+                orgVdcNetworkSharedList = self.checkSharedNetworksUsedByOrgVdc(orgName, sourceOrgVdcList)
 
-                # get list of vApp which uses shared network.
-                vAppList = self.getVappUsingSharedNetwork(orgVdcNetworkSharedList)
+                # get network to list of vApp Ids which uses this shared network mapping dictionary.
+                networkToVappIdListMappingDict = self.getVappUsingSharedNetwork(orgVdcNetworkSharedList)
 
                 # get OrgVDC which belongs to vApp which uses shared network.
-                orgVdcvApplist, orgVdcNameList = self.getOrgVdcOfvApp(vAppList)
+                orgVdcvApplist, orgVdcNameList = self.getOrgVdcOfvApp(networkToVappIdListMappingDict)
 
                 threading.current_thread().name = "MainThread"
 
@@ -7051,7 +7060,7 @@ class VCDMigrationValidation:
                 self.checkextraOrgVdcsOnSharedNetwork(orgVdcNameList, sourceOrgVdcList)
 
                 logger.info("Validating if the owner of shared networks are also part of migration or not")
-                self.checkIfOwnerOfSharedNetworkAreBeingMigrated(inputDict)
+                self.checkIfOwnerOfSharedNetworkAreBeingMigrated(orgName, sourceOrgVdcList)
 
                 logger.info("Validating distributed firewall default rule in all Org VDCs is same")
                 self.validateDfwDefaultRuleForSharedNetwork(

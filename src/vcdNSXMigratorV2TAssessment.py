@@ -16,6 +16,7 @@ import os
 import prettytable
 import sys
 import traceback
+import itertools
 from collections import OrderedDict
 from src import constants
 from src.commonUtils import utils
@@ -521,8 +522,26 @@ class VMwareCloudDirectorNSXMigratorV2T:
             # List to store Org VDC Edge Gateway Load Balancer result
             self.loadBalancerData  =list()
 
+            # List to store Shared Org VDC Network Data
+            self.sharedNetworkData = list()
+
             # Iterating over the org in the relation map
             for org in relationMap:
+                # get list shared network
+                orgVdcNetworkSharedList = self.vcdValidationObj.checkSharedNetworksUsedByOrgVdc(org, relationMap[org].keys())
+
+                # get network to list of vApp Ids which uses this shared network mapping dictionary.
+                networkToVappIdListMappingDict = self.vcdValidationObj.getVappUsingSharedNetwork(orgVdcNetworkSharedList)
+
+                # get OrgVDC which belongs to vApp which uses shared network.
+                networkToVdcDict = self.vcdValidationObj.getOrgVdcOfvApp(networkToVappIdListMappingDict, v2tAssessment=True)
+
+                for network in orgVdcNetworkSharedList:
+                    if networkToVdcDict[network["id"]]:
+                        networkToVdcDict[network["id"]].append(network["orgVdc"]["name"])
+                        self.sharedNetworkData.append([org, network["id"], network["networkType"],
+                                                      network["orgVdc"]["name"], set(networkToVdcDict[network["id"]])])
+
                 # Iterating over the org vdc's in the relation map
                 for VDC, VDCId in relationMap[org].items():
                     # Change logging format
@@ -982,7 +1001,16 @@ class VMwareCloudDirectorNSXMigratorV2T:
             summaryData.insert(8, ["Maximum Number of networks to be bridged in a single migration", maximumNumberOfNetworksToBeBridged])
             # Adding empty row to summary report
             summaryData.insert(9, [])
-
+            # Adding shared network summary if exists
+            if self.sharedNetworkData:
+                summaryData.insert(10, ["Shared Networks Summary"])
+                summaryData.insert(11, ["Org", "Shared Network ID", "Network Type", "Parent Org VDC", "Org VDC to be migrated Together"])
+                i = 12
+                for sharedNetwork in self.sharedNetworkData:
+                    summaryData.insert(i, sharedNetwork)
+                    i += 1
+                # Adding empty row to summary report
+                summaryData.insert(i, [])
             # Creating object of pretty table class
             table = prettytable.PrettyTable(hrules=prettytable.ALL)
             # Adding title to table

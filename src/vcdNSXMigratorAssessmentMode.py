@@ -260,13 +260,13 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 sourceOrgVdcList.append(orgvdc['OrgVDCName'])
 
             # get list shared network
-            orgVdcNetworkSharedList = vcdValidationObj.checkSharedNetworksUsedByOrgVdc(self.inputDict)
+            orgVdcNetworkSharedList = vcdValidationObj.checkSharedNetworksUsedByOrgVdc(self.inputDict["VCloudDirector"]["Organization"]["OrgName"], sourceOrgVdcList)
 
-            # get list of vApp which uses shared network.
-            vAppList = vcdValidationObj.getVappUsingSharedNetwork(orgVdcNetworkSharedList)
+            # get network to list of vApp Ids which uses this shared network mapping dictionary.
+            networkToVappIdListMappingDict = vcdValidationObj.getVappUsingSharedNetwork(orgVdcNetworkSharedList)
 
             # get OrgVDC which belongs to vApp which uses shared network.
-            orgVdcvApplist, orgVdcNameList = vcdValidationObj.getOrgVdcOfvApp(vAppList)
+            orgVdcvApplist, orgVdcNameList = vcdValidationObj.getOrgVdcOfvApp(networkToVappIdListMappingDict)
 
             # Restoring thread name
             threading.current_thread().name = "MainThread"
@@ -275,7 +275,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             checksMapping = {
                 'Validating number of Org Vdc/s to be migrated are less/equal to max limit': [vcdValidationObj.checkMaxOrgVdcCount, sourceOrgVdcList, orgVdcNetworkSharedList],
                 'Validating if any Org Vdc is using shared network other than those mentioned in input file': [vcdValidationObj.checkextraOrgVdcsOnSharedNetwork, orgVdcNameList, sourceOrgVdcList],
-                'Validating if the owner of shared networks are also part of migration or not': [vcdValidationObj.checkIfOwnerOfSharedNetworkAreBeingMigrated, self.inputDict],
+                'Validating if the owner of shared networks are also part of migration or not': [vcdValidationObj.checkIfOwnerOfSharedNetworkAreBeingMigrated, self.inputDict["VCloudDirector"]["Organization"]["OrgName"], sourceOrgVdcList],
                 'Validating distributed firewall default rule in all Org VDCs is same': [vcdValidationObj.validateDfwDefaultRuleForSharedNetwork, self.vcdObjList, sourceOrgVdcList, orgVdcNetworkSharedList, self.inputDict, None],
             }
             for desc, method in checksMapping.items():
