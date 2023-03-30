@@ -6891,7 +6891,18 @@ class VCDMigrationValidation:
                     if response.status_code == requests.codes.ok:
                         responseDict = response.json()
                         if not int(responseDict['resultTotal']) > 1:
-                            NonServiceDirectSharedNetworkList.append(network)
+                            # Implementation for Direct Network connected to VXLAN backed External Network irrespective of the dedicated/non-dedicated or shared/non-shared status.
+                            extNetUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                         vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                                         network['parentNetworkId']['id'])
+                            extNetResponse = self.restClientObj.get(extNetUrl, self.headers)
+                            extNetResponseDict = extNetResponse.json()
+                            if extNetResponse.status_code == requests.codes.ok:
+                                if not extNetResponseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
+                                    NonServiceDirectSharedNetworkList.append(network)
+                            else:
+                                raise Exception('Failed to get external network {} details with error - {}'.format(
+                                    network['parentNetworkId']['name'], extNetResponseDict["message"]))
                     else:
                         raise Exception("Failed to fetch external network {} details".format(
                             network['parentNetworkId']['name']))
