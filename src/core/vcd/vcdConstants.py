@@ -794,3 +794,6 @@ PORT_GROUP = "PORTGROUP_BACKED"
 
 # Advertised Tier-1 Subnets Connected Segment List
 ADVERTISED_SUBNET_LIST = ["TIER1_LB_VIP", "TIER1_NAT", "TIER1_IPSEC_LOCAL_ENDPOINT", "TIER1_STATIC"]
+
+# Admin user
+ADMIN_USER = 'system'
