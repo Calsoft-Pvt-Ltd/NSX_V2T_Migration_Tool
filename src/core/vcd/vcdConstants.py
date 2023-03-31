@@ -800,3 +800,9 @@ ADVERTISED_SUBNET_LIST = ["TIER1_LB_VIP", "TIER1_NAT", "TIER1_IPSEC_LOCAL_ENDPOI
 
 # Admin user
 ADMIN_USER = 'system'
+
+# Get Share Permissions for catalog.
+GET_CATALOG_SHARE_PERMISSIONS = 'catalog/{}/controlAccess'
+
+# Set Share Permissions fot catalog.
+SET_CATALOG_SHARE_PERMISSIONS = 'catalog/{}/action/controlAccess'
