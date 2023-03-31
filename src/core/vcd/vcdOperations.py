@@ -3284,7 +3284,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if payloadDict['catalogName'] not in targetOrgVDCCatalogNameList:
                     # owner is a dictionary and it contains href, type and name of owner of the catalog
                     owner = srcCatalog.get('Owner', {}).get('User')
-                    catalogId = self.createCatalog(payloadDict, orgId, owner)
+                    # Source Catalog ID
+                    srcCatalogId = srcCatalog.get('@id').split(':')[-1]
+                    catalogId = self.createCatalog(payloadDict, orgId, owner, srcCatalogId)
                 else:
                     catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
                     targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
@@ -3440,14 +3442,16 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     payloadDict = {'catalogName': catalog['catalogName'] + '-v2t',
                                    'storageProfileHref': defaultTargetStorageProfileHref,
                                    'catalogDescription': catalog['catalogDescription']}
-                    # owner is a dictionary and it contains href, type, name, otherAttributes and id of owner of the catalog(also adding @ prefix in keys)
-                    if catalog.get('catalogOwner'):
-                        owner = {'@' + str(key): value for key, value in catalog['catalogOwner'].items()}
-                    else:
-                        owner = None
-                    # create api call to create a new place holder catalog
                     if payloadDict['catalogName'] not in targetOrgVDCCatalogNameList:
-                        catalogId = self.createCatalog(payloadDict, orgId, owner)
+                        # owner is a dictionary and it contains href, type, name, otherAttributes and id of owner of the catalog(also adding @ prefix in keys)
+                        if catalog.get('catalogOwner'):
+                            owner = {'@' + str(key): value for key, value in catalog['catalogOwner'].items()}
+                        else:
+                            owner = None
+                        # Source Catalog ID
+                        srcCatalogId = catalog.get('catalogHref').split('/')[-1]
+                        # create api call to create a new place holder catalog
+                        catalogId = self.createCatalog(payloadDict, orgId, owner, srcCatalogId)
                     else:
                         catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
                                                 targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
@@ -4896,12 +4900,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
-    def createCatalog(self, catalog, orgId, owner):
+    def createCatalog(self, catalog, orgId, owner, srcCatalogId):
         """
         Description :   Creates an empty placeholder catalog
         Parameters: catalog - payload dict for creating catalog (DICT)
                     orgId - Organization Id where catalog is to be created (STRING)
                     owner - owner dict containing details of Owner
+                    srcCatalogId - Source Catalog ID
         """
         try:
             # create catalog url
@@ -4932,6 +4937,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if owner and owner.get('@name') != vcdConstants.ADMIN_USER:
                     # calling function to update owner of catalog
                     self.updateCatalogOwner(owner, createCatalogResponseDict)
+                # Getting the Share Permissions to set in the catalog
+                sharePermissions = self.getSharePermissions(srcCatalogId)
+                # Setting the Share Permissions in the catalog
+                self.setSharePermissions(sharePermissions, catalogId)
 
                 return catalogId
             else:
@@ -4939,6 +4948,64 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 raise Exception("Failed to create Catalog '{}' : {}".format(catalog['catalogName'],
                                                                             errorDict['Error']['@message']))
 
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def setSharePermissions(self, sharePermissions, catalogId):
+        """
+                Description :  Gets the Share Permissions of a catalog
+                Parameters: sharePermissions - Share Permission Data
+                            catalogId - Target Catalog ID
+        """
+        try:
+            # POST API URL for share permission
+            postUrl = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                                    vcdConstants.SET_CATALOG_SHARE_PERMISSIONS.format(catalogId))
+            # setting headers
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version),
+                       'Content-Type': vcdConstants.GENERAL_JSON_CONTENT_TYPE_HEADER}
+            # Payload of Share Permissions
+            payloadDict = json.loads(sharePermissions.content)
+            # POST API for setting Share Permission for catalog
+            response = self.restClientObj.post(postUrl, headers, data=json.dumps(payloadDict))
+
+            if response.status_code == requests.codes.ok:
+                logger.debug(
+                    "Catalog '{}' Share Permissions attached successfully".format(catalogId))
+                return
+            else:
+                raise Exception(
+                    "Failed to set Share Permissions for Catalog '{}' : {}".format(catalogId,
+                                                                                   response))
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def getSharePermissions(self, srcCatalogId):
+        """
+                Description :  Gets the Share Permissions of a catalog
+                Parameters: srcCatalogId - ID of the source catalog
+        """
+        try:
+            # GET API URL for share permission
+            getUrl = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                                   vcdConstants.GET_CATALOG_SHARE_PERMISSIONS.format(srcCatalogId))
+            # setting headers
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)}
+            # GET API for fetching Share Permission for catalog
+            sharePermissionsResponse = self.restClientObj.get(getUrl, headers)
+
+            if sharePermissionsResponse.status_code == requests.codes.ok:
+                logger.debug(
+                    "Catalog '{}' Share Permissions fetched successfully".format(srcCatalogId))
+                return sharePermissionsResponse
+            else:
+                raise Exception(
+                    "Failed to fetch Share Permissions for Catalog '{}' : {}".format(srcCatalogId,
+                                                                                     sharePermissionsResponse))
         except Exception:
             raise
 
