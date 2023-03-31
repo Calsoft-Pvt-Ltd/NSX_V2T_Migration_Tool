@@ -882,7 +882,7 @@ class VMwareCloudDirectorNSXMigrator():
             # only if org vdc networks exist bridging will be configured
             if filteredList:
                 # Configuring Bridging
-                self.nsxtObjList[0].configureNSXTBridging(self.vcdObjList)
+                self.nsxtObjList[0].configureNSXTBridging(self.vcdObjList, self.vcenterObj)
                 # verify bridge connectivity
                 self.nsxtObjList[0].verifyBridgeConnectivity(self.vcdObjList, self.vcenterObj)
             elif orgVdcNetworkList:

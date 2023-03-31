@@ -1316,7 +1316,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description("getting the portgroup of source org vdc networks")
     @remediate
-    def getPortgroupInfo(self, orgVdcNetworkList, vcenterObj):
+    def getPortgroupInfo(self, orgVdcNetworkList):
         """
         Description : Get Portgroup Info
         Parameters  : orgVdcNetworkList - List of source org vdc networks (LIST)
@@ -1326,44 +1326,24 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             logger.info('Getting the portgroup of source org vdc networks.')
             data = self.rollback.apiData
 
+            # making a list of non-direct networks
+            NonDirectNetworks = [network for network in orgVdcNetworkList if network["networkType"] != "DIRECT"]
             # Fetching name and ids of all the org vdc networks
             networkIdMapping, networkNameList = dict(), set()
-            for orgVdcNetwork in orgVdcNetworkList:
+            for orgVdcNetwork in NonDirectNetworks:
                 networkIdMapping[orgVdcNetwork['id'].split(":")[-1]] = orgVdcNetwork
                 networkNameList.add(orgVdcNetwork['name'])
 
-            # Fetching VM ID of source edge gateway
-            edgeGatewayVmIdMapping = self.getEdgeVmId()
-            # get interface details of the nsx-v edge vm using vcenter api's
-            interfaceDetails = {edgeGatewayId: vcenterObj.getEdgeVmNetworkDetails(edgeVMId)
-                                for edgeGatewayId, edgeVMId in edgeGatewayVmIdMapping.items()}
-
             allPortGroups = self.fetchAllPortGroups()
-            portGroupDict = dict()
+            portGroupDict = defaultdict(list)
             # Iterating over all the port groups to find the portgroups linked to org vdc network
             for portGroup in allPortGroups:
                 if portGroup['networkName'] != '--' and \
                         portGroup['scopeType'] not in ['-1', '1'] and \
                         portGroup['networkName'] in networkNameList and \
-                        portGroup['network'].split('/')[-1] in networkIdMapping.keys() and \
-                        portGroup['network'].split('/')[-1] not in portGroupDict:
-                    orgVdcNetworkData = networkIdMapping[portGroup['network'].split('/')[-1]]
-                    # Checking for routed Internal network only as it is connected to internal interfaces of edge gateway (MAX ALLOWED - 9)
-                    if orgVdcNetworkData["networkType"] == "NAT_ROUTED" and \
-                        orgVdcNetworkData["connection"]["connectionType"] not in ["DISTRIBUTED", "SUBINTERFACE"]:
-                        # Distributed network is skipped as the network is connected to an internal interface of a distributed router that is exclusively associated with this gateway
-                        # Subiterface network is skipped as it is connected to the edge gateway's internal trunk interface
-                        edgeGatewayId = orgVdcNetworkData["connection"]["routerRef"]["id"].split(':')[-1]
-
-                        for nicDetail in interfaceDetails[edgeGatewayId]:
-                            # comparing source org vdc network portgroup moref and edge gateway interface details
-                            if portGroup['moref'] == nicDetail['value']['backing']['network']:
-                                portGroupDict[portGroup['network'].split('/')[-1]] = portGroup
-                                break
-                        else:
-                            continue
-                    else:
-                        portGroupDict[portGroup['network'].split('/')[-1]] = portGroup
+                        portGroup['network'].split('/')[-1] in networkIdMapping.keys():
+                    portGroupDict[portGroup['networkName']].append({"moref": portGroup["moref"],
+                                                                   "networkName": portGroup["networkName"]})
 
             # Saving portgroups data to metadata data structure
             data['portGroupList'] = list(portGroupDict.values())
@@ -3050,7 +3030,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 self.enablePromiscModeForgedTransmit(orgVdcNetworkList)
 
                 # get the portgroup of source org vdc networks
-                self.getPortgroupInfo(orgVdcNetworkList, vcenterObj)
+                self.getPortgroupInfo(orgVdcNetworkList)
 
             # Migrating metadata from source org vdc to target org vdc
             self.migrateMetadata()
@@ -3581,11 +3561,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             portGroupList = data.get('portGroupList')
             logger.debug("Getting Source Edge Gateway Mac Address")
             macAddressList = []
-            for portGroup in portGroupList:
-                for nicDetail in interfacesList:
-                    # comparing source org vdc network portgroup moref and edge gateway interface details
-                    if portGroup['moref'] == nicDetail['value']['backing']['network']:
-                        macAddressList.append(nicDetail['value']['mac_address'])
+            for networkPortGroups in portGroupList:
+                for portGroup in networkPortGroups:
+                    for nicDetail in interfacesList:
+                        # comparing source org vdc network portgroup moref and edge gateway interface details
+                        if portGroup['moref'] == nicDetail['value']['backing']['network']:
+                            macAddressList.append(nicDetail['value']['mac_address'])
             return macAddressList
         except Exception:
             raise
