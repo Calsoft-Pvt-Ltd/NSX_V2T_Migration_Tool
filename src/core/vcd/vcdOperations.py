@@ -4415,7 +4415,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             logger.warning("Successfully updated static pool of OrgVDC network {}.".format(networkName))
 
     @isSessionExpired
-    def createMoveVappNetworkPayload(self, vAppData, targetOrgVDCNetworkList, filePath, directNetworkIdList, rollback=False):
+    def createMoveVappNetworkPayload(self, vAppData, targetOrgVDCNetworkList, filePath, rollback=False):
         """
             Description :   Prepares the network config payload for moving the vApp
             Parameters  :   vAppData  -   Information related to a specific vApp (DICT)
@@ -4449,47 +4449,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         'dnsSuffix': ipScope.get('DnsSuffix'),
                         'ipRanges': listify(ipScope.get('IpRanges', {}).get('IpRange')),
                     }
-                    for ipScope in getIpScopes(vAppNetwork)
+                    for ipScope in listify(vAppNetwork['Configuration']['IpScopes']['IpScope'])
                     if ipScope['IsInherited'] == 'false' or float(self.version) >= float(vcdConstants.API_10_4_2_BUILD)
                 ]
-
-        def getIpScopes(vAppNetwork):
-            """Get vapp network ipscopes config"""
-            if vAppNetwork['Configuration'].get('ParentNetwork', {}).get('@id') not in directNetworkIdList:
-                return listify(vAppNetwork['Configuration']['IpScopes']['IpScope'])
-
-            ipList = list()
-            if vAppNetwork['Configuration'].get('RouterInfo', {}).get('ExternalIp'):
-                ipList.append(vAppNetwork['Configuration']['RouterInfo']['ExternalIp'])
-                for ipScope in listify(vAppNetwork['Configuration']['IpScopes']['IpScope']):
-                    for ip in set(ipList):
-                        if ipaddress.ip_address(ip) in ipaddress.ip_network("{}/{}".format(
-                                ipScope["Gateway"], ipScope.get('SubnetPrefixLength', 1)), strict=False):
-                            return [ipScope]
-
-            vmList = vAppData['Children']['Vm'] if isinstance(vAppData['Children']['Vm'], list) else [vAppData['Children']['Vm']]
-            # iterating over vms in the vapp
-            for vm in vmList:
-                if vm.get('NetworkConnectionSection') and \
-                        vm['NetworkConnectionSection'].get('NetworkConnection'):
-                    vmNetworkSpec = vm['NetworkConnectionSection']['NetworkConnection'] \
-                        if isinstance(vm['NetworkConnectionSection']['NetworkConnection'], list) \
-                        else [vm['NetworkConnectionSection']['NetworkConnection']]
-                    for network in vmNetworkSpec:
-                        if network['@network'] == vAppNetwork['@networkName']:
-                            if network.get('ExternalIpAddress'):
-                                ipList.append(network['ExternalIpAddress'])
-                            elif network.get('IpAddress'):
-                                ipList.append(network['IpAddress'])
-
-            for ipScope in listify(vAppNetwork['Configuration']['IpScopes']['IpScope']):
-                for ip in set(ipList):
-                    if ipaddress.ip_address(ip) in ipaddress.ip_network("{}/{}".format(
-                            ipScope["Gateway"], ipScope.get('SubnetPrefixLength', 1)), strict=False):
-                        return [ipScope]
-
-            targetIpScope = listify(vAppNetwork['Configuration']['IpScopes']['IpScope'])
-            return [targetIpScope[0]]
 
         def getParentNetwork(vAppNetwork):
             """Get target network's parent network"""
@@ -4569,7 +4531,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         ).strip("\"")
 
     @isSessionExpired
-    def moveVappApiCall(self, vApp, targetOrgVDCNetworkList, targetOrgVDCId, filePath, timeout, directNetworkIdList, sourceOrgVDCName=None, rollback=False):
+    def moveVappApiCall(self, vApp, targetOrgVDCNetworkList, targetOrgVDCId, filePath, timeout, sourceOrgVDCName=None, rollback=False):
         """
             Description :   Prepares the payload for moving the vApp and sends post api call for it
             Parameters  :   vApp  -   Information related to a specific vApp (DICT)
@@ -4607,7 +4569,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         # self.updateRoutedOrgVdcNetworkStaticIpPool(vAppData)
         payloadDict = {
             'vAppHref': vApp['@href'],
-            'networkConfig': self.createMoveVappNetworkPayload(vAppData, targetOrgVDCNetworkList, filePath, directNetworkIdList, rollback),
+            'networkConfig': self.createMoveVappNetworkPayload(vAppData, targetOrgVDCNetworkList, filePath, rollback),
             'vmDetails': self.createMoveVappVmPayload(vApp, targetOrgVDCId, rollback=rollback),
         }
         payloadData = self.vcdUtils.createPayload(
@@ -4665,12 +4627,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 logger.info("RollBack: Migrating Target vApps")
             elif rollback and not reduce(lambda x, y: x+y, vAppData):
                 return
-            orgvdcDirectNetworksIdList = list()
-            for vcdObj in vcdObjList:
-                networkType = 'targetOrgVDCNetworks' if rollback else 'sourceOrgVDCNetworks'
-                orgvdcDirectNetworksIdList.extend(
-                    [vcdObj.rollback.apiData[networkType][network]["id"].split(":")[-1] for network in vcdObj.rollback.apiData[networkType]
-                     if vcdObj.rollback.apiData[networkType][network]["networkType"] == "DIRECT"])
+
             for vcdObj, sourceOrgVDCId, targetOrgVDCId, targetOrgVDCNetworks, sourceOrgVDCName, vAppList in zip_longest(
                     vcdObjList,
                     sourceOrgVDCIdList,
@@ -4685,7 +4642,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 for vApp in vAppList:
                     # Spawning threads for move vApp call
                     self.thread.spawnThread(vcdObj.moveVappApiCall, vApp, targetOrgVDCNetworks, targetOrgVDCId, filePath,
-                                            timeout, orgvdcDirectNetworksIdList, sourceOrgVDCName=sourceOrgVDCName, rollback=rollback, block=True)
+                                            timeout, sourceOrgVDCName=sourceOrgVDCName, rollback=rollback, block=True)
             # Blocking the main thread until all the threads complete execution
             self.thread.joinThreads()
 
