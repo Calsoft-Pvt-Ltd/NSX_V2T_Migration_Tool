@@ -431,6 +431,9 @@ MOVE_CATALOG_TEMPLATE = 'moveCatalogItem'
 # move vapp by catalog id uri
 MOVE_CATALOG = 'catalog/{}/action/move'
 
+# Catalog VappVmTemplate storage policy
+CATALOG_VAPP_VM_TEMP_STORAGE_POLICY = "catalogVAppTemplate"
+
 # static routing config uri
 STATIC_ROUTING_CONFIG = 'edges/{}/routing/config/static'
 

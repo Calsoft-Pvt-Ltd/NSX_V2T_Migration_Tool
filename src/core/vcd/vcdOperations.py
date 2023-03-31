@@ -3211,6 +3211,64 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if advertisedSubnets:
                 nsxtObj.createRouteRedistributionRule(vrfData, t0Gateway, routeRedistributionRules)
 
+    def updateCatalogVappVmPolicy(self, vappVmList, templateName):
+        """
+        Description :   Update the Catalog VApp template VM Default Storage Policies and return the response
+        Parameters: vappVmList -  list of all VM present under VApp templates (LIST)
+        """
+        logger.debug("Updating Default VM Template Storage Policy for VMs - {} using vApp template - '{}'".format(
+            [vm['@name'] for vm in vappVmList], templateName))
+        filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
+        # iterate through Catalog VApp template Vm list
+        for vappVm in vappVmList:
+            payloadDict = {
+                'catlogvappvmTempUrl': vappVm['@href'],
+                'vmCatalogName': vappVm['@name']
+            }
+            payloadData = self.vcdUtils.createPayload(filePath,
+                                                      payloadDict,
+                                                      fileType='yaml',
+                                                      componentName=vcdConstants.COMPONENT_NAME,
+                                                      templateName=vcdConstants.CATALOG_VAPP_VM_TEMP_STORAGE_POLICY)
+            payloadData = json.loads(payloadData)
+            self.headers["Content-Type"] = vcdConstants.GENERAL_XML_CONTENT_TYPE
+            # Api Call to update VM Default Storage Policy
+            response = self.restClientObj.put(vappVm['@href'], self.headers, data=payloadData)
+            if response.status_code == requests.codes.accepted:
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug("Default VM Template Storage Policy of VM - '{}' for Catalog Vapp template - '{}' updated successfully with Default storage policy of target Org VDC".format(
+                    vappVm['@name'], templateName))
+            else:
+                raise Exception("Failed to update Default VM Template Storage Policy of VM - '{}' for Catalog Vapp template - '{}' with Default storage policy of target Org VDC".format(
+                    vappVm['@name'], templateName))
+
+    def checkVappCatalogVmDefaultStoragePolicy(self, catalogItemResponseDict, targetOrgVDCStoragePolicyName):
+        """
+        Description :   Check Default Storage Policy applied to the VAPp Template
+        Parameters  :   catalogItemResponseDict - Catalog Items
+                        targetOrgVDCStoragePolicyName - Name of Target Org VDC Storage Polices (LIST)
+        """
+        logger.debug("Checking Default VM Template Storage Policy for VApp template - {}.".format(
+            catalogItemResponseDict['@name']))
+        # API call to get Catlog VApp template response
+        catalogVappTempItemResponse = self.restClientObj.get(catalogItemResponseDict['@href'],
+                                                             headers=self.headers)
+        if catalogVappTempItemResponse.status_code == requests.codes.ok:
+            catalogVappTempItemResponseDict = self.vcdUtils.parseXml(catalogVappTempItemResponse.content)
+            # List all chidrens of Vapp template and convert return values to list if not list
+            vappChildrenList = catalogVappTempItemResponseDict['VAppTemplate']['Children'][
+                'Vm'] if isinstance(catalogVappTempItemResponseDict['VAppTemplate']['Children']['Vm'], list) else [
+                catalogVappTempItemResponseDict['VAppTemplate']['Children']['Vm']]
+            # iterate through all VApp template chidrens and filter records with different storage policy than target Org VDC
+            vappVmList = [vm for vm in vappChildrenList if vm.get('DefaultStorageProfile') and vm.get(
+                'DefaultStorageProfile') not in targetOrgVDCStoragePolicyName]
+            if vappVmList:
+                self.updateCatalogVappVmPolicy(vappVmList, catalogItemResponseDict['@name'])
+        else:
+            raise Exception("Failed to retrieve Catalog VApp template details - {} url.".format(
+                    catalogItemResponseDict['@name']))
+
     def migrateCatalogItems(self, sourceOrgVDCId, targetOrgVDCId, orgName, timeout):
         """
         Description : Migrating Catalog Items - vApp Templates and Media & deleting catalog thereafter
@@ -3244,7 +3302,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 'VdcStorageProfile'] if isinstance(
                 targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'], list) else [
                 targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile']]
-
             for storageProfile in targetOrgVDCStorageList:
                 targetStorageProfilesList.append(storageProfile)
                 targetStorageProfileIDsList.append(storageProfile['@id'])
@@ -3265,6 +3322,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         # creating the list of catalogs from source org vdc
                         targetOrgVDCCatalogDetails.append(catalogResponseDict['AdminCatalog'])
                         targetOrgVDCCatalogNameList.append(catalogResponseDict['AdminCatalog']["@name"])
+            # List of all target OrgVDC storage policies name
+            targetOrgVDCStoragePolicyName = [storagePolicy['@name'] for storagePolicy in targetOrgVDCStorageList]
             # iterating over the source org vdc catalogs to migrate them to target org vdc
             for srcCatalog in sourceOrgVDCCatalogDetails:
                 logger.debug("Migrating source Org VDC specific Catalogs")
@@ -3288,7 +3347,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 else:
                     catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
                     targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
-
                 if catalogId:
                     # empty catalogs
                     if not srcCatalog.get('CatalogItems'):
@@ -3311,6 +3369,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         catalogItemResponse = self.restClientObj.get(catalogItem['@href'], headers=self.headers)
                         catalogItemResponseDict = self.vcdUtils.parseXml(catalogItemResponse.content)
                         if catalogItemResponseDict['CatalogItem']['Entity']['@type'] == vcdConstants.TYPE_VAPP_TEMPLATE:
+                            self.checkVappCatalogVmDefaultStoragePolicy(catalogItemResponseDict['CatalogItem']['Entity'],
+                                                                        targetOrgVDCStoragePolicyName)
                             vAppTemplateCatalogItemList.append(catalogItem)
                         elif catalogItemResponseDict['CatalogItem']['Entity']['@type'] == vcdConstants.TYPE_VAPP_MEDIA:
                             mediaCatalogItemList.append(catalogItem)
@@ -3452,12 +3512,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
                                                 targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
                     if catalogId:
-
                         vAppTemplateCatalogItemList = []
                         mediaCatalogItemList = []
                         # creating seperate lists for catalog items - 1. One for media catalog items 2. One for vApp template catalog items
                         for catalogItem in catalogItemDetailsList:
                             if catalogItem['@type'] == vcdConstants.TYPE_VAPP_TEMPLATE:
+                                self.checkVappCatalogVmDefaultStoragePolicy(catalogItem,
+                                                                            targetOrgVDCStoragePolicyName)
                                 vAppTemplateCatalogItemList.append(catalogItem)
                             elif catalogItem['@type'] == vcdConstants.TYPE_VAPP_MEDIA:
                                 mediaCatalogItemList.append(catalogItem)

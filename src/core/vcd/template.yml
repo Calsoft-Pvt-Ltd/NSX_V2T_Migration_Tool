@@ -21,6 +21,11 @@ vCloudDirector:
     <AdminCatalog xmlns="http://www.vmware.com/vcloud/v1.5" name="{{catalogName}}">
     <Description>{{catalogDescription}}</Description>
     </AdminCatalog>
+  catalogVAppTemplate:
+    <root:VAppTemplate xmlns:root="http://www.vmware.com/vcloud/v1.5" href="{{catlogvappvmTempUrl}}" type="application/vnd.vmware.vcloud.vm+xml" name="{{vmCatalogName}}">
+    <root:Description/>
+    <root:VAppScopedLocalId>{{vmCatalogName}}</root:VAppScopedLocalId>
+    </root:VAppTemplate>
   moveVapp:
     <root:MoveVAppParams xmlns:root="http://www.vmware.com/vcloud/v1.5" xmlns:ns7="http://schemas.dmtf.org/ovf/envelope/1" xmlns:ns8="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData" xmlns:ns9="http://www.vmware.com/schema/ovf">
       <root:Source href="{{vAppHref}}"/>
