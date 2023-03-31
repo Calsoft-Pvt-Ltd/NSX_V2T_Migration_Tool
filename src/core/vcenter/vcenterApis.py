@@ -267,3 +267,20 @@ class VcenterApi():
         except Exception as err:
             logger.debug(traceback.format_exc())
             raise Exception(f"Failed to fetch agency details from EAM(EsxAgentManager) due to error - {str(err)}")
+
+    def mobsApi(self, compute_id):
+        """
+        Description : This method sends response of MOBS API to updateEdgeTransportNodes in nsxtOperations
+        compute_id : cluster name of Edge Transport Node
+        """
+        try:
+            url = "{}{}".format(constants.MOBS_API.format(hostname=self.ipAddress), compute_id)
+            response = self.restClientObj.get(url=url, headers=self.headers, auth=(self.username, self.password))
+            if response.status_code == requests.codes.ok:
+                logger.debug("Successfully fetched domain - '{}' information from vCenter".format(compute_id))
+                return response
+            else:
+                raise Exception(response)
+        except Exception as err:
+            logger.debug(traceback.format_exc())
+            raise Exception(f"Failed to get domain - '{compute_id}' information from vCenter due to error response- {str(err)}")
