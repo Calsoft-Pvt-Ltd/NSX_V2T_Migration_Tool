@@ -6666,9 +6666,18 @@ class VCDMigrationValidation:
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
-                if int(responseDict['resultTotal']) > 1:
+                # Checking the external network backing
+                extNetUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                             vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                             parentNetworkId['id'])
+                extNetResponse = self.restClientObj.get(extNetUrl, self.headers)
+                extNetResponseDict = extNetResponse.json()
+                if extNetResponse.status_code != requests.codes.ok:
+                    raise Exception('Failed to get external network {} details with error - {}'.format(
+                        parentNetworkId['name'], extNetResponseDict["message"]))
+                if int(responseDict['resultTotal']) > 1 or extNetResponseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
                     # Added validation for shared direct network
-                    if networkData['shared'] or not self.orgVdcInput.get("LegacyDirectNetwork", False):
+                    if not self.orgVdcInput.get("LegacyDirectNetwork", False) or extNetResponseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
                         if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
                             return None, "Shared Networks are not supported with this vCD version"
                         # Fetching all external networks from vCD
@@ -6907,7 +6916,18 @@ class VCDMigrationValidation:
                     if response.status_code == requests.codes.ok:
                         responseDict = response.json()
                         if not int(responseDict['resultTotal']) > 1:
-                            NonServiceDirectSharedNetworkList.append(network)
+                            # Implementation for Direct Network connected to VXLAN backed External Network irrespective of the dedicated/non-dedicated or shared/non-shared status.
+                            extNetUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                         vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                                         network['parentNetworkId']['id'])
+                            extNetResponse = self.restClientObj.get(extNetUrl, self.headers)
+                            extNetResponseDict = extNetResponse.json()
+                            if extNetResponse.status_code == requests.codes.ok:
+                                if not extNetResponseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
+                                    NonServiceDirectSharedNetworkList.append(network)
+                            else:
+                                raise Exception('Failed to get external network {} details with error - {}'.format(
+                                    network['parentNetworkId']['name'], extNetResponseDict["message"]))
                     else:
                         raise Exception("Failed to fetch external network {} details".format(
                             network['parentNetworkId']['name']))

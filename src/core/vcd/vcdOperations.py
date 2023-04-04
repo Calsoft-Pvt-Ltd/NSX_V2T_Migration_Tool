@@ -2858,8 +2858,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 orgVDCNetworkList = self.retrieveNetworkListFromMetadata(sourceOrgVDCId, orgVDCType='source')
                 # Iterating over source org vdc networks to find IP's used by VM's connected to direct shared network
                 for sourceOrgVDCNetwork in orgVDCNetworkList:
-                    if sourceOrgVDCNetwork['networkType'] == "DIRECT" and \
-                            (sourceOrgVDCNetwork['shared'] or not self.orgVdcInput.get('LegacyDirectNetwork', False)):
+                    if sourceOrgVDCNetwork['networkType'] == "DIRECT":
                         # url to retrieve the networks with external network id
                         url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                               vcdConstants.ALL_ORG_VDC_NETWORKS,
@@ -2869,7 +2868,17 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         response = self.restClientObj.get(url, self.headers)
                         responseDict = response.json()
                         if response.status_code == requests.codes.ok:
-                            if int(responseDict['resultTotal']) > 1:
+                            # Checking the external network backing
+                            extNetUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                         vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                                         sourceOrgVDCNetwork['parentNetworkId']['id'])
+                            extNetResponse = self.restClientObj.get(extNetUrl, self.headers)
+                            extNetResponseDict = extNetResponse.json()
+                            if extNetResponse.status_code != requests.codes.ok:
+                                raise Exception('Failed to get external network {} details with error - {}'.format(
+                                    sourceOrgVDCNetwork['parentNetworkId']['name'], extNetResponseDict["message"]))
+                            if (int(responseDict['resultTotal']) > 1 and not self.orgVdcInput.get('LegacyDirectNetwork', False)) or \
+                                extNetResponseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
                                 sourceOrgVDCNetworkSubnetList = [ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
                                                                         for subnet in sourceOrgVDCNetwork['subnets']['values']]
                                 directNetworkId = sourceOrgVDCNetwork['id'].split(':')[-1]
@@ -6185,7 +6194,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         return segmentName, payload
 
     @isSessionExpired
-    def extendedParentNetworkPayload(self, orgvdcNetwork):
+    def extendedParentNetworkPayload(self, orgvdcNetwork, Shared):
         """
         Description: THis method is used to create payload for service direct network in legacy mode
         return: payload data - payload data for creating a service direct network in legacy mode
@@ -6194,7 +6203,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 'name': orgvdcNetwork['name'] + '-v2t',
                                 'description': orgvdcNetwork['description'] if orgvdcNetwork.get('description') else '',
                                 'networkType': orgvdcNetwork['networkType'],
-                                'parentNetworkId': orgvdcNetwork['parentNetworkId']
+                                'parentNetworkId': orgvdcNetwork['parentNetworkId'],
+                                'shared': Shared
                             }
         return payLoad
 
@@ -6257,17 +6267,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     raise Exception('Failed to get external network {} details with error - {}'.format(
                             parentNetworkId['name'], extNetResponseDict["message"]))
                 if int(responseDict['resultTotal']) > 1:
-                    if not orgvdcNetwork['shared']:
-                        if self.orgVdcInput.get('LegacyDirectNetwork', False):
-                            # Service direct network legacy implementation
-                            payloadDict = self.extendedParentNetworkPayload(orgvdcNetwork)
-                        else:
-                            # Service direct network default implementation
-                            payloadDict = self.v2tBackedNetworkPayload(parentNetworkId, orgvdcNetwork, Shared=False)
-
+                    if self.orgVdcInput.get('LegacyDirectNetwork', False):
+                        # Service direct network legacy implementation
+                        payloadDict = self.extendedParentNetworkPayload(orgvdcNetwork, Shared=orgvdcNetwork['shared'])
                     else:
-                        # Shared service direct network implementation
-                        payloadDict = self.v2tBackedNetworkPayload(parentNetworkId, orgvdcNetwork, Shared=True)
+                        # Service direct network default implementation
+                        payloadDict = self.v2tBackedNetworkPayload(parentNetworkId, orgvdcNetwork, Shared=orgvdcNetwork['shared'])
                 else:
                     # Dedicated direct network implementation
                     segmentName, payloadDict = self.importedNetworkPayload(parentNetworkId, orgvdcNetwork, inputDict, nsxObj)
