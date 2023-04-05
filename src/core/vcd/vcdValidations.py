@@ -1794,6 +1794,46 @@ class VCDMigrationValidation:
             raise Exception(errorList)
 
     @isSessionExpired
+    def validateOrgVDCNetworkSubnetConflict(self):
+        """
+        Description : Validate Org VDC network subnets conflicts with existing IP Spaces Internal Scopes available to tenant
+        """
+        ipSpaceEnabledEdges = [edgeGateway["id"] for edgeGateway in self.rollback.apiData["sourceEdgeGateway"]
+                if self.orgVdcInput['EdgeGateways'][edgeGateway['name']]['Tier0Gateways'] in
+                   self.rollback.apiData["ipSpaceProviderGateways"]]
+        if not ipSpaceEnabledEdges:
+            return
+
+        networkList = self.getOrgVDCNetworks(self.rollback.apiData.get("sourceOrgVDC", {}).get("@id"),
+                                                'sourceOrgVDCNetworks', saveResponse=False)
+
+        # List of non-direct networks i.e Routed(connected to IP Space edge), Isolated
+        filteredList = list(filter(
+            lambda network: network['networkType'] == 'ISOLATED' or network.get('connection', {}).get('routerRef',
+                                                                    {}).get('id') in ipSpaceEnabledEdges, networkList))
+        if not filteredList:
+            return
+
+        errorList = list()
+        allIpSpaces = self.fetchAllIpSpaces
+        for network in filteredList:
+            networkSubnet = ipaddress.ip_network("{}/{}".format(network["subnets"]["values"][0]["gateway"],
+                                                                network["subnets"]["values"][0]["prefixLength"]))
+            for ipSpace in allIpSpaces:
+                for internalScope in ipSpace["ipSpaceInternalScope"]:
+                    if networkSubnet.overlaps(ipaddress.ip_network(internalScope)):
+                        errorList.append(
+                            "Org VDC Network - '{}' subnet overlaps with IP Space - '{}' internal scope".format(
+                                network["name"], ipSpace["name"]))
+                        break
+                else:
+                    continue
+                break
+
+        if errorList:
+            raise Exception("".join(errorList))
+
+    @isSessionExpired
     def validateExternalNetworkMultipleSubnets(self):
         """
         Description : Validate multiple subnets in directly connected external network
@@ -5639,6 +5679,10 @@ class VCDMigrationValidation:
             # checking overlapping subnets of org vdc networks belonging to org vdcs mentioned in input file
             logger.info("Validating ovelapping subnets in case of IP Space enabled edges")
             self.validateOvelappingNetworksubnets(vcdObjList)
+
+            # checking whether Org VDC subnets are already present in Internal Scopes of IP Spaces available to tenant
+            logger.info("Validating Org VDC network subnets conflicts with existing IP Spaces Internal Scopes available to tenant")
+            self.validateOrgVDCNetworkSubnetConflict()
 
             # validating whether multiple subnets are present in directly connected external network
             self.validateExternalNetworkMultipleSubnets()
