@@ -1818,10 +1818,10 @@ class VCDMigrationValidation:
         allIpSpaces = self.fetchAllIpSpaces
         for network in filteredList:
             networkSubnet = ipaddress.ip_network("{}/{}".format(network["subnets"]["values"][0]["gateway"],
-                                                                network["subnets"]["values"][0]["prefixLength"]))
+                                                                network["subnets"]["values"][0]["prefixLength"]), strict=False)
             for ipSpace in allIpSpaces:
                 for internalScope in ipSpace["ipSpaceInternalScope"]:
-                    if networkSubnet.overlaps(ipaddress.ip_network(internalScope)):
+                    if networkSubnet.overlaps(ipaddress.ip_network(internalScope, strict=False)):
                         errorList.append(
                             "Org VDC Network - '{}' subnet overlaps with IP Space - '{}' internal scope".format(
                                 network["name"], ipSpace["name"]))
