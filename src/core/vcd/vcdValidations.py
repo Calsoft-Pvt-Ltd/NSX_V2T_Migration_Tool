@@ -3616,8 +3616,6 @@ class VCDMigrationValidation:
         Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
         """
 
-        if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
-            return []
         errorList = set()
         # url for getting edge gateway load balancer virtual servers configuration
         url = '{}{}'.format(
@@ -3650,6 +3648,20 @@ class VCDMigrationValidation:
         else:
             errorResponseData = response.json()
             raise Exception("Failed to get edge gateway {} vnic details due to error {}".format(edgeGatewayId, errorResponseData['message']))
+
+        vnicIpToTypeMap = {}
+        for vnics in vNicsDetails:
+            if vnics['addressGroups']:
+                if 'primaryAddress' in vnics['addressGroups']['addressGroup']:
+                    vnicIpToTypeMap[vnics['addressGroups']['addressGroup']['primaryAddress']] = vnics['type']
+                if 'secondaryAddresses' in vnics['addressGroups']['addressGroup']:
+                    for ip in listify(
+                            vnics['addressGroups']['addressGroup']['secondaryAddresses']['ipAddress']):
+                        vnicIpToTypeMap[ip] = vnics['type']
+        for virtualServer in virtualServersData:
+            if vnicIpToTypeMap[virtualServer['ipAddress']] == 'internal' and float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+                return ["VIP from org VDC network is not supported on target side"]
+
         for vnics in vNicsDetails:
             if vnics.get('addressGroups') and vnics['type'] == 'internal':
                 for addressGroup in listify(vnics['addressGroups']['addressGroup']):
