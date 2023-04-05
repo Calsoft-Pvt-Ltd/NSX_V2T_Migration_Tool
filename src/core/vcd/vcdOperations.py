@@ -88,13 +88,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             targetExtNetData = self.getExternalNetworkByName(targetExtNetName)
             if targetExtNetData.get("usingIpSpace"):
                 ipSpaces = self.getProviderGatewayIpSpaces(targetExtNetData)
-                for edgeGatewaySubnet, edgeGatewayIpRange in sourceEgwSubnets.items():
+                for edgeGatewaySubnet, edgeGatewayIpRangesList in sourceEgwSubnets.items():
                     for ipSpace in ipSpaces:
                         if [internalScope for internalScope in ipSpace["ipSpaceInternalScope"]
                             if edgeGatewaySubnet.subnet_of(
                                 ipaddress.ip_network('{}'.format(internalScope), strict=False))]:
-                            pass
-                            #self._prepareIpSpaceRanges(ipSpace, edgeGatewayIpRange)
+                            self._prepareIpSpaceRanges(ipSpace, edgeGatewayIpRangesList)
                 for ipSpace in ipSpaces:
                     url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.UPDATE_IP_SPACES.format(ipSpace["id"]))
                     self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
@@ -130,6 +129,32 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
         # Releasing lock
         self.lock.release()
+
+    def _prepareIpSpaceRanges(self, ipSpace, edgeGatewayIpRangesList):
+
+        def _createIpList(start, end):
+            '''Return IPs in IPv4 range, inclusive.'''
+            start_int = int(ipaddress.ip_address(start).packed.hex(), 16)
+            end_int = int(ipaddress.ip_address(end).packed.hex(), 16)
+            return [ipaddress.ip_address(ip) for ip in range(start_int, end_int + 1)]
+
+        def _addIpsToIpSpaceRanges(ipList):
+            for ip in ipList:
+                for ipSpaceRange in ipSpace["ipSpaceRanges"]["ipRanges"]:
+                    if ipaddress.ip_address(ipSpaceRange["startIpAddress"]) <= ip <= ipaddress.ip_address(
+                            ipSpaceRange["endIpAddress"]):
+                        break
+                else:
+                    ipSpace["ipSpaceRanges"]["ipRanges"].append({
+                        "id": None,
+                        "startIpAddress": ip,
+                        "endIpAddress": ip
+                    })
+
+        ipList = list()
+        for edgeGatewayIpRange in edgeGatewayIpRangesList:
+            ipList.extend(_createIpList(edgeGatewayIpRange["startAddress"], edgeGatewayIpRange["endAddress"]))
+        _addIpsToIpSpaceRanges(ipList)
 
     def _createEdgeGateway(self, nsxObj):
         data = self.rollback.apiData
