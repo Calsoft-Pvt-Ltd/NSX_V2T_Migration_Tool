@@ -443,6 +443,9 @@ MOVE_CATALOG_TEMPLATE = 'moveCatalogItem'
 # move vapp by catalog id uri
 MOVE_CATALOG = 'catalog/{}/action/move'
 
+# Catalog VappVmTemplate storage policy
+CATALOG_VAPP_VM_TEMP_STORAGE_POLICY = "catalogVAppTemplate"
+
 # static routing config uri
 STATIC_ROUTING_CONFIG = 'edges/{}/routing/config/static'
 
@@ -809,3 +812,12 @@ PORT_GROUP = "PORTGROUP_BACKED"
 
 # Advertised Tier-1 Subnets Connected Segment List
 ADVERTISED_SUBNET_LIST = ["TIER1_LB_VIP", "TIER1_NAT", "TIER1_IPSEC_LOCAL_ENDPOINT", "TIER1_STATIC"]
+
+# Admin user
+ADMIN_USER = 'system'
+
+# Get Share Permissions for catalog.
+GET_CATALOG_SHARE_PERMISSIONS = 'catalog/{}/controlAccess'
+
+# Set Share Permissions fot catalog.
+SET_CATALOG_SHARE_PERMISSIONS = 'catalog/{}/action/controlAccess'

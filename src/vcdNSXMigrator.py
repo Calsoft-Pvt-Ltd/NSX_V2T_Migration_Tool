@@ -24,6 +24,10 @@ import yaml
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 
+# Importing and Setting _MAXHEADERS = 500(to take care of APIs returning a lot of response headers)
+import http.client
+http.client._MAXHEADERS = 500
+
 # Set path till src folder in PYTHONPATH
 cwd = os.getcwd()
 parentDir = os.path.abspath(os.path.join(cwd, os.pardir))
@@ -796,7 +800,8 @@ class VMwareCloudDirectorNSXMigrator():
         passFilePath = self.passFile if self.passFile else self.defaultPassFileName
 
         cleanupObjectsList = [
-            VMwareCloudDirectorNSXMigratorCleanup(orgVDCDict, self.inputDict, vcdObj, nsxtObj, passFilePath)
+            VMwareCloudDirectorNSXMigratorCleanup(orgVDCDict, self.inputDict, vcdObj, nsxtObj, passFilePath, self.timeoutForVappMigration
+                                                  )
             for orgVDCDict, nsxtObj, vcdObj in zip(
                 self.inputDict["VCloudDirector"]["SourceOrgVDC"], self.nsxtObjList, self.vcdObjList)
         ]
@@ -877,7 +882,7 @@ class VMwareCloudDirectorNSXMigrator():
             # only if org vdc networks exist bridging will be configured
             if filteredList:
                 # Configuring Bridging
-                self.nsxtObjList[0].configureNSXTBridging(self.vcdObjList)
+                self.nsxtObjList[0].configureNSXTBridging(self.vcdObjList, self.vcenterObj)
                 # verify bridge connectivity
                 self.nsxtObjList[0].verifyBridgeConnectivity(self.vcdObjList, self.vcenterObj)
             elif orgVdcNetworkList:

@@ -176,8 +176,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if not externalDict.get('usingIpSpace'):
                 if sourceEdgeGatewayDict['name'] in data['isT0Connected']:
                     # Adding only those subnets to T0 subnet data that are going to be connected to external network via T0
-                    gatewayList = [subnetData[0] for subnetData in
-                                   data['isT0Connected'][sourceEdgeGatewayDict['name']][t0Gateway]]
+                    gatewayList = [subnetData[0] for subnetData in data['isT0Connected'][sourceEdgeGatewayDict['name']][t0Gateway]]
                     for uplink in sourceEdgeGatewayDict['edgeGatewayUplinks']:
                         if uplink['subnets']['values'][0]['gateway'] in gatewayList:
                             subnetData += uplink['subnets']['values']
@@ -1479,7 +1478,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
     @description("getting the portgroup of source org vdc networks")
     @remediate
-    def getPortgroupInfo(self, orgVdcNetworkList, vcenterObj):
+    def getPortgroupInfo(self, orgVdcNetworkList):
         """
         Description : Get Portgroup Info
         Parameters  : orgVdcNetworkList - List of source org vdc networks (LIST)
@@ -1489,44 +1488,24 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             logger.info('Getting the portgroup of source org vdc networks.')
             data = self.rollback.apiData
 
+            # making a list of non-direct networks
+            NonDirectNetworks = [network for network in orgVdcNetworkList if network["networkType"] != "DIRECT"]
             # Fetching name and ids of all the org vdc networks
             networkIdMapping, networkNameList = dict(), set()
-            for orgVdcNetwork in orgVdcNetworkList:
+            for orgVdcNetwork in NonDirectNetworks:
                 networkIdMapping[orgVdcNetwork['id'].split(":")[-1]] = orgVdcNetwork
                 networkNameList.add(orgVdcNetwork['name'])
 
-            # Fetching VM ID of source edge gateway
-            edgeGatewayVmIdMapping = self.getEdgeVmId()
-            # get interface details of the nsx-v edge vm using vcenter api's
-            interfaceDetails = {edgeGatewayId: vcenterObj.getEdgeVmNetworkDetails(edgeVMId)
-                                for edgeGatewayId, edgeVMId in edgeGatewayVmIdMapping.items()}
-
             allPortGroups = self.fetchAllPortGroups()
-            portGroupDict = dict()
+            portGroupDict = defaultdict(list)
             # Iterating over all the port groups to find the portgroups linked to org vdc network
             for portGroup in allPortGroups:
                 if portGroup['networkName'] != '--' and \
                         portGroup['scopeType'] not in ['-1', '1'] and \
                         portGroup['networkName'] in networkNameList and \
-                        portGroup['network'].split('/')[-1] in networkIdMapping.keys() and \
-                        portGroup['network'].split('/')[-1] not in portGroupDict:
-                    orgVdcNetworkData = networkIdMapping[portGroup['network'].split('/')[-1]]
-                    # Checking for routed Internal network only as it is connected to internal interfaces of edge gateway (MAX ALLOWED - 9)
-                    if orgVdcNetworkData["networkType"] == "NAT_ROUTED" and \
-                        orgVdcNetworkData["connection"]["connectionType"] not in ["DISTRIBUTED", "SUBINTERFACE"]:
-                        # Distributed network is skipped as the network is connected to an internal interface of a distributed router that is exclusively associated with this gateway
-                        # Subiterface network is skipped as it is connected to the edge gateway's internal trunk interface
-                        edgeGatewayId = orgVdcNetworkData["connection"]["routerRef"]["id"].split(':')[-1]
-
-                        for nicDetail in interfaceDetails[edgeGatewayId]:
-                            # comparing source org vdc network portgroup moref and edge gateway interface details
-                            if portGroup['moref'] == nicDetail['value']['backing']['network']:
-                                portGroupDict[portGroup['network'].split('/')[-1]] = portGroup
-                                break
-                        else:
-                            continue
-                    else:
-                        portGroupDict[portGroup['network'].split('/')[-1]] = portGroup
+                        portGroup['network'].split('/')[-1] in networkIdMapping.keys():
+                    portGroupDict[portGroup['networkName']].append({"moref": portGroup["moref"],
+                                                                   "networkName": portGroup["networkName"]})
 
             # Saving portgroups data to metadata data structure
             data['portGroupList'] = list(portGroupDict.values())
@@ -1566,7 +1545,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             vmList = listify(responseDict['VApp']['Children']['Vm'])
             networkTypes = {
                 vAppNetwork['@networkName']: vAppNetwork['Configuration']['FenceMode']
-                for vAppNetwork in listify(responseDict['VApp']['NetworkConfigSection']['NetworkConfig'])
+                for vAppNetwork in listify(responseDict['VApp']['NetworkConfigSection'].get('NetworkConfig', []))
             }
             # iterating over the vms in vapp
             for vm in vmList:
@@ -1615,15 +1594,16 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     storageProfileHref = ''
 
                 # gathering the vm's data required to create payload data and appending the dict to the 'vmInVappList'.
+                # update primaryNetworkConnectionIndex value for No NIC present at VM level set default value None
                 vmInVappList.append(
                     {'name': vm['@name'], 'description': vm['Description'] if vm.get('Description') else '',
-                     'href': vm['@href'], 'networkConnectionSection': vm['NetworkConnectionSection'],
-                     'storageProfileHref': storageProfileHref, 'state': responseDict['VApp']['@status'],
-                     'computePolicyName': computePolicyName, 'computePolicyId': computePolicyId,
-                     'sizingPolicyHref': sizingPolicyHref,
-                     'primaryNetworkConnectionIndex': vm['NetworkConnectionSection']['PrimaryNetworkConnectionIndex'],
-                     'diskSection': diskSection if diskSection else None,
-                     'hardwareVersion': hardwareVersion})
+                    'href': vm['@href'], 'networkConnectionSection': vm['NetworkConnectionSection'],
+                    'storageProfileHref': storageProfileHref, 'state': responseDict['VApp']['@status'],
+                    'computePolicyName': computePolicyName, 'computePolicyId': computePolicyId,
+                    'sizingPolicyHref': sizingPolicyHref,
+                    'primaryNetworkConnectionIndex': vm['NetworkConnectionSection'].get('PrimaryNetworkConnectionIndex'),
+                    'diskSection': diskSection if diskSection else None,
+                    'hardwareVersion': hardwareVersion})
             filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
             # iterating over the above saved vms list of source vapp
             for vm in vmInVappList:
@@ -1633,7 +1613,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     state = "false"
                 else:
                     state = "true"
-                networkConnectionList = listify(vm['networkConnectionSection']['NetworkConnection'])
+                networkConnectionList = listify(vm['networkConnectionSection'].get('NetworkConnection', []))
                 networkConnectionPayloadData = ''
                 # creating payload for mutiple/single network connections in a vm
                 for networkConnection in networkConnectionList:
@@ -1729,12 +1709,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     vAppVMDiskStorageProfileData = None
 
                 # handling the case:- if both compute policy & sizing policy are absent
+                # update primaryNetworkConnectionIndex value for No NIC present at VM level set default value None
                 if not vm["computePolicyName"] and not vm['sizingPolicyHref']:
                     payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
                                    'storageProfileHref': vm['storageProfileHref'],
                                    'vmNetworkConnectionDetails': networkConnectionPayloadData,
                                    'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
-                                   'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
+                                   'primaryNetworkConnectionIndex': vm['networkConnectionSection'].get('PrimaryNetworkConnectionIndex')
+                                   }
                     payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                               componentName=vcdConstants.COMPONENT_NAME,
                                                               templateName=vcdConstants.MOVE_VAPP_VM_TEMPLATE)
@@ -1773,12 +1755,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             raise Exception(
                                 'Could not find placement policy {} in target Org VDC.'.format(vm["computePolicyName"]))
                         # creating the payload dictionary
+                        # update primaryNetworkConnectionIndex value for No NIC present at VM level set default value None
                         payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
                                        'storageProfileHref': vm['storageProfileHref'],
                                        'vmPlacementPolicyHref': href,
                                        'vmNetworkConnectionDetails': networkConnectionPayloadData,
                                        'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
-                                       'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
+                                       'primaryNetworkConnectionIndex': vm['networkConnectionSection'].get('PrimaryNetworkConnectionIndex')
+                                       }
                         # creating the payload data
                         payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                                   componentName=vcdConstants.COMPONENT_NAME,
@@ -1786,13 +1770,15 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     # handling the case:- if sizing policy is present and compute policy is absent
                     elif vm['sizingPolicyHref'] and not vm["computePolicyName"]:
                         # creating the payload dictionary
+                        # update primaryNetworkConnectionIndex value for No NIC present at VM level set default value None
                         payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
                                        'storageProfileHref': vm['storageProfileHref'],
                                        'sizingPolicyHref': vm['sizingPolicyHref'],
                                        'vmNetworkConnectionDetails': networkConnectionPayloadData,
                                        'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
-                                       'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
-                        # creating the pauload data
+                                       'primaryNetworkConnectionIndex': vm['networkConnectionSection'].get('PrimaryNetworkConnectionIndex')
+                                       }
+                        # creating the payload data
                         payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                                   componentName=vcdConstants.COMPONENT_NAME,
                                                                   templateName=vcdConstants.MOVE_VAPP_VM_SIZING_POLICY_TEMPLATE)
@@ -1829,12 +1815,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             raise Exception(
                                 'Could not find placement policy {} in target Org VDC.'.format(vm["computePolicyName"]))
                         # creating the payload dictionary
+                        # update primaryNetworkConnectionIndex value for No NIC present at VM level set default value None
                         payloadDict = {'vmHref': vm['href'], 'vmDescription': vm['description'], 'state': state,
                                        'storageProfileHref': vm['storageProfileHref'],
                                        'vmPlacementPolicyHref': href, 'sizingPolicyHref': vm['sizingPolicyHref'],
                                        'vmNetworkConnectionDetails': networkConnectionPayloadData,
                                        'vAppVMDiskStorageProfileDetails': vAppVMDiskStorageProfileData,
-                                       'primaryNetworkConnectionIndex': vm['primaryNetworkConnectionIndex']}
+                                       'primaryNetworkConnectionIndex': vm['networkConnectionSection'].get('PrimaryNetworkConnectionIndex')
+                                       }
                         # creating the pauload data
                         payloadData = self.vcdUtils.createPayload(filePath, payloadDict, fileType='yaml',
                                                                   componentName=vcdConstants.COMPONENT_NAME,
@@ -3012,8 +3000,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 orgVDCNetworkList = self.retrieveNetworkListFromMetadata(sourceOrgVDCId, orgVDCType='source')
                 # Iterating over source org vdc networks to find IP's used by VM's connected to direct shared network
                 for sourceOrgVDCNetwork in orgVDCNetworkList:
-                    if sourceOrgVDCNetwork['networkType'] == "DIRECT" and \
-                            (sourceOrgVDCNetwork['shared'] or not self.orgVdcInput.get('LegacyDirectNetwork', False)):
+                    if sourceOrgVDCNetwork['networkType'] == "DIRECT":
                         # url to retrieve the networks with external network id
                         url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                               vcdConstants.ALL_ORG_VDC_NETWORKS,
@@ -3023,7 +3010,17 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         response = self.restClientObj.get(url, self.headers)
                         responseDict = response.json()
                         if response.status_code == requests.codes.ok:
-                            if int(responseDict['resultTotal']) > 1:
+                            # Checking the external network backing
+                            extNetUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                         vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                                         sourceOrgVDCNetwork['parentNetworkId']['id'])
+                            extNetResponse = self.restClientObj.get(extNetUrl, self.headers)
+                            extNetResponseDict = extNetResponse.json()
+                            if extNetResponse.status_code != requests.codes.ok:
+                                raise Exception('Failed to get external network {} details with error - {}'.format(
+                                    sourceOrgVDCNetwork['parentNetworkId']['name'], extNetResponseDict["message"]))
+                            if (int(responseDict['resultTotal']) > 1 and not self.orgVdcInput.get('LegacyDirectNetwork', False)) or \
+                                extNetResponseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
                                 sourceOrgVDCNetworkSubnetList = [ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
                                                                         for subnet in sourceOrgVDCNetwork['subnets']['values']]
                                 directNetworkId = sourceOrgVDCNetwork['id'].split(':')[-1]
@@ -3206,7 +3203,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 self.enablePromiscModeForgedTransmit(orgVdcNetworkList)
 
                 # get the portgroup of source org vdc networks
-                self.getPortgroupInfo(orgVdcNetworkList, vcenterObj)
+                self.getPortgroupInfo(orgVdcNetworkList)
 
             # Migrating metadata from source org vdc to target org vdc
             self.migrateMetadata()
@@ -3367,7 +3364,65 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if advertisedSubnets:
                 nsxtObj.createRouteRedistributionRule(vrfData, t0Gateway, routeRedistributionRules)
 
-    def migrateCatalogItems(self, sourceOrgVDCId, targetOrgVDCId, orgName):
+    def updateCatalogVappVmPolicy(self, vappVmList, templateName):
+        """
+        Description :   Update the Catalog VApp template VM Default Storage Policies and return the response
+        Parameters: vappVmList -  list of all VM present under VApp templates (LIST)
+        """
+        logger.debug("Updating Default VM Template Storage Policy for VMs - {} using vApp template - '{}'".format(
+            [vm['@name'] for vm in vappVmList], templateName))
+        filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
+        # iterate through Catalog VApp template Vm list
+        for vappVm in vappVmList:
+            payloadDict = {
+                'catlogvappvmTempUrl': vappVm['@href'],
+                'vmCatalogName': vappVm['@name']
+            }
+            payloadData = self.vcdUtils.createPayload(filePath,
+                                                      payloadDict,
+                                                      fileType='yaml',
+                                                      componentName=vcdConstants.COMPONENT_NAME,
+                                                      templateName=vcdConstants.CATALOG_VAPP_VM_TEMP_STORAGE_POLICY)
+            payloadData = json.loads(payloadData)
+            self.headers["Content-Type"] = vcdConstants.GENERAL_XML_CONTENT_TYPE
+            # Api Call to update VM Default Storage Policy
+            response = self.restClientObj.put(vappVm['@href'], self.headers, data=payloadData)
+            if response.status_code == requests.codes.accepted:
+                taskUrl = response.headers['Location']
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug("Default VM Template Storage Policy of VM - '{}' for Catalog Vapp template - '{}' updated successfully with Default storage policy of target Org VDC".format(
+                    vappVm['@name'], templateName))
+            else:
+                raise Exception("Failed to update Default VM Template Storage Policy of VM - '{}' for Catalog Vapp template - '{}' with Default storage policy of target Org VDC".format(
+                    vappVm['@name'], templateName))
+
+    def checkVappCatalogVmDefaultStoragePolicy(self, catalogItemResponseDict, targetOrgVDCStoragePolicyName):
+        """
+        Description :   Check Default Storage Policy applied to the VAPp Template
+        Parameters  :   catalogItemResponseDict - Catalog Items
+                        targetOrgVDCStoragePolicyName - Name of Target Org VDC Storage Polices (LIST)
+        """
+        logger.debug("Checking Default VM Template Storage Policy for VApp template - {}.".format(
+            catalogItemResponseDict['@name']))
+        # API call to get Catlog VApp template response
+        catalogVappTempItemResponse = self.restClientObj.get(catalogItemResponseDict['@href'],
+                                                             headers=self.headers)
+        if catalogVappTempItemResponse.status_code == requests.codes.ok:
+            catalogVappTempItemResponseDict = self.vcdUtils.parseXml(catalogVappTempItemResponse.content)
+            # List all chidrens of Vapp template and convert return values to list if not list
+            vappChildrenList = catalogVappTempItemResponseDict['VAppTemplate']['Children'][
+                'Vm'] if isinstance(catalogVappTempItemResponseDict['VAppTemplate']['Children']['Vm'], list) else [
+                catalogVappTempItemResponseDict['VAppTemplate']['Children']['Vm']]
+            # iterate through all VApp template chidrens and filter records with different storage policy than target Org VDC
+            vappVmList = [vm for vm in vappChildrenList if vm.get('DefaultStorageProfile') and vm.get(
+                'DefaultStorageProfile') not in targetOrgVDCStoragePolicyName]
+            if vappVmList:
+                self.updateCatalogVappVmPolicy(vappVmList, catalogItemResponseDict['@name'])
+        else:
+            raise Exception("Failed to retrieve Catalog VApp template details - {} url.".format(
+                    catalogItemResponseDict['@name']))
+
+    def migrateCatalogItems(self, sourceOrgVDCId, targetOrgVDCId, orgName, timeout):
         """
         Description : Migrating Catalog Items - vApp Templates and Media & deleting catalog thereafter
         Parameters  :   sourceOrgVDCId  - source Org VDC id (STRING)
@@ -3390,12 +3445,38 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             # get api call to retrieve the target org vdc details
             targetOrgVDCResponse = self.restClientObj.get(url, self.headers)
             targetOrgVDCResponseDict = self.vcdUtils.parseXml(targetOrgVDCResponse.content)
+
+            # targetStorageProfileIDsList holds list the IDs of the target org vdc storage profiles
+            targetStorageProfileIDsList = []
+            # targetStorageProfilesList holds the list of dictionaries of details of each target org vdc storage profile
+            targetStorageProfilesList = []
             # retrieving target org vdc storage profiles list
             targetOrgVDCStorageList = targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles'][
                 'VdcStorageProfile'] if isinstance(
                 targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile'], list) else [
                 targetOrgVDCResponseDict['AdminVdc']['VdcStorageProfiles']['VdcStorageProfile']]
+            for storageProfile in targetOrgVDCStorageList:
+                targetStorageProfilesList.append(storageProfile)
+                targetStorageProfileIDsList.append(storageProfile['@id'])
 
+            # targetOrgVDCCatalogDetails will hold list of only catalogs present in the target org vdc
+            targetOrgVDCCatalogDetails = []
+            # targetOrgVDCCatalogNameList will hold name of target org vdc catalogs
+            targetOrgVDCCatalogNameList = []
+            # iterating over all the organization catalogs
+            for catalog in orgCatalogs:
+                # get api call to retrieve the catalog details
+                catalogResponse = self.restClientObj.get(catalog['@href'], headers=self.headers)
+                catalogResponseDict = self.vcdUtils.parseXml(catalogResponse.content)
+                if catalogResponseDict['AdminCatalog'].get('CatalogStorageProfiles'):
+                    # checking if catalogs storage profile is same from target org vdc storage profile by matching the ID of storage profile
+                    if catalogResponseDict['AdminCatalog']['CatalogStorageProfiles']['VdcStorageProfile'][
+                            '@id'] in targetStorageProfileIDsList:
+                        # creating the list of catalogs from source org vdc
+                        targetOrgVDCCatalogDetails.append(catalogResponseDict['AdminCatalog'])
+                        targetOrgVDCCatalogNameList.append(catalogResponseDict['AdminCatalog']["@name"])
+            # List of all target OrgVDC storage policies name
+            targetOrgVDCStoragePolicyName = [storagePolicy['@name'] for storagePolicy in targetOrgVDCStorageList]
             # iterating over the source org vdc catalogs to migrate them to target org vdc
             for srcCatalog in sourceOrgVDCCatalogDetails:
                 logger.debug("Migrating source Org VDC specific Catalogs")
@@ -3412,8 +3493,15 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 payloadDict = {'catalogName': srcCatalog['@name'] + '-v2t',
                                'storageProfileHref': storageProfileHref,
                                'catalogDescription': srcCatalog['Description'] if srcCatalog.get('Description') else ''}
-                catalogId = self.createCatalog(payloadDict, orgId)
-
+                if payloadDict['catalogName'] not in targetOrgVDCCatalogNameList:
+                    # owner is a dictionary and it contains href, type and name of owner of the catalog
+                    owner = srcCatalog.get('Owner', {}).get('User')
+                    # Source Catalog ID
+                    srcCatalogId = srcCatalog.get('@id').split(':')[-1]
+                    catalogId = self.createCatalog(payloadDict, orgId, owner, srcCatalogId)
+                else:
+                    catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
+                    targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
                 if catalogId:
                     # empty catalogs
                     if not srcCatalog.get('CatalogItems'):
@@ -3436,6 +3524,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         catalogItemResponse = self.restClientObj.get(catalogItem['@href'], headers=self.headers)
                         catalogItemResponseDict = self.vcdUtils.parseXml(catalogItemResponse.content)
                         if catalogItemResponseDict['CatalogItem']['Entity']['@type'] == vcdConstants.TYPE_VAPP_TEMPLATE:
+                            self.checkVappCatalogVmDefaultStoragePolicy(catalogItemResponseDict['CatalogItem']['Entity'],
+                                                                        targetOrgVDCStoragePolicyName)
                             vAppTemplateCatalogItemList.append(catalogItem)
                         elif catalogItemResponseDict['CatalogItem']['Entity']['@type'] == vcdConstants.TYPE_VAPP_MEDIA:
                             mediaCatalogItemList.append(catalogItem)
@@ -3450,7 +3540,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         # creating payload data to move media
                         payloadDict = {'catalogItemName': catalogItem['@name'],
                                        'catalogItemHref': catalogItem['@href']}
-                        self.moveCatalogItem(payloadDict, catalogId)
+                        self.moveCatalogItem(payloadDict, catalogId, timeout)
 
                     # moving each catalog item from the 'vAppTemplateCatalogItemList' to target catalog created above
                     for catalogItem in vAppTemplateCatalogItemList:
@@ -3458,7 +3548,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         # creating payload data to move vapp template
                         payloadDict = {'catalogItemName': catalogItem['@name'],
                                        'catalogItemHref': catalogItem['@href']}
-                        self.moveCatalogItem(payloadDict, catalogId)
+                        self.moveCatalogItem(payloadDict, catalogId, timeout)
 
                     # deleting the source org vdc catalog
                     self.deleteSourceCatalog(srcCatalog['@href'], srcCatalog)
@@ -3545,11 +3635,16 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             catalogResponseDict = self.getCatalogDetails(catalogItem['catalogHref'])
                             catalogItem['catalogDescription'] = catalogResponseDict['description'] if catalogResponseDict.get('description') else ''
                             catalogItemDetailsList.append(catalogItem)
+                            # URL for catalog owner
+                            catalogOwnerUrl = "{}/{}".format(str(catalogItem['catalogHref']), "owner")
+                            # Getting Catalog Owner details
+                            catalogOwnerDict = self.getCatalogOwner(catalogOwnerUrl)
                             if resource['catalogName'] not in catalogNameList:
                                 catalogNameList.append(resource['catalogName'])
                                 catalog = {'catalogName': resource['catalogName'],
                                            'catalogHref': catalogItem['catalogHref'],
-                                           'catalogDescription': catalogResponseDict['description'] if catalogResponseDict.get('description') else ''}
+                                           'catalogDescription': catalogResponseDict['description'] if catalogResponseDict.get('description') else '',
+                                           'catalogOwner': catalogOwnerDict.get('user')}
                                 catalogDetailsList.append(catalog)
                 # deleting the temporary list since no more needed
                 del catalogNameList
@@ -3560,15 +3655,27 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     payloadDict = {'catalogName': catalog['catalogName'] + '-v2t',
                                    'storageProfileHref': defaultTargetStorageProfileHref,
                                    'catalogDescription': catalog['catalogDescription']}
-                    # create api call to create a new place holder catalog
-                    catalogId = self.createCatalog(payloadDict, orgId)
+                    if payloadDict['catalogName'] not in targetOrgVDCCatalogNameList:
+                        # owner is a dictionary and it contains href, type, name, otherAttributes and id of owner of the catalog(also adding @ prefix in keys)
+                        if catalog.get('catalogOwner'):
+                            owner = {'@' + str(key): value for key, value in catalog['catalogOwner'].items()}
+                        else:
+                            owner = None
+                        # Source Catalog ID
+                        srcCatalogId = catalog.get('catalogHref').split('/')[-1]
+                        # create api call to create a new place holder catalog
+                        catalogId = self.createCatalog(payloadDict, orgId, owner, srcCatalogId)
+                    else:
+                        catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
+                                                targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
                     if catalogId:
-
                         vAppTemplateCatalogItemList = []
                         mediaCatalogItemList = []
                         # creating seperate lists for catalog items - 1. One for media catalog items 2. One for vApp template catalog items
                         for catalogItem in catalogItemDetailsList:
                             if catalogItem['@type'] == vcdConstants.TYPE_VAPP_TEMPLATE:
+                                self.checkVappCatalogVmDefaultStoragePolicy(catalogItem,
+                                                                            targetOrgVDCStoragePolicyName)
                                 vAppTemplateCatalogItemList.append(catalogItem)
                             elif catalogItem['@type'] == vcdConstants.TYPE_VAPP_MEDIA:
                                 mediaCatalogItemList.append(catalogItem)
@@ -3585,7 +3692,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 payloadDict = {'catalogItemName': catalogItem['@name'],
                                                'catalogItemHref': catalogItem['catalogItemHref']}
                                 # move api call to migrate the catalog item
-                                self.moveCatalogItem(payloadDict, catalogId)
+                                self.moveCatalogItem(payloadDict, catalogId, timeout)
 
                         # iterating over the catalog items in mediaCatalogItemList
                         for catalogItem in vAppTemplateCatalogItemList:
@@ -3596,7 +3703,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 payloadDict = {'catalogItemName': catalogItem['@name'],
                                                'catalogItemHref': catalogItem['catalogItemHref']}
                                 # move api call to migrate the catalog item
-                                self.moveCatalogItem(payloadDict, catalogId)
+                                self.moveCatalogItem(payloadDict, catalogId, timeout)
 
                         catalogData = {'@name': catalog['catalogName'],
                                        '@href': catalog['catalogHref'],
@@ -3627,11 +3734,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             portGroupList = data.get('portGroupList')
             logger.debug("Getting Source Edge Gateway Mac Address")
             macAddressList = []
-            for portGroup in portGroupList:
-                for nicDetail in interfacesList:
-                    # comparing source org vdc network portgroup moref and edge gateway interface details
-                    if portGroup['moref'] == nicDetail['value']['backing']['network']:
-                        macAddressList.append(nicDetail['value']['mac_address'])
+            for networkPortGroups in portGroupList:
+                for portGroup in networkPortGroups:
+                    for nicDetail in interfacesList:
+                        # comparing source org vdc network portgroup moref and edge gateway interface details
+                        if portGroup['moref'] == nicDetail['value']['backing']['network']:
+                            macAddressList.append(nicDetail['value']['mac_address'])
             return macAddressList
         except Exception:
             raise
@@ -4462,7 +4570,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
             Description : Update the static IP pool of OrgVDC network. Called during routed vapp migration
         """
-        for vAppNetwork in listify(vAppData['NetworkConfigSection']['NetworkConfig']):
+        for vAppNetwork in listify(vAppData['NetworkConfigSection'].get('NetworkConfig', [])):
             if vAppNetwork['Configuration']['FenceMode'] != 'natRouted':
                 continue
 
@@ -4561,7 +4669,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         'ipRanges': listify(ipScope.get('IpRanges', {}).get('IpRange')),
                     }
                     for ipScope in listify(vAppNetwork['Configuration']['IpScopes']['IpScope'])
-                    if ipScope['IsInherited'] == 'false' or float(self.version) >= float(vcdConstants.API_VERSION_CASTOR_10_4_1)
+                    if ipScope['IsInherited'] == 'false' or float(self.version) >= float(vcdConstants.API_10_4_2_BUILD)
                 ]
 
         def getParentNetwork(vAppNetwork):
@@ -4631,14 +4739,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             ]
         else:
             # TODO pranshu: Need to test this section
-            networkConfig = [
-                {
-                    'name': 'none',
-                    'description': '',
-                    'fenceMode': 'bridged',
-                    'isDeployed': 'true',
-                }
-            ]
+            networkConfig = []
 
         return self.vcdUtils.createPayload(
             filePath,
@@ -4963,11 +5064,67 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
-    def createCatalog(self, catalog, orgId):
+    def getCatalogOwner(self, catalogOwnerHref):
+        """
+        Description :   Returns the details of the catalog owner
+        Parameters: catalogHref - href of catalog owner for which details required (STRING)
+        """
+        try:
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER}
+            catalogOwnerResponse = self.restClientObj.get(catalogOwnerHref, headers)
+            if catalogOwnerResponse.status_code == requests.codes.ok:
+                catalogOwnerResponseDict = catalogOwnerResponse.json()
+                return catalogOwnerResponseDict
+            else:
+                errorDict = catalogOwnerResponse.json()
+                raise Exception("Failed to retrieve the catalog owner details: {}".format(errorDict['message']))
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def updateCatalogOwner(self, owner, catalogResponseDict):
+        """
+                Description :   Updates catalog owner to whomever created the catalog in source side
+                Parameters: owner - dict containing owner details like href, type, name
+                            catalogResponseDict - catalog dict which is POST API response content for creating catalog
+        """
+        try:
+            # create PUT API catalog url
+            putUrl = "{}/{}".format(str(catalogResponseDict['AdminCatalog']['@href']), "owner")
+            # creating the payload
+            payloadData = {
+                "user": {
+                    "href": owner['@href'],
+                    "type": owner['@type'],
+                    "name": owner['@name']}
+                }
+            payloadData = json.dumps(payloadData)
+            # setting headers
+            headers = {'Authorization': self.headers['Authorization'],
+                         'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER,
+                         'Content-Type': vcdConstants.GENERAL_JSON_CONTENT_TYPE_HEADER}
+            # PUT API for updating catalog owner
+            updateCatalogOwner = self.restClientObj.put(putUrl, headers, data=payloadData)
+
+            if updateCatalogOwner.status_code == (requests.codes.no_content or requests.codes.ok):
+                logger.debug("Catalog '{}' owner updated successfully".format(catalogResponseDict['AdminCatalog']['@name']))
+            else:
+                errorDict = self.vcdUtils.parseXml(updateCatalogOwner.content)
+                raise Exception("Failed to update Catalog '{}' owner : {}".format(catalogResponseDict['AdminCatalog']['@name'],
+                                                                            errorDict['Error']['@message']))
+
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def createCatalog(self, catalog, orgId, owner, srcCatalogId):
         """
         Description :   Creates an empty placeholder catalog
         Parameters: catalog - payload dict for creating catalog (DICT)
                     orgId - Organization Id where catalog is to be created (STRING)
+                    owner - owner dict containing details of Owner
+                    srcCatalogId - Source Catalog ID
         """
         try:
             # create catalog url
@@ -4992,6 +5149,17 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 createCatalogResponseDict = self.vcdUtils.parseXml(createCatalogResponse.content)
                 # getting the newly created target catalog id
                 catalogId = createCatalogResponseDict["AdminCatalog"]["@id"].split(':')[-1]
+
+                # Checking if catalog owner is system or not
+                # if not system than updating the owner in above created Target Catalog
+                if owner and owner.get('@name') != vcdConstants.ADMIN_USER:
+                    # calling function to update owner of catalog
+                    self.updateCatalogOwner(owner, createCatalogResponseDict)
+                # Getting the Share Permissions to set in the catalog
+                sharePermissions = self.getSharePermissions(srcCatalogId)
+                # Setting the Share Permissions in the catalog
+                self.setSharePermissions(sharePermissions, catalogId)
+
                 return catalogId
             else:
                 errorDict = self.vcdUtils.parseXml(createCatalogResponse.content)
@@ -5002,7 +5170,65 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
-    def moveCatalogItem(self, catalogItem, catalogId):
+    def setSharePermissions(self, sharePermissions, catalogId):
+        """
+                Description :  Gets the Share Permissions of a catalog
+                Parameters: sharePermissions - Share Permission Data
+                            catalogId - Target Catalog ID
+        """
+        try:
+            # POST API URL for share permission
+            postUrl = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                                    vcdConstants.SET_CATALOG_SHARE_PERMISSIONS.format(catalogId))
+            # setting headers
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version),
+                       'Content-Type': vcdConstants.GENERAL_JSON_CONTENT_TYPE_HEADER}
+            # Payload of Share Permissions
+            payloadDict = json.loads(sharePermissions.content)
+            # POST API for setting Share Permission for catalog
+            response = self.restClientObj.post(postUrl, headers, data=json.dumps(payloadDict))
+
+            if response.status_code == requests.codes.ok:
+                logger.debug(
+                    "Catalog '{}' Share Permissions attached successfully".format(catalogId))
+                return
+            else:
+                raise Exception(
+                    "Failed to set Share Permissions for Catalog '{}' : {}".format(catalogId,
+                                                                                   response))
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def getSharePermissions(self, srcCatalogId):
+        """
+                Description :  Gets the Share Permissions of a catalog
+                Parameters: srcCatalogId - ID of the source catalog
+        """
+        try:
+            # GET API URL for share permission
+            getUrl = "{}{}".format(vcdConstants.XML_API_URL.format(self.ipAddress),
+                                   vcdConstants.GET_CATALOG_SHARE_PERMISSIONS.format(srcCatalogId))
+            # setting headers
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)}
+            # GET API for fetching Share Permission for catalog
+            sharePermissionsResponse = self.restClientObj.get(getUrl, headers)
+
+            if sharePermissionsResponse.status_code == requests.codes.ok:
+                logger.debug(
+                    "Catalog '{}' Share Permissions fetched successfully".format(srcCatalogId))
+                return sharePermissionsResponse
+            else:
+                raise Exception(
+                    "Failed to fetch Share Permissions for Catalog '{}' : {}".format(srcCatalogId,
+                                                                                     sharePermissionsResponse))
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def moveCatalogItem(self, catalogItem, catalogId, timeout):
         """
         Description :   Moves the catalog Item
         Parameters : catalogItem - catalog item payload (DICT)
@@ -5028,7 +5254,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 taskUrl = task["@href"]
                 if taskUrl:
                     # checking the status of moving catalog item task
-                    self._checkTaskStatus(taskUrl=taskUrl)
+                    self._checkTaskStatus(taskUrl=taskUrl, timeoutForTask=timeout)
                 logger.debug("Catalog Item '{}' moved successfully".format(catalogItem['catalogItemName']))
             else:
                 raise Exception('Failed to move catalog item - {}'.format(responseDict['Error']['@message']))
@@ -6201,7 +6427,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         return segmentName, payload
 
     @isSessionExpired
-    def extendedParentNetworkPayload(self, orgvdcNetwork):
+    def extendedParentNetworkPayload(self, orgvdcNetwork, Shared):
         """
         Description: THis method is used to create payload for service direct network in legacy mode
         return: payload data - payload data for creating a service direct network in legacy mode
@@ -6210,7 +6436,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 'name': orgvdcNetwork['name'] + '-v2t',
                                 'description': orgvdcNetwork['description'] if orgvdcNetwork.get('description') else '',
                                 'networkType': orgvdcNetwork['networkType'],
-                                'parentNetworkId': orgvdcNetwork['parentNetworkId']
+                                'parentNetworkId': orgvdcNetwork['parentNetworkId'],
+                                'shared': Shared
                             }
         return payLoad
 
@@ -6259,18 +6486,26 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             response = self.restClientObj.get(url, self.headers)
             responseDict = response.json()
             if response.status_code == requests.codes.ok:
+                # Implementation for Direct Network connected to VXLAN backed External Network irrespective of the dedicated/non-dedicated or shared/non-shared status. 
+                extNetUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                  parentNetworkId['id'])
+                extNetResponse = self.restClientObj.get(extNetUrl, self.headers)
+                extNetResponseDict =extNetResponse.json()
+                if extNetResponse.status_code == requests.codes.ok:
+                    if extNetResponseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
+                        payloadDict = self.v2tBackedNetworkPayload(parentNetworkId, orgvdcNetwork, Shared=orgvdcNetwork['shared'])
+                        payloadData = json.dumps(payloadDict)
+                        return segmentName, payloadData
+                else:
+                    raise Exception('Failed to get external network {} details with error - {}'.format(
+                            parentNetworkId['name'], extNetResponseDict["message"]))
                 if int(responseDict['resultTotal']) > 1:
-                    if not orgvdcNetwork['shared']:
-                        if self.orgVdcInput.get('LegacyDirectNetwork', False):
-                            # Service direct network legacy implementation
-                            payloadDict = self.extendedParentNetworkPayload(orgvdcNetwork)
-                        else:
-                            # Service direct network default implementation
-                            payloadDict = self.v2tBackedNetworkPayload(parentNetworkId, orgvdcNetwork, Shared=False)
-
+                    if self.orgVdcInput.get('LegacyDirectNetwork', False):
+                        # Service direct network legacy implementation
+                        payloadDict = self.extendedParentNetworkPayload(orgvdcNetwork, Shared=orgvdcNetwork['shared'])
                     else:
-                        # Shared service direct network implementation
-                        payloadDict = self.v2tBackedNetworkPayload(parentNetworkId, orgvdcNetwork, Shared=True)
+                        # Service direct network default implementation
+                        payloadDict = self.v2tBackedNetworkPayload(parentNetworkId, orgvdcNetwork, Shared=orgvdcNetwork['shared'])
                 else:
                     # Dedicated direct network implementation
                     segmentName, payloadDict = self.importedNetworkPayload(parentNetworkId, orgvdcNetwork, inputDict, nsxObj)

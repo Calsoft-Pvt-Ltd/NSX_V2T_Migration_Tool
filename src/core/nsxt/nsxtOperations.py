@@ -384,7 +384,7 @@ class NSXTOperations():
 
     @description("addition of Bridge Transport Zone to Bridge Edge Transport Nodes", threadName="Bridging")
     @remediate
-    def updateEdgeTransportNodes(self, portgroupList, vcdObj):
+    def updateEdgeTransportNodes(self, portgroupList, vcdObj, vCenterObj):
         """
         Description: Update Edge Transport Node
         Parameters:  edgeClusterNameList    - List of names of the edge cluster participating in bridging (LIST)
@@ -395,6 +395,8 @@ class NSXTOperations():
             transportZoneName = data['BridgingStatus']['TransportZone']
             bridgeUplinkProfile = data['BridgingStatus']['UplinkProfileName']
             logger.info('Adding Bridge Transport Zone to Bridge Edge Transport Nodes.')
+            # Getting the cluster resource-pool mappings
+            clusterResourcePoolMapping = vCenterObj.fetchClusterResourcePoolMapping()
             if version.parse(self.apiVersion) >= version.parse(nsxtConstants.API_VERSION_STARTWITH_3_2):
                 uplinkProfileData = self.getComponentData(componentApi=nsxtConstants.HOST_SWITCH_PROFILE_API,
                                                           componentName=bridgeUplinkProfile, usePolicyApi=True)
@@ -431,7 +433,7 @@ class NSXTOperations():
                     raise Exception('Edge Cluster {} not found.'.format(edgeClusterName))
 
             edgeNodePortgroupList = zip(edgeClusterMembers, portgroupList)
-            for data, portGroup in edgeNodePortgroupList:
+            for data, networkPortGroupList in edgeNodePortgroupList:
                 url = nsxtConstants.NSXT_HOST_API_URL.format(self.ipAddress,
                                                              nsxtConstants.UPDATE_TRANSPORT_NODE_API.format(data['transport_node_id']))
                 response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
@@ -459,7 +461,8 @@ class NSXTOperations():
                     # since nsxt 3.0 null coming in data_network_ids while getting edge transport node details
                     if None in dataNetworkList:
                         dataNetworkList.remove(None)
-                    newDataNetworkList = portGroup['moref']
+                    portgroup = self.getNetworkPortgroupForTransportNode(edgeNodeData, networkPortGroupList, clusterResourcePoolMapping, vCenterObj)
+                    newDataNetworkList = portgroup["moref"]
                     dataNetworkList.append(newDataNetworkList)
                     edgeNodeData["host_switch_spec"]["host_switches"] = hostSwitchSpec
                     edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config']['data_network_ids'] = dataNetworkList
@@ -486,6 +489,31 @@ class NSXTOperations():
             logger.info('Successfully added Bridge Transport Zone to Bridge Edge Transport Nodes.')
         except Exception:
             raise
+
+    def getNetworkPortgroupForTransportNode(self, edgeNodeData, networkPortGroupList, clusterResourcePoolMapping, vCenterObj):
+        """
+        Description : get portgroup of a network to connect to edge transport node
+        Parameters  : edgeNodeData - Transport Node Data (DICT)
+                      networkPortGroupList - portgroup list of network (LIST)
+        """
+        # Getting compute_id from edgeNodeData
+        compute_id = edgeNodeData['node_deployment_info']['deployment_config']['vm_deployment_config']['compute_id']
+        if 'domain' not in compute_id:
+            for domain, resGroup in clusterResourcePoolMapping.items():
+                if compute_id in resGroup:
+                    compute_id = domain
+        # Getting response using MOBS api
+        response = vCenterObj.mobsApi(compute_id.strip())
+        if response.status_code == requests.codes.ok:
+            mobs_response = response.content
+            for portGroup in networkPortGroupList:
+                # Checking portgroup in Networks list of bridging edge node vSphere cluster
+                if portGroup["moref"] in str(mobs_response):
+                    return portGroup
+        else:
+            msg = "Failed to get correct MOBS API response"
+            logger.error(msg)
+            raise Exception(msg)
 
     def getTransportZoneData(self, transportZoneID):
         """
@@ -540,7 +568,7 @@ class NSXTOperations():
             edgeSwitchList = []
             for item in portgroupList:
                 for item1 in switchList:
-                    if item['networkName'] + '-v2t' == item1[0]:
+                    if item[0]['networkName'] + '-v2t' == item1[0]:
                         edgeSwitchList.append((item, item1[1], item1[2], item1[0]))
 
             if not edgeSwitchList or len(portgroupList) != len(edgeSwitchList):
@@ -1054,7 +1082,7 @@ class NSXTOperations():
             # Restoring thread name
             threading.current_thread().name = "MainThread"
 
-    def configureNSXTBridging(self, vcdObjList):
+    def configureNSXTBridging(self, vcdObjList, vCenterObj):
         """
         Description :   Configure NSXT bridging
         Parameters  :   edgeClusterNameList  - List of NSX-T edge cluster names required for bridging (STRING)
@@ -1091,7 +1119,7 @@ class NSXTOperations():
                 self.createUplinkProfile(vcdObjList[0])
 
                 # add bridge transport to bridge edge transport nodes
-                self.updateEdgeTransportNodes(portGroupList, vcdObjList[0])
+                self.updateEdgeTransportNodes(portGroupList, vcdObjList[0], vCenterObj)
 
                 # attach bridge endpoint profile to logical switch
                 self.attachBridgeEndpointSegment(portGroupList, targetOrgVdcNetworkList, vcdObjList[0])

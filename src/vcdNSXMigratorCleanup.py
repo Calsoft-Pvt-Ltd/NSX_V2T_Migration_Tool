@@ -26,7 +26,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
     """
     Description :   The class has methods which do all the clean-up tasks(like deleting, resetting, etc) after migrating the VMware vCloud Director from NSX-V to NSX-T
     """
-    def __init__(self, orgvdcdict=None, inputDict=None, vcdObj=None, nsxtObj=None, passFilePath=None):
+    def __init__(self, orgvdcdict=None, inputDict=None, vcdObj=None, nsxtObj=None, passFilePath=None, timeout=None):
         """
         Description :   Initializer method of all clean-up tasks
         """
@@ -39,6 +39,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
         self.targetOrgVDCId = None
         self.orgUrl = None
         self.passFilePath = passFilePath
+        self.timeoutForMoveCatalog = timeout
         # function call creating all the key values required for rollback
         self._createCleanupKeyValues()
 
@@ -60,7 +61,7 @@ class VMwareCloudDirectorNSXMigratorCleanup():
             ["'Validating whether source Org VDC is NSX-V backed'",
                 "self.vcdObj.validateOrgVDCNSXbacking(sourceOrgVDCId, sourceProviderVDCId, isNSXTbacked)"],
             ["'Migrating catalog items - vApp Templates & media objects.'",
-                "self.vcdObj.migrateCatalogItems(sourceOrgVDCId, self.targetOrgVDCId, self.inputDict['VCloudDirector']['Organization']['OrgName'])"],
+                "self.vcdObj.migrateCatalogItems(sourceOrgVDCId, self.targetOrgVDCId, self.inputDict['VCloudDirector']['Organization']['OrgName'], self.timeoutForMoveCatalog)"],
             ["'Deleting empty vApps.'",
              "self.vcdObj.deleteEmptyvApp(sourceOrgVDCId)"],
             ["'Deleting the source Org VDC Networks.'",

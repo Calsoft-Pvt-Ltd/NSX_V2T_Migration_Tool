@@ -1051,6 +1051,29 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
+    def validateVappNameLength(self, orgVDCId):
+        """
+        Description :   Retrieves the list of vApps in the Source Org VDC and checks whether vApp name exceeds 118 character limit.
+        Returns     :   []
+        """
+        try: 
+            logger.debug("Getting Org VDC vApps List and checking whether any vApp violates the 118 character limit for vApp name") 
+            longNameVappList = list() 
+            orgVDCId = orgVDCId.split(':')[-1] 
+            sourceVappsList = self.getOrgVDCvAppsList(orgVDCId) 
+            if not sourceVappsList: 
+                return 
+            
+            # checking if the vApp name exceeds 118 characters 
+            for vApp in sourceVappsList: 
+                if len(vApp['@name']) > 118: 
+                    longNameVappList.append(vApp['@name']) 
+            if longNameVappList: 
+                raise ValidationError('The name of vApps "{}" exceeds 118 character limit.'.format(','.join(longNameVappList))) 
+        except Exception: 
+            raise
+
+    @isSessionExpired
     def getOrgVDCvAppsList(self, orgVDCId):
         """
         Description :   Retrieves the list of vApps in the Source Org VDC
@@ -1605,7 +1628,7 @@ class VCDMigrationValidation:
 
                 if all(uplinkAddress in targetNetworkAddressList for uplinkAddress in uplinkAddressList):
                     if t0Gateway in data['isT0Connected'].get(edgeGateway['name'], {}):
-                        data['isT0Connected'][edgeGateway['name']][t0Gateway].append(uplinkGatewayAndPrefixList)
+                        data['isT0Connected'][edgeGateway['name']][t0Gateway].update(uplinkGatewayAndPrefixList)
                     else:
                         data['isT0Connected'][edgeGateway['name']] = {t0Gateway: uplinkGatewayAndPrefixList}
                     continue
@@ -3717,8 +3740,6 @@ class VCDMigrationValidation:
         Parameters  :   edgeGatewayId   -   Id of the Edge Gateway  (STRING)
         """
 
-        if float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
-            return []
         errorList = set()
         # url for getting edge gateway load balancer virtual servers configuration
         url = '{}{}'.format(
@@ -3751,6 +3772,20 @@ class VCDMigrationValidation:
         else:
             errorResponseData = response.json()
             raise Exception("Failed to get edge gateway {} vnic details due to error {}".format(edgeGatewayId, errorResponseData['message']))
+
+        vnicIpToTypeMap = {}
+        for vnics in vNicsDetails:
+            if vnics['addressGroups']:
+                if 'primaryAddress' in vnics['addressGroups']['addressGroup']:
+                    vnicIpToTypeMap[vnics['addressGroups']['addressGroup']['primaryAddress']] = vnics['type']
+                if 'secondaryAddresses' in vnics['addressGroups']['addressGroup']:
+                    for ip in listify(
+                            vnics['addressGroups']['addressGroup']['secondaryAddresses']['ipAddress']):
+                        vnicIpToTypeMap[ip] = vnics['type']
+        for virtualServer in virtualServersData:
+            if vnicIpToTypeMap[virtualServer['ipAddress']] == 'internal' and float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+                return ["VIP from org VDC network is not supported on target side"]
+
         for vnics in vNicsDetails:
             if vnics.get('addressGroups') and vnics['type'] == 'internal':
                 for addressGroup in listify(vnics['addressGroups']['addressGroup']):
@@ -5705,6 +5740,10 @@ class VCDMigrationValidation:
         Parameters  : sourceOrgVDCId -  ID of source org vdc (STRING)
         """
         try:
+            # validating whether vApp name exceeds 118 character limit
+            logger.info('Validating whether vApp name exceeds 118 character limit')
+            self.validateVappNameLength(sourceOrgVDCId)
+
             # validating whether there are empty vapps in source org vdc
             logger.info('Validating if empty vApps or vApps in failed creation/unresolved/unrecognized/inconsistent state do not exist in source org VDC')
             self.validateNoEmptyVappsExistInSourceOrgVDC(sourceOrgVDCId)
@@ -5747,8 +5786,6 @@ class VCDMigrationValidation:
         else:
             return True
 
-    @description("Performing vlan segment check in case of multiple Org VDCs")
-    @remediate
     def checkVlanSegmentFromMultipleVDCs(self, vcdObjList):
         """
         Description : Validation vlan segment backed to multiple edge gateways belonging to dofferent VDCs
@@ -6769,9 +6806,18 @@ class VCDMigrationValidation:
             response = self.restClientObj.get(url, self.headers)
             if response.status_code == requests.codes.ok:
                 responseDict = response.json()
-                if int(responseDict['resultTotal']) > 1:
+                # Checking the external network backing
+                extNetUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                             vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                             parentNetworkId['id'])
+                extNetResponse = self.restClientObj.get(extNetUrl, self.headers)
+                extNetResponseDict = extNetResponse.json()
+                if extNetResponse.status_code != requests.codes.ok:
+                    raise Exception('Failed to get external network {} details with error - {}'.format(
+                        parentNetworkId['name'], extNetResponseDict["message"]))
+                if int(responseDict['resultTotal']) > 1 or extNetResponseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
                     # Added validation for shared direct network
-                    if networkData['shared'] or not self.orgVdcInput.get("LegacyDirectNetwork", False):
+                    if not self.orgVdcInput.get("LegacyDirectNetwork", False) or extNetResponseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
                         if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
                             return None, "Shared Networks are not supported with this vCD version"
                         # Fetching all external networks from vCD
@@ -6994,11 +7040,44 @@ class VCDMigrationValidation:
             Parameter : sourceOrgVdcList - List of all sourceOrgVdc.
         """
         try:
-            if orgVdcNetworkSharedList:
+            # List that excludes service direct network as they are not migrated by data center group mechanism
+            NonServiceDirectSharedNetworkList  = list()
+            for network in orgVdcNetworkSharedList:
+                if network["networkType"] != "DIRECT":
+                    NonServiceDirectSharedNetworkList.append(network)
+                else:
+                    # url to retrieve the networks with external network id
+                    url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                          vcdConstants.ALL_ORG_VDC_NETWORKS,
+                                          vcdConstants.QUERY_EXTERNAL_NETWORK.format(
+                                              network['parentNetworkId']['id']))
+                    # get api call to retrieve the networks with external network id
+                    response = self.restClientObj.get(url, self.headers)
+                    if response.status_code == requests.codes.ok:
+                        responseDict = response.json()
+                        if not int(responseDict['resultTotal']) > 1:
+                            # Implementation for Direct Network connected to VXLAN backed External Network irrespective of the dedicated/non-dedicated or shared/non-shared status.
+                            extNetUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                         vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                                         network['parentNetworkId']['id'])
+                            extNetResponse = self.restClientObj.get(extNetUrl, self.headers)
+                            extNetResponseDict = extNetResponse.json()
+                            if extNetResponse.status_code == requests.codes.ok:
+                                if not extNetResponseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
+                                    NonServiceDirectSharedNetworkList.append(network)
+                            else:
+                                raise Exception('Failed to get external network {} details with error - {}'.format(
+                                    network['parentNetworkId']['name'], extNetResponseDict["message"]))
+                    else:
+                        raise Exception("Failed to fetch external network {} details".format(
+                            network['parentNetworkId']['name']))
+
+            if NonServiceDirectSharedNetworkList:
                 if len(sourceOrgVdcList) > vcdConstants.MAX_ORGVDC_COUNT:
                     raise Exception("In case of shared networks, the number of OrgVdcs to be parallely migrated should not be more than {}.".format(vcdConstants.MAX_ORGVDC_COUNT))
             else:
-                logger.debug("No shared networks are present")
+                if not orgVdcNetworkSharedList:
+                    logger.debug("No shared networks are present")
         except:
             raise
 

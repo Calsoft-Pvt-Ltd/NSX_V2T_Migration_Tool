@@ -167,6 +167,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
             # Perform these validations only if vapps are to be migrated
             if mainConstants.MOVEVAPP_KEYWORD in self.executeList:
                 vcdValidationMapping.update({
+                    'Validating whether the vApp name exceeds the 118 character limit': [vcdValidationObj.validateVappNameLength, sourceOrgVDCId],
                     'Validating if empty vApps or vApps in failed creation/unresolved/unrecognized/inconsistent state do not exist in source org VDC': [vcdValidationObj.validateNoEmptyVappsExistInSourceOrgVDC, sourceOrgVDCId],
                     'Validating if fencing is enabled on vApps in source OrgVDC': [vcdValidationObj.validateVappFencingMode, sourceOrgVDCId],
                     'Validating VMs/vApps in suspended/partially suspended state or in maintenance mode do not exists in source OrgVDC': [vcdValidationObj.validateSourceSuspendedVMsInVapp, sourceOrgVDCId],

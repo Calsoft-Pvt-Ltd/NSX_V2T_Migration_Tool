@@ -194,6 +194,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         raise Exception("Failed to retrieve application port profiles - {}".format(response['error']['details']))
                 # if firewall rules are configured on source edge gateway
                 if sourceFirewallRules:
+                    # fetch firewall groups created on target edge gateway
+                    targetIPsetList = self.fetchFirewallGroups(urlFilter=vcdConstants.FIREWALL_GROUP_IPSET_FILTER.
+                                                               format(edgeGatewayId))
                     # firstTime variable is to check whether security groups are getting configured for the first time
                     firstTime = True
                     # iterating over the source edge gateway firewall rules
@@ -210,9 +213,6 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         sourcefirewallGroupId = list()
                         destinationfirewallGroupId = list()
 
-                        # fetch firewall groups created on target edge gateway
-                        targetIPsetList = self.fetchFirewallGroups(urlFilter=vcdConstants.FIREWALL_GROUP_IPSET_FILTER.
-                                                                   format(edgeGatewayId))
                         if not networktype:
                             fwSourceMappedToNat = set()
                             fwDestinationMappedToNat = set()
@@ -255,20 +255,21 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                             'edgeGatewayRef': {'id': edgeGatewayId},
                                             'ipAddresses': [ipAddress]
                                         }
-                                        firewallGroupDict = json.dumps(firewallGroupDict)
                                         # url to create firewall group
                                         firewallGroupUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                                          vcdConstants.CREATE_FIREWALL_GROUP)
                                         self.headers['Content-Type'] = 'application/json'
                                         # post api call to create firewall group
                                         response = self.restClientObj.post(firewallGroupUrl, self.headers,
-                                                                           data=firewallGroupDict)
+                                                                           data=json.dumps(firewallGroupDict))
                                         if response.status_code == requests.codes.accepted:
                                             # successful creation of firewall group
                                             taskUrl = response.headers['Location']
                                             firewallGroupId = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
                                             sourcefirewallGroupId.append(
                                                 {'id': 'urn:vcloud:firewallGroup:{}'.format(firewallGroupId)})
+                                            firewallGroupDict["id"] = 'urn:vcloud:firewallGroup:{}'.format(firewallGroupId)
+                                            targetIPsetList.append(firewallGroupDict)
                                         else:
                                             errorResponse = response.json()
                                             raise Exception(
@@ -383,20 +384,21 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                         # creating payload data to create firewall group
                                         firewallGroupDict = {'name': ipAddress, 'edgeGatewayRef': {'id': edgeGatewayId},
                                                              'ipAddresses': [ipAddress]}
-                                        firewallGroupDict = json.dumps(firewallGroupDict)
                                         # url to create firewall group
                                         firewallGroupUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                                                          vcdConstants.CREATE_FIREWALL_GROUP)
                                         self.headers['Content-Type'] = 'application/json'
                                         # post api call to create firewall group
                                         response = self.restClientObj.post(firewallGroupUrl, self.headers,
-                                                                           data=firewallGroupDict)
+                                                                           data=json.dumps(firewallGroupDict))
                                         if response.status_code == requests.codes.accepted:
                                             # successful creation of firewall group
                                             taskUrl = response.headers['Location']
                                             firewallGroupId = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
                                             destinationfirewallGroupId.append(
                                                 {'id': 'urn:vcloud:firewallGroup:{}'.format(firewallGroupId)})
+                                            firewallGroupDict["id"] = 'urn:vcloud:firewallGroup:{}'.format(firewallGroupId)
+                                            targetIPsetList.append(firewallGroupDict)
                                         else:
                                             errorResponse = response.json()
                                             raise Exception(
@@ -867,19 +869,18 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 # if the destinationPorts is getting empty or None then return 'any'
                 if not value['applicationPorts'][0]['destinationPorts']:
                     value['applicationPorts'][0]['destinationPorts'] = ['any']
+                portString = ""
+                for portValue in value['applicationPorts'][0]['destinationPorts']:
+                    portString = portString + ',' + portValue
                 if value['scope'] == 'SYSTEM':
                     applicationPortProfilesDict[
                         'SYSTEM-{}-{}'.format(
-                            value['applicationPorts'][0]['protocol'],
-                            value['applicationPorts'][0]['destinationPorts'][0])
-                    ] = value
+                            value['applicationPorts'][0]['protocol'], portString[1:])] = value
                 elif value['scope'] == 'TENANT' and isinstance(value.get('orgRef'), dict):
                     applicationPortProfilesDict[
                         'TENANT-{}-{}-{}'.format(
                             value['orgRef']['id'],
-                            value['applicationPorts'][0]['protocol'],
-                            value['applicationPorts'][0]['destinationPorts'][0])
-                    ] = value
+                            value['applicationPorts'][0]['protocol'], portString[1:])] = value
         return applicationPortProfilesDict
 
     @isSessionExpired
@@ -897,18 +898,17 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             protocol = protocol.upper()
             value = applicationPortProfilesDict.get(f"SYSTEM-{protocol}-{port}") or \
                     applicationPortProfilesDict.get(f"TENANT-{data['Organization']['@id']}-{protocol}-{port}")
-            if value and len(value['applicationPorts'][0]['destinationPorts']) == 1:
+            if value:
                 logger.debug(f"Application Port Profile {value['id']} for the {protocol}-{port} retrieved successfully")
                 return value['name'], value['id']
             else:
                 url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                     vcdConstants.APPLICATION_PORT_PROFILES)
-
                 payloadDict = {
                     "name": "CUSTOM-" + protocol + "-" + port,
                     "applicationPorts": [{
                         "protocol": protocol,
-                        "destinationPorts": [port]
+                        "destinationPorts": listify(port.split(','))
                     }],
                     "orgRef": {
                         "name": data['Organization']['@name'],
@@ -927,7 +927,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     customID = 'urn:vcloud:applicationPortProfile:' + portprofileID
                     payloadDict['id'] = customID
                     applicationPortProfilesDict[
-                        'TENANT-{}-{}-{}'.format(payloadDict['orgRef']['id'], payloadDict['applicationPorts'][0]['protocol'], payloadDict['applicationPorts'][0]['destinationPorts'][0])] = payloadDict
+                        'TENANT-{}-{}-{}'.format(payloadDict['orgRef']['id'], payloadDict['applicationPorts'][0]['protocol'], port)] = payloadDict
                     return payloadDict['name'], payloadDict['id']
                 response = response.json()
                 raise Exception('Failed to create application port profile {} '.format(response['message']))
@@ -4236,6 +4236,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
                 # Preparing payload with parameters which will be common in all DC groups
                 # source firewall groups, destination firewall groups will added as per scope of rule
+                # Add fields for DFW Negated rule support for sourceGroupsExcluded and destinationGroupsExcluded
                 payloadDict = {
                     'name':
                         l3rule['name'] if l3rule['name'] == f"rule-{l3rule['@id']}"
@@ -4251,6 +4252,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         'OUT' if l3rule['direction'] == 'out'
                         else 'IN' if l3rule['direction'] == 'in'
                         else 'IN_OUT',
+                    'sourceGroupsExcluded': l3rule.get('sources', {}).get('@excluded', False),
+                    'destinationGroupsExcluded': l3rule.get('destinations', {}).get('@excluded', False)
                 }
 
                 # updating the payload with application port profiles
