@@ -1727,7 +1727,7 @@ class VCDMigrationValidation:
         return ipSpaceList
 
     @isSessionExpired
-    def fetchAllIpSpaces(self):
+    def fetchAllIpSpaces(self, returnIpspaces=False):
         """
         Description : Fetches all the IP Spaces in an Organization
         """
@@ -1738,6 +1738,8 @@ class VCDMigrationValidation:
                    'X-VMWARE-VCLOUD-TENANT-CONTEXT': self.rollback.apiData.get('Organization', {}).get('@id')}
 
         resultList = self.getPaginatedResults("IP Spaces", url, headers, pageSize=15)
+        if not returnIpspaces:
+            return resultList
         ipSpaceList = list()
         for ipSpace in resultList:
             logger.debug("Getting IP Space {} details".format(ipSpace["name"]))
@@ -1841,7 +1843,7 @@ class VCDMigrationValidation:
             return
 
         errorList = list()
-        allIpSpaces = self.fetchAllIpSpaces()
+        allIpSpaces = self.fetchAllIpSpaces(returnIpspaces=True)
         for network in filteredList:
             networkSubnet = ipaddress.ip_network("{}/{}".format(network["subnets"]["values"][0]["gateway"],
                                                                 network["subnets"]["values"][0]["prefixLength"]), strict=False)

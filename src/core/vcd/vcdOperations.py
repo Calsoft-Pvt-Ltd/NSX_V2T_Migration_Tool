@@ -1099,7 +1099,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             headers = {'Authorization': self.headers['Authorization'],
                        'Accept': vcdConstants.OPEN_API_CONTENT_TYPE,
                        'Content-Type': vcdConstants.OPEN_API_CONTENT_TYPE,
-                       'X-VMWARE-VCLOUD-TENANT-CONTEXT': self.rollback.apiData.get('Organization', {}).get('@id')}
+                       'X-VMWARE-VCLOUD-TENANT-CONTEXT': self.rollback.apiData.get('Organization', {}).get('@id').split(":")[-1]}
             response = self.restClientObj.delete(url, headers=headers)
             if response.status_code == requests.codes.accepted:
                 taskUrl = response.headers['Location']
