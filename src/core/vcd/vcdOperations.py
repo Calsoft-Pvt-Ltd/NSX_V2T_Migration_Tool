@@ -147,8 +147,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 else:
                     ipSpace["ipSpaceRanges"]["ipRanges"].append({
                         "id": None,
-                        "startIpAddress": ip,
-                        "endIpAddress": ip
+                        "startIpAddress": ip.exploded,
+                        "endIpAddress": ip.exploded
                     })
 
         ipList = list()
