@@ -678,6 +678,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                 break
                             self.allocate(ipSpace["id"], 'FLOATING_IP', ip, ipSpace["name"])
                             floatingIpDict[ipSpace["id"]].append(ip)
+                            self.rollback.apiData["floatingIps"] = floatingIpDict
                             break
         except Exception:
             # Saving metadata in org VDC
