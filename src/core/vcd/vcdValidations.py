@@ -1828,7 +1828,7 @@ class VCDMigrationValidation:
             return
 
         errorList = list()
-        allIpSpaces = self.fetchAllIpSpaces
+        allIpSpaces = self.fetchAllIpSpaces()
         for network in filteredList:
             networkSubnet = ipaddress.ip_network("{}/{}".format(network["subnets"]["values"][0]["gateway"],
                                                                 network["subnets"]["values"][0]["prefixLength"]), strict=False)
