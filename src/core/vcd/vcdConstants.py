@@ -86,6 +86,9 @@ UPDATE_IP_SPACES = "ipSpaces/{}"
 # external network ip space uplinks
 IP_SPACE_UPLINKS = "ipSpaceUplinks"
 
+# allocate ip space entities
+IP_SPACE_ALLOCATE = "allocate"
+
 # IP Space allocations
 IP_SPACE_ALLOCATIONS = "allocations"
 

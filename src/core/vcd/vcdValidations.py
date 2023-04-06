@@ -1759,10 +1759,11 @@ class VCDMigrationValidation:
         """
         orgId = self.rollback.apiData.get('Organization', {}).get('@id')
         logger.debug("Allocating '{}' - '{}' from Private IP Space - '{}' to Organization - '{}'".format(entityType, entity, ipSpaceName, orgId))
-        url = "{}{}".format(vcdConstants.OPEN_API_URL.FORMAT(self.ipAddress), vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId))
+        url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId),
+                              vcdConstants.IP_SPACE_ALLOCATE)
         headers = {'Authorization': self.headers['Authorization'],
                    'Accept': vcdConstants.OPEN_API_CONTENT_TYPE,
-                   'X-VMWARE-VCLOUD-TENANT-CONTEXT': orgId}
+                   'X-VMWARE-VCLOUD-TENANT-CONTEXT': orgId.split(":")[-1]}
         payloadDict = {
             "type": entityType,
             "value": entity

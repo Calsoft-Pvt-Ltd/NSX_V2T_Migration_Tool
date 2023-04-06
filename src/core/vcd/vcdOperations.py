@@ -663,9 +663,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     taskUrl = response.headers['Location']
                     # checking the status of the creating org vdc network task
                     id = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
-                    ipSpaceId = "urn:vcloud:ipSpace:{}".format(ipSpaceId)
+                    ipSpaceId = "urn:vcloud:ipSpace:{}".format(id)
                     logger.debug('Private IP Space for network {} created successfully.'.format(sourceOrgVDCNetwork['name'] + '-v2t'))
                     privateIpSpaces[payloadDict["name"]] = ipSpaceId
+                    data["privateIpSpaces"] = privateIpSpaces
                     self.allocate(ipSpaceId, 'IP_PREFIX', payloadDict["name"], payloadDict["name"])
                 else:
                     errorResponse = response.json()
