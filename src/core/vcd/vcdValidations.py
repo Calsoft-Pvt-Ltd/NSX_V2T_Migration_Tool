@@ -1738,7 +1738,19 @@ class VCDMigrationValidation:
                    'X-VMWARE-VCLOUD-TENANT-CONTEXT': self.rollback.apiData.get('Organization', {}).get('@id')}
 
         resultList = self.getPaginatedResults("IP Spaces", url, headers, pageSize=15)
-        return resultList
+        ipSpaceList = list()
+        for ipSpace in resultList:
+            logger.debug("Getting IP Space {} details".format(ipSpace["name"]))
+            ipSpaceId = ipSpace["id"]
+            ipSpaceUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                          vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId))
+            ipSpaceResponse = self.restClientObj.get(ipSpaceUrl, headers)
+            if ipSpaceResponse.status_code == requests.codes.ok:
+                ipSpaceResponseDict = ipSpaceResponse.json()
+                ipSpaceList.append(ipSpaceResponseDict)
+            else:
+                raise Exception("Failed to fetch IP Space {} details".format(ipSpace["ipSpaceRef"]["name"]))
+        return ipSpaceList
 
     @isSessionExpired
     def allocate(self, ipSpaceId, entityType, entity, ipSpaceName, returnOutput=False):
