@@ -903,9 +903,9 @@ class VCDMigrationValidation:
         """
         data = self.rollback.apiData
         ipSpaceProviderGateways = list()
-        for targetExternalNetwork in data['targetExternalNetwork']:
+        for targetExternalNetworkName, targetExternalNetwork in data['targetExternalNetwork'].items():
             if targetExternalNetwork.get('usingIpSpace'):
-                ipSpaceProviderGateways.append(targetExternalNetwork["name"])
+                ipSpaceProviderGateways.append(targetExternalNetworkName)
         if ipSpaceProviderGateways and float(self.version) < float(vcdConstants.API_10_4_2_BUILD):
             raise Exception("Provider Gateways - {} are IP Space enabled. IP Space enabled Provider Gateways are supported for VCD version 10.4.2 and above".format(ipSpaceProviderGateways))
 
