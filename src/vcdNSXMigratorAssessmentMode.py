@@ -138,6 +138,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
 
             # Validation methods reference
             vcdValidationMapping = {
+                'Validating Target External Networks': [vcdValidationObj.validateProviderGateways],
                 'Validating NSX-T manager Ip Address and version': [vcdValidationObj.getNsxDetails, self.inputDict["NSXT"]["Common"]["ipAddress"]],
                 'Validating if target OrgVDC do not exists': [vcdValidationObj.validateNoTargetOrgVDCExists, orgVDCDict["OrgVDCName"]],
                 'Validating external network mapping with Gateway mentioned in userInput file': [vcdValidationObj.validateEdgeGatewayToExternalNetworkMapping, sourceEdgeGatewayData],

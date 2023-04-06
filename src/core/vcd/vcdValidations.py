@@ -897,6 +897,19 @@ class VCDMigrationValidation:
         logger.debug("IP Space enabled Provider Gateways - {}".format(ipSpaceProviderGateways))
         return targetExternalNetwork
 
+    def validateProviderGateways(self):
+        """
+        Description :   Validate Target External Networks IP Space status and its compatibility with VCD
+        """
+        data = self.rollback.apiData
+        ipSpaceProviderGateways = list()
+        for targetExternalNetwork in data['targetExternalNetwork']:
+            if targetExternalNetwork.get('usingIpSpace'):
+                ipSpaceProviderGateways.append(targetExternalNetwork["name"])
+        if ipSpaceProviderGateways and float(self.version) < float(vcdConstants.API_10_4_2_BUILD):
+            raise Exception("Provider Gateways - {} are IP Space enabled. IP Space enabled Provider Gateways are supported for VCD version 10.4.2 and above".format(ipSpaceProviderGateways))
+
+
     @isSessionExpired
     def validateEdgeGatewayToExternalNetworkMapping(self,sourceEdgeGatewayData):
         """
@@ -5625,6 +5638,10 @@ class VCDMigrationValidation:
             logger.info('Getting the source Provider VDC - {} details.'.format(self.orgVdcInput["NSXVProviderVDCName"]))
             sourceProviderVDCId, isNSXTbacked = self.getProviderVDCId(self.orgVdcInput["NSXVProviderVDCName"])
             self.getProviderVDCDetails(sourceProviderVDCId, isNSXTbacked)
+
+            # validating provider gateways
+            logger.info("Validating Target External Networks")
+            self.validateProviderGateways()
 
             # validating the source network pool backing
             logger.info("Validating Source Network Pool backing")
