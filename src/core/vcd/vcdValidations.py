@@ -1848,8 +1848,8 @@ class VCDMigrationValidation:
                 for internalScope in ipSpace["ipSpaceInternalScope"]:
                     if networkSubnet.overlaps(ipaddress.ip_network(internalScope, strict=False)):
                         errorList.append(
-                            "Org VDC Network - '{}' subnet overlaps with IP Space - '{}' internal scope".format(
-                                network["name"], ipSpace["name"]))
+                            "Org VDC Network - '{}' subnet - overlaps with IP Space - '{}' internal scope - '{}'".format(
+                                network["name"], ipSpace["name"], internalScope))
                         break
                 else:
                     continue
