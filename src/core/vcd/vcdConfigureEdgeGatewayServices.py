@@ -5421,7 +5421,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         ipRanges = [{"startIpAddress": range[0], "endIpAddress": range[1], "id": None} for range in ipRangeList]
         ipPrefixes = [{"startingPrefixIpAddress": prefix[0], "prefixLength" :prefix[1], "totalPrefixCount": 1, "id": None} for prefix in ipPrefixList]
         privateIpSpaces = self.rollback.apiData.get("privateIpSpaces", {})
-        floatingIpDict = self.rollback.apiData.get("floatingIps") or defaultdict(list)
+        floatingIpDict = self.rollback.apiData.get("floatingIps", {})
         url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.CREATE_IP_SPACES)
         headers = {'Authorization': self.headers['Authorization'],
                    'Accept': vcdConstants.OPEN_API_CONTENT_TYPE,
@@ -5433,7 +5433,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             "ipSpaceInternalScope": [
                 ipSpaceName
             ],
-            "ipSpaceRanges": ipRanges if ipRanges else None,
+            "ipSpaceRanges": {
+                "ipRanges": ipRanges
+            } if ipRanges else None,
             "ipSpacePrefixes": [
                 {
                     "ipPrefixSequence": ipPrefixes
@@ -5468,6 +5470,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     if ip in floatingIpDict.get(ipSpaceId, []):
                         continue
                     self.allocate(ipSpaceId, 'FLOATING_IP', ip, ipSpaceName)
+                    if ipSpaceId not in floatingIpDict:
+                        floatingIpDict[ipSpaceId] = []
                     floatingIpDict[ipSpaceId].append(ip)
                     self.rollback.apiData["floatingIps"] = floatingIpDict
         if ipPrefixes:
