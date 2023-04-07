@@ -3441,6 +3441,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 raise Exception(
                     "Number of hosts in network - {} is less than the number of virtual server in edge gateway "
                     "{}".format(loadBalancerVIPSubnet, targetEdgeGatewayName))
+            if loadBalancerVIPSubnet not in self.rollback.apiData.get("privateIpSpaces", {}):
+                lbVipIpRange = (hostsListInSubnet[0].exploded, hostsListInSubnet[(len(vipToBeReplaced) - 1)].exploded)
+                self.createPrivateIpSpace(loadBalancerVIPSubnet, ipRangeList=[lbVipIpRange])
 
         def getCertificateRef(vs):
             isTcpCert = False
@@ -5407,3 +5410,67 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         except Exception:
             logger.error(traceback.format_exc())
             raise
+
+    def createPrivateIpSpace(self, ipSpaceName, ipRangeList=[], ipPrefixList=[], routeAdvertisement=False):
+        """
+        Description :  Creates Private IP Space for given scope
+        Parameteres:   ipRangeList - List of IP range (LIST OF TUPLES)
+                       ipPrefixList - List of IP Prefixes (LIST OF STRINGS)
+        """
+        # preParing IP RANGES for private IP Space
+        ipRanges = [{"startIpAddress": range[0], "endIpAddress": range[1], "id": None} for range in ipRangeList]
+        ipPrefixes = [{"startingPrefixIpAddress": prefix[0], "prefixLength" :prefix[1], "totalPrefixCount": 1, "id": None} for prefix in ipPrefixList]
+        privateIpSpaces = self.rollback.apiData.get("privateIpSpaces", {})
+        floatingIpDict = self.rollback.apiData.get("floatingIps") or defaultdict(list)
+        url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.CREATE_IP_SPACES)
+        headers = {'Authorization': self.headers['Authorization'],
+                   'Accept': vcdConstants.OPEN_API_CONTENT_TYPE,
+                   'Content-Type': vcdConstants.OPEN_API_CONTENT_TYPE,
+                   'X-VMWARE-VCLOUD-TENANT-CONTEXT': self.rollback.apiData.get('Organization', {}).get('@id')}
+        payloadDict = {
+            "name": ipSpaceName,
+            "type": "PRIVATE",
+            "ipSpaceInternalScope": [
+                ipSpaceName
+            ],
+            "ipSpaceRanges": ipRanges if ipRanges else None,
+            "ipSpacePrefixes": [
+                {
+                    "ipPrefixSequence": ipPrefixes
+                }
+            ] if ipPrefixes else None,
+            "description": "",
+            "routeAdvertisementEnabled": routeAdvertisement,
+            "ipSpaceExternalScope": None,
+            "orgRef": {
+                "id": self.rollback.apiData.get('Organization', {}).get('@id'),
+                "name": self.rollback.apiData.get('Organization', {}).get('@name')
+            }
+        }
+        payloadData = json.dumps(payloadDict)
+        response = self.restClientObj.post(url, headers=headers, data=payloadData)
+        if response.status_code == requests.codes.accepted:
+            taskUrl = response.headers['Location']
+            # checking the status of the creating org vdc network task
+            id = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
+            ipSpaceId = "urn:vcloud:ipSpace:{}".format(id)
+            logger.debug("Private IP Space - '{}' created successfully.".format(ipSpaceName))
+            privateIpSpaces[ipSpaceName] = ipSpaceId
+            self.rollback.apiData["privateIpSpaces"] = privateIpSpaces
+        else:
+            errorResponse = response.json()
+            raise Exception(
+                'Failed to create Private IP Space - {} with error - {}'.format(ipSpaceName, errorResponse['message']))
+
+        if ipRanges:
+            for ipRange in ipRanges:
+                for ip in self.returnIpListFromRange(ipRange["startIpAddress"], ipRange["endIpAddress"]):
+                    if ip in floatingIpDict.get(ipSpaceId, []):
+                        continue
+                    self.allocate(ipSpaceId, 'FLOATING_IP', ip, ipSpaceName)
+                    floatingIpDict[ipSpaceId].append(ip)
+                    self.rollback.apiData["floatingIps"] = floatingIpDict
+        if ipPrefixes:
+            for ipPrefix in ipPrefixes:
+                ipPrefixSubnet = "{}/{}".format(ipPrefix["startingPrefixIpAddress"], ipPrefix["prefixLength"])
+                self.allocate(ipSpaceId, 'IP_PREFIX', ipPrefixSubnet, ipSpaceName)

@@ -632,56 +632,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if "{}/{}".format(sourceOrgVDCNetwork['subnets']['values'][0]['gateway'],
                                     sourceOrgVDCNetwork['subnets']['values'][0]['prefixLength']) in privateIpSpaces:
                     continue
-                url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.CREATE_IP_SPACES)
-                headers = {'Authorization': self.headers['Authorization'],
-                            'Accept': vcdConstants.OPEN_API_CONTENT_TYPE,
-                            'Content-Type': vcdConstants.OPEN_API_CONTENT_TYPE,
-                            'X-VMWARE-VCLOUD-TENANT-CONTEXT': self.rollback.apiData.get('Organization', {}).get('@id')}
-                payloadDict = {
-                    "name": "{}/{}".format(sourceOrgVDCNetwork['subnets']['values'][0]['gateway'],
-                                            sourceOrgVDCNetwork['subnets']['values'][0]['prefixLength']),
-                    "type": "PRIVATE",
-                    "ipSpaceInternalScope": [
-                        "{}/{}".format(sourceOrgVDCNetwork['subnets']['values'][0]['gateway'],
-                                        sourceOrgVDCNetwork['subnets']['values'][0]['prefixLength'])
-                    ],
-                    "ipSpaceRanges": None,
-                    "ipSpacePrefixes": [
-                        {
-                            "ipPrefixSequence": [
-                                {
-                                    "startingPrefixIpAddress": sourceOrgVDCNetwork['subnets']['values'][0]['gateway'],
-                                    "prefixLength": sourceOrgVDCNetwork['subnets']['values'][0]['prefixLength'],
-                                    "totalPrefixCount": 1,
-                                    "id": None
-                                }
-                            ]
-                        }
-                    ],
-                    "description": "",
-                    "routeAdvertisementEnabled": False,
-                    "ipSpaceExternalScope": None,
-                    "orgRef": {
-                        "id": self.rollback.apiData.get('Organization', {}).get('@id'),
-                        "name": self.rollback.apiData.get('Organization', {}).get('@name')
-                    }
-                }
-                payloadData = json.dumps(payloadDict)
-                response = self.restClientObj.post(url, headers=headers, data=payloadData)
-                if response.status_code == requests.codes.accepted:
-                    taskUrl = response.headers['Location']
-                    # checking the status of the creating org vdc network task
-                    id = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
-                    ipSpaceId = "urn:vcloud:ipSpace:{}".format(id)
-                    logger.debug('Private IP Space for network {} created successfully.'.format(sourceOrgVDCNetwork['name'] + '-v2t'))
-                    privateIpSpaces[payloadDict["name"]] = ipSpaceId
-                    data["privateIpSpaces"] = privateIpSpaces
-                    self.allocate(ipSpaceId, 'IP_PREFIX', payloadDict["name"], payloadDict["name"])
-                else:
-                    errorResponse = response.json()
-                    raise Exception(
-                        'Failed to create Private IP Space for network - {}'.format(sourceOrgVDCNetwork['name'] + '-v2t',
-                                                                                 errorResponse['message']))
+                gateway = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
+                prefixLength = sourceOrgVDCNetwork['subnets']['values'][0]['prefixLength']
+                subnet = "{}/{}".format(gateway, prefixLength)
+                ipPrefixList = [(gateway, prefixLength)]
+                self.createPrivateIpSpace(subnet, ipPrefixList=ipPrefixList)
         except Exception:
             # Saving metadata in org VDC
             self.saveMetadataInOrgVdc()
