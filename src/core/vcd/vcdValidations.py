@@ -1563,7 +1563,9 @@ class VCDMigrationValidation:
                     ipaddress.ip_network('{}/{}'.format(externalGateway, externalPrefixLength), strict=False)
                     for externalGateway, externalPrefixLength in sourceExternalGatewayAndPrefixList]
                 if targetExternalNetwork.get("usingIpSpace"):
+                    # Fetch all IP Spaces details connected as an uplink to Provider Gateway
                     ipSpaces = self.getProviderGatewayIpSpaces(targetExternalNetwork)
+                    # Create a list of Target networks from internal scopes of all IP Spaces connected as an uplink to Provider Gateway
                     targetNetworkAddressList = [ipaddress.ip_network('{}'.format(internalScope), strict=False)
                                              for ipSpace in ipSpaces for internalScope in ipSpace.get("ipSpaceInternalScope", [])]
                 else:
@@ -1575,6 +1577,7 @@ class VCDMigrationValidation:
                         ipaddress.ip_network('{}/{}'.format(externalGateway, externalPrefixLength), strict=False)
                         for externalGateway, externalPrefixLength in
                         zip(targetExternalGatewayList, targetExternalPrefixLengthList)]
+                # Checking whether Source External subnets to which Edge Gateway is connected is subnet of available subnets from Provider Gateway
                 if not all(any([sourceNetworkAddress.subnet_of(targetSubnet) for targetSubnet in targetNetworkAddressList])
                            for sourceNetworkAddress in sourceNetworkAddressList):
                     gatewayErrorList.append(edgeGateway["id"])
@@ -1622,7 +1625,9 @@ class VCDMigrationValidation:
             # get external network details from metadata.
             targetExternalNetwork = self.rollback.apiData['targetExternalNetwork'][t0Gateway]
             if targetExternalNetwork.get("usingIpSpace"):
+                # Fetch all IP Spaces details connected as an uplink to Provider Gateway
                 ipSpaces = self.getProviderGatewayIpSpaces(targetExternalNetwork)
+                # Create a list of Target networks from internal scopes of all IP Spaces connected as an uplink to Provider Gateway
                 targetNetworkAddressList = [ipaddress.ip_network('{}'.format(internalScope), strict=False)
                                             for ipSpace in ipSpaces for internalScope in ipSpace.get("ipSpaceInternalScope", [])]
             else:
@@ -1709,10 +1714,11 @@ class VCDMigrationValidation:
                    'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
         response = self.restClientObj.get(url, headers)
         if response.status_code == requests.codes.ok:
+            # List of IP Spaces Uplinks connected to Provider Gateway
             responseDict = response.json()
         else:
             raise Exception("Failed to fetch provider gateway {} ip space uplink details".format(gatewayInfo["name"]))
-
+        # Traversing through IP Spaces Uplinks connected to Provider Gateway to fetch each IP Space details
         for ipSpace in responseDict["values"]:
             ipSpaceList.append(self.fetchIpSpace(ipSpace["id"]))
         return ipSpaceList
@@ -1745,22 +1751,16 @@ class VCDMigrationValidation:
         headers = {'Authorization': self.headers['Authorization'],
                    'Accept': vcdConstants.OPEN_API_CONTENT_TYPE,
                    'X-VMWARE-VCLOUD-TENANT-CONTEXT': self.rollback.apiData.get('Organization', {}).get('@id')}
-
+        # Fetching all IP Spaces (PUBLIC/PRIVATE) available to tenant Org
         resultList = self.getPaginatedResults("IP Spaces", url, headers, pageSize=15)
         if not returnIpspaces:
+            # Returning intermediate data having basic info of IP Spaces eg. name, id If detailed info is not needed
             return resultList
+        # List to hold IP Spaces details
         ipSpaceList = list()
+        # Traversing through IP Spaces fetch each IP Space details
         for ipSpace in resultList:
-            logger.debug("Getting IP Space {} details".format(ipSpace["name"]))
-            ipSpaceId = ipSpace["id"]
-            ipSpaceUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
-                                          vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId))
-            ipSpaceResponse = self.restClientObj.get(ipSpaceUrl, headers)
-            if ipSpaceResponse.status_code == requests.codes.ok:
-                ipSpaceResponseDict = ipSpaceResponse.json()
-                ipSpaceList.append(ipSpaceResponseDict)
-            else:
-                raise Exception("Failed to fetch IP Space {} details".format(ipSpace["ipSpaceRef"]["name"]))
+            ipSpaceList.append(self.fetchIpSpace(ipSpace["id"]))
         return ipSpaceList
 
     @isSessionExpired
@@ -1799,19 +1799,24 @@ class VCDMigrationValidation:
         """
         Description : Validate whether Org VDC network connected to IP Space enabled edges have overlapping subnets within the organization
         """
+        # List to store networks from all Org VDCs that are being migrated
         networkList = list()
+        # List to store errors of Org VDC Networks having conflicting subnets...
+        # with other networks from Org VDCs that are being or internal scopes of IP Spaces available to tenant
         errorList = list()
         vdcId = self.rollback.apiData.get("sourceOrgVDC", {}).get("@id")
         for vcdObj in vcdObjList:
+            # If no edge gateway mapped to IP Space enabled Provider Gateway is present in Org VDC skip
             if not [edgeGateway for edgeGateway in vcdObj.rollback.apiData["sourceEdgeGateway"]
                 if vcdObj.orgVdcInput['EdgeGateways'][edgeGateway['name']]['Tier0Gateways'] in
                    vcdObj.rollback.apiData["ipSpaceProviderGateways"]]:
                 continue
+            # If Edge gateways mapped to IP Space enabled Provider Gateway is present in Org VDC fetch all the networks present in that VDC
             networkList += vcdObj.getOrgVDCNetworks(vcdObj.rollback.apiData.get("sourceOrgVDC", {}).get("@id"),
                                                     'sourceOrgVDCNetworks', saveResponse=False)
-        # List of non-direct networks i.e Routed, Isolated
+        # List of non-direct networks i.e Routed, Isolated since direct networks are irrelevant in IP Space context
         filteredList = list(filter(lambda network: network['networkType'] != 'DIRECT', networkList))
-
+        # Checking for clashing subnets from all the networks fetched above
         for i in range(len(filteredList)):
             n1 = ipaddress.ip_network("{}/{}".format(filteredList[i]["subnets"]["values"][0]["gateway"],
                                                      filteredList[i]["subnets"]["values"][0]["prefixLength"]), strict=False)
@@ -1836,30 +1841,47 @@ class VCDMigrationValidation:
         Description : Validate Org VDC network subnets conflicts with existing IP Spaces Internal Scopes available to tenant
         """
         data = self.rollback.apiData
+        # Making a list of edge gateways mapped to IP Space enabled Provider Gateway
         ipSpaceEnabledEdges = [edgeGateway["id"] for edgeGateway in data["sourceEdgeGateway"]
                 if self.orgVdcInput['EdgeGateways'][edgeGateway['name']]['Tier0Gateways'] in data["ipSpaceProviderGateways"]]
+        # If no edge gateway mapped to IP Space enabled Provider Gateway is present in Org VDC then return
         if not ipSpaceEnabledEdges:
             return
 
+        # Fetch all the networks from Org VDC
         networkList = self.getOrgVDCNetworks(data.get("sourceOrgVDC", {}).get("@id"),
                                                 'sourceOrgVDCNetworks', saveResponse=False)
 
-        # List of non-direct networks i.e Routed(connected to IP Space edge), Isolated
+        # List of non-direct networks i.e Routed(connected to IP Space edge), Isolated since direct networks are irrelevant in IP Space context
         filteredList = list(filter(
             lambda network: network['networkType'] == 'ISOLATED' or network.get('connection', {}).get('routerRef',
                                                                     {}).get('id') in ipSpaceEnabledEdges, networkList))
+
+        # If no such networks exists, return
         if not filteredList:
             return
 
+        # List to store Org VDC networks(whose subnets should come from private IP Spaces to be created by the MT)....
+        # conflicts with internal scopes of IP Spaces available to tenant
         errorList = list()
+
+        # Fetching all IP Spaces from this tenant
         allIpSpaces = self.fetchAllIpSpaces(returnIpspaces=True)
+
         for network in filteredList:
             subnet = "{}/{}".format(network["subnets"]["values"][0]["gateway"],
                                                                 network["subnets"]["values"][0]["prefixLength"])
             networkSubnet = ipaddress.ip_network(subnet, strict=False)
             for ipSpace in allIpSpaces:
+                # If Org VDC networks subnet overlaps with internal scopes of IP Spaces available to tenant
                 for internalScope in ipSpace["ipSpaceInternalScope"]:
                     if networkSubnet.overlaps(ipaddress.ip_network(internalScope, strict=False)):
+                        # If IP Space is public and Org VDC network subnet exists in ipBlockToBeAddedToIpSpaceUplinks (list...
+                        # of subnets that should be added to public IP Space due to it being mentioned as ip prefix in...
+                        # Route Redistribution section of BGP in edge gateway
+                        # which means that it is already checked that this subnet exists in internal scope of public IP Space..
+                        # and does not overlaps with existing IP Prefixes present in IP Space and MT will add prefix to this..
+                        # public IP Space for it to be used by this network on target, so skipping throwing the error
                         if not(ipSpace["type"] == "PUBLIC" and any([block for block in data.get(
                                 "ipBlockToBeAddedToIpSpaceUplinks", {}).get(ipSpace["id"], [])
                                 if networkSubnet == ipaddress.ip_network(block, strict=False)])):
@@ -1871,6 +1893,9 @@ class VCDMigrationValidation:
                     continue
                 break
 
+        # prefixToBeAdvertised is a list in metadata of Org VDC which holds list of subnets mentioned in Route Redistribution section...
+        # of BGP of edge gayeway that should be created as private IP Spaces and should be connected as an uplink to Provider gateway
+        # Since they're being created as private IP Space MT should check their conflict status with internal scopes of existing IP Spaces available to tenant
         for prefixToBeAdvertised in self.rollback.apiData.get("prefixToBeAdvertised", []):
             prefixNetwork = ipaddress.ip_network(prefixToBeAdvertised, strict=False)
             for ipSpace in allIpSpaces:
@@ -1896,6 +1921,8 @@ class VCDMigrationValidation:
         Description : Validate multiple subnets in directly connected external network
         Parameters :  orgVDCId - org VDC id (STRING)
         """
+        if float(self.version) >= float(vcdConstants.API_10_4_2_BUILD):
+            return
         multipleSubnetErrorList = list()
         for edge in self.rollback.apiData.get("isT1Connected", {}):
             sourceEdgeGateway = list(filter(lambda edgeGateway: edgeGateway["name"] == edge, self.rollback.apiData["sourceEdgeGateway"]))[0]
@@ -5738,12 +5765,8 @@ class VCDMigrationValidation:
             self.validateExternalNetworkSubnets()
 
             # checking overlapping subnets of org vdc networks belonging to org vdcs mentioned in input file
-            logger.info("Validating ovelapping subnets in case of IP Space enabled edges")
+            logger.info("Validating ovelapping Org VDC Network subnets in case of IP Space enabled edges")
             self.validateOvelappingNetworksubnets(vcdObjList)
-
-            # checking whether Org VDC subnets are already present in Internal Scopes of IP Spaces available to tenant
-            logger.info("Validating Org VDC network subnets conflicts with existing IP Spaces Internal Scopes available to tenant")
-            self.validateOrgVDCNetworkSubnetConflict()
 
             # validating whether multiple subnets are present in directly connected external network
             self.validateExternalNetworkMultipleSubnets()
@@ -5758,6 +5781,10 @@ class VCDMigrationValidation:
             # validating whether edge gateway have dedicated external network
             logger.info('Validating whether other Edge gateways are using dedicated external network')
             self.validateDedicatedExternalNetwork(inputDict)
+
+            # checking whether Org VDC subnets are already present in Internal Scopes of IP Spaces available to tenant
+            logger.info("Validating Org VDC network subnets conflicts with existing IP Spaces Internal Scopes available to tenant")
+            self.validateOrgVDCNetworkSubnetConflict()
 
             # getting the source Org VDC networks
             logger.info('Getting the Org VDC networks of source Org VDC {}'.format(self.orgVdcInput["OrgVDCName"]))

@@ -150,7 +150,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating whether source Org VDC placement policies are present in target PVDC': [vcdValidationObj.validateVMPlacementPolicy, sourceOrgVDCId],
                 'Validating storage profiles in source Org VDC and target Provider VDC': [vcdValidationObj.validateStorageProfiles],
                 'Validating if source and target External networks have same subnets': [vcdValidationObj.validateExternalNetworkSubnets],
-                'Validating overlapping subnets in case of IP Space enabled edges': [vcdValidationObj.validateOvelappingNetworksubnets, vcdObjList],
+                'Validating ovelapping Org VDC Network subnets in case of IP Space enabled edges': [vcdValidationObj.validateOvelappingNetworksubnets, vcdObjList],
                 'Validating Org VDC network subnets conflicts with existing IP Spaces Internal Scopes available to tenant': [vcdValidationObj.validateOrgVDCNetworkSubnetConflict],
                 'Validating multiple subnets in directly connected external network': [vcdValidationObj.validateExternalNetworkMultipleSubnets],
                 'Validating Target External Network with NSXT provided in input file': [vcdValidationObj.validateExternalNetworkWithNSXT],
