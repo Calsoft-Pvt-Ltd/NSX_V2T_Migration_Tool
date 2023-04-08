@@ -6203,6 +6203,7 @@ class VCDMigrationValidation:
         advertiseRoutedNetworks = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['AdvertiseRoutedNetworks']
 
         if advertiseRoutedNetworks:
+            # Private provider gateway is required
             if not targetExternalNetwork.get("dedicatedOrg", {}).get("id") == self.rollback.apiData.get("Organization", {}).get("@id"):
                 errorList.append(
                     "Edge Gateway - {} : 'AdvertiseRoutedNetworks' is set to 'True', so Private Provider"
@@ -6221,12 +6222,20 @@ class VCDMigrationValidation:
                             "Edge Gateway - {} : All Routed networks connected to edge are being advertised through BGP, so Private Provider"
                             " Gateway dedicated to this Organization is required.".format(sourceEdgeGateway['name']))
                     else:
+                        # If all Routed networks connected to edge are being advertised through BGP, add it to the list in metadata
                         advertisedEdges.append(sourceEdgeGateway["id"])
                         self.rollback.apiData["advertiseEdgeNetworks"] = advertisedEdges
 
-            internalScopeErrorList  = list()
-            prefixToBeAdvertised = list()
+            # errorList whether ip prefixes in route redistribution section of BGP of edge gateway belongs to internal scope of....
+            # public ip space but there is a conficting ip prefix in ipspace already so MT cannot add this as prefix to ip space
             ipSpacePrefixErrorList = list()
+            # List whether ip prefixes in route redistribution section of BGP of edge gateway does not belongs to internal scope of..
+            # public ip space uplinks connected to provider gateway then it should be created as private ip space and connect to...
+            # private provider gateway since it does not exists in internal scope of public ip spaces
+            internalScopeErrorList  = list()
+            # prefix that should be created as private ip space and connect to private provider gateway since it does not exists in...
+            # internal scope of public ip spaces
+            prefixToBeAdvertised = list()
             # Fetching edge gateway routing config
             data = self.getEdgeGatewayRoutingConfig(sourceEdgeGateway["id"], sourceEdgeGateway['name'],
                                                     validation=False)
@@ -6255,12 +6264,16 @@ class VCDMigrationValidation:
                                     ipBlockToBeAddedToIpSpaceUplinks[ipSpace["id"]].append(ipPrefix["ipAddress"])
                                 break
                     else:
+                        # if prefix does not exist in any internal scope of public ip space uplink connected to provider gateway
                         prefixToBeAdvertised.append(ipPrefix["ipAddress"])
                         internalScopeErrorList.append(
                             "Edge Gateway - {} : IP Prefix - '{}' does not belong to internal scope of any Public IP Space"
                             " uplink connected to Provider Gateway - '{}'".format(sourceEdgeGateway['name'],
                                                                                   ipPrefix["name"], targetExternalNetwork["name"]))
                 if internalScopeErrorList:
+                    # if internalScopeErrorList exists which means there are some prefixes not present in internal scope of public ip space uplinks
+                    # So it should be created as private ip space and connect to provider gateway, which means provider gateway should be private to this tenant..
+                    # since private ip spaces are available as uplink to only private provider gateways
                     if not targetExternalNetwork.get("dedicatedOrg", {}).get("id") == self.rollback.apiData.get("Organization", {}).get("@id"):
                         errorList.append(
                             "Edge Gateway - {} : BGP is configured with IP Prefixes which does not"
@@ -6268,11 +6281,18 @@ class VCDMigrationValidation:
                             " add internal scope to Public IP Space Uplinks to which the prefixes belong"
                             " or use Private Provider Gateway dedicated to this Organization.".format(sourceEdgeGateway['name']))
                     else:
+                        # If provider gateway is indeed private add it to prefixToBeAdvertised which will be used to during creation of private ip space
                         prefixToBeAdvertised.extend(self.rollback.apiData.get("prefixToBeAdvertised", []))
                         self.rollback.apiData["prefixToBeAdvertised"] = set(prefixToBeAdvertised)
                 if ipSpacePrefixErrorList:
+                    # if ipSpacePrefixErrorList exists means some prefixes from BGP belongs to internal scope of public ip space uplink..
+                    # but dut to already present ip prefix in it MT won't be able to add it as ip prefix in public ip space uplink so throwing error
                     errorList.extend(ipSpacePrefixErrorList)
                 else:
+                    # If there exists some ip prefix that belongs to internal scope of public ip space uplinks then those shouls be...
+                    # added as prefix in that public ip space uplink, since ipSpacePrefixErrorList is empty which means no conflicting ip prefixes...
+                    # exists for those ip prefixes mentioned in BGP So adding Dict that contains public IP Space Id to prefixes that should be added to it mapping...
+                    # which will be used during private ip spaces creation to skip these prefixes
                     if ipBlockToBeAddedToIpSpaceUplinks:
                         self.rollback.apiData.get["ipBlockToBeAddedToIpSpaceUplinks"] = ipBlockToBeAddedToIpSpaceUplinks
 

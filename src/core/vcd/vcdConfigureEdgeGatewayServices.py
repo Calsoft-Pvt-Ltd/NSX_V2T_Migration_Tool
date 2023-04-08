@@ -3441,9 +3441,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 raise Exception(
                     "Number of hosts in network - {} is less than the number of virtual server in edge gateway "
                     "{}".format(loadBalancerVIPSubnet, targetEdgeGatewayName))
-            if loadBalancerVIPSubnet not in self.rollback.apiData.get("privateIpSpaces", {}):
-                lbVipIpRange = (hostsListInSubnet[0].exploded, hostsListInSubnet[(len(vipToBeReplaced) - 1)].exploded)
-                self.createPrivateIpSpace(loadBalancerVIPSubnet, ipRangeList=[lbVipIpRange])
+            t0Gateway = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName]['Tier0Gateways']
+            providerGateway = self.rollback.apiData["targetExternalNetwork"][t0Gateway]
+            if providerGateway.get("usingIpSpace"):
+                # Adding LBVIPSubnet as Private IP Spaces and adding required amount of floatingIPs to it for virtual server usage
+                if loadBalancerVIPSubnet not in self.rollback.apiData.get("privateIpSpaces", {}):
+                    lbVipIpRange = (hostsListInSubnet[0].exploded, hostsListInSubnet[(len(vipToBeReplaced) - 1)].exploded)
+                    self.createPrivateIpSpace(loadBalancerVIPSubnet, ipRangeList=[lbVipIpRange])
 
         def getCertificateRef(vs):
             isTcpCert = False

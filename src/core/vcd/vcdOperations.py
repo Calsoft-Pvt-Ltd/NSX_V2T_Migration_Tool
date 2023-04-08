@@ -93,6 +93,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         if [internalScope for internalScope in ipSpace["ipSpaceInternalScope"]
                             if edgeGatewaySubnet.subnet_of(
                                 ipaddress.ip_network('{}'.format(internalScope), strict=False))]:
+                            # Adding IPs used by edge gateway from this subnet to IP Space ranges
                             self._prepareIpSpaceRanges(ipSpace, edgeGatewayIpRangesList)
                 for ipSpace in ipSpaces:
                     url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.UPDATE_IP_SPACES.format(ipSpace["id"]))
@@ -133,7 +134,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
     def _prepareIpSpaceRanges(self, ipSpace, edgeGatewayIpRangesList, rollback=False):
 
         def _createIpList(start, end):
-            '''Return IPs in IPv4 range, inclusive.'''
+            '''Return IPs in range, inclusive.'''
             start_int = int(ipaddress.ip_address(start).packed.hex(), 16)
             end_int = int(ipaddress.ip_address(end).packed.hex(), 16)
             return [ipaddress.ip_address(ip) for ip in range(start_int, end_int + 1)]
@@ -613,9 +614,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         try:
             data = self.rollback.apiData
+            # Creating a list of edges mapped to IP Space enabled provider gateways
             ipSpaceEnabledEdges = [edge["id"] for edge in data['sourceEdgeGateway']
                                                 if self.orgVdcInput['EdgeGateways'][edge["name"]]['Tier0Gateways']
                                                 in data['ipSpaceProviderGateways']]
+            # If VCD version is less than 10.4.2 and no such edges exists return
             if not (float(self.version) >= float(vcdConstants.API_10_4_2_BUILD) and ipSpaceEnabledEdges):
                 return
 
@@ -632,6 +635,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 prefixLength = sourceOrgVDCNetwork['subnets']['values'][0]['prefixLength']
                 subnet = "{}/{}".format(gateway, prefixLength)
                 network = ipaddress.ip_network(subnet, strict=False)
+                # Checking if the Org VDC network subnet exists in metadata list that contains prefix to be added to public IP Space uplinks
+                # Private IP Space is not created for network if it exists else this network subnet is added to public IP Space uplink as IP Prefix
                 for ipSpaceId, ipBlockToBeAddedList in data.get("ipBlockToBeAddedToIpSpaceUplinks", {}).items():
                     ipBlockNetworks = [ipaddress.ip_network(ipBlock, strict=False) for ipBlock in ipBlockToBeAddedList]
                     if network in ipBlockNetworks:
@@ -639,13 +644,21 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             self.addPrefixToIpSpace(ipSpaceId, subnet)
                         break
                 else:
+                    # Private IP Space being created for Org VDC networks should have route advertisement enabled is VDC networks needs to be Advertised...
+                    # since Org VDC network is going to use this private IP Space
+
+                    # Org VDC networks is route advertised if AdvertisedRoutedNetworks flag is True OR BGP is advertising all subnets(
+                    # can be checked by edge gateway id in "advertiseEdgeNetworks" in metadata which contains list of edge Ids advertising all its routed networks) OR
+                    # there exists an ip prefix in route redistribution section of Edge gateway which is equal to this network subnet
                     routeAdvertisement = sourceOrgVDCNetwork['networkType'] == "NAT_ROUTED" and (
                         self.orgVdcInput['EdgeGateways'][sourceOrgVDCNetwork['connection']['routerRef']['name']]['AdvertiseRoutedNetworks'] or \
                         sourceOrgVDCNetwork['connection']['routerRef']['id'] in data.get("advertiseEdgeNetworks", []) or \
                         network in [ipaddress.ip_network(net, strict=False) for net in data.get("prefixToBeAdvertised", [])])
                     ipPrefixList = [(gateway, prefixLength)]
+                    # Checking whether the private IP Space is already created, if not creating it
                     if subnet not in privateIpSpaces:
                         ipSpaceId = self.createPrivateIpSpace(subnet, ipPrefixList=ipPrefixList, routeAdvertisement=routeAdvertisement, returnOutput=True)
+                    # If route advertisement is enabled for private IP Space which means it will eventually be connected as an uplink to private provider gateway
                     if routeAdvertisement and not any([uplink for uplink in data.get("manuallyAddedUplinks", []) if ipSpaceId in uplink]):
                         self.connectIpSpaceUplinkToProviderGateway(sourceOrgVDCNetwork['connection']['routerRef']['name'], subnet, ipSpaceId)
         except Exception:
