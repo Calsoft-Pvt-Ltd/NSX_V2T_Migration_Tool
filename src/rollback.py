@@ -74,6 +74,8 @@ class Rollback:
             'vcdObj.deleteOrgVDCNetworks(targetOrgVDCId, rollback=True)',
             'vcdObj.deleteNsxTBackedOrgVDCEdgeGateways(targetOrgVDCId)',
             'vcdObj.releaseFloatingIps()',
+            'vcdObj.deleteIpPrefixAddedToIpSpaceUplinks()',
+            'vcdObj.removeManuallyAddedUplinks()',
             'vcdObj.deletePrivateIpSpaces()',
             'vcdObj.directNetworkIpCleanup(key="segmentBackedNetworkIP")',
             'vcdObj.enableSourceAffinityRules()',

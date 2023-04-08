@@ -5411,7 +5411,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             logger.error(traceback.format_exc())
             raise
 
-    def createPrivateIpSpace(self, ipSpaceName, ipRangeList=[], ipPrefixList=[], routeAdvertisement=False):
+    @isSessionExpired
+    def createPrivateIpSpace(self, ipSpaceName, ipRangeList=[], ipPrefixList=[], routeAdvertisement=False, returnOutput=False):
         """
         Description :  Creates Private IP Space for given scope
         Parameteres:   ipRangeList - List of IP range (LIST OF TUPLES)
@@ -5478,3 +5479,92 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             for ipPrefix in ipPrefixes:
                 ipPrefixSubnet = "{}/{}".format(ipPrefix["startingPrefixIpAddress"], ipPrefix["prefixLength"])
                 self.allocate(ipSpaceId, 'IP_PREFIX', ipPrefixSubnet, ipSpaceName)
+
+        if returnOutput:
+            return ipSpaceId
+
+    @isSessionExpired
+    def addPrefixToIpSpace(self, ipSpaceId, prefix):
+        """
+        Description :  Adds Prefix to provided IP SPACE
+        Parameteres:   ipSpaceId - IP SPACE Id (STRING)
+                       prefix - Prefix subnet to be added (STRING)
+        """
+        prefixAddedToIpSpaces = self.rollback.apiData.get("prefixAddedToIpSpaces", [])
+        ipSpaceUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                   vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId))
+        headers = {'Authorization': self.headers['Authorization'],
+                   'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+        ipSpaceResponse = self.restClientObj.get(ipSpaceUrl, headers)
+        if ipSpaceResponse.status_code == requests.codes.ok:
+            ipSpaceResponseDict = ipSpaceResponse.json()
+            ipSpacePrefixes = ipSpaceResponseDict.get("ipSpacePrefixes", [])
+            ipSpacePrefixes.append({
+                "ipPrefixSequence": [
+                    {
+                        "id": None,
+                        "startingPrefixIpAddress": prefix.split("/")[0],
+                        "prefixLength": prefix.split("/")[1],
+                        "totalPrefixCount": 1
+                    }
+                ]
+            })
+            ipSpaceResponseDict["ipSpacePrefixes"] = ipSpacePrefixes
+            payloadData = json.dumps(ipSpaceResponseDict)
+            response = self.restClientObj.put(ipSpaceUrl, headers=headers, data=payloadData)
+            if response.status_code == requests.codes.accepted:
+                taskUrl = response.headers['Location']
+                # checking the status of the creating org vdc network task
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug("Prefix - '{}' added to IP Space - '{}' successfully.".format(prefix, ipSpaceId))
+            else:
+                errorResponse = response.json()
+                raise Exception(
+                    "Failed to create add Prefix - '{}' to IP Space - '{}' with error - {}".format(prefix, ipSpaceId,
+                                                                                    errorResponse['message']))
+        else:
+            raise Exception("Failed to fetch IP Space {} details".format(ipSpaceId))
+
+        self.allocate(ipSpaceId, "IP_PREFIX", prefix, ipSpaceId)
+        prefixAddedToIpSpaces.append(prefix)
+        self.rollback.apiData["prefixAddedToIpSpaces"] = prefixAddedToIpSpaces
+
+    @isSessionExpired
+    def connectIpSpaceUplinkToProviderGateway(self, sourceEdgeGatewayName, ipSpaceName, ipSpaceId):
+        """
+        Description :  Connects Private IP Space to Provider Gateway
+        Parameteres:   sourceEdgeGatewayName - Name of Target Edge Gateway being connected to Provider Gateway (STRING)
+                       ipSpaceName - Name of IP SPACE to be connected to provider gateway as uplink (STRING)
+        """
+        manuallyAddedUplinks = self.rollback.apiData.get("manuallyAddedUplinks", [])
+        uplinkName = "{}-{}".format(vcdConstants.MIGRATION_UPLINK, ipSpaceName)
+        t0Gateway = self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayName]['Tier0Gateways']
+        providerGateway = self.rollback.apiData["targetExternalNetwork"][t0Gateway]
+        url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.IP_SPACE_UPLINKS)
+        headers = {'Authorization': self.headers['Authorization'],
+                   'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+        payloadDict = {
+            "name": uplinkName,
+            "externalNetworkRef": {
+                    "name": t0Gateway,
+                    "id": providerGateway["id"]
+                },
+            "ipSpaceRef": {
+                    "name": ipSpaceName,
+                    "id": ipSpaceId
+            },
+            "description": "IP Space uplink added for V2T Migration"
+        }
+        payloadData = json.dumps(payloadDict)
+        response = self.restClientObj.post(url, headers=headers, data=payloadData)
+        if response.status_code == requests.codes.accepted:
+            taskUrl = response.headers['Location']
+            # checking the status of the creating org vdc network task
+            uplink = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
+            manuallyAddedUplinks.append((ipSpaceId, uplink["owner"]["id"]))
+            self.rollback.apiData["manuallyAddedUplinks"] = manuallyAddedUplinks
+            logger.debug("IP Space Uplink - '{}' added to Provider Gateway - '{}' successfully.".format(payloadDict["name"], t0Gateway))
+        else:
+            errorResponse = response.json()
+            raise Exception("Failed to add IP Space Uplink - '{}' added to Provider Gateway - '{}' with error - {}".format(payloadDict["name"], t0Gateway,
+                                                                                               errorResponse['message']))

@@ -92,6 +92,9 @@ IP_SPACE_ALLOCATE = "allocate"
 # IP Space allocations
 IP_SPACE_ALLOCATIONS = "allocations"
 
+# migration tag scope name
+MIGRATION_UPLINK = 'V2T-Migration'
+
 # direct network connected to (port group backed) external network backing type
 DIRECT_NETWORK_CONNECTED_TO_PG_BACKED_EXT_NET = "DV_PORTGROUP"
 

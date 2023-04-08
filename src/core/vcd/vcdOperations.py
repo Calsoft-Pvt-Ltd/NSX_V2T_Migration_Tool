@@ -231,7 +231,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         'uplinkId': externalDict['id'],
                         'uplinkName': externalDict['name'],
                         'connected': False,
-                        'dedicated': dedicated,
+                        'dedicated': False if externalDict.get('usingIpSpace') else dedicated,
                         'subnets': {
                             'values': subnetData
                         } if subnetData else None
@@ -628,15 +628,26 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # Private IP Spaces are not create for Routed Network connected to Non IP Space Enabled Edges
                 if sourceOrgVDCNetwork['networkType'] == "NAT_ROUTED" and sourceOrgVDCNetwork['connection']['routerRef']['id'] not in ipSpaceEnabledEdges:
                     continue
-                # Skipping if Private IP Space already exists
-                if "{}/{}".format(sourceOrgVDCNetwork['subnets']['values'][0]['gateway'],
-                                    sourceOrgVDCNetwork['subnets']['values'][0]['prefixLength']) in privateIpSpaces:
-                    continue
                 gateway = sourceOrgVDCNetwork['subnets']['values'][0]['gateway']
                 prefixLength = sourceOrgVDCNetwork['subnets']['values'][0]['prefixLength']
                 subnet = "{}/{}".format(gateway, prefixLength)
-                ipPrefixList = [(gateway, prefixLength)]
-                self.createPrivateIpSpace(subnet, ipPrefixList=ipPrefixList)
+                network = ipaddress.ip_network(subnet, strict=False)
+                for ipSpaceId, ipBlockToBeAddedList in data.get("ipBlockToBeAddedToIpSpaceUplinks", {}).items():
+                    ipBlockNetworks = [ipaddress.ip_network(ipBlock, strict=False) for ipBlock in ipBlockToBeAddedList]
+                    if network in ipBlockNetworks:
+                        if subnet not in data.get("prefixAddedToIpSpaces", []):
+                            self.addPrefixToIpSpace(ipSpaceId, subnet)
+                        break
+                else:
+                    routeAdvertisement = sourceOrgVDCNetwork['networkType'] == "NAT_ROUTED" and (
+                        self.orgVdcInput['EdgeGateways'][sourceOrgVDCNetwork['connection']['routerRef']['name']]['AdvertiseRoutedNetworks'] or \
+                        sourceOrgVDCNetwork['connection']['routerRef']['id'] in data.get("advertiseEdgeNetworks", []) or \
+                        network in [ipaddress.ip_network(net, strict=False) for net in data.get("prefixToBeAdvertised", [])])
+                    ipPrefixList = [(gateway, prefixLength)]
+                    if subnet not in privateIpSpaces:
+                        ipSpaceId = self.createPrivateIpSpace(subnet, ipPrefixList=ipPrefixList, routeAdvertisement=routeAdvertisement, returnOutput=True)
+                    if routeAdvertisement and not any([uplink for uplink in data.get("manuallyAddedUplinks", []) if ipSpaceId in uplink]):
+                        self.connectIpSpaceUplinkToProviderGateway(sourceOrgVDCNetwork['connection']['routerRef']['name'], subnet, ipSpaceId)
         except Exception:
             # Saving metadata in org VDC
             self.saveMetadataInOrgVdc()
@@ -1097,6 +1108,60 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         else:
                             logger.debug('Failed to release floating IP {} from IP Space {}.{}'.format(ip, ipSpace,
                                                                                                   response.json()['message']))
+
+    def deleteIpPrefixAddedToIpSpaceUplinks(self):
+        """
+        Description :   Removes IP Prefixes Added to IP Space Uplinks
+        """
+        if not self.rollback.apiData.get("ipBlockToBeAddedToIpSpaceUplinks", {}):
+            return
+        for ipSpaceId, ipPrefixList in self.rollback.apiData.get("ipBlockToBeAddedToIpSpaceUplinks", {}).items():
+            ipSpaceDict = self.fetchIpSpace(ipSpaceId)
+            preFixNetworkList = [ipaddress.ip_network(prefix, strict=False) for prefix in ipPrefixList]
+            prefixList = [ipSpacePrefix for ipSpacePrefix in ipSpaceDict.get("ipSpacePrefixes", []) if
+                          not(ipaddress.ip_network("{}/{}".format(ipSpacePrefix["ipPrefixSequence"][0]["startingPrefixIpAddress"],
+                                                              ipSpacePrefix["ipPrefixSequence"][0]["prefixLength"]),
+                                               strict=False) in preFixNetworkList and ipSpacePrefix["ipPrefixSequence"][0]["totalPrefixCount"] == "1")]
+            ipSpaceDict["ipSpacePrefixes"] = prefixList if prefixList else None
+            ipSpaceUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                       vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId))
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+            payloadData = json.dumps(ipSpaceDict)
+            response = self.restClientObj.put(ipSpaceUrl, headers=headers, data=payloadData)
+            if response.status_code == requests.codes.accepted:
+                taskUrl = response.headers['Location']
+                # checking the status of the creating org vdc network task
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug("Prefixes - '{}' removed from IP Space Uplink - '{}' successfully.".format(ipPrefixList, ipSpaceId))
+            else:
+                errorResponse = response.json()
+                raise Exception(
+                    "Failed to remove Prefixes - '{}' from IP Space Uplink - '{}' with error - {}".format(prefixList, ipSpaceId,
+                                                                                                   errorResponse['message']))
+        logger.debug("Removed IP Prefixes from respective IP Space Uplinks successfully")
+
+
+    def removeManuallyAddedUplinks(self):
+        """
+        Description :   Removes manually added uplinks during migration to Provider Gateways
+        """
+        if not self.rollback.apiData.get("manuallyAddedUplinks", []):
+            return
+        for ipSpaceId, ipSpaceUplinkId in self.rollback.apiData.get("manuallyAddedUplinks", []):
+            url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.IP_SPACE_UPLINKS, ipSpaceUplinkId)
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+            delResponse = self.restClientObj.delete(url, headers=headers)
+            if delResponse.status_code == requests.codes.accepted:
+                taskUrl = delResponse.headers['Location']
+                # checking the status of deleting nsx-v backed edge gateway task
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug('IP Space Uplink removed successfully')
+            else:
+                delResponseDict = delResponse.content.json()
+                raise Exception("Failed to remove IP Space uplink - '{}' due to error ".format(ipSpaceUplinkId, delResponseDict["message"]))
+        logger.debug("Removed manually added Uplinks to IP Space Provider Gateways during migration successfully")
 
     @isSessionExpired
     def deleteNsxVBackedOrgVDCEdgeGateways(self, orgVDCId):
