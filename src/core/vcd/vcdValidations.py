@@ -6282,10 +6282,10 @@ class VCDMigrationValidation:
                     if not(targetExternalNetwork.get("dedicatedOrg") and targetExternalNetwork.get("dedicatedOrg", {}).get("id") ==
                            self.rollback.apiData.get("Organization", {}).get("@id")):
                         errorList.append(
-                            "Edge Gateway - {} : BGP is configured with IP Prefixes which does not"
+                            "Edge Gateway - {} : BGP is configured with IP Prefixes - {} which does not"
                             " belong to any internal scopes of public IP Space uplinks of Provider Gateway, either"
                             " add internal scope to Public IP Space Uplinks to which the prefixes belong"
-                            " or use Private Provider Gateway dedicated to this Organization.".format(sourceEdgeGateway['name']))
+                            " or use Private Provider Gateway dedicated to this Organization.".format(sourceEdgeGateway['name'], prefixToBeAdvertised))
                     else:
                         # If provider gateway is indeed private add it to prefixToBeAdvertised which will be used to during creation of private ip space
                         prefixToBeAdvertised.extend(self.rollback.apiData.get("prefixToBeAdvertised", []))
