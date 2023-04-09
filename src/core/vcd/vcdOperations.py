@@ -304,7 +304,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             logger.info('Creating target Org VDC Edge Gateway')
             self._updateTargetExternalNetworkPool()
-            self.copyIPToSegmentBackedExtNet(edgeGatewayIpMigration=True, key='segmentBackedNetworkIP')
             self._createEdgeGateway(nsxObj)
             self.rollback.apiData['targetEdgeGateway'] = self.getOrgVDCEdgeGateway(
                 self.rollback.apiData['targetOrgVDC']['@id'])
@@ -3173,6 +3172,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             except RuntimeError:
                 pass
 
+    def migrateEdgeGatewayIps(self):
+        """
+        Description: Migrate the IP assigned to edges from source external network to segment backed external network
+        """
+        self.copyIPToSegmentBackedExtNet(edgeGatewayIpMigration=True, key='segmentBackedNetworkIP')
+
     def prepareTargetVDC(self, vcdObjList, sourceOrgVDCId, inputDict, nsxObj, sourceOrgVDCName, vcenterObj, configureBridging=False, configureServices=False):
         """
         Description :   Preparing Target VDC
@@ -3205,6 +3210,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             # checking the acl on target org vdc
             self.createACL()
+
+            # migrating edge gateway ips to segment backed network
+            self.migrateEdgeGatewayIps()
 
             # creating target Org VDC Edge Gateway
             self.createEdgeGateway(nsxObj)

@@ -5564,8 +5564,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         if response.status_code == requests.codes.accepted:
             taskUrl = response.headers['Location']
             # checking the status of the creating org vdc network task
-            uplink = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
-            manuallyAddedUplinks.append((ipSpaceId, uplink["owner"]["id"]))
+            uplinkId = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
+            manuallyAddedUplinks.append((ipSpaceId, "urn:vcloud:ipSpaceUplink:{}".format(uplinkId)))
             self.rollback.apiData["manuallyAddedUplinks"] = manuallyAddedUplinks
             logger.debug("IP Space Uplink - '{}' added to Provider Gateway - '{}' successfully.".format(payloadDict["name"], t0Gateway))
         else:
