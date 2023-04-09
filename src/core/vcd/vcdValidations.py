@@ -6300,7 +6300,7 @@ class VCDMigrationValidation:
                     # exists for those ip prefixes mentioned in BGP So adding Dict that contains public IP Space Id to prefixes that should be added to it mapping...
                     # which will be used during private ip spaces creation to skip these prefixes
                     if ipBlockToBeAddedToIpSpaceUplinks:
-                        self.rollback.apiData.get["ipBlockToBeAddedToIpSpaceUplinks"] = ipBlockToBeAddedToIpSpaceUplinks
+                        self.rollback.apiData["ipBlockToBeAddedToIpSpaceUplinks"] = ipBlockToBeAddedToIpSpaceUplinks
 
     def _validateNonIpSpaceTier0ForBGP(self, targetExternalNetwork, sourceEdgeGateway, sourceOrgVDC, inputDict, bgpConfigDict, errorList):
         """
