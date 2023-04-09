@@ -1578,7 +1578,8 @@ class VCDMigrationValidation:
                         for externalGateway, externalPrefixLength in
                         zip(targetExternalGatewayList, targetExternalPrefixLengthList)]
                 # Checking whether Source External subnets to which Edge Gateway is connected is subnet of available subnets from Provider Gateway
-                if not all(any([sourceNetworkAddress.subnet_of(targetSubnet) for targetSubnet in targetNetworkAddressList])
+                if not all(any([type(sourceNetworkAddress) == type(targetSubnet) and sourceNetworkAddress.subnet_of(
+                        targetSubnet) for targetSubnet in targetNetworkAddressList])
                            for sourceNetworkAddress in sourceNetworkAddressList):
                     gatewayErrorList.append(edgeGateway["id"])
                     errorList.append(
@@ -6249,7 +6250,9 @@ class VCDMigrationValidation:
                     for ipSpace in ipSpaces:
                         if ipSpace["type"] == "PUBLIC":
                             if any([internalScope for internalScope in ipSpace.get("ipSpaceInternalScope", [])
-                                    if ipaddress.ip_network(ipPrefix["ipAddress"], strict=False).subnet_of(
+                                    if type(ipaddress.ip_network(ipPrefix["ipAddress"], strict=False)) == type(
+                                    ipaddress.ip_network(internalScope, strict=False)) and
+                                    ipaddress.ip_network(ipPrefix["ipAddress"], strict=False).subnet_of(
                                     ipaddress.ip_network(internalScope, strict=False))]):
                                 if any([ipSpacePrefix for ipSpacePrefix in ipSpace.get("ipSpacePrefixes", [])
                                         if ipaddress.ip_network(ipPrefix["ipAddress"], strict=False).overlaps(
