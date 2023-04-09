@@ -1119,10 +1119,45 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             taskUrl = response.headers['Location']
                             self._checkTaskStatus(taskUrl=taskUrl)
                             logger.debug("Floating IP {} released from IP Space {}".format(ip, ipSpace))
+                            break
                         else:
                             logger.debug('Failed to release floating IP {} from IP Space {}.{}'.format(ip, ipSpace,
                                                                                                   response.json()['message']))
 
+    @isSessionExpired
+    def releaseIpPrefixes(self):
+        """
+        Description :   Deletes all the Edge Gateways in the specified NSX-V Backed OrgVDC
+        """
+        data = self.rollback.apiData
+        if not data.get("ipBlockToBeAddedToIpSpaceUplinks", {}):
+            return
+        for ipSpaceId, ipPrefixList in data.get("ipBlockToBeAddedToIpSpaceUplinks", {}).items():
+            prefixUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                             vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId),
+                                             vcdConstants.IP_SPACE_ALLOCATIONS)
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+            allocatedPrefixList = self.getPaginatedResults("Floating IPs", prefixUrl, headers,
+                                                      urlFilter="filter=type==IP_PREFIX")
+            for ipPrefix in ipPrefixList:
+                for ipSpacePrefix in allocatedPrefixList:
+                    if ipaddress.ip_network(ipPrefix, strict=False) == ipaddress.ip_network(ipSpacePrefix, strict=False)\
+                            and ipSpacePrefix["usageState"] == "UNUSED":
+                        deleteUrl = "{}/{}".format(prefixUrl, ipSpacePrefix["id"])
+                        response = self.restClientObj.delete(deleteUrl, headers)
+                        if response.status_code == requests.codes.accepted:
+                            taskUrl = response.headers['Location']
+                            self._checkTaskStatus(taskUrl=taskUrl)
+                            logger.debug("IP Prefix - '{}' released from IP Space - '{}' successfully".format(ipPrefix, ipSpaceId))
+                            break
+                        else:
+                            logger.debug("Failed to release IP Prefix - '{}' released from IP Space - '{}' with error - '{}'".format(ipPrefix, ipSpaceId,
+                                                                                                       response.json()[
+                                                                                                           'message']))
+        logger.debug("All ip prefixes added to public IP Spaces released successfully")
+
+    @isSessionExpired
     def deleteIpPrefixAddedToIpSpaceUplinks(self):
         """
         Description :   Removes IP Prefixes Added to IP Space Uplinks
@@ -1155,7 +1190,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                                                                    errorResponse['message']))
         logger.debug("Removed IP Prefixes from respective IP Space Uplinks successfully")
 
-
+    @isSessionExpired
     def removeManuallyAddedUplinks(self):
         """
         Description :   Removes manually added uplinks during migration to Provider Gateways

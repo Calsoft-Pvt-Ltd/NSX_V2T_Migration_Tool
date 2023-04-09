@@ -74,6 +74,7 @@ class Rollback:
             'vcdObj.deleteOrgVDCNetworks(targetOrgVDCId, rollback=True)',
             'vcdObj.deleteNsxTBackedOrgVDCEdgeGateways(targetOrgVDCId)',
             'vcdObj.releaseFloatingIps()',
+            'vcdObj.releaseIpPrefixes()',
             'vcdObj.deleteIpPrefixAddedToIpSpaceUplinks()',
             'vcdObj.removeManuallyAddedUplinks()',
             'vcdObj.deletePrivateIpSpaces()',
