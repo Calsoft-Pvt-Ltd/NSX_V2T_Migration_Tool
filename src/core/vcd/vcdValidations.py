@@ -6206,7 +6206,8 @@ class VCDMigrationValidation:
 
         if advertiseRoutedNetworks:
             # Private provider gateway is required
-            if not targetExternalNetwork.get("dedicatedOrg", {}).get("id") == self.rollback.apiData.get("Organization", {}).get("@id"):
+            if not(targetExternalNetwork.get("dedicatedOrg") and targetExternalNetwork.get("dedicatedOrg", {}).get("id") ==
+                    self.rollback.apiData.get("Organization", {}).get("@id")):
                 errorList.append(
                     "Edge Gateway - {} : 'AdvertiseRoutedNetworks' is set to 'True', so Private Provider"
                     " Gateway dedicated to this Organization is required.".format(sourceEdgeGateway['name']))
@@ -6218,8 +6219,8 @@ class VCDMigrationValidation:
                         bgpRedistributionRule['from']['connected'] == 'true' and \
                         bgpRedistributionRule['action'] == 'permit':
                     # If permitted rule with from type "Connected" rule with prefix type "Any" is present
-                    if not targetExternalNetwork.get("dedicatedOrg", {}).get("id") == self.rollback.apiData.get(
-                            "Organization", {}).get("@id"):
+                    if not(targetExternalNetwork.get("dedicatedOrg") and targetExternalNetwork.get("dedicatedOrg", {}).get("id") ==
+                           self.rollback.apiData.get("Organization", {}).get("@id")):
                         errorList.append(
                             "Edge Gateway - {} : All Routed networks connected to edge are being advertised through BGP, so Private Provider"
                             " Gateway dedicated to this Organization is required.".format(sourceEdgeGateway['name']))
@@ -6278,7 +6279,8 @@ class VCDMigrationValidation:
                     # if internalScopeErrorList exists which means there are some prefixes not present in internal scope of public ip space uplinks
                     # So it should be created as private ip space and connect to provider gateway, which means provider gateway should be private to this tenant..
                     # since private ip spaces are available as uplink to only private provider gateways
-                    if not targetExternalNetwork.get("dedicatedOrg", {}).get("id") == self.rollback.apiData.get("Organization", {}).get("@id"):
+                    if not(targetExternalNetwork.get("dedicatedOrg") and targetExternalNetwork.get("dedicatedOrg", {}).get("id") ==
+                           self.rollback.apiData.get("Organization", {}).get("@id")):
                         errorList.append(
                             "Edge Gateway - {} : BGP is configured with IP Prefixes which does not"
                             " belong to any internal scopes of public IP Space uplinks of Provider Gateway, either"
