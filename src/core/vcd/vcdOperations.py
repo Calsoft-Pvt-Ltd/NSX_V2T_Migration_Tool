@@ -1142,7 +1142,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                       urlFilter="filter=type==IP_PREFIX")
             for ipPrefix in ipPrefixList:
                 for ipSpacePrefix in allocatedPrefixList:
-                    if ipaddress.ip_network(ipPrefix, strict=False) == ipaddress.ip_network(ipSpacePrefix, strict=False)\
+                    if ipaddress.ip_network(ipPrefix, strict=False) == ipaddress.ip_network(ipSpacePrefix["value"], strict=False)\
                             and ipSpacePrefix["usageState"] == "UNUSED":
                         deleteUrl = "{}/{}".format(prefixUrl, ipSpacePrefix["id"])
                         response = self.restClientObj.delete(deleteUrl, headers)
