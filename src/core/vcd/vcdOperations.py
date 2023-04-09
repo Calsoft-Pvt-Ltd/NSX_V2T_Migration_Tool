@@ -159,7 +159,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 ipSpace["ipSpaceRanges"]["ipRanges"] = [ipSpaceRange for ipSpaceRange in ipSpace["ipSpaceRanges"]["ipRanges"]
                                                         if not(ipaddress.ip_address(ipSpaceRange["startIpAddress"]) <= ip <= ipaddress.ip_address(
                                                         ipSpaceRange["endIpAddress"]) and ipSpaceRange["totalIpCount"] == "1")]
-
+        if not ipSpace["ipSpaceRanges"]:
+            ipSpace["ipSpaceRanges"]["ipRanges"] = []
         ipList = list()
         for edgeGatewayIpRange in edgeGatewayIpRangesList:
             ipList.extend(_createIpList(edgeGatewayIpRange["startAddress"], edgeGatewayIpRange["endAddress"]))
