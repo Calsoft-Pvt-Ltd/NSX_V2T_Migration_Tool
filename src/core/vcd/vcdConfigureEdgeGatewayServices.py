@@ -1561,10 +1561,14 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         """
         Description : Enable route Advertisement for routed org VDC networks connected to edge connected to IP Space enabled provider gateway
         """
+        networksToAdvertise = [ipaddress.ip_network(subnet, strict=False) for subnet in subnetsToAdvertise]
         logger.debug("Setting up route advertisement set for target edge gateway - '{}'".format(targetEdgeGatewayName))
         for network in orgVDCNetworks:
-            logger.debug("Enabling route advertisement for network - '{}'".format(network["name"]))
             if network["networkType"] == "NAT_ROUTED" and network['connection']['routerRef']['id'] == targetEdgeGatewayId:
+                if ipaddress.ip_network("{}/{}".format(network['subnets']['values'][0]['gateway'],
+                                                       network['subnets']['values'][0]['prefixLength']), strict=False) not in networksToAdvertise:
+                    continue
+                logger.debug("Enabling route advertisement for network - '{}'".format(network["name"]))
                 network["routeAdvertised"] = True
                 url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.DELETE_ORG_VDC_NETWORK_BY_ID.format(
                                     network["id"]))
