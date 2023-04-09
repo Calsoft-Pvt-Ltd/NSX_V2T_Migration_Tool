@@ -591,7 +591,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         additionalFirewallRuleList = list()
         for firewallRule in userDefinedFirewallRules:
             for natRule in listify(natRules.get('natRules', {}).get('natRule', [])):
-                if natRule['action'] == 'dnat' and natRule['originalAddress'] in firewallRule.get('destination', {}).get('ipAddress', []):
+                if natRule['action'] == 'dnat' and natRule["ruleType"] == "user" and natRule['originalAddress'] in firewallRule.get('destination', {}).get('ipAddress', []):
                     if any([network for network in NonDistributedNetWorkList if ipaddress.ip_address(natRule['translatedAddress'])
                             in ipaddress.ip_network('{}/{}'.format(network['subnets']['values'][0]['gateway'], network['subnets']['values'][0]['prefixLength']), strict=False)]):
                         serviceList = listify(firewallRule.get("application", {}).get("service", []))
