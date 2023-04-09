@@ -1458,7 +1458,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
     @description("configuration of Route Advertisement")
     @remediate
-    def configureRouteAdvertisement(self):
+    def configureRouteAdvertisement(self, ipSpace=False):
         """
         Description :  Configure Route Advertisement on the Target Edge Gateway
         """
@@ -1468,7 +1468,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             logger.debug(f"Configuring Route Advertisement on Target Edge Gateway - {sourceEdgeGateway['name']}")
             t0Gateway = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['Tier0Gateways']
             targetExternalNetwork = self.rollback.apiData["targetExternalNetwork"][t0Gateway]
-            if targetExternalNetwork.get("usingIpSpace"):
+            if targetExternalNetwork.get("usingIpSpace") and not ipSpace:
                 continue
             sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
             targetEdgeGatewayId = list(filter(
@@ -1477,6 +1477,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             # Fetching source org vdc id
             sourceOrgVDCId = self.rollback.apiData.get('sourceOrgVDC', {}).get('@id', str())
+            # Fetching target org vdc id
+            targetOrgVDCId = self.rollback.apiData.get('targetOrgVDC', {}).get('@id', str())
 
             # Fetching subnets of all the routed network connected to source edge gateway
             allRoutedNetworkSubnets = list()
@@ -1525,6 +1527,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                              f"as there is no subnet present for Route Advertisement")
                 continue
 
+            if ipSpace and enableRouteAdvertisment:
+                orgVDCNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
+                self.setRouteAdvertisementForNetworks(targetEdgeGatewayId, sourceEdgeGateway["name"], orgVDCNetworks, subnetsToAdvertise)
+                continue
+
             # Creating route advertisement payload
             routeAdvertisementPayload = json.dumps({
                 "enable": enableRouteAdvertisment,
@@ -1548,6 +1555,29 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 raise Exception(
                     'Failed to configure route advertisement '
                     'on target edge gateway {}'.format(response.json()['message']))
+
+    @isSessionExpired
+    def setRouteAdvertisementForNetworks(self, targetEdgeGatewayId, targetEdgeGatewayName, orgVDCNetworks, subnetsToAdvertise):
+        """
+        Description : Enable route Advertisement for routed org VDC networks connected to edge connected to IP Space enabled provider gateway
+        """
+        logger.debug("Setting up route advertisement set for target edge gateway - '{}'".format(targetEdgeGatewayName))
+        for network in orgVDCNetworks:
+            logger.debug("Enabling route advertisement for network - '{}'".format(network["name"]))
+            if network["networkType"] == "NAT_ROUTED" and network['connection']['routerRef']['id'] == targetEdgeGatewayId:
+                network["routeAdvertised"] = True
+                url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.DELETE_ORG_VDC_NETWORK_BY_ID.format(
+                                    network["id"]))
+                self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+                payloadData = json.dumps(network)
+                apiResponse = self.restClientObj.put(url, headers=self.headers, data=payloadData)
+                if apiResponse.status_code == requests.codes.accepted:
+                    task_url = apiResponse.headers['Location']
+                    self._checkTaskStatus(taskUrl=task_url)
+                    logger.debug("Enabled route advertisement for network - '{}'".format(network["name"]))
+                else:
+                    raise Exception("Failed to enable route advertisement for network '{}'".format(network["name"]))
+        logger.debug("Route advertisement set for target edge gateway - '{}'".format(targetEdgeGatewayName))
 
     @description("configuration of DNS")
     @remediate

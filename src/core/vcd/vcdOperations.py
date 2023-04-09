@@ -3312,6 +3312,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             targetOrgVDCId = self.rollback.apiData['targetOrgVDC']['@id']
             orgVdcNetworkList = self.retrieveNetworkListFromMetadata(sourceOrgVDCId, orgVDCType='source')
             targetOrgVDCNetworkList = self.retrieveNetworkListFromMetadata(targetOrgVDCId, orgVDCType='target')
+            # Creating a list of edges mapped to IP Space enabled provider gateways
+            ipSpaceEnabledEdges = [edge["id"] for edge in data['sourceEdgeGateway']
+                                   if self.orgVdcInput['EdgeGateways'][edge["name"]]['Tier0Gateways']
+                                   in data['ipSpaceProviderGateways']]
 
             # edgeGatewayId = copy.deepcopy(data['targetEdgeGateway']['id'])
             if orgVdcNetworkList:
@@ -3330,6 +3334,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             if targetOrgVDCNetworkList:
                 # reconnecting target Org VDC networks
                 self.reconnectOrgVDCNetworks(sourceOrgVDCId, targetOrgVDCId, source=False)
+
+                if ipSpaceEnabledEdges:
+                    self.configureRouteAdvertisement(ipSpace=True)
 
             # configuring firewall security groups
             self.configureFirewall(networktype=True)
