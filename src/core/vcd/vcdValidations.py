@@ -6240,7 +6240,7 @@ class VCDMigrationValidation:
             # internal scope of public ip spaces
             prefixToBeAdvertised = list()
             # Fetching edge gateway routing config
-            data = self.getEdgeGatewayRoutingConfig(sourceEdgeGateway["id"], sourceEdgeGateway['name'],
+            data = self.getEdgeGatewayRoutingConfig(sourceEdgeGateway["id"].split(":")[-1], sourceEdgeGateway['name'],
                                                     validation=False)
             # Fetching source org vdc IP Prefix data
             sourceIpPrefixData = (data['routingGlobalConfig'].get('ipPrefixes') or {}).get('ipPrefix')
