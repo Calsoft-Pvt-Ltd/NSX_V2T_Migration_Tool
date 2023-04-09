@@ -1466,6 +1466,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
             subnetsToAdvertise = list()
             logger.debug(f"Configuring Route Advertisement on Target Edge Gateway - {sourceEdgeGateway['name']}")
+            t0Gateway = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['Tier0Gateways']
+            targetExternalNetwork = self.rollback.apiData["targetExternalNetwork"][t0Gateway]
+            if targetExternalNetwork.get("usingIpSpace"):
+                continue
             sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
             targetEdgeGatewayId = list(filter(
                 lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
