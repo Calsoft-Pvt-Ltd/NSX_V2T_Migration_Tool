@@ -153,16 +153,16 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     if natRules.get('natRules'):
                         natIpToSnatIdMapping = {natRule['originalAddress']: natRule['ruleTag'] for natRule in
                                                 listify(natRules.get('natRules', {}).get('natRule', [])) if
-                                                natRule['action'] == 'snat'}
+                                                natRule['action'] == 'snat' and natRule.get("ruleType") == "user"}
                         natIpToSnatVnicMapping = {natRule['originalAddress']: natRule['vnic'] for natRule in
                                                   listify(natRules.get('natRules', {}).get('natRule', [])) if
-                                                  natRule['action'] == 'snat'}
+                                                  natRule['action'] == 'snat' and natRule.get("ruleType") == "user"}
                         natIpToDnatIdMapping = {natRule['originalAddress']: natRule['ruleTag'] for natRule in
                                                 listify(natRules.get('natRules', {}).get('natRule', [])) if
-                                                natRule['action'] == 'dnat'}
+                                                natRule['action'] == 'dnat' and natRule.get("ruleType") == "user"}
                         natIpToDnatVnicMapping = {natRule['originalAddress']: natRule['vnic'] for natRule in
                                                   listify(natRules.get('natRules', {}).get('natRule', [])) if
-                                                  natRule['action'] == 'dnat'}
+                                                  natRule['action'] == 'dnat' and natRule.get("ruleType") == "user"}
                     else:
                         natIpToSnatIdMapping = {}
                         natIpToSnatVnicMapping = {}
