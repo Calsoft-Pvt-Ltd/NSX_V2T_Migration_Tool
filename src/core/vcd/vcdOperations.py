@@ -1168,9 +1168,9 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             ipSpaceDict = self.fetchIpSpace(ipSpaceId)
             preFixNetworkList = [ipaddress.ip_network(prefix, strict=False) for prefix in ipPrefixList]
             prefixList = [ipSpacePrefix for ipSpacePrefix in ipSpaceDict.get("ipSpacePrefixes", []) if
-                          not(ipaddress.ip_network("{}/{}".format(ipSpacePrefix["ipPrefixSequence"][0]["startingPrefixIpAddress"],
+                          ipaddress.ip_network("{}/{}".format(ipSpacePrefix["ipPrefixSequence"][0]["startingPrefixIpAddress"],
                                                               ipSpacePrefix["ipPrefixSequence"][0]["prefixLength"]),
-                                               strict=False) in preFixNetworkList and ipSpacePrefix["ipPrefixSequence"][0]["totalPrefixCount"] == "1")]
+                                               strict=False) not in preFixNetworkList and ipSpacePrefix["ipPrefixSequence"][0]["totalPrefixCount"] == "1"]
             ipSpaceDict["ipSpacePrefixes"] = prefixList if prefixList else None
             ipSpaceUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                        vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId))
