@@ -1721,7 +1721,7 @@ class VCDMigrationValidation:
             raise Exception("Failed to fetch provider gateway {} ip space uplink details".format(gatewayInfo["name"]))
         # Traversing through IP Spaces Uplinks connected to Provider Gateway to fetch each IP Space details
         for ipSpaceUplink in responseDict["values"]:
-            ipSpaceId = ipSpaceUplink["externalNetworkRef"]["id"]
+            ipSpaceId = ipSpaceUplink["ipSpaceRef"]["id"]
             ipSpaceList.append(self.fetchIpSpace(ipSpaceId))
         return ipSpaceList
 
