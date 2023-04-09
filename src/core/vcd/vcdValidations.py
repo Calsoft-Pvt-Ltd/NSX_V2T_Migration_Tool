@@ -1720,8 +1720,9 @@ class VCDMigrationValidation:
         else:
             raise Exception("Failed to fetch provider gateway {} ip space uplink details".format(gatewayInfo["name"]))
         # Traversing through IP Spaces Uplinks connected to Provider Gateway to fetch each IP Space details
-        for ipSpace in responseDict["values"]:
-            ipSpaceList.append(self.fetchIpSpace(ipSpace["id"]))
+        for ipSpaceUplink in responseDict["values"]:
+            ipSpaceId = ipSpaceUplink["externalNetworkRef"]["id"]
+            ipSpaceList.append(self.fetchIpSpace(ipSpaceId))
         return ipSpaceList
 
     @isSessionExpired
