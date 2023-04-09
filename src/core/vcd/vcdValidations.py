@@ -6248,7 +6248,7 @@ class VCDMigrationValidation:
             if sourceIpPrefixData:
                 # Fetching all the IP Space uplinks of Provider Gateway
                 ipSpaces = self.getProviderGatewayIpSpaces(targetExternalNetwork)
-                for ipPrefix in sourceIpPrefixData:
+                for ipPrefix in listify(sourceIpPrefixData):
                     for ipSpace in ipSpaces:
                         if ipSpace["type"] == "PUBLIC":
                             if any([internalScope for internalScope in ipSpace.get("ipSpaceInternalScope", [])
