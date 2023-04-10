@@ -659,7 +659,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     routeAdvertisement = sourceOrgVDCNetwork['networkType'] == "NAT_ROUTED" and (
                         self.orgVdcInput['EdgeGateways'][sourceOrgVDCNetwork['connection']['routerRef']['name']]['AdvertiseRoutedNetworks'] or \
                         sourceOrgVDCNetwork['connection']['routerRef']['id'] in data.get("advertiseEdgeNetworks", []) or \
-                        network in [ipaddress.ip_network(net, strict=False) for net in data.get("prefixToBeAdvertised", [])])
+                        network in [ipaddress.ip_network(net, strict=False) for net in data.get("prefixToBeAdvertised",
+                                    {}).get(sourceOrgVDCNetwork['connection']['routerRef']['id'], [])])
                     ipPrefixList = [(gateway, prefixLength)]
                     # Checking whether the private IP Space is already created, if not creating it
                     if subnet not in privateIpSpaces:
@@ -667,6 +668,16 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     # If route advertisement is enabled for private IP Space which means it will eventually be connected as an uplink to private provider gateway
                     if routeAdvertisement and not any([uplink for uplink in data.get("manuallyAddedUplinks", []) if ipSpaceId in uplink]):
                         self.connectIpSpaceUplinkToProviderGateway(sourceOrgVDCNetwork['connection']['routerRef']['name'], subnet, ipSpaceId)
+            networkList = [ipaddress.ip_network(ipspace, strict=False) for ipspace in data.get("privateIpSpaces", {})]
+            for edgeGatewayName, prefixToBeAdvertisedList in data.get("prefixToBeAdvertised", {}).items():
+                    for prefixToBeAdvertised in prefixToBeAdvertisedList:
+                        if ipaddress.ip_network(prefixToBeAdvertised, strict=False) in networkList:
+                            continue
+                        ipSpaceId = self.createPrivateIpSpace(prefixToBeAdvertised, ipPrefixList=[(prefixToBeAdvertised.split("/")[0], prefixToBeAdvertised.split("/")[-1])],
+                                                              routeAdvertisement=True, returnOutput=True)
+                        if not any([uplink for uplink in data.get("manuallyAddedUplinks", []) if ipSpaceId in uplink]):
+                            self.connectIpSpaceUplinkToProviderGateway(edgeGatewayName, prefixToBeAdvertised, ipSpaceId)
+
         except Exception:
             # Saving metadata in org VDC
             self.saveMetadataInOrgVdc()

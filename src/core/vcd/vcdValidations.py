@@ -1898,7 +1898,10 @@ class VCDMigrationValidation:
         # prefixToBeAdvertised is a list in metadata of Org VDC which holds list of subnets mentioned in Route Redistribution section...
         # of BGP of edge gayeway that should be created as private IP Spaces and should be connected as an uplink to Provider gateway
         # Since they're being created as private IP Space MT should check their conflict status with internal scopes of existing IP Spaces available to tenant
-        for prefixToBeAdvertised in self.rollback.apiData.get("prefixToBeAdvertised", []):
+        prefixTobeAdvertisedList = list()
+        for _, prefixList in self.rollback.apiData.get("prefixToBeAdvertised", {}).items():
+            prefixTobeAdvertisedList.extend(prefixList)
+        for prefixToBeAdvertised in prefixTobeAdvertisedList:
             prefixNetwork = ipaddress.ip_network(prefixToBeAdvertised, strict=False)
             for ipSpace in allIpSpaces:
                 for internalScope in ipSpace["ipSpaceInternalScope"]:
@@ -6238,17 +6241,20 @@ class VCDMigrationValidation:
             internalScopeErrorList  = list()
             # prefix that should be created as private ip space and connect to private provider gateway since it does not exists in...
             # internal scope of public ip spaces
-            prefixToBeAdvertised = list()
+            prefixToBeAdvertised = self.rollback.apiData.get("prefixToBeAdvertised") or defaultdict(list)
             # Fetching edge gateway routing config
             data = self.getEdgeGatewayRoutingConfig(sourceEdgeGateway["id"].split(":")[-1], sourceEdgeGateway['name'],
                                                     validation=False)
             # Fetching source org vdc IP Prefix data
             sourceIpPrefixData = (data['routingGlobalConfig'].get('ipPrefixes') or {}).get('ipPrefix')
 
-            if sourceIpPrefixData:
+            if sourceIpPrefixData and bgpRedistribution:
                 # Fetching all the IP Space uplinks of Provider Gateway
                 ipSpaces = self.getProviderGatewayIpSpaces(targetExternalNetwork)
                 for ipPrefix in listify(sourceIpPrefixData):
+                    if not any([ipPrefix["name"] == bgpRedistributionRule.get('prefixName') and bgpRedistributionRule.get("from", {}).get("connected", False)
+                           for bgpRedistributionRule in listify((bgpRedistribution.get('rules') or {}).get('rule'))]):
+                        continue
                     for ipSpace in ipSpaces:
                         if ipSpace["type"] == "PUBLIC":
                             if any([internalScope for internalScope in ipSpace.get("ipSpaceInternalScope", [])
@@ -6270,7 +6276,7 @@ class VCDMigrationValidation:
                                 break
                     else:
                         # if prefix does not exist in any internal scope of public ip space uplink connected to provider gateway
-                        prefixToBeAdvertised.append(ipPrefix["ipAddress"])
+                        prefixToBeAdvertised[sourceEdgeGateway["id"]].append(ipPrefix["ipAddress"])
                         internalScopeErrorList.append(
                             "Edge Gateway - {} : IP Prefix - '{}' does not belong to internal scope of any Public IP Space"
                             " uplink connected to Provider Gateway - '{}'".format(sourceEdgeGateway['name'],
@@ -6288,8 +6294,7 @@ class VCDMigrationValidation:
                             " or use Private Provider Gateway dedicated to this Organization.".format(sourceEdgeGateway['name'], prefixToBeAdvertised))
                     else:
                         # If provider gateway is indeed private add it to prefixToBeAdvertised which will be used to during creation of private ip space
-                        prefixToBeAdvertised.extend(self.rollback.apiData.get("prefixToBeAdvertised", []))
-                        self.rollback.apiData["prefixToBeAdvertised"] = set(prefixToBeAdvertised)
+                        self.rollback.apiData["prefixToBeAdvertised"] = prefixToBeAdvertised
                 if ipSpacePrefixErrorList:
                     # if ipSpacePrefixErrorList exists means some prefixes from BGP belongs to internal scope of public ip space uplink..
                     # but dut to already present ip prefix in it MT won't be able to add it as ip prefix in public ip space uplink so throwing error
