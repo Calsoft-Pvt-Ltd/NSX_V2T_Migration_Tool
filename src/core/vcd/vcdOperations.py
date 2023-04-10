@@ -660,7 +660,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         self.orgVdcInput['EdgeGateways'][sourceOrgVDCNetwork['connection']['routerRef']['name']]['AdvertiseRoutedNetworks'] or \
                         sourceOrgVDCNetwork['connection']['routerRef']['id'] in data.get("advertiseEdgeNetworks", []) or \
                         network in [ipaddress.ip_network(net, strict=False) for net in data.get("prefixToBeAdvertised",
-                                    {}).get(sourceOrgVDCNetwork['connection']['routerRef']['id'], [])])
+                                    {}).get(sourceOrgVDCNetwork['connection']['routerRef']['name'], [])])
                     ipPrefixList = [(gateway, prefixLength)]
                     # Checking whether the private IP Space is already created, if not creating it
                     if subnet not in privateIpSpaces:

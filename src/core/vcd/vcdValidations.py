@@ -6276,7 +6276,7 @@ class VCDMigrationValidation:
                                 break
                     else:
                         # if prefix does not exist in any internal scope of public ip space uplink connected to provider gateway
-                        prefixToBeAdvertised[sourceEdgeGateway["id"]].append(ipPrefix["ipAddress"])
+                        prefixToBeAdvertised[sourceEdgeGateway["name"]].append(ipPrefix["ipAddress"])
                         internalScopeErrorList.append(
                             "Edge Gateway - {} : IP Prefix - '{}' does not belong to internal scope of any Public IP Space"
                             " uplink connected to Provider Gateway - '{}'".format(sourceEdgeGateway['name'],
