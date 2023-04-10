@@ -674,6 +674,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         if ipaddress.ip_network(prefixToBeAdvertised, strict=False) not in networkList:
                             ipSpaceId = self.createPrivateIpSpace(prefixToBeAdvertised, ipPrefixList=[(prefixToBeAdvertised.split("/")[0], prefixToBeAdvertised.split("/")[-1])],
                                                                 routeAdvertisement=True, returnOutput=True)
+                        else:
+                            ipSpaceId = data.get("privateIpSpaces", {}).get(prefixToBeAdvertised)
                         if not any([uplink for uplink in data.get("manuallyAddedUplinks", []) if ipSpaceId in uplink]):
                             self.connectIpSpaceUplinkToProviderGateway(edgeGatewayName, prefixToBeAdvertised, ipSpaceId)
 
