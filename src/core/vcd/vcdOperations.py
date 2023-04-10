@@ -665,6 +665,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     # Checking whether the private IP Space is already created, if not creating it
                     if subnet not in privateIpSpaces:
                         ipSpaceId = self.createPrivateIpSpace(subnet, ipPrefixList=ipPrefixList, routeAdvertisement=routeAdvertisement, returnOutput=True)
+                    else:
+                        ipSpaceId = data.get("privateIpSpaces", {}).get(subnet)
                     # If route advertisement is enabled for private IP Space which means it will eventually be connected as an uplink to private provider gateway
                     if routeAdvertisement and not any([uplink for uplink in data.get("manuallyAddedUplinks", []) if ipSpaceId in uplink]):
                         self.connectIpSpaceUplinkToProviderGateway(sourceOrgVDCNetwork['connection']['routerRef']['name'], subnet, ipSpaceId)
