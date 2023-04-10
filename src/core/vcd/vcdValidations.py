@@ -6252,7 +6252,7 @@ class VCDMigrationValidation:
                 # Fetching all the IP Space uplinks of Provider Gateway
                 ipSpaces = self.getProviderGatewayIpSpaces(targetExternalNetwork)
                 for ipPrefix in listify(sourceIpPrefixData):
-                    if not any([ipPrefix["name"] == bgpRedistributionRule.get('prefixName') and bgpRedistributionRule.get("from", {}).get("connected", False)
+                    if not any([ipPrefix["name"] == bgpRedistributionRule.get('prefixName') and bgpRedistributionRule.get("from", {}).get("connected") == 'true'
                            for bgpRedistributionRule in listify((bgpRedistribution.get('rules') or {}).get('rule'))]):
                         continue
                     for ipSpace in ipSpaces:
