@@ -680,6 +680,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             ipSpaceId = data.get("privateIpSpaces", {}).get(prefixToBeAdvertised)
                         if not any([uplink for uplink in data.get("manuallyAddedUplinks", []) if ipSpaceId in uplink]):
                             self.connectIpSpaceUplinkToProviderGateway(edgeGatewayName, prefixToBeAdvertised, ipSpaceId)
+            prefixList = [ipaddress.ip_network(prefix, strict=False) for prefix in data.get("prefixAddedToIpSpaces", [])]
+            for ipSpaceId, ipBlockToBeAddedList in data.get("ipBlockToBeAddedToIpSpaceUplinks", {}).items():
+                for ipBlock in ipBlockToBeAddedList:
+                    if ipaddress.ip_network(ipBlock, strict=False) in prefixList:
+                        continue
+                    else:
+                        self.addPrefixToIpSpace(ipSpaceId, ipBlock)
 
         except Exception:
             # Saving metadata in org VDC
