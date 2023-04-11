@@ -3887,7 +3887,6 @@ class VCDMigrationValidation:
 
         if not virtualServersData:
             return []
-        orgVDCVirtualServerDict = self.rollback.apiData.get("orgVDCVirtualServerDict") or defaultdict(list)
         virtualSeverIp = dict()
         for virtualServer in virtualServersData:
             virtualSeverIp[virtualServer['name']] = virtualServer['ipAddress']
@@ -3916,9 +3915,6 @@ class VCDMigrationValidation:
             if vnicIpToTypeMap[virtualServer['ipAddress']] == 'internal' and float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
                 return ["VIP from org VDC network is not supported on target side"]
 
-        orgVDCVirtualServerDict["urn:vcloud:gateway:{}".format(edgeGatewayId)] = [virtualServer['ipAddress']
-                    for virtualServer in virtualServersData if vnicIpToTypeMap[virtualServer['ipAddress']] == 'internal']
-
         for vnics in vNicsDetails:
             if vnics.get('addressGroups') and vnics['type'] == 'internal':
                 for addressGroup in listify(vnics['addressGroups']['addressGroup']):
@@ -3942,7 +3938,6 @@ class VCDMigrationValidation:
                 if vsIp in vmIp or vsIp in errorList:
                     errorList.add(vsIp)
                     loadBalancerConfigDict['Virtual server IP is already getting used by VM/GatewayIP of orgvdc network on edge gateway'].append(vsName)
-        self.rollback.apiData["orgVDCVirtualServerDict"] = orgVDCVirtualServerDict
         if errorList:
             return ['Virtual server IP : {} is already getting used by VM/GatewayIP of orgvdc network on edge gateway {}'.format(','.join(errorList), edgeGatewayId)]
         else:

@@ -641,8 +641,6 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 prefixLength = sourceOrgVDCNetwork['subnets']['values'][0]['prefixLength']
                 subnet = "{}/{}".format(gateway, prefixLength)
                 network = ipaddress.ip_network(subnet, strict=False)
-                lbVirtualServiceNetworksIpList = [vsIp for vsIp in data.get("orgVDCVirtualServerDict", {}).get(
-                    sourceOrgVDCNetwork['connection']['routerRef']['id'], []) if ipaddress.ip_address(vsIp) in network]
                 # Checking if the Org VDC network subnet exists in metadata list that contains prefix to be added to public IP Space uplinks
                 # Private IP Space is not created for network if it exists else this network subnet is added to public IP Space uplink as IP Prefix
                 for ipSpaceId, ipBlockToBeAddedList in data.get("ipBlockToBeAddedToIpSpaceUplinks", {}).items():
@@ -666,11 +664,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     ipPrefixList = [(gateway, prefixLength)]
                     # Checking whether the private IP Space is already created, if not creating it
                     if subnet not in privateIpSpaces:
-                        if lbVirtualServiceNetworksIpList:
-                            ipRangeList = [(ip, ip) for ip in lbVirtualServiceNetworksIpList]
-                        else:
-                            ipRangeList = []
-                        ipSpaceId = self.createPrivateIpSpace(subnet, ipRangeList=ipRangeList, ipPrefixList=ipPrefixList, routeAdvertisement=routeAdvertisement, returnOutput=True)
+                        ipSpaceId = self.createPrivateIpSpace(subnet, ipPrefixList=ipPrefixList, routeAdvertisement=routeAdvertisement, returnOutput=True)
                     else:
                         ipSpaceId = data.get("privateIpSpaces", {}).get(subnet)
                     # If route advertisement is enabled for private IP Space which means it will eventually be connected as an uplink to private provider gateway
