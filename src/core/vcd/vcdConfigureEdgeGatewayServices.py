@@ -1404,10 +1404,19 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                       targetEdgeGatewayId - target edge gateway ID (STRING)
         """
         # Checking if IP Prefix list is already present on target edge gateway or not
-        for ipPrefix in self.getTargetEdgeGatewayIpPrefixData(targetEdgeGatewayId):
+        targetIpPrefixes = self.getTargetEdgeGatewayIpPrefixData(targetEdgeGatewayId)
+        alreadyPresentPrefixes = list()
+        for ipPrefix in targetIpPrefixes:
             if ipPrefix['name'] == vcdConstants.TARGET_BGP_IP_PREFIX_NAME:
-                logger.debug("IP Prefix list already created on target edge gateway")
-                return
+                alreadyPresentPrefixes.extend(ipPrefix.get("prefixes", []))
+                targetPrefixNetworkList = [ipaddress.ip_network(prefix["network"], strict=False) for prefix in ipPrefix.get("prefixes", [])]
+                sourcePrefixNetworkList = [ipaddress.ip_network(ipPrefix["ipAddress"], strict=False) for ipPrefix in ipPrefixes]
+                for sourcePrefix in sourcePrefixNetworkList:
+                    if sourcePrefix not in targetPrefixNetworkList:
+                        break
+                else:
+                    logger.debug("IP Prefix list already created on target edge gateway")
+                    return
 
         # Creating IpPrefix and subnet mapping
         ipPrefixSubnetMapping = {
@@ -1437,7 +1446,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         if not ipPrefixPayloadData['prefixes']:
             logger.debug(f"No Prefixes present to migrate to target edge gateway {targetEdgeGatewayId}")
             return
-
+        ipPrefixPayloadData['prefixes'].extend(alreadyPresentPrefixes)
         # Create IpPrefix in target edge gateway
         ipPrefixUrl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                       vcdConstants.ALL_EDGE_GATEWAYS,
