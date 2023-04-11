@@ -6806,18 +6806,19 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getVappUsingSharedNetwork(self, orgVdcNetworkSharedList):
+    def getVappUsingSharedNetwork(self, orgVdcNetworkSharedList, orgId=None):
         """
             This method will take list of shared networks and returns list of vApp which uses that shared network.
             Parameter : orgVdcNetworkSharedList - This contains list of shared network.
         """
         try:
             # get OrgVdc UUID
-            uuid = self.rollback.apiData['Organization']['@id'].split(':')[-1]
+            if not orgId:
+                orgId = self.rollback.apiData['Organization']['@id'].split(':')[-1]
             # get vApp network list which uses shared network using query API.
             vAppList = []
             resultList = []
-            headers = {'X-VMWARE-VCLOUD-TENANT-CONTEXT': uuid,
+            headers = {'X-VMWARE-VCLOUD-TENANT-CONTEXT': orgId,
                        'Accept': 'application/*+json;version={}'.format(self.version),
                        'Authorization': self.bearerToken}
             for orgVDCNetwork in orgVdcNetworkSharedList:
@@ -6857,18 +6858,19 @@ class VCDMigrationValidation:
             raise
 
     @isSessionExpired
-    def getOrgVdcOfvApp(self, vAppList):
+    def getOrgVdcOfvApp(self, vAppList, orgId=None):
         """
             This method takes vApplist as a input and return list of OrgVdc which belong to vApp.
             Parameter : vAppList - List of all vApp which is using shared network.
         """
         try:
             # get OrgVdc UUID
-            uuid = self.rollback.apiData['Organization']['@id'].split(':')[-1]
+            if not orgId:
+                orgId = self.rollback.apiData['Organization']['@id'].split(':')[-1]
             orgVdcvApplist = []
             orgVdcNameList = []
             resultList = []
-            headers = {'X-VMWARE-VCLOUD-TENANT-CONTEXT': uuid,
+            headers = {'X-VMWARE-VCLOUD-TENANT-CONTEXT': orgId,
                        'Accept': 'application/*+json;version={}'.format(self.version),
                        'Authorization': self.bearerToken}
             getvAppDataUrl = vcdConstants.VAPP_DATA_URL.format(self.ipAddress)
@@ -6913,7 +6915,7 @@ class VCDMigrationValidation:
         """
         try:
             # List that excludes service direct network as they are not migrated by data center group mechanism
-            NonServiceDirectSharedNetworkList  = list()
+            NonServiceDirectSharedNetworkList = list()
             for network in orgVdcNetworkSharedList:
                 if network["networkType"] != "DIRECT":
                     NonServiceDirectSharedNetworkList.append(network)
@@ -6943,6 +6945,8 @@ class VCDMigrationValidation:
                     else:
                         raise Exception("Failed to fetch external network {} details".format(
                             network['parentNetworkId']['name']))
+            if sourceOrgVdcList == None:
+                return NonServiceDirectSharedNetworkList
 
             if NonServiceDirectSharedNetworkList:
                 if len(sourceOrgVdcList) > vcdConstants.MAX_ORGVDC_COUNT:
@@ -7049,6 +7053,58 @@ class VCDMigrationValidation:
             raise Exception(
                 f"Distributed Firewall Default rule not common among Org VDCs: {', '.join(evaluatedOrgVdcs)}; "
                 f"Conflicting parameters: {', '.join(conflictingKeys)}")
+
+    def getListOfOrgVdcUsingSharedNetwork(self, orgId):
+        """
+            This function will give the list of ORGVDC which are using shared Network.
+            Parameter : uuid- Organization Id
+        """
+        # url to get all networks of an organization
+        url = '{}{}'.format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                            vcdConstants.ALL_ORG_VDC_NETWORKS)
+        headers = {'X-VMWARE-VCLOUD-TENANT-CONTEXT': orgId,
+                   'Authorization': self.bearerToken, 'Accept': vcdConstants.VCD_API_HEADER}
+        response = self.restClientObj.get(url, headers)
+        if response.status_code == requests.codes.ok:
+            responsedata = response.json()
+            sharedNetworkList = list()
+            listify(responsedata["values"])
+            for network in listify(responsedata["values"]):
+                if bool(network['shared']):
+                    sharedNetworkList.append(network)
+            # list of Shared Network On which limit of 16 Org VDC can be applied
+            NonServiceDirectSharedNetworkList = self.checkMaxOrgVdcCount(sourceOrgVdcList=None, orgVdcNetworkSharedList=sharedNetworkList)
+            orgVdcToBeMigratedTogether = list()
+            maxOrgVdcCount = list()
+            for network in sharedNetworkList:
+                sharedVDC = set()
+                vAppList = self.getVappUsingSharedNetwork([network], orgId)
+                orgVdcvApplist, orgVdcNameList = self.getOrgVdcOfvApp(vAppList, orgId)
+                sharedVDC.add(network['orgVdc']['name'])
+                for value in orgVdcNameList:
+                    sharedVDC.add(value)
+                for vdc1 in orgVdcToBeMigratedTogether:
+                    if vdc1 & sharedVDC:
+                        vdc1.update(sharedVDC)
+                        break
+                else:
+                    orgVdcToBeMigratedTogether.append(sharedVDC)
+                if network in NonServiceDirectSharedNetworkList:
+                    sharedVDC1 = set()
+                    sharedVDC1.add(network['orgVdc']['name'])
+                    for value in orgVdcNameList:
+                        sharedVDC1.add(value)
+                    for vdc1 in maxOrgVdcCount:
+                        if vdc1 & sharedVDC1:
+                            vdc1.update(sharedVDC1)
+                            break
+                    else:
+                        maxOrgVdcCount.append(sharedVDC1)
+            return orgVdcToBeMigratedTogether, maxOrgVdcCount
+        else:
+            errorResponseData = response.json()
+            raise Exception(
+                'Failed to get organization network due to error {}'.format(errorResponseData['message']))
 
     @description("Performing checks for shared networks")
     @remediate
