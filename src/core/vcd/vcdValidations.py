@@ -1856,8 +1856,8 @@ class VCDMigrationValidation:
 
         # List of non-direct networks i.e Routed(connected to IP Space edge), Isolated since direct networks are irrelevant in IP Space context
         filteredList = list(filter(
-            lambda network: network['networkType'] == 'ISOLATED' or network.get('connection', {}).get('routerRef',
-                                                                    {}).get('id') in ipSpaceEnabledEdges, networkList))
+            lambda network: network['networkType'] == 'ISOLATED' or (network.get('connection') and network.get('connection', {}).get('routerRef',
+                                                                    {}).get('id') in ipSpaceEnabledEdges), networkList))
 
         # If no such networks exists, return
         if not filteredList:
