@@ -521,12 +521,26 @@ class VMwareCloudDirectorNSXMigratorV2T:
             self.edgeGatewayData = list()
 
             # List to store Org VDC Edge Gateway Load Balancer result
-            self.loadBalancerData  =list()
+            self.loadBalancerData  = list()
 
             # Iterating over the org in the relation map
             for org in relationMap:
+                orgId = self.vcdValidationObj.getOrgId(org).split(":")[-1]
+                sharedOrgVdcList, orgVDCUsingSameDCGroup = self.vcdValidationObj.getListOfOrgVdcUsingSharedNetwork(orgId)
+
                 # Iterating over the org vdc's in the relation map
                 for VDC, VDCId in relationMap[org].items():
+                    sharedOrgVdcSet = 'NA'
+                    maxOrgVdcLimit = False
+                    for vdcSet in sharedOrgVdcList:
+                        if VDC in vdcSet:
+                            sharedOrgVdcSet = str(vdcSet).replace("{", "").replace("}", "")
+
+                    for vdcSet in orgVDCUsingSameDCGroup:
+                        if VDC in vdcSet:
+                            if len(vdcSet) > 16:
+                                maxOrgVdcLimit = True
+
                     # Change logging format
                     self.changeLoggingFormat(f"{VDC}:{org}")
 
@@ -542,6 +556,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
                         'VMs': 0,
                         'ORG VDC RAM (MB)': 0,
                         'Number of Networks to Bridge': 'NA',
+                        'OrgVdcToBeMigratedTogether': sharedOrgVdcSet,
+                        'DC Group Org VDC Limit Exceeded': maxOrgVdcLimit,
                     })
                     # Attribute provide count of initial columns in report which
                     # provides summary before adding actual validation features
@@ -755,6 +771,8 @@ class VMwareCloudDirectorNSXMigratorV2T:
                         orgVDCResult['Status'] = STATUS_CODES[1]
                     else:
                         orgVDCResult['Status'] = STATUS_CODES[0]
+                    if maxOrgVdcLimit:
+                        orgVDCResult['Status'] = STATUS_CODES[2]
 
                     # Adding the data after validating to report data
                     self.reportData.append(orgVDCResult)
