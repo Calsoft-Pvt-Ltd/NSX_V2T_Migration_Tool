@@ -2568,6 +2568,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         "type": natRule.get("type"),
                         "externalAddresses": natRule.get("externalAddresses"),
                         "internalAddresses": natRule.get("internalAddresses"),
+                        "snatDestinationAddresses": natRule.get("snatDestinationAddresses"),
                         "logging": natRule.get("logging"),
                         "priority": natRule.get("priority"),
                         "firewallMatch": natRule.get("firewallMatch"),
