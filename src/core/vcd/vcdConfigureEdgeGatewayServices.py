@@ -1410,7 +1410,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             if ipPrefix['name'] == vcdConstants.TARGET_BGP_IP_PREFIX_NAME:
                 alreadyPresentPrefixes.extend(ipPrefix.get("prefixes", []))
                 targetPrefixNetworkList = [ipaddress.ip_network(prefix["network"], strict=False) for prefix in ipPrefix.get("prefixes", [])]
-                sourcePrefixNetworkList = [ipaddress.ip_network(ipPrefix["ipAddress"], strict=False) for ipPrefix in ipPrefixes]
+                sourcePrefixNetworkList = [ipaddress.ip_network(ipPrefix["ipAddress"], strict=False) for ipPrefix in listify(ipPrefixes)]
                 for sourcePrefix in sourcePrefixNetworkList:
                     if sourcePrefix not in targetPrefixNetworkList:
                         break
