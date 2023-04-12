@@ -3888,6 +3888,9 @@ class VCDMigrationValidation:
         if not virtualServersData:
             return []
         virtualSeverIp = dict()
+
+        virtualServiceOnOrgvdcNetwork = self.rollback.apiData.get("virtualServiceOnOrgvdcNetwork") or defaultdict(list)
+
         for virtualServer in virtualServersData:
             virtualSeverIp[virtualServer['name']] = virtualServer['ipAddress']
         # url to retrieve the routing config info
@@ -3914,6 +3917,12 @@ class VCDMigrationValidation:
         for virtualServer in virtualServersData:
             if vnicIpToTypeMap[virtualServer['ipAddress']] == 'internal' and float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
                 return ["VIP from org VDC network is not supported on target side"]
+
+        for virtualServer in virtualServersData:
+            if vnicIpToTypeMap[virtualServer['ipAddress']] == 'internal':
+                virtualServiceOnOrgvdcNetwork[edgeGatewayId].append(virtualServer["name"])
+
+        self.rollback.apiData["virtualServiceOnOrgvdcNetwork"] = virtualServiceOnOrgvdcNetwork
 
         for vnics in vNicsDetails:
             if vnics.get('addressGroups') and vnics['type'] == 'internal':

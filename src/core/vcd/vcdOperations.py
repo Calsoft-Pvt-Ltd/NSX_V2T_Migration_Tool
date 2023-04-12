@@ -3402,6 +3402,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
                 if ipSpaceEnabledEdges:
                     self.configureRouteAdvertisement(ipSpace=True)
+                    self.createLBVirtualServerOnOrgVDCNetwork()
 
             # configuring firewall security groups
             self.configureFirewall(networktype=True)
