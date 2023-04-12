@@ -138,6 +138,7 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
 
             # Validation methods reference
             vcdValidationMapping = {
+                'Validating Target External Networks': [vcdValidationObj.validateProviderGateways],
                 'Validating NSX-T manager Ip Address and version': [vcdValidationObj.getNsxDetails, self.inputDict["NSXT"]["Common"]["ipAddress"]],
                 'Validating if target OrgVDC do not exists': [vcdValidationObj.validateNoTargetOrgVDCExists, orgVDCDict["OrgVDCName"]],
                 'Validating external network mapping with Gateway mentioned in userInput file': [vcdValidationObj.validateEdgeGatewayToExternalNetworkMapping, sourceEdgeGatewayData],
@@ -149,6 +150,8 @@ class VMwareCloudDirectorNSXMigratorAssessmentMode():
                 'Validating whether source Org VDC placement policies are present in target PVDC': [vcdValidationObj.validateVMPlacementPolicy, sourceOrgVDCId],
                 'Validating storage profiles in source Org VDC and target Provider VDC': [vcdValidationObj.validateStorageProfiles],
                 'Validating if source and target External networks have same subnets': [vcdValidationObj.validateExternalNetworkSubnets],
+                'Validating ovelapping Org VDC Network subnets in case of IP Space enabled edges': [vcdValidationObj.validateOvelappingNetworksubnets, vcdObjList],
+                'Validating Org VDC network subnets conflicts with existing IP Spaces Internal Scopes available to tenant': [vcdValidationObj.validateOrgVDCNetworkSubnetConflict],
                 'Validating multiple subnets in directly connected external network': [vcdValidationObj.validateExternalNetworkMultipleSubnets],
                 'Validating Target External Network with NSXT provided in input file': [vcdValidationObj.validateExternalNetworkWithNSXT],
                 'Validating if all edge gateways interfaces are in use': [vcdValidationObj.validateEdgeGatewayUplinks, sourceOrgVDCId, edgeGatewayIdList, True],
