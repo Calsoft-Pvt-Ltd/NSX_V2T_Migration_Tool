@@ -903,11 +903,17 @@ class VCDMigrationValidation:
         """
         data = self.rollback.apiData
         ipSpaceProviderGateways = list()
+        unsupportedProviderGateways = list()
         for targetExternalNetworkName, targetExternalNetwork in data['targetExternalNetwork'].items():
             if targetExternalNetwork.get('usingIpSpace'):
                 ipSpaceProviderGateways.append(targetExternalNetworkName)
+            if targetExternalNetwork.get("dedicatedOrg") and targetExternalNetwork.get("dedicatedOrg", {}).get("id") != \
+                    self.rollback.apiData.get("Organization", {}).get("@id"):
+                unsupportedProviderGateways.append(targetExternalNetworkName)
         if ipSpaceProviderGateways and float(self.version) < float(vcdConstants.API_10_4_2_BUILD):
             raise Exception("Provider Gateways - {} are IP Space enabled. IP Space enabled Provider Gateways are supported for VCD version 10.4.2 and above".format(ipSpaceProviderGateways))
+        if unsupportedProviderGateways:
+            raise Exception("Provider Gateways - '{}' are not public or private to this Organization".format(unsupportedProviderGateways))
 
 
     @isSessionExpired
