@@ -1446,7 +1446,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         if not ipPrefixPayloadData['prefixes']:
             logger.debug(f"No Prefixes present to migrate to target edge gateway {targetEdgeGatewayId}")
             return
-        ipPrefixPayloadData['prefixes'].extend(alreadyPresentPrefixes)
+        #ipPrefixPayloadData['prefixes'].extend(alreadyPresentPrefixes)
         # Create IpPrefix in target edge gateway
         ipPrefixUrl = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                       vcdConstants.ALL_EDGE_GATEWAYS,
