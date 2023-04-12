@@ -4807,7 +4807,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     {
                         'isInherited': ipScope['IsInherited'],
                         'gateway': ipScope['Gateway'],
-                        'netmask': ipScope['Netmask'],
+                        'netmask': ipScope.get('Netmask'),
                         'subnet': ipScope.get('SubnetPrefixLength', 1),
                         'IsEnabled': ipScope.get('IsEnabled'),
                         'dns1': ipScope.get('Dns1'),

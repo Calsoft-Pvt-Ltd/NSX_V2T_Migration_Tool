@@ -1403,6 +1403,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                       bgpRedistributionData - BGP redistribution config of source edge gateway (Dict)
                       targetEdgeGatewayId - target edge gateway ID (STRING)
         """
+        # Acquiring lock as only one prefix can be added to edge gateway at a time
+        self.lock.acquire(blocking=True)
         # Checking if IP Prefix list is already present on target edge gateway or not
         targetIpPrefixes = self.getTargetEdgeGatewayIpPrefixData(targetEdgeGatewayId)
         alreadyPresentPrefixes = list()
@@ -1476,6 +1478,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             logger.debug(f'Successfully created IP Prefix on target edge gateway {targetEdgeGatewayId}')
         else:
             raise Exception('Failed to create IP Prefix on target edge gateway {}'.format(response.json()['message']))
+
+        # Releasing lock
+        self.lock.release()
 
 
     @description("configuration of Route Advertisement")
