@@ -1601,6 +1601,35 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     raise Exception("Failed to enable route advertisement for network '{}'".format(network["name"]))
         logger.debug("Route advertisement set for target edge gateway - '{}'".format(targetEdgeGatewayName))
 
+    @description("creation of virtual server with ips in org vdc network subnet")
+    @remediate
+    def createLBVirtualServerOnOrgVDCNetwork(self):
+        """
+        Description : Configure LB Virtual Server with IPs in Org VDC network subnet
+        """
+        for sourceEdgeGateway in self.rollback.apiData["sourceEdgeGateway"]:
+            sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
+            edgeGatewayId = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
+                                        self.rollback.apiData['targetEdgeGateway']))[0]['id']
+            t0Gateway = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['Tier0Gateways']
+            targetExternalNetwork = self.rollback.apiData["targetExternalNetwork"][t0Gateway]
+            if targetExternalNetwork.get("usingIpSpace"):
+                # url to retrieve the load balancer config info
+                url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
+                                      vcdConstants.NETWORK_EDGES,
+                                      vcdConstants.EDGE_GATEWAY_LOADBALANCER_CONFIG.format(sourceEdgeGatewayId))
+                # get api call to retrieve the load balancer config info
+                response = self.restClientObj.get(url, self.headers)
+                if response.status_code != requests.codes.ok:
+                    errorResponseData = response.json()
+                    raise Exception(
+                        "Failed to fetch load balancer config from source edge gateway '{}' due to error {}".format(
+                            sourceEdgeGateway["name"], errorResponseData['message']
+                        ))
+
+                sourceLbConfig = self.vcdUtils.parseXml(response.content)
+                self.createLoadBalancerVirtualService(sourceEdgeGatewayId, sourceLbConfig, edgeGatewayId, sourceEdgeGateway["name"])
+
     @description("configuration of DNS")
     @remediate
     def configureDNS(self):
@@ -3287,6 +3316,9 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 targetEdgeGatewayName = list(filter(lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
                                 self.rollback.apiData['targetEdgeGateway']))[0]['name']
 
+                t0Gateway = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['Tier0Gateways']
+                targetExternalNetwork = self.rollback.apiData["targetExternalNetwork"][t0Gateway]
+
                 # url to retrieve the load balancer config info
                 url = "{}{}{}".format(vcdConstants.XML_VCD_NSX_API.format(self.ipAddress),
                                       vcdConstants.NETWORK_EDGES,
@@ -3334,7 +3366,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     self.enableDHCPv6InSlaccMode(targetEdgeGatewayId, targetEdgeGatewayName)
                 self.assignServiceEngineGroup(targetEdgeGatewayId, targetEdgeGatewayName, serviceEngineGroupDetails[0])
                 self.createLoadBalancerPools(sourceEdgeGatewayId, sourceLbConfig, targetEdgeGatewayId, targetEdgeGatewayName, nsxvObj)
-                self.createLoadBalancerVirtualService(sourceEdgeGatewayId, sourceLbConfig, targetEdgeGatewayId, targetEdgeGatewayName)
+                self.createLoadBalancerVirtualService(sourceEdgeGatewayId, sourceLbConfig, targetEdgeGatewayId, targetEdgeGatewayName,
+                                                      ipSpace=targetExternalNetwork.get("usingIpSpace", False))
 
         except Exception:
             # Updating execution result in metadata in case of failure
@@ -3410,7 +3443,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         except:
             raise
 
-    def createLoadBalancerVirtualService(self, sourceEdgeGatewayId, sourceLbConfig, targetEdgeGatewayId, targetEdgeGatewayName):
+    def createLoadBalancerVirtualService(self, sourceEdgeGatewayId, sourceLbConfig, targetEdgeGatewayId, targetEdgeGatewayName, ipSpace=False):
         """
             Description :   Configure LoadBalancer virtual service on target edge gateway
             Params      :   sourceEdgeGatewayId - ID of source edge gateway (STRING)
@@ -3557,6 +3590,12 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 if not virtualServer['retainSourceVip']:
                     # Incrementing the IPV4 address for next virtual service
                     hostsListInSubnet.pop(0)
+                continue
+
+            if ipSpace and virtualServer["name"] in self.rollback.apiData.get(
+                    "virtualServiceOnOrgvdcNetwork", {}).get(sourceEdgeGatewayId, []):
+                logger.warning("Virtual Server - '{}' ip belongs to Org VDC network subnet. Since the edge gateway is connected to IP"
+                             " Space enabled proivder gateway. Virtual server will be configured after reconnection of target networks")
                 continue
 
             protocolUsed = setAppProfile(virtualServer)
