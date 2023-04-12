@@ -54,6 +54,12 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                              'not exists')
                 return
 
+            ipSpaceEnabledEdges = [edge["id"] for edge in self.rollback.apiData['sourceEdgeGateway']
+                                   if self.orgVdcInput['EdgeGateways'][edge["name"]]['Tier0Gateways']
+                                   in self.rollback.apiData['ipSpaceProviderGateways']]
+            if ipSpaceEnabledEdges:
+                self.allocateFloatingIps()
+
             if not self.rollback.metadata.get("configureServices"):
                 logger.info('Configuring Target Edge gateway services.')
 
@@ -147,16 +153,16 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     if natRules.get('natRules'):
                         natIpToSnatIdMapping = {natRule['originalAddress']: natRule['ruleTag'] for natRule in
                                                 listify(natRules.get('natRules', {}).get('natRule', [])) if
-                                                natRule['action'] == 'snat'}
+                                                natRule['action'] == 'snat' and natRule.get("ruleType") == "user"}
                         natIpToSnatVnicMapping = {natRule['originalAddress']: natRule['vnic'] for natRule in
                                                   listify(natRules.get('natRules', {}).get('natRule', [])) if
-                                                  natRule['action'] == 'snat'}
+                                                  natRule['action'] == 'snat' and natRule.get("ruleType") == "user"}
                         natIpToDnatIdMapping = {natRule['originalAddress']: natRule['ruleTag'] for natRule in
                                                 listify(natRules.get('natRules', {}).get('natRule', [])) if
-                                                natRule['action'] == 'dnat'}
+                                                natRule['action'] == 'dnat' and natRule.get("ruleType") == "user"}
                         natIpToDnatVnicMapping = {natRule['originalAddress']: natRule['vnic'] for natRule in
                                                   listify(natRules.get('natRules', {}).get('natRule', [])) if
-                                                  natRule['action'] == 'dnat'}
+                                                  natRule['action'] == 'dnat' and natRule.get("ruleType") == "user"}
                     else:
                         natIpToSnatIdMapping = {}
                         natIpToSnatVnicMapping = {}
@@ -585,7 +591,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         additionalFirewallRuleList = list()
         for firewallRule in userDefinedFirewallRules:
             for natRule in listify(natRules.get('natRules', {}).get('natRule', [])):
-                if natRule['action'] == 'dnat' and natRule['originalAddress'] in firewallRule.get('destination', {}).get('ipAddress', []):
+                if natRule['action'] == 'dnat' and natRule["ruleType"] == "user" and natRule['originalAddress'] in firewallRule.get('destination', {}).get('ipAddress', []):
                     if any([network for network in NonDistributedNetWorkList if ipaddress.ip_address(natRule['translatedAddress'])
                             in ipaddress.ip_network('{}/{}'.format(network['subnets']['values'][0]['gateway'], network['subnets']['values'][0]['prefixLength']), strict=False)]):
                         serviceList = listify(firewallRule.get("application", {}).get("service", []))
@@ -643,6 +649,49 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             vcdCertificateStore[nsxvCertPem] = vcdCert
 
         return vcdCert
+
+    @description("Allocation of Floating IPs")
+    @remediate
+    def allocateFloatingIps(self):
+        """
+        Description :   Allocates Floating IPs used by source edge gateways
+        """
+        try:
+            logger.debug("Allocating Floating IPs to Organization - {}".format(self.rollback.apiData.get('Organization', {}).get('@name')))
+            floatingIpDict = self.rollback.apiData.get("floatingIps") or defaultdict(list)
+            for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
+                t0Gateway = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway["name"]]['Tier0Gateways']
+                if t0Gateway not in self.rollback.apiData['ipSpaceProviderGateways']:
+                    continue
+                sourceEdgeGatewayIps = []
+                for edgeGatewayUplink in sourceEdgeGateway['edgeGatewayUplinks']:
+                    for subnet in edgeGatewayUplink["subnets"]["values"]:
+                        for range in subnet["ipRanges"]["values"]:
+                            sourceEdgeGatewayIps.extend(self.returnIpListFromRange(range["startAddress"], range["endAddress"]))
+                targetExternalNetwork = self.rollback.apiData['targetExternalNetwork'][t0Gateway]
+                ipSpaces = self.getProviderGatewayIpSpaces(targetExternalNetwork)
+                for ip in sourceEdgeGatewayIps:
+                    for ipSpace in ipSpaces:
+                        if any([scope for scope in ipSpace.get("ipSpaceInternalScope", [])
+                                if ipaddress.ip_address(ip) in ipaddress.ip_network(scope, strict=False)]):
+                            if ip in floatingIpDict.get(ipSpace["id"], []):
+                                break
+                            self.allocate(ipSpace["id"], 'FLOATING_IP', ip, ipSpace["name"])
+                            floatingIpDict[ipSpace["id"]].append(ip)
+                            self.rollback.apiData["floatingIps"] = floatingIpDict
+                            break
+        except Exception:
+            # Saving metadata in org VDC
+            self.saveMetadataInOrgVdc()
+            raise
+
+    def returnIpListFromRange(self,start, end):
+        """
+        Return IPs in IPv4 range, inclusive.
+        """
+        start_int = int(ipaddress.ip_address(start).packed.hex(), 16)
+        end_int = int(ipaddress.ip_address(end).packed.hex(), 16)
+        return [ipaddress.ip_address(ip).exploded for ip in range(start_int, end_int + 1)]
 
     @description("configuration of Target IPSEC")
     @remediate
@@ -1409,7 +1458,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
     @description("configuration of Route Advertisement")
     @remediate
-    def configureRouteAdvertisement(self):
+    def configureRouteAdvertisement(self, ipSpace=False):
         """
         Description :  Configure Route Advertisement on the Target Edge Gateway
         """
@@ -1417,6 +1466,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
             subnetsToAdvertise = list()
             logger.debug(f"Configuring Route Advertisement on Target Edge Gateway - {sourceEdgeGateway['name']}")
+            t0Gateway = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['Tier0Gateways']
+            targetExternalNetwork = self.rollback.apiData["targetExternalNetwork"][t0Gateway]
+            if targetExternalNetwork.get("usingIpSpace") and not ipSpace:
+                continue
             sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
             targetEdgeGatewayId = list(filter(
                 lambda edgeGatewayData: edgeGatewayData['name'] == sourceEdgeGateway['name'],
@@ -1424,6 +1477,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
 
             # Fetching source org vdc id
             sourceOrgVDCId = self.rollback.apiData.get('sourceOrgVDC', {}).get('@id', str())
+            # Fetching target org vdc id
+            targetOrgVDCId = self.rollback.apiData.get('targetOrgVDC', {}).get('@id', str())
 
             # Fetching subnets of all the routed network connected to source edge gateway
             allRoutedNetworkSubnets = list()
@@ -1472,6 +1527,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                              f"as there is no subnet present for Route Advertisement")
                 continue
 
+            if ipSpace and enableRouteAdvertisment:
+                orgVDCNetworks = self.getOrgVDCNetworks(targetOrgVDCId, 'targetOrgVDCNetworks', saveResponse=False)
+                self.setRouteAdvertisementForNetworks(targetEdgeGatewayId, sourceEdgeGateway["name"], orgVDCNetworks, subnetsToAdvertise)
+                continue
+
             # Creating route advertisement payload
             routeAdvertisementPayload = json.dumps({
                 "enable": enableRouteAdvertisment,
@@ -1495,6 +1555,33 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 raise Exception(
                     'Failed to configure route advertisement '
                     'on target edge gateway {}'.format(response.json()['message']))
+
+    @isSessionExpired
+    def setRouteAdvertisementForNetworks(self, targetEdgeGatewayId, targetEdgeGatewayName, orgVDCNetworks, subnetsToAdvertise):
+        """
+        Description : Enable route Advertisement for routed org VDC networks connected to edge connected to IP Space enabled provider gateway
+        """
+        networksToAdvertise = [ipaddress.ip_network(subnet, strict=False) for subnet in subnetsToAdvertise]
+        logger.debug("Setting up route advertisement set for target edge gateway - '{}'".format(targetEdgeGatewayName))
+        for network in orgVDCNetworks:
+            if network["networkType"] == "NAT_ROUTED" and network['connection']['routerRef']['id'] == targetEdgeGatewayId:
+                if ipaddress.ip_network("{}/{}".format(network['subnets']['values'][0]['gateway'],
+                                                       network['subnets']['values'][0]['prefixLength']), strict=False) not in networksToAdvertise:
+                    continue
+                logger.debug("Enabling route advertisement for network - '{}'".format(network["name"]))
+                network["routeAdvertised"] = True
+                url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.DELETE_ORG_VDC_NETWORK_BY_ID.format(
+                                    network["id"]))
+                self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
+                payloadData = json.dumps(network)
+                apiResponse = self.restClientObj.put(url, headers=self.headers, data=payloadData)
+                if apiResponse.status_code == requests.codes.accepted:
+                    task_url = apiResponse.headers['Location']
+                    self._checkTaskStatus(taskUrl=task_url)
+                    logger.debug("Enabled route advertisement for network - '{}'".format(network["name"]))
+                else:
+                    raise Exception("Failed to enable route advertisement for network '{}'".format(network["name"]))
+        logger.debug("Route advertisement set for target edge gateway - '{}'".format(targetEdgeGatewayName))
 
     @description("configuration of DNS")
     @remediate
@@ -3392,6 +3479,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 raise Exception(
                     "Number of hosts in network - {} is less than the number of virtual server in edge gateway "
                     "{}".format(loadBalancerVIPSubnet, targetEdgeGatewayName))
+            t0Gateway = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName]['Tier0Gateways']
+            providerGateway = self.rollback.apiData["targetExternalNetwork"][t0Gateway]
+            if providerGateway.get("usingIpSpace"):
+                # Adding LBVIPSubnet as Private IP Spaces and adding required amount of floatingIPs to it for virtual server usage
+                if loadBalancerVIPSubnet not in self.rollback.apiData.get("privateIpSpaces", {}):
+                    lbVipIpRange = (hostsListInSubnet[0].exploded, hostsListInSubnet[(len(vipToBeReplaced) - 1)].exploded)
+                    self.createPrivateIpSpace(loadBalancerVIPSubnet, ipRangeList=[lbVipIpRange])
 
         def getCertificateRef(vs):
             isTcpCert = False
@@ -5358,3 +5452,161 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         except Exception:
             logger.error(traceback.format_exc())
             raise
+
+    @isSessionExpired
+    def createPrivateIpSpace(self, ipSpaceName, ipRangeList=[], ipPrefixList=[], routeAdvertisement=False, returnOutput=False):
+        """
+        Description :  Creates Private IP Space for given scope
+        Parameteres:   ipRangeList - List of IP range (LIST OF TUPLES)
+                       ipPrefixList - List of IP Prefixes (LIST OF STRINGS)
+        """
+        # preParing IP RANGES for private IP Space
+        ipRanges = [{"startIpAddress": range[0], "endIpAddress": range[1], "id": None} for range in ipRangeList]
+        ipPrefixes = [{"startingPrefixIpAddress": prefix[0], "prefixLength" :prefix[1], "totalPrefixCount": 1, "id": None} for prefix in ipPrefixList]
+        privateIpSpaces = self.rollback.apiData.get("privateIpSpaces", {})
+        floatingIpDict = self.rollback.apiData.get("floatingIps", {})
+        url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.CREATE_IP_SPACES)
+        headers = {'Authorization': self.headers['Authorization'],
+                   'Accept': vcdConstants.OPEN_API_CONTENT_TYPE,
+                   'Content-Type': vcdConstants.OPEN_API_CONTENT_TYPE,
+                   'X-VMWARE-VCLOUD-TENANT-CONTEXT': self.rollback.apiData.get('Organization', {}).get('@id')}
+        payloadDict = {
+            "name": ipSpaceName,
+            "type": "PRIVATE",
+            "ipSpaceInternalScope": [
+                ipSpaceName
+            ],
+            "ipSpaceRanges": {
+                "ipRanges": ipRanges
+            } if ipRanges else None,
+            "ipSpacePrefixes": [
+                {
+                    "ipPrefixSequence": ipPrefixes
+                }
+            ] if ipPrefixes else None,
+            "description": "",
+            "routeAdvertisementEnabled": routeAdvertisement,
+            "ipSpaceExternalScope": None,
+            "orgRef": {
+                "id": self.rollback.apiData.get('Organization', {}).get('@id'),
+                "name": self.rollback.apiData.get('Organization', {}).get('@name')
+            }
+        }
+        payloadData = json.dumps(payloadDict)
+        response = self.restClientObj.post(url, headers=headers, data=payloadData)
+        if response.status_code == requests.codes.accepted:
+            taskUrl = response.headers['Location']
+            # checking the status of the creating org vdc network task
+            id = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
+            ipSpaceId = "urn:vcloud:ipSpace:{}".format(id)
+            logger.debug("Private IP Space - '{}' created successfully.".format(ipSpaceName))
+            privateIpSpaces[ipSpaceName] = ipSpaceId
+            self.rollback.apiData["privateIpSpaces"] = privateIpSpaces
+        else:
+            errorResponse = response.json()
+            raise Exception(
+                'Failed to create Private IP Space - {} with error - {}'.format(ipSpaceName, errorResponse['message']))
+
+        if ipRanges:
+            for ipRange in ipRanges:
+                for ip in self.returnIpListFromRange(ipRange["startIpAddress"], ipRange["endIpAddress"]):
+                    if ip in floatingIpDict.get(ipSpaceId, []):
+                        continue
+                    self.allocate(ipSpaceId, 'FLOATING_IP', ip, ipSpaceName)
+                    if ipSpaceId not in floatingIpDict:
+                        floatingIpDict[ipSpaceId] = []
+                    floatingIpDict[ipSpaceId].append(ip)
+                    self.rollback.apiData["floatingIps"] = floatingIpDict
+        if ipPrefixes:
+            for ipPrefix in ipPrefixes:
+                ipPrefixSubnet = "{}/{}".format(ipPrefix["startingPrefixIpAddress"], ipPrefix["prefixLength"])
+                self.allocate(ipSpaceId, 'IP_PREFIX', ipPrefixSubnet, ipSpaceName)
+
+        if returnOutput:
+            return ipSpaceId
+
+    @isSessionExpired
+    def addPrefixToIpSpace(self, ipSpaceId, prefix):
+        """
+        Description :  Adds Prefix to provided IP SPACE
+        Parameteres:   ipSpaceId - IP SPACE Id (STRING)
+                       prefix - Prefix subnet to be added (STRING)
+        """
+        prefixAddedToIpSpaces = self.rollback.apiData.get("prefixAddedToIpSpaces", [])
+        ipSpaceUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                   vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId))
+        headers = {'Authorization': self.headers['Authorization'],
+                   'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+        ipSpaceResponse = self.restClientObj.get(ipSpaceUrl, headers)
+        if ipSpaceResponse.status_code == requests.codes.ok:
+            ipSpaceResponseDict = ipSpaceResponse.json()
+            ipSpacePrefixes = ipSpaceResponseDict.get("ipSpacePrefixes", [])
+            ipSpacePrefixes.append({
+                "ipPrefixSequence": [
+                    {
+                        "id": None,
+                        "startingPrefixIpAddress": prefix.split("/")[0],
+                        "prefixLength": prefix.split("/")[1],
+                        "totalPrefixCount": 1
+                    }
+                ]
+            })
+            ipSpaceResponseDict["ipSpacePrefixes"] = ipSpacePrefixes
+            payloadData = json.dumps(ipSpaceResponseDict)
+            response = self.restClientObj.put(ipSpaceUrl, headers=headers, data=payloadData)
+            if response.status_code == requests.codes.accepted:
+                taskUrl = response.headers['Location']
+                # checking the status of the creating org vdc network task
+                self._checkTaskStatus(taskUrl=taskUrl)
+                logger.debug("Prefix - '{}' added to IP Space - '{}' successfully.".format(prefix, ipSpaceId))
+            else:
+                errorResponse = response.json()
+                raise Exception(
+                    "Failed to create add Prefix - '{}' to IP Space - '{}' with error - {}".format(prefix, ipSpaceId,
+                                                                                    errorResponse['message']))
+        else:
+            raise Exception("Failed to fetch IP Space {} details".format(ipSpaceId))
+
+        self.allocate(ipSpaceId, "IP_PREFIX", prefix, ipSpaceId)
+        prefixAddedToIpSpaces.append(prefix)
+        self.rollback.apiData["prefixAddedToIpSpaces"] = prefixAddedToIpSpaces
+
+    @isSessionExpired
+    def connectIpSpaceUplinkToProviderGateway(self, sourceEdgeGatewayName, ipSpaceName, ipSpaceId):
+        """
+        Description :  Connects Private IP Space to Provider Gateway
+        Parameteres:   sourceEdgeGatewayName - Name of Target Edge Gateway being connected to Provider Gateway (STRING)
+                       ipSpaceName - Name of IP SPACE to be connected to provider gateway as uplink (STRING)
+        """
+        manuallyAddedUplinks = self.rollback.apiData.get("manuallyAddedUplinks", [])
+        uplinkName = "{}-{}".format(vcdConstants.MIGRATION_UPLINK, ipSpaceName)
+        t0Gateway = self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayName]['Tier0Gateways']
+        providerGateway = self.rollback.apiData["targetExternalNetwork"][t0Gateway]
+        url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.IP_SPACE_UPLINKS)
+        headers = {'Authorization': self.headers['Authorization'],
+                   'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+        payloadDict = {
+            "name": uplinkName,
+            "externalNetworkRef": {
+                    "name": t0Gateway,
+                    "id": providerGateway["id"]
+                },
+            "ipSpaceRef": {
+                    "name": ipSpaceName,
+                    "id": ipSpaceId
+            },
+            "description": "IP Space uplink added for V2T Migration"
+        }
+        payloadData = json.dumps(payloadDict)
+        response = self.restClientObj.post(url, headers=headers, data=payloadData)
+        if response.status_code == requests.codes.accepted:
+            taskUrl = response.headers['Location']
+            # checking the status of the creating org vdc network task
+            uplinkId = self._checkTaskStatus(taskUrl=taskUrl, returnOutput=True)
+            manuallyAddedUplinks.append((ipSpaceId, "urn:vcloud:ipSpaceUplink:{}".format(uplinkId)))
+            self.rollback.apiData["manuallyAddedUplinks"] = manuallyAddedUplinks
+            logger.debug("IP Space Uplink - '{}' added to Provider Gateway - '{}' successfully.".format(payloadDict["name"], t0Gateway))
+        else:
+            errorResponse = response.json()
+            raise Exception("Failed to add IP Space Uplink - '{}' added to Provider Gateway - '{}' with error - {}".format(payloadDict["name"], t0Gateway,
+                                                                                               errorResponse['message']))
