@@ -93,8 +93,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         if [internalScope for internalScope in ipSpace["ipSpaceInternalScope"]
                             if type(edgeGatewaySubnet) == type(
                                 ipaddress.ip_network('{}'.format(internalScope), strict=False)) and
-                               edgeGatewaySubnet.subnet_of(
-                                   ipaddress.ip_network('{}'.format(internalScope), strict=False))]:
+                               self.subnetOf(edgeGatewaySubnet,
+                                             ipaddress.ip_network('{}'.format(internalScope), strict=False))]:
                             # Adding IPs used by edge gateway from this subnet to IP Space ranges
                             self._prepareIpSpaceRanges(ipSpace, edgeGatewayIpRangesList)
                 for ipSpace in ipSpaces:
@@ -5118,8 +5118,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             if [internalScope for internalScope in ipSpace["ipSpaceInternalScope"]
                                 if type(edgeGatewaySubnet) == type(
                                     ipaddress.ip_network('{}'.format(internalScope), strict=False)) and
-                                   edgeGatewaySubnet.subnet_of(
-                                       ipaddress.ip_network('{}'.format(internalScope), strict=False))]:
+                                    self.subnetOf(edgeGatewaySubnet,
+                                                  ipaddress.ip_network('{}'.format(internalScope), strict=False))]:
                                 self._prepareIpSpaceRanges(ipSpace, edgeGatewayIpRangesList, rollback=True)
                     for ipSpace in ipSpaces:
                         url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
