@@ -3645,7 +3645,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     owner = srcCatalog.get('Owner', {}).get('User')
                     # Source Catalog ID
                     srcCatalogId = srcCatalog.get('@id').split(':')[-1]
-                    catalogId = self.createCatalog(payloadDict, orgId, owner, srcCatalogId)
+                    # Parameter to check is the catalogs Read-Only Access is shared to all ORGs
+                    readAccessToAllOrg = srcCatalog.get('IsPublished')
+                    # Function call to create a new Target side catalog
+                    catalogId = self.createCatalog(payloadDict, orgId, owner, srcCatalogId, readAccessToAllOrg)
                 else:
                     catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
                     targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
@@ -3791,7 +3794,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 catalog = {'catalogName': resource['catalogName'],
                                            'catalogHref': catalogItem['catalogHref'],
                                            'catalogDescription': catalogResponseDict['description'] if catalogResponseDict.get('description') else '',
-                                           'catalogOwner': catalogOwnerDict.get('user')}
+                                           'catalogOwner': catalogOwnerDict.get('user'),
+                                           'readAccessToAllOrg': catalogResponseDict.get('isPublished')}
                                 catalogDetailsList.append(catalog)
                 # deleting the temporary list since no more needed
                 del catalogNameList
@@ -3809,8 +3813,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             owner = None
                         # Source Catalog ID
                         srcCatalogId = catalog.get('catalogHref').split('/')[-1]
-                        # create api call to create a new place holder catalog
-                        catalogId = self.createCatalog(payloadDict, orgId, owner, srcCatalogId)
+                        # Parameter to check if the catalogs Read-Only Access is shared to all ORGs
+                        readAccessToAllOrg = catalog.get('readAccessToAllOrg')
+                        # Function call to create a new Target side catalog
+                        catalogId = self.createCatalog(payloadDict, orgId, owner, srcCatalogId, readAccessToAllOrg)
                     else:
                         catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
                                                 targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
@@ -5284,13 +5290,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
-    def createCatalog(self, catalog, orgId, owner, srcCatalogId):
+    def createCatalog(self, catalog, orgId, owner, srcCatalogId, readAccessToAllOrg):
         """
         Description :   Creates an empty placeholder catalog
         Parameters: catalog - payload dict for creating catalog (DICT)
                     orgId - Organization Id where catalog is to be created (STRING)
                     owner - owner dict containing details of Owner
                     srcCatalogId - Source Catalog ID
+                    readAccessToAllOrg - Is the Read-Only access of catalog given to all ORGs (Boolean)
         """
         try:
             # create catalog url
@@ -5321,11 +5328,17 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if owner and owner.get('@name') != vcdConstants.ADMIN_USER:
                     # calling function to update owner of catalog
                     self.updateCatalogOwner(owner, createCatalogResponseDict)
+                # Source catalog name
+                srcCatalogName = str(catalog.get('catalogName')).replace("-v2t", "")
                 # Getting the Share Permissions to set in the catalog
-                sharePermissions = self.getSharePermissions(srcCatalogId)
+                sharePermissions = self.getSharePermissions(srcCatalogId, srcCatalogName)
                 # Setting the Share Permissions in the catalog
-                self.setSharePermissions(sharePermissions, catalogId)
-
+                self.setSharePermissions(sharePermissions, catalogId, catalog.get('catalogName'))
+                # Check if catalog has shared READ-ONLY access with all orgs
+                if readAccessToAllOrg == "true" or readAccessToAllOrg is True:
+                    readAccessUrl = "{}/{}".format(createCatalogResponseDict["AdminCatalog"]["@href"],
+                                                vcdConstants.PUBLISH_CATALOG_READ_ACCESS_TO_ALL_ORG)
+                    self.readAccessToAllOrgs(readAccessUrl, catalog.get('catalogName'))
                 return catalogId
             else:
                 errorDict = self.vcdUtils.parseXml(createCatalogResponse.content)
@@ -5336,11 +5349,47 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
-    def setSharePermissions(self, sharePermissions, catalogId):
+    def readAccessToAllOrgs(self, readAccessUrl, migratedCatalogName):
+        """
+                Description : Set READ_ONLY Access of a catalog to all Orgs
+                Parameters: readAccessUrl - URL to Share READ-ONLY Access of catalog to all Orgs
+                            migratedCatalogName - Target Catalog Name
+        """
+        try:
+            # setting headers
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.VCD_API_HEADER.format(self.version),
+                       'Content-Type': vcdConstants.GENERAL_XML_CONTENT_TYPE}
+            filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
+            # Payload for Read-Only Access of Catalog to all ORGs
+            publishPayload = dict()
+            publishPayloadData = self.vcdUtils.createPayload(filePath,
+                                                             publishPayload,
+                                                             fileType='yaml',
+                                                             componentName=vcdConstants.COMPONENT_NAME,
+                                                             templateName=vcdConstants.READ_ACCESS_CATALOG_TEMPLATE)
+            publishPayloadData = json.loads(publishPayloadData)
+            # POST API for sharing Read-Only access of catalog to all Orgs
+            response = self.restClientObj.post(readAccessUrl, headers, data=publishPayloadData)
+
+            if response.status_code == (requests.codes.no_content or requests.codes.ok):
+                logger.debug(
+                    "Catalog '{}'s READ-ONLY Access shared to all ORGs Successfully".format(migratedCatalogName))
+                return
+            else:
+                raise Exception(
+                    "Failed to Share READ-ONLY Access of Catalog '{}' to all ORGs : {}".format(migratedCatalogName,
+                                                                                                    response))
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def setSharePermissions(self, sharePermissions, catalogId, migratedCatalogName):
         """
                 Description :  Gets the Share Permissions of a catalog
                 Parameters: sharePermissions - Share Permission Data
                             catalogId - Target Catalog ID
+                            migratedCatalogName - Target Catalog Name
         """
         try:
             # POST API URL for share permission
@@ -5357,20 +5406,21 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             if response.status_code == requests.codes.ok:
                 logger.debug(
-                    "Catalog '{}' Share Permissions attached successfully".format(catalogId))
+                    "Catalog '{}' Share Permissions attached successfully".format(migratedCatalogName))
                 return
             else:
                 raise Exception(
-                    "Failed to set Share Permissions for Catalog '{}' : {}".format(catalogId,
+                    "Failed to set Share Permissions for Catalog '{}' : {}".format(migratedCatalogName,
                                                                                    response))
         except Exception:
             raise
 
     @isSessionExpired
-    def getSharePermissions(self, srcCatalogId):
+    def getSharePermissions(self, srcCatalogId, srcCatalogName):
         """
                 Description :  Gets the Share Permissions of a catalog
                 Parameters: srcCatalogId - ID of the source catalog
+                            srcCatalogName - Name of the source catalog
         """
         try:
             # GET API URL for share permission
@@ -5384,11 +5434,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             if sharePermissionsResponse.status_code == requests.codes.ok:
                 logger.debug(
-                    "Catalog '{}' Share Permissions fetched successfully".format(srcCatalogId))
+                    "Catalog '{}' Share Permissions fetched successfully".format(srcCatalogName))
                 return sharePermissionsResponse
             else:
                 raise Exception(
-                    "Failed to fetch Share Permissions for Catalog '{}' : {}".format(srcCatalogId,
+                    "Failed to fetch Share Permissions for Catalog '{}' : {}".format(srcCatalogName,
                                                                                      sharePermissionsResponse))
         except Exception:
             raise
