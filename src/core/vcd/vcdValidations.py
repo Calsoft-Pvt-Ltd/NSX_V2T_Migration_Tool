@@ -1584,7 +1584,7 @@ class VCDMigrationValidation:
                         for externalGateway, externalPrefixLength in
                         zip(targetExternalGatewayList, targetExternalPrefixLengthList)]
                 # Checking whether Source External subnets to which Edge Gateway is connected is subnet of available subnets from Provider Gateway
-                if not all(any([type(sourceNetworkAddress) == type(targetSubnet) and sourceNetworkAddress.subnet_of(
+                if not all(any([type(sourceNetworkAddress) == type(targetSubnet) and self.subnetOf(sourceNetworkAddress,
                         targetSubnet) for targetSubnet in targetNetworkAddressList])
                            for sourceNetworkAddress in sourceNetworkAddressList):
                     gatewayErrorList.append(edgeGateway["id"])
@@ -6266,8 +6266,8 @@ class VCDMigrationValidation:
                             if any([internalScope for internalScope in ipSpace.get("ipSpaceInternalScope", [])
                                     if type(ipaddress.ip_network(ipPrefix["ipAddress"], strict=False)) == type(
                                     ipaddress.ip_network(internalScope, strict=False)) and
-                                    ipaddress.ip_network(ipPrefix["ipAddress"], strict=False).subnet_of(
-                                    ipaddress.ip_network(internalScope, strict=False))]):
+                                    self.subnetOf(ipaddress.ip_network(ipPrefix["ipAddress"], strict=False),
+                                                  ipaddress.ip_network(internalScope, strict=False))]):
                                 if any([ipSpacePrefix for ipSpacePrefix in ipSpace.get("ipSpacePrefixes", [])
                                         if ipaddress.ip_network(ipPrefix["ipAddress"], strict=False).overlaps(
                                         ipaddress.ip_network("{}/{}".format(ipSpacePrefix["ipPrefixSequence"][0][
@@ -7810,3 +7810,8 @@ class VCDMigrationValidation:
                         break
 
         return implicitGateways, implicitNetworks
+
+    def subnetOf(self, a, b):
+        """Return True if this network is a subnet of other."""
+        return (b.network_address <= a.network_address and
+                b.broadcast_address >= a.broadcast_address)
