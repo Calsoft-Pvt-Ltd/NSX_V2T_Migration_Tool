@@ -595,8 +595,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     if any([network for network in NonDistributedNetWorkList if ipaddress.ip_address(natRule['translatedAddress'])
                             in ipaddress.ip_network('{}/{}'.format(network['subnets']['values'][0]['gateway'], network['subnets']['values'][0]['prefixLength']), strict=False)]):
                         serviceList = listify(firewallRule.get("application", {}).get("service", []))
-                        if any([natRule["protocol"] == service.get("protocol") and (natRule["originalPort"] == service.get("port") or service.get("port") == "any")
-                                for service in serviceList]) or not serviceList:
+                        if any([(natRule["protocol"].lower() == service.get("protocol").lower() or service.get("protocol") == "any") and \
+                                (natRule["originalPort"] == service.get("port") or service.get("port") == "any") for service in serviceList]) or not serviceList:
                             additionalFirewallRule = copy.deepcopy(firewallRule)
                             additionalFirewallRule["id"] = str(random.randint(100000,999999))
                             additionalFirewallRule["ruleTag"] = additionalFirewallRule["id"]
