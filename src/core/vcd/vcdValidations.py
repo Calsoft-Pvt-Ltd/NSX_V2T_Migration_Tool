@@ -3724,7 +3724,7 @@ class VCDMigrationValidation:
 
         # Storing relevant natrule ips and rule id for checking against pool members and virtual server
         natRuleConfig = self.getEdgeGatewayNatConfig(edgeGatewayId, validation=False)
-        natrules = listify(natRuleConfig.get('natRules', {}).get('natRule', []))
+        natrules = listify(natRuleConfig.get('natRules', {}).get('natRule', [])) if natRuleConfig.get('natRules') else []
         dnatOriginalIPs = {
             natrule['originalAddress']: natrule['ruleId']
             for natrule in natrules
