@@ -471,3 +471,7 @@ vCloudDirector:
     <root:UndeployVAppParams xmlns:root="http://www.vmware.com/vcloud/v1.5">
       <root:UndeployPowerAction>powerOff</root:UndeployPowerAction>
     </root:UndeployVAppParams>
+  catalogReadAccessToAllOrgs:
+    <root:PublishCatalogParams xmlns:root="http://www.vmware.com/vcloud/v1.5">
+      <root:IsPublished>true</root:IsPublished>
+    </root:PublishCatalogParams>
