@@ -93,8 +93,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         if [internalScope for internalScope in ipSpace["ipSpaceInternalScope"]
                             if type(edgeGatewaySubnet) == type(
                                 ipaddress.ip_network('{}'.format(internalScope), strict=False)) and
-                               edgeGatewaySubnet.subnet_of(
-                                   ipaddress.ip_network('{}'.format(internalScope), strict=False))]:
+                               self.subnetOf(edgeGatewaySubnet,
+                                             ipaddress.ip_network('{}'.format(internalScope), strict=False))]:
                             # Adding IPs used by edge gateway from this subnet to IP Space ranges
                             self._prepareIpSpaceRanges(ipSpace, edgeGatewayIpRangesList)
                 for ipSpace in ipSpaces:
@@ -3547,7 +3547,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 raise Exception("Failed to update Default VM Template Storage Policy of VM - '{}' for Catalog Vapp template - '{}' with Default storage policy of target Org VDC".format(
                     vappVm['@name'], templateName))
 
-    def checkVappCatalogVmDefaultStoragePolicy(self, catalogItemResponseDict, targetOrgVDCStoragePolicyName):
+    def checkVappCatalogVmDefaultStoragePolicy(self, catalogItemResponseDict, targetOrgVDCStoragePolicyName, headers):
         """
         Description :   Check Default Storage Policy applied to the VAPp Template
         Parameters  :   catalogItemResponseDict - Catalog Items
@@ -3557,21 +3557,17 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             catalogItemResponseDict['@name']))
         # API call to get Catlog VApp template response
         catalogVappTempItemResponse = self.restClientObj.get(catalogItemResponseDict['@href'],
-                                                             headers=self.headers)
-        if catalogVappTempItemResponse.status_code == requests.codes.ok:
-            catalogVappTempItemResponseDict = self.vcdUtils.parseXml(catalogVappTempItemResponse.content)
-            # List all chidrens of Vapp template and convert return values to list if not list
-            vappChildrenList = catalogVappTempItemResponseDict['VAppTemplate']['Children'][
-                'Vm'] if isinstance(catalogVappTempItemResponseDict['VAppTemplate']['Children']['Vm'], list) else [
-                catalogVappTempItemResponseDict['VAppTemplate']['Children']['Vm']]
-            # iterate through all VApp template chidrens and filter records with different storage policy than target Org VDC
-            vappVmList = [vm for vm in vappChildrenList if vm.get('DefaultStorageProfile') and vm.get(
-                'DefaultStorageProfile') not in targetOrgVDCStoragePolicyName]
-            if vappVmList:
-                self.updateCatalogVappVmPolicy(vappVmList, catalogItemResponseDict['@name'])
-        else:
-            raise Exception("Failed to retrieve Catalog VApp template details - {} url.".format(
-                    catalogItemResponseDict['@name']))
+                                                             headers=headers)
+        catalogVappTempItemResponseDict = self.vcdUtils.parseXml(catalogVappTempItemResponse.content)
+        # List all chidrens of Vapp template and convert return values to list if not list
+        vappChildrenList = catalogVappTempItemResponseDict['VAppTemplate']['Children'][
+            'Vm'] if isinstance(catalogVappTempItemResponseDict['VAppTemplate']['Children']['Vm'], list) else [
+            catalogVappTempItemResponseDict['VAppTemplate']['Children']['Vm']]
+        # iterate through all VApp template chidrens and filter records with different storage policy than target Org VDC
+        vappVmList = [vm for vm in vappChildrenList if vm.get('DefaultStorageProfile') and vm.get(
+            'DefaultStorageProfile') not in targetOrgVDCStoragePolicyName]
+        if vappVmList:
+            self.updateCatalogVappVmPolicy(vappVmList, catalogItemResponseDict['@name'])
 
     def migrateCatalogItems(self, sourceOrgVDCId, targetOrgVDCId, orgName, timeout):
         """
@@ -3649,7 +3645,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     owner = srcCatalog.get('Owner', {}).get('User')
                     # Source Catalog ID
                     srcCatalogId = srcCatalog.get('@id').split(':')[-1]
-                    catalogId = self.createCatalog(payloadDict, orgId, owner, srcCatalogId)
+                    # Parameter to check is the catalogs Read-Only Access is shared to all ORGs
+                    readAccessToAllOrg = srcCatalog.get('IsPublished')
+                    # Function call to create a new Target side catalog
+                    catalogId = self.createCatalog(payloadDict, orgId, owner, srcCatalogId, readAccessToAllOrg)
                 else:
                     catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
                     targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
@@ -3676,7 +3675,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         catalogItemResponseDict = self.vcdUtils.parseXml(catalogItemResponse.content)
                         if catalogItemResponseDict['CatalogItem']['Entity']['@type'] == vcdConstants.TYPE_VAPP_TEMPLATE:
                             self.checkVappCatalogVmDefaultStoragePolicy(catalogItemResponseDict['CatalogItem']['Entity'],
-                                                                        targetOrgVDCStoragePolicyName)
+                                                                        targetOrgVDCStoragePolicyName, self.headers)
                             vAppTemplateCatalogItemList.append(catalogItem)
                         elif catalogItemResponseDict['CatalogItem']['Entity']['@type'] == vcdConstants.TYPE_VAPP_MEDIA:
                             mediaCatalogItemList.append(catalogItem)
@@ -3795,11 +3794,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                 catalog = {'catalogName': resource['catalogName'],
                                            'catalogHref': catalogItem['catalogHref'],
                                            'catalogDescription': catalogResponseDict['description'] if catalogResponseDict.get('description') else '',
-                                           'catalogOwner': catalogOwnerDict.get('user')}
+                                           'catalogOwner': catalogOwnerDict.get('user'),
+                                           'readAccessToAllOrg': catalogResponseDict.get('isPublished')}
                                 catalogDetailsList.append(catalog)
                 # deleting the temporary list since no more needed
                 del catalogNameList
-
                 # iterating over catalogs in catalogDetailsList
                 for catalog in catalogDetailsList:
                     # creating the payload dict to create a place holder target catalog
@@ -3814,8 +3813,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             owner = None
                         # Source Catalog ID
                         srcCatalogId = catalog.get('catalogHref').split('/')[-1]
-                        # create api call to create a new place holder catalog
-                        catalogId = self.createCatalog(payloadDict, orgId, owner, srcCatalogId)
+                        # Parameter to check if the catalogs Read-Only Access is shared to all ORGs
+                        readAccessToAllOrg = catalog.get('readAccessToAllOrg')
+                        # Function call to create a new Target side catalog
+                        catalogId = self.createCatalog(payloadDict, orgId, owner, srcCatalogId, readAccessToAllOrg)
                     else:
                         catalogId = list(filter(lambda catalog: catalog["@name"] == payloadDict['catalogName'],
                                                 targetOrgVDCCatalogDetails))[0]["@id"].split(':')[-1]
@@ -3825,9 +3826,10 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                         # creating seperate lists for catalog items - 1. One for media catalog items 2. One for vApp template catalog items
                         for catalogItem in catalogItemDetailsList:
                             if catalogItem['@type'] == vcdConstants.TYPE_VAPP_TEMPLATE:
-                                self.checkVappCatalogVmDefaultStoragePolicy(catalogItem,
-                                                                            targetOrgVDCStoragePolicyName)
-                                vAppTemplateCatalogItemList.append(catalogItem)
+                                if catalogItem['catalogName'] == catalog['catalogName']:
+                                    self.checkVappCatalogVmDefaultStoragePolicy(catalogItem,
+                                                                                targetOrgVDCStoragePolicyName, self.headers)
+                                    vAppTemplateCatalogItemList.append(catalogItem)
                             elif catalogItem['@type'] == vcdConstants.TYPE_VAPP_MEDIA:
                                 mediaCatalogItemList.append(catalogItem)
                             else:
@@ -4811,7 +4813,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     {
                         'isInherited': ipScope['IsInherited'],
                         'gateway': ipScope['Gateway'],
-                        'netmask': ipScope['Netmask'],
+                        'netmask': ipScope.get('Netmask'),
                         'subnet': ipScope.get('SubnetPrefixLength', 1),
                         'IsEnabled': ipScope.get('IsEnabled'),
                         'dns1': ipScope.get('Dns1'),
@@ -5122,8 +5124,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                             if [internalScope for internalScope in ipSpace["ipSpaceInternalScope"]
                                 if type(edgeGatewaySubnet) == type(
                                     ipaddress.ip_network('{}'.format(internalScope), strict=False)) and
-                                   edgeGatewaySubnet.subnet_of(
-                                       ipaddress.ip_network('{}'.format(internalScope), strict=False))]:
+                                    self.subnetOf(edgeGatewaySubnet,
+                                                  ipaddress.ip_network('{}'.format(internalScope), strict=False))]:
                                 self._prepareIpSpaceRanges(ipSpace, edgeGatewayIpRangesList, rollback=True)
                     for ipSpace in ipSpaces:
                         url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
@@ -5288,13 +5290,14 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
-    def createCatalog(self, catalog, orgId, owner, srcCatalogId):
+    def createCatalog(self, catalog, orgId, owner, srcCatalogId, readAccessToAllOrg):
         """
         Description :   Creates an empty placeholder catalog
         Parameters: catalog - payload dict for creating catalog (DICT)
                     orgId - Organization Id where catalog is to be created (STRING)
                     owner - owner dict containing details of Owner
                     srcCatalogId - Source Catalog ID
+                    readAccessToAllOrg - Is the Read-Only access of catalog given to all ORGs (Boolean)
         """
         try:
             # create catalog url
@@ -5325,11 +5328,17 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if owner and owner.get('@name') != vcdConstants.ADMIN_USER:
                     # calling function to update owner of catalog
                     self.updateCatalogOwner(owner, createCatalogResponseDict)
+                # Source catalog name
+                srcCatalogName = str(catalog.get('catalogName')).replace("-v2t", "")
                 # Getting the Share Permissions to set in the catalog
-                sharePermissions = self.getSharePermissions(srcCatalogId)
+                sharePermissions = self.getSharePermissions(srcCatalogId, srcCatalogName)
                 # Setting the Share Permissions in the catalog
-                self.setSharePermissions(sharePermissions, catalogId)
-
+                self.setSharePermissions(sharePermissions, catalogId, catalog.get('catalogName'))
+                # Check if catalog has shared READ-ONLY access with all orgs
+                if readAccessToAllOrg == "true" or readAccessToAllOrg is True:
+                    readAccessUrl = "{}/{}".format(createCatalogResponseDict["AdminCatalog"]["@href"],
+                                                vcdConstants.PUBLISH_CATALOG_READ_ACCESS_TO_ALL_ORG)
+                    self.readAccessToAllOrgs(readAccessUrl, catalog.get('catalogName'))
                 return catalogId
             else:
                 errorDict = self.vcdUtils.parseXml(createCatalogResponse.content)
@@ -5340,11 +5349,47 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             raise
 
     @isSessionExpired
-    def setSharePermissions(self, sharePermissions, catalogId):
+    def readAccessToAllOrgs(self, readAccessUrl, migratedCatalogName):
+        """
+                Description : Set READ_ONLY Access of a catalog to all Orgs
+                Parameters: readAccessUrl - URL to Share READ-ONLY Access of catalog to all Orgs
+                            migratedCatalogName - Target Catalog Name
+        """
+        try:
+            # setting headers
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.VCD_API_HEADER.format(self.version),
+                       'Content-Type': vcdConstants.GENERAL_XML_CONTENT_TYPE}
+            filePath = os.path.join(vcdConstants.VCD_ROOT_DIRECTORY, 'template.yml')
+            # Payload for Read-Only Access of Catalog to all ORGs
+            publishPayload = dict()
+            publishPayloadData = self.vcdUtils.createPayload(filePath,
+                                                             publishPayload,
+                                                             fileType='yaml',
+                                                             componentName=vcdConstants.COMPONENT_NAME,
+                                                             templateName=vcdConstants.READ_ACCESS_CATALOG_TEMPLATE)
+            publishPayloadData = json.loads(publishPayloadData)
+            # POST API for sharing Read-Only access of catalog to all Orgs
+            response = self.restClientObj.post(readAccessUrl, headers, data=publishPayloadData)
+
+            if response.status_code == (requests.codes.no_content or requests.codes.ok):
+                logger.debug(
+                    "Catalog '{}'s READ-ONLY Access shared to all ORGs Successfully".format(migratedCatalogName))
+                return
+            else:
+                raise Exception(
+                    "Failed to Share READ-ONLY Access of Catalog '{}' to all ORGs : {}".format(migratedCatalogName,
+                                                                                                    response))
+        except Exception:
+            raise
+
+    @isSessionExpired
+    def setSharePermissions(self, sharePermissions, catalogId, migratedCatalogName):
         """
                 Description :  Gets the Share Permissions of a catalog
                 Parameters: sharePermissions - Share Permission Data
                             catalogId - Target Catalog ID
+                            migratedCatalogName - Target Catalog Name
         """
         try:
             # POST API URL for share permission
@@ -5361,20 +5406,21 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             if response.status_code == requests.codes.ok:
                 logger.debug(
-                    "Catalog '{}' Share Permissions attached successfully".format(catalogId))
+                    "Catalog '{}' Share Permissions attached successfully".format(migratedCatalogName))
                 return
             else:
                 raise Exception(
-                    "Failed to set Share Permissions for Catalog '{}' : {}".format(catalogId,
+                    "Failed to set Share Permissions for Catalog '{}' : {}".format(migratedCatalogName,
                                                                                    response))
         except Exception:
             raise
 
     @isSessionExpired
-    def getSharePermissions(self, srcCatalogId):
+    def getSharePermissions(self, srcCatalogId, srcCatalogName):
         """
                 Description :  Gets the Share Permissions of a catalog
                 Parameters: srcCatalogId - ID of the source catalog
+                            srcCatalogName - Name of the source catalog
         """
         try:
             # GET API URL for share permission
@@ -5388,11 +5434,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
 
             if sharePermissionsResponse.status_code == requests.codes.ok:
                 logger.debug(
-                    "Catalog '{}' Share Permissions fetched successfully".format(srcCatalogId))
+                    "Catalog '{}' Share Permissions fetched successfully".format(srcCatalogName))
                 return sharePermissionsResponse
             else:
                 raise Exception(
-                    "Failed to fetch Share Permissions for Catalog '{}' : {}".format(srcCatalogId,
+                    "Failed to fetch Share Permissions for Catalog '{}' : {}".format(srcCatalogName,
                                                                                      sharePermissionsResponse))
         except Exception:
             raise

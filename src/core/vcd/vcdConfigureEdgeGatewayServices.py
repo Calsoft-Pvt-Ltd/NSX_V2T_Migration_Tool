@@ -595,8 +595,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     if any([network for network in NonDistributedNetWorkList if ipaddress.ip_address(natRule['translatedAddress'])
                             in ipaddress.ip_network('{}/{}'.format(network['subnets']['values'][0]['gateway'], network['subnets']['values'][0]['prefixLength']), strict=False)]):
                         serviceList = listify(firewallRule.get("application", {}).get("service", []))
-                        if any([natRule["protocol"] == service.get("protocol") and (natRule["originalPort"] == service.get("port") or service.get("port") == "any")
-                                for service in serviceList]) or not serviceList:
+                        if any([(natRule["protocol"].lower() == service.get("protocol").lower() or service.get("protocol") == "any") and \
+                                (natRule["originalPort"] == service.get("port") or service.get("port") == "any") for service in serviceList]) or not serviceList:
                             additionalFirewallRule = copy.deepcopy(firewallRule)
                             additionalFirewallRule["id"] = str(random.randint(100000,999999))
                             additionalFirewallRule["ruleTag"] = additionalFirewallRule["id"]
@@ -1403,11 +1403,26 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                       bgpRedistributionData - BGP redistribution config of source edge gateway (Dict)
                       targetEdgeGatewayId - target edge gateway ID (STRING)
         """
+        # Acquiring lock as only one prefix can be added to edge gateway at a time
+        self.lock.acquire(blocking=True)
         # Checking if IP Prefix list is already present on target edge gateway or not
-        for ipPrefix in self.getTargetEdgeGatewayIpPrefixData(targetEdgeGatewayId):
+        targetIpPrefixes = self.getTargetEdgeGatewayIpPrefixData(targetEdgeGatewayId)
+        alreadyPresentPrefixes = list()
+        alreadyPrefixId = None
+        for ipPrefix in targetIpPrefixes:
             if ipPrefix['name'] == vcdConstants.TARGET_BGP_IP_PREFIX_NAME:
-                logger.debug("IP Prefix list already created on target edge gateway")
-                return
+                alreadyPresentPrefixes.extend(ipPrefix.get("prefixes", []))
+                alreadyPrefixId = ipPrefix["id"]
+                targetPrefixNetworkList = [ipaddress.ip_network(prefix["network"], strict=False) for prefix in
+                                           ipPrefix.get("prefixes", [])]
+                sourcePrefixNetworkList = [ipaddress.ip_network(ipPrefix["ipAddress"], strict=False) for ipPrefix in
+                                           listify(ipPrefixes)]
+                for sourcePrefix in sourcePrefixNetworkList:
+                    if sourcePrefix not in targetPrefixNetworkList:
+                        break
+                else:
+                    logger.debug("IP Prefix list already created on target edge gateway")
+                    return
 
         # Creating IpPrefix and subnet mapping
         ipPrefixSubnetMapping = {
@@ -1443,11 +1458,19 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                       vcdConstants.ALL_EDGE_GATEWAYS,
                                       vcdConstants.CREATE_PREFIX_LISTS_BGP.format(targetEdgeGatewayId))
         self.headers['Content-Type'] = vcdConstants.OPEN_API_CONTENT_TYPE
-        ipPrefixPayloadData = json.dumps(ipPrefixPayloadData)
-        # post api call to configure ip prefix in target
-        response = self.restClientObj.post(ipPrefixUrl, headers=self.headers,
-                                           data=ipPrefixPayloadData)
-
+        if alreadyPresentPrefixes:
+            putUrl = "{}/{}".format(ipPrefixUrl, alreadyPrefixId)
+            ipPrefixPayloadData['prefixes'].extend(alreadyPresentPrefixes)
+            ipPrefixPayloadData["id"] = alreadyPrefixId
+            ipPrefixPayloadData = json.dumps(ipPrefixPayloadData)
+            # post api call to configure ip prefix in target
+            response = self.restClientObj.put(putUrl, headers=self.headers,
+                                              data=ipPrefixPayloadData)
+        else:
+            ipPrefixPayloadData = json.dumps(ipPrefixPayloadData)
+            # post api call to configure ip prefix in target
+            response = self.restClientObj.post(ipPrefixUrl, headers=self.headers,
+                                               data=ipPrefixPayloadData)
         if response.status_code == requests.codes.accepted:
             # successful configuration of ip prefix list
             taskUrl = response.headers['Location']
@@ -1455,6 +1478,10 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             logger.debug(f'Successfully created IP Prefix on target edge gateway {targetEdgeGatewayId}')
         else:
             raise Exception('Failed to create IP Prefix on target edge gateway {}'.format(response.json()['message']))
+
+        # Releasing lock
+        self.lock.release()
+
 
     @description("configuration of Route Advertisement")
     @remediate

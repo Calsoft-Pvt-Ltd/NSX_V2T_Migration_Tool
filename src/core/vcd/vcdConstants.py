@@ -827,3 +827,9 @@ GET_CATALOG_SHARE_PERMISSIONS = 'catalog/{}/controlAccess'
 
 # Set Share Permissions fot catalog.
 SET_CATALOG_SHARE_PERMISSIONS = 'catalog/{}/action/controlAccess'
+
+# Set Read-Only access of catalog to all ORGS
+PUBLISH_CATALOG_READ_ACCESS_TO_ALL_ORG = 'action/publish'
+
+# Catalog Read-Only acccess to all ORGs template
+READ_ACCESS_CATALOG_TEMPLATE = 'catalogReadAccessToAllOrgs'
