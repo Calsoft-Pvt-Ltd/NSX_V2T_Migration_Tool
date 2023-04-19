@@ -1755,19 +1755,20 @@ class VCDMigrationValidation:
         Description : Fetches all the IP Spaces in an Organization
         """
         logger.debug('Getting IP Spaces from Organization')
+        orgId = self.rollback.apiData.get('Organization', {}).get('@id')
         url = "{}{}/summaries".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.CREATE_IP_SPACES)
         headers = {'Authorization': self.headers['Authorization'],
-                   'Accept': vcdConstants.OPEN_API_CONTENT_TYPE,
-                   'X-VMWARE-VCLOUD-TENANT-CONTEXT': self.rollback.apiData.get('Organization', {}).get('@id')}
+                   'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
         # Fetching all IP Spaces (PUBLIC/PRIVATE) available to tenant Org
         resultList = self.getPaginatedResults("IP Spaces", url, headers, pageSize=15)
+        tenantIpSpaces = [result for result in resultList if result["type"] == "PUBLIC" or (result["type"] == "PRIVATE" and result.get("orgRef", {}).get("id") == orgId )]
         if not returnIpspaces:
             # Returning intermediate data having basic info of IP Spaces eg. name, id If detailed info is not needed
-            return resultList
+            return tenantIpSpaces
         # List to hold IP Spaces details
         ipSpaceList = list()
         # Traversing through IP Spaces fetch each IP Space details
-        for ipSpace in resultList:
+        for ipSpace in tenantIpSpaces:
             ipSpaceList.append(self.fetchIpSpace(ipSpace["id"]))
         return ipSpaceList
 
