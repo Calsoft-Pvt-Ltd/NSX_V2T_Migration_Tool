@@ -1,6 +1,6 @@
-open_source_license.txt
+open_source_licenses.txt
 
-VMware NSX Migration for VMware Cloud Director 1.4.1 GA
+VMware NSX Migration for VMware Cloud Director 1.4.2 GA
 ======================================================================
 
 The following copyright statements and licenses apply to various open
@@ -22,6 +22,8 @@ The following is a listing of the open source components detailed in
 this document. This list is provided for your convenience; please read
 further if you wish to review the copyright notice(s) and the full text
 of the license associated with each component.
+
+
 
 SECTION 1: Apache License, V2.0
 
@@ -73,6 +75,8 @@ APPENDIX. Standard License Files
    >>> Perl Artistic License
    >>> GNU General Public License, V1.0
    >>> GNU General Public License, V3.0
+
+
 
 -------------------- SECTION 1: Apache License, V2.0 --------------------
 
@@ -486,7 +490,19 @@ APPENDIX. Standard License Files
 
        PyNaCl-1.4.0/src/libsodium/aclocal.m4
 
-       Copyright (c) 1996-2018 Free Software Foundation, Inc.
+       Copyright (c) 2002-2018 Free Software Foundation, Inc.
+
+       PyNaCl-1.4.0/src/libsodium/aclocal.m4
+
+       Copyright (c) 2004-2018 Free Software Foundation, Inc.
+
+       PyNaCl-1.4.0/src/libsodium/aclocal.m4
+
+       Copyright (c) 2006-2018 Free Software Foundation, Inc.
+
+       PyNaCl-1.4.0/src/libsodium/aclocal.m4
+
+       Copyright (c) 2001-2018 Free Software Foundation, Inc.
 
        PyNaCl-1.4.0/src/libsodium/aclocal.m4
 
@@ -494,7 +510,7 @@ APPENDIX. Standard License Files
 
        PyNaCl-1.4.0/src/libsodium/aclocal.m4
 
-       Copyright (c) 2001-2018 Free Software Foundation, Inc.
+       Copyright (c) 1996-2018 Free Software Foundation, Inc.
 
        PyNaCl-1.4.0/src/libsodium/aclocal.m4
 
@@ -507,18 +523,6 @@ APPENDIX. Standard License Files
        PyNaCl-1.4.0/src/libsodium/aclocal.m4
 
        Copyright (c) 2003-2018 Free Software Foundation, Inc.
-
-       PyNaCl-1.4.0/src/libsodium/aclocal.m4
-
-       Copyright (c) 2002-2018 Free Software Foundation, Inc.
-
-       PyNaCl-1.4.0/src/libsodium/aclocal.m4
-
-       Copyright (c) 2004-2018 Free Software Foundation, Inc.
-
-       PyNaCl-1.4.0/src/libsodium/aclocal.m4
-
-       Copyright (c) 2006-2018 Free Software Foundation, Inc.
 
        PyNaCl-1.4.0/src/libsodium/m4/ld-output-def.m4
 
@@ -648,11 +652,11 @@ APPENDIX. Standard License Files
 
        PyNaCl-1.4.0/src/libsodium/build-aux/ltmain.sh
 
-       Copyright (c) 2010-2015 Free Software Foundation, Inc.
+       Copyright (c) 2004-2015 Free Software Foundation, Inc.
 
        PyNaCl-1.4.0/src/libsodium/build-aux/ltmain.sh
 
-       Copyright (c) 2004-2015 Free Software Foundation, Inc.
+       Copyright (c) 2010-2015 Free Software Foundation, Inc.
 
        PyNaCl-1.4.0/src/libsodium/m4/ax_check_compile_flag.m4
 
@@ -1521,15 +1525,11 @@ APPENDIX. Standard License Files
 
        expat-2.2.8/aclocal.m4
 
-       Copyright (c) 2001-2018 Free Software Foundation, Inc.
-
-       expat-2.2.8/aclocal.m4
-
        Copyright (c) 2004-2018 Free Software Foundation, Inc.
 
        expat-2.2.8/aclocal.m4
 
-       Copyright (c) 2006-2018 Free Software Foundation, Inc.
+       Copyright (c) 2001-2018 Free Software Foundation, Inc.
 
        expat-2.2.8/aclocal.m4
 
@@ -1558,6 +1558,10 @@ APPENDIX. Standard License Files
        expat-2.2.8/aclocal.m4
 
        Copyright (c) 2002-2018 Free Software Foundation, Inc.
+
+       expat-2.2.8/aclocal.m4
+
+       Copyright (c) 2006-2018 Free Software Foundation, Inc.
 
        expat-2.2.8/m4/libtool.m4
 
@@ -1617,11 +1621,11 @@ APPENDIX. Standard License Files
 
        expat-2.2.8/configure
 
-       Copyright (c) 2012 Free Software Foundation, Inc.
+       Copyright (c) 1992-1996, 1998-2012 Free Software Foundation, Inc.
 
        expat-2.2.8/configure
 
-       Copyright (c) 1992-1996, 1998-2012 Free Software Foundation, Inc.
+       Copyright (c) 2012 Free Software Foundation, Inc.
 
        expat-2.2.8/m4/libtool.m4
 
@@ -4059,15 +4063,15 @@ APPENDIX. Standard License Files
 
        openssl-1.1.1l/crypto/bn/bn_prime.pl
 
-       Copyright 1998-2019 The OpenSSL Project Authors
-
-       See SECTION 36 in 'LICENSE TEXT REFERENCE TABLE'
-
-       openssl-1.1.1l/crypto/bn/bn_prime.pl
-
        Copyright 1998-$YEAR The OpenSSL Project Authors
 
        See SECTION 30 in 'LICENSE TEXT REFERENCE TABLE'
+
+       openssl-1.1.1l/crypto/bn/bn_prime.pl
+
+       Copyright 1998-2019 The OpenSSL Project Authors
+
+       See SECTION 36 in 'LICENSE TEXT REFERENCE TABLE'
 
        openssl-1.1.1l/crypto/bn/bn_print.c
 
@@ -6309,27 +6313,27 @@ APPENDIX. Standard License Files
 
        openssl-1.1.1l/crypto/objects/obj_dat.pl
 
-       Copyright 1995-$YEAR The OpenSSL Project Authors
-
-       See SECTION 30 in 'LICENSE TEXT REFERENCE TABLE'
-
-       openssl-1.1.1l/crypto/objects/obj_dat.pl
-
        Copyright 1995-2019 The OpenSSL Project Authors
 
        See SECTION 36 in 'LICENSE TEXT REFERENCE TABLE'
 
-       openssl-1.1.1l/crypto/objects/objects.pl
+       openssl-1.1.1l/crypto/objects/obj_dat.pl
 
-       Copyright 2000-2019 The OpenSSL Project Authors
+       Copyright 1995-$YEAR The OpenSSL Project Authors
 
-       See SECTION 36 in 'LICENSE TEXT REFERENCE TABLE'
+       See SECTION 30 in 'LICENSE TEXT REFERENCE TABLE'
 
        openssl-1.1.1l/crypto/objects/objects.pl
 
        Copyright 2000-$YEAR The OpenSSL Project Authors
 
        See SECTION 30 in 'LICENSE TEXT REFERENCE TABLE'
+
+       openssl-1.1.1l/crypto/objects/objects.pl
+
+       Copyright 2000-2019 The OpenSSL Project Authors
+
+       See SECTION 36 in 'LICENSE TEXT REFERENCE TABLE'
 
        openssl-1.1.1l/crypto/objects/obj_err.c
 
@@ -6363,15 +6367,15 @@ APPENDIX. Standard License Files
 
        openssl-1.1.1l/crypto/objects/objxref.pl
 
-       Copyright 1998-2019 The OpenSSL Project Authors
-
-       See SECTION 36 in 'LICENSE TEXT REFERENCE TABLE'
-
-       openssl-1.1.1l/crypto/objects/objxref.pl
-
        Copyright 1998-$YEAR The OpenSSL Project Authors
 
        See SECTION 30 in 'LICENSE TEXT REFERENCE TABLE'
+
+       openssl-1.1.1l/crypto/objects/objxref.pl
+
+       Copyright 1998-2019 The OpenSSL Project Authors
+
+       See SECTION 36 in 'LICENSE TEXT REFERENCE TABLE'
 
        openssl-1.1.1l/crypto/objects/o_names.c
 
@@ -15513,13 +15517,13 @@ APPENDIX. Standard License Files
 
        openssl-1.1.1l/util/mkerr.pl
 
-       Copyright 1999-2019 The OpenSSL Project Authors
+       Copyright 1999-$YEAR The OpenSSL Project Authors
 
        See SECTION 36 in 'LICENSE TEXT REFERENCE TABLE'
 
        openssl-1.1.1l/util/mkerr.pl
 
-       Copyright 1999-$YEAR The OpenSSL Project Authors
+       Copyright 1999-2019 The OpenSSL Project Authors
 
        See SECTION 36 in 'LICENSE TEXT REFERENCE TABLE'
 
@@ -15657,15 +15661,15 @@ APPENDIX. Standard License Files
 
        openssl-1.1.1l/util/process_docs.pl
 
-       Copyright 2016-2018 The OpenSSL Project Authors
-
-       See SECTION 36 in 'LICENSE TEXT REFERENCE TABLE'
-
-       openssl-1.1.1l/util/process_docs.pl
-
        Copyright 2013-2018 The OpenSSL Project Authors
 
        See SECTION 65 in 'LICENSE TEXT REFERENCE TABLE'
+
+       openssl-1.1.1l/util/process_docs.pl
+
+       Copyright 2016-2018 The OpenSSL Project Authors
+
+       See SECTION 36 in 'LICENSE TEXT REFERENCE TABLE'
 
        openssl-1.1.1l/util/su-filter.pl
 
@@ -16158,21 +16162,15 @@ APPENDIX. Standard License Files
 
        Python-3.8.6/Doc/license.rst
 
-       Copyright (c) 2013 W3C(R) (MIT, ERCIM, Keio, Beihang)
+       Copyright (c) 1995, 1996, 1997, and 1998 WIDE Project
 
-       See SECTION 108 in 'LICENSE TEXT REFERENCE TABLE'
+       See SECTION 98 in 'LICENSE TEXT REFERENCE TABLE'
 
        Python-3.8.6/Doc/license.rst
 
        Copyright (c) 2005 Don Owens
 
        See SECTION 86 in 'LICENSE TEXT REFERENCE TABLE'
-
-       Python-3.8.6/Doc/license.rst
-
-       Copyright (c) 1995, 1996, 1997, and 1998 WIDE Project
-
-       See SECTION 98 in 'LICENSE TEXT REFERENCE TABLE'
 
        Python-3.8.6/Doc/license.rst
 
@@ -16185,6 +16183,12 @@ APPENDIX. Standard License Files
        Copyright (c) 2008-2016 Stefan Krah
 
        See SECTION 107 in 'LICENSE TEXT REFERENCE TABLE'
+
+       Python-3.8.6/Doc/license.rst
+
+       Copyright (c) 2013 W3C(R) (MIT, ERCIM, Keio, Beihang)
+
+       See SECTION 108 in 'LICENSE TEXT REFERENCE TABLE'
 
        Python-3.8.6/Lib/ensurepip/_bundled/pip-20.2.1-py2.py3-none-any/pip/_vendor/colorama/ansi.py
 
@@ -16266,15 +16270,15 @@ APPENDIX. Standard License Files
 
        Python-3.8.6/LICENSE
 
-       Copyright (c) 1991 - 1995, Stichting Mathematisch Centrum Amsterdam, The Netherlands
-
-       See SECTION 76 in 'LICENSE TEXT REFERENCE TABLE'
-
-       Python-3.8.6/LICENSE
-
        Copyright (c) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020 Python Software Foundation
 
        See SECTION 75 in 'LICENSE TEXT REFERENCE TABLE'
+
+       Python-3.8.6/LICENSE
+
+       Copyright (c) 1991 - 1995, Stichting Mathematisch Centrum Amsterdam, The Netherlands
+
+       See SECTION 76 in 'LICENSE TEXT REFERENCE TABLE'
 
        Python-3.8.6/Mac/BuildScript/resources/License.rtf
 
@@ -16564,21 +16568,21 @@ APPENDIX. Standard License Files
 
        Python-3.8.6/Doc/license.rst
 
-       Copyright (c) 1995-2011 Jean-loup Gailly and Mark Adler
+       Copyright (c) 2013 Marek Majkowski <marek@popcount.org>
 
-       See SECTION 106 in 'LICENSE TEXT REFERENCE TABLE'
-
-       Python-3.8.6/Doc/license.rst
-
-       Copyright (c) 1996-2008 Red Hat, Inc and others
-
-       See SECTION 26 in 'LICENSE TEXT REFERENCE TABLE'
+       See SECTION 102 in 'LICENSE TEXT REFERENCE TABLE'
 
        Python-3.8.6/Doc/license.rst
 
        Copyright (c) 2001-2006 Twisted Matrix Laboratories
 
        See SECTION 37 in 'LICENSE TEXT REFERENCE TABLE'
+
+       Python-3.8.6/Doc/license.rst
+
+       Copyright (c) 1995-2011 Jean-loup Gailly and Mark Adler
+
+       See SECTION 106 in 'LICENSE TEXT REFERENCE TABLE'
 
        Python-3.8.6/Doc/license.rst
 
@@ -16594,9 +16598,9 @@ APPENDIX. Standard License Files
 
        Python-3.8.6/Doc/license.rst
 
-       Copyright (c) 2013 Marek Majkowski <marek@popcount.org>
+       Copyright (c) 1996-2008 Red Hat, Inc and others
 
-       See SECTION 102 in 'LICENSE TEXT REFERENCE TABLE'
+       See SECTION 26 in 'LICENSE TEXT REFERENCE TABLE'
 
        Python-3.8.6/install-sh
 
@@ -17465,13 +17469,13 @@ APPENDIX. Standard License Files
 
        Python-3.8.6/Lib/lib2to3/pgen2/driver.py
 
-       Copyright 2004-2005 Elemental Security, Inc.
+       Copyright 2006 Google, Inc.
 
        See SECTION 50 in 'LICENSE TEXT REFERENCE TABLE'
 
        Python-3.8.6/Lib/lib2to3/pgen2/driver.py
 
-       Copyright 2006 Google, Inc.
+       Copyright 2004-2005 Elemental Security, Inc.
 
        See SECTION 50 in 'LICENSE TEXT REFERENCE TABLE'
 
@@ -17873,15 +17877,29 @@ APPENDIX. Standard License Files
 
        Python-3.8.6/configure
 
+       Copyright (c) 1992-1996, 1998-2012 Free Software Foundation, Inc.
+
+       See SECTION 12 in 'LICENSE TEXT REFERENCE TABLE'
+
+       Python-3.8.6/configure
+
        Copyright (c) 2012 Free Software Foundation, Inc.
 
        See SECTION 11 in 'LICENSE TEXT REFERENCE TABLE'
 
-       Python-3.8.6/configure
+       > Python CWI License Agreement
 
-       Copyright (c) 1992-1996, 1998-2012 Free Software Foundation, Inc.
+       Python-3.8.6/Doc/license.rst
 
-       See SECTION 12 in 'LICENSE TEXT REFERENCE TABLE'
+       Copyright (c) 1991 - 1995, Stichting Mathematisch Centrum Amsterdam, The Netherlands
+
+       See SECTION 97 in 'LICENSE TEXT REFERENCE TABLE'
+
+       Python-3.8.6/Lib/uu.py
+
+       Copyright 1994 by Lance Ellinghouse Cathedral City, California Republic, United States of America
+
+       See SECTION 129 in 'LICENSE TEXT REFERENCE TABLE'
 
        > Historical Permission Notice and Disclaimer
 
@@ -17944,20 +17962,6 @@ APPENDIX. Standard License Files
        Copyright (c) 2004 by Peter Astrand <astrand@lysator.liu.se>
 
        See SECTION 133 in 'LICENSE TEXT REFERENCE TABLE'
-
-       > Python CWI License Agreement
-
-       Python-3.8.6/Doc/license.rst
-
-       Copyright (c) 1991 - 1995, Stichting Mathematisch Centrum Amsterdam, The Netherlands
-
-       See SECTION 97 in 'LICENSE TEXT REFERENCE TABLE'
-
-       Python-3.8.6/Lib/uu.py
-
-       Copyright 1994 by Lance Ellinghouse Cathedral City, California Republic, United States of America
-
-       See SECTION 129 in 'LICENSE TEXT REFERENCE TABLE'
 
        > BSD Source Code Attribution
 
@@ -18747,11 +18751,11 @@ APPENDIX. Standard License Files
 
        paramiko-2.7.2/docs/_static/jquery-3.2.1.js
 
-       Copyright jQuery Foundation and other contributors
+       Copyright JS Foundation and other contributors
 
        paramiko-2.7.2/docs/_static/jquery-3.2.1.js
 
-       Copyright JS Foundation and other contributors
+       Copyright jQuery Foundation and other contributors
 
        paramiko-2.7.2/docs/_static/underscore-1.3.1.js
 
@@ -19548,130 +19552,6 @@ APPENDIX. Standard License Files
          Ty Coon, President of Vice
 
        That's all there is to it!
-
-       ADDITIONAL LICENSE INFORMATION
-
-       > GNU Lesser General Public License 2.1 or later
-
-       chardet-master/chardet/big5freq.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/big5prober.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/chardistribution.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/charsetgroupprober.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/charsetprober.py
-
-       Copyright (c) 2001 the Initial Developer.
-
-       chardet-master/chardet/codingstatemachine.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/cp949prober.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/escprober.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/escsm.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/eucjpprober.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/euckrfreq.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/euckrprober.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/euctwfreq.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/euctwprober.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/gb2312freq.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/gb2312prober.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/hebrewprober.py
-
-       Copyright (c) 2005 the Initial Developer.
-
-       chardet-master/chardet/jisfreq.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/johabfreq.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/johabprober.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/jpcntx.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/latin1prober.py
-
-       Copyright (c) 2001 the Initial Developer.
-
-       chardet-master/chardet/mbcharsetprober.py
-
-       Copyright (c) 2001 the Initial Developer.
-
-       chardet-master/chardet/mbcsgroupprober.py
-
-       Copyright (c) 2001 the Initial Developer.
-
-       chardet-master/chardet/mbcssm.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/sbcharsetprober.py
-
-       Copyright (c) 2001 the Initial Developer.
-
-       chardet-master/chardet/sbcsgroupprober.py
-
-       Copyright (c) 2001 the Initial Developer.
-
-       chardet-master/chardet/sjisprober.py
-
-       Copyright (c) 1998 the Initial Developer.
-
-       chardet-master/chardet/universaldetector.py
-
-       Copyright (c) 2001 the Initial Developer.
-
-       chardet-master/chardet/utf8prober.py
-
-       Copyright (c) 1998 the Initial Developer.
 
 
 -------------------- SECTION 4: Mozilla Public License, V2.0 --------------------
@@ -24571,6 +24451,9 @@ CWI LICENSE AGREEMENT FOR PYTHON 0.9.0 THROUGH 1.2
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
+
+
+
 ======================================================================
 
 To the extent any open source components are licensed under the GPL
@@ -24588,4 +24471,5 @@ a CD or equivalent physical medium. This offer to obtain a copy of the
 Source Files is valid for three years from the date you acquired this
 Software product. Alternatively, the Source Files may accompany the
 VMware product.
-[VCDNSXV2TMIGRATION141GAAT010223]
+
+[VCDNSXV2TMIGRATION142GAAS042723]
