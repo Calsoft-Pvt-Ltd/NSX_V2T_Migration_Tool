@@ -1070,6 +1070,13 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         try:
             logger.debug('BGP is getting configured')
             for sourceEdgeGateway in self.rollback.apiData['sourceEdgeGateway']:
+                t0Gateway = self.orgVdcInput['EdgeGateways'][sourceEdgeGateway["name"]]['Tier0Gateways']
+                targetExternalNetwork = self.rollback.apiData["targetExternalNetwork"][t0Gateway]
+                if targetExternalNetwork.get("usingIpSpace"):
+                    if not (targetExternalNetwork.get("dedicatedOrg") and targetExternalNetwork.get("dedicatedOrg", {}).get(
+                            "id") == self.rollback.apiData.get("Organization", {}).get("@id")):
+                        logger.debug("Skipping BGP configuration since Provider Gateway - '{}' is public IP Space enabled Gateway".format(targetExternalNetwork["name"]))
+                        continue
                 logger.debug("Configuring BGP Services in Target Edge Gateway - {}".format(sourceEdgeGateway['name']))
                 sourceEdgeGatewayId = sourceEdgeGateway['id'].split(':')[-1]
                 edgeGatewayID = list(filter(
@@ -1538,12 +1545,26 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         # advertise all routed network subnets connected to this edge gateway
                         subnetsToAdvertise += allRoutedNetworkSubnets
                         break
-                # Fetching all the permitted prefixes from target edge gateway config
-                for ipPrefix in self.getTargetEdgeGatewayIpPrefixData(targetEdgeGatewayId):
-                    if ipPrefix['name'] == vcdConstants.TARGET_BGP_IP_PREFIX_NAME:
-                        subnetsToAdvertise += [subnet['network'] for subnet in ipPrefix['prefixes']
-                                               if subnet['action'] == 'PERMIT']
-                        break
+                if targetExternalNetwork.get("usingIpSpace") and not (targetExternalNetwork.get("dedicatedOrg") and targetExternalNetwork.get("dedicatedOrg", {}).get(
+                            "id") == self.rollback.apiData.get("Organization", {}).get("@id")):
+                        ipPrefixDict = {}
+                        if routingConfig.get("routingGlobalConfig"):
+                            for prefix in listify(routingConfig.get("routingGlobalConfig", {}).get("ipPrefixes", {}).get('ipPrefix', [])):
+                                ipPrefixDict[prefix["name"]] = prefix["ipAddress"]
+                        for bgpRedistributionRule in listify(
+                                (bgpRedistribution.get('rules') or {}).get('rule', [])):
+                            if bgpRedistributionRule.get('prefixName') in ipPrefixDict and \
+                                    bgpRedistributionRule['from']['connected'] == 'true' and \
+                                    bgpRedistributionRule['action'] == 'permit':
+                                subnetsToAdvertise += [ipPrefixDict[bgpRedistributionRule.get('prefixName')]]
+                else:
+                    # Fetching all the permitted prefixes from target edge gateway config
+                    for ipPrefix in self.getTargetEdgeGatewayIpPrefixData(targetEdgeGatewayId):
+                        if ipPrefix['name'] == vcdConstants.TARGET_BGP_IP_PREFIX_NAME:
+                            subnetsToAdvertise += [subnet['network'] for subnet in ipPrefix['prefixes']
+                                                   if subnet['action'] == 'PERMIT']
+                            break
+
             if self.orgVdcInput['EdgeGateways'][sourceEdgeGateway['name']]['AdvertiseRoutedNetworks']:
                 # If advertiseRoutedNetworks param is True,
                 # advertise all routed networks subnets connected to this edge gateway
@@ -3509,10 +3530,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             t0Gateway = self.orgVdcInput['EdgeGateways'][targetEdgeGatewayName]['Tier0Gateways']
             providerGateway = self.rollback.apiData["targetExternalNetwork"][t0Gateway]
             if providerGateway.get("usingIpSpace"):
-                # Adding LBVIPSubnet as Private IP Spaces and adding required amount of floatingIPs to it for virtual server usage
-                if loadBalancerVIPSubnet not in self.rollback.apiData.get("privateIpSpaces", {}):
-                    lbVipIpRange = (hostsListInSubnet[0].exploded, hostsListInSubnet[(len(vipToBeReplaced) - 1)].exploded)
-                    self.createPrivateIpSpace(loadBalancerVIPSubnet, ipRangeList=[lbVipIpRange])
+                hostsListInSubnet = self.configureIpSpaceForLbVipSubnet(vipToBeReplaced, loadBalancerVIPSubnet, hostsListInSubnet)
 
         def getCertificateRef(vs):
             isTcpCert = False
@@ -3635,6 +3653,67 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                     "Failed to create virtual server '{}' for load balancer on target edge gateway '{}' due to error {}".format(
                         virtualServer['name'], targetEdgeGatewayName, errorResponseData['message']
                     ))
+
+    def configureIpSpaceForLbVipSubnet(self, vipToBeReplaced, loadBalancerVIPSubnet, hostsListInSubnet):
+        # Acquiring lock as only one ipspace can be created/updated at a time
+        self.lock.acquire(blocking=True)
+        ipSpaces = self.fetchAllIpSpaces(returnIpspaces=True)
+        for ipSpace in ipSpaces:
+            if any([internalScope for internalScope in ipSpace["ipSpaceInternalScope"]
+                    if type(ipaddress.ip_network(loadBalancerVIPSubnet, strict=False)) == type(
+                    ipaddress.ip_network(internalScope, strict=False)) and self.subnetOf(
+                    ipaddress.ip_network(loadBalancerVIPSubnet, strict=False),
+                    ipaddress.ip_network(internalScope, strict=False))]):
+                range = ipSpace["ipSpaceRanges"]["ipRanges"][0]
+                if int(range["totalIpCount"]) - int(range["allocatedIpCount"]) < len(vipToBeReplaced):
+                    raise Exception(
+                        "Insufficient IPs in IP Space - {} to create virtual services".format(ipSpace["name"]))
+                floatingIpUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                 vcdConstants.UPDATE_IP_SPACES.format(ipSpace["id"]),
+                                                 vcdConstants.IP_SPACE_ALLOCATIONS)
+                headers = {'Authorization': self.headers['Authorization'],
+                           'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+                floatingIpList = self.getPaginatedResults("Floating IPs", floatingIpUrl, headers,
+                                                          urlFilter="filter=type==FLOATING_IP")
+                virtualServersIpList = []
+                for ip in hostsListInSubnet:
+                    if len(virtualServersIpList) == len(vipToBeReplaced):
+                        break
+                    if not any([allocatedIp for allocatedIp in floatingIpList if allocatedIp["value"] == ip.exploded]):
+                        virtualServersIpList.append(ip.exploded)
+                floatingIpDict = self.rollback.apiData.get("floatingIps", {})
+                for floatingIp in virtualServersIpList:
+                    if floatingIp in floatingIpDict.get(ipSpace["id"], []):
+                        continue
+                    self.allocate(ipSpace["id"], "FLOATING_IP", floatingIp, ipSpace["name"])
+                    if ipSpace["id"] not in floatingIpDict:
+                        floatingIpDict[ipSpace["id"]] = []
+                    floatingIpDict[ipSpace["id"]].append(floatingIp)
+                    self.rollback.apiData["floatingIps"] = floatingIpDict
+                self.rollback.apiData["lbVIPSubnetIpSpaceId"] = ipSpace["id"]
+                hostsListInSubnet = virtualServersIpList
+                break
+        else:
+            # Adding LBVIPSubnet as Private IP Spaces and adding required amount of floatingIPs to it for virtual server usage
+            if loadBalancerVIPSubnet not in self.rollback.apiData.get("privateIpSpaces", {}):
+                lbVipIpRange = (hostsListInSubnet[0].exploded, hostsListInSubnet[-1].exploded)
+                ipSpaceId = self.createPrivateIpSpace(loadBalancerVIPSubnet, ipRangeList=[lbVipIpRange], allocate=False,
+                                                      returnOutput=True)
+                floatingIpDict = self.rollback.apiData.get("floatingIps", {})
+                for ip in self.returnIpListFromRange(hostsListInSubnet[0].exploded,
+                                                     hostsListInSubnet[len(vipToBeReplaced) - 1].exploded):
+                    if ip in floatingIpDict.get(ipSpaceId, []):
+                        continue
+                    self.allocate(ipSpaceId, 'FLOATING_IP', ip, ipSpaceId)
+                    if ipSpaceId not in floatingIpDict:
+                        floatingIpDict[ipSpaceId] = []
+                    floatingIpDict[ipSpaceId].append(ip)
+                    self.rollback.apiData["floatingIps"] = floatingIpDict
+
+        # Releasing lock
+        self.lock.release()
+
+        return hostsListInSubnet
 
     def getSourceVirtualServiceDetails(self, sourceEdgeGatewayId):
         # url for getting edge gateway load balancer virtual servers configuration
@@ -5481,7 +5560,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             raise
 
     @isSessionExpired
-    def createPrivateIpSpace(self, ipSpaceName, ipRangeList=[], ipPrefixList=[], routeAdvertisement=False, returnOutput=False):
+    def createPrivateIpSpace(self, ipSpaceName, ipRangeList=[], ipPrefixList=[], allocate=True, routeAdvertisement=False, returnOutput=False):
         """
         Description :  Creates Private IP Space for given scope
         Parameteres:   ipRangeList - List of IP range (LIST OF TUPLES)
@@ -5534,7 +5613,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             raise Exception(
                 'Failed to create Private IP Space - {} with error - {}'.format(ipSpaceName, errorResponse['message']))
 
-        if ipRanges:
+        if ipRanges and allocate:
             for ipRange in ipRanges:
                 for ip in self.returnIpListFromRange(ipRange["startIpAddress"], ipRange["endIpAddress"]):
                     if ip in floatingIpDict.get(ipSpaceId, []):
@@ -5544,7 +5623,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                         floatingIpDict[ipSpaceId] = []
                     floatingIpDict[ipSpaceId].append(ip)
                     self.rollback.apiData["floatingIps"] = floatingIpDict
-        if ipPrefixes:
+        if ipPrefixes and allocate:
             for ipPrefix in ipPrefixes:
                 ipPrefixSubnet = "{}/{}".format(ipPrefix["startingPrefixIpAddress"], ipPrefix["prefixLength"])
                 self.allocate(ipSpaceId, 'IP_PREFIX', ipPrefixSubnet, ipSpaceName)
@@ -5559,6 +5638,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         Parameteres:   ipSpaceId - IP SPACE Id (STRING)
                        prefix - Prefix subnet to be added (STRING)
         """
+        # Acquiring lock as only one ipspace can be updated at a time
+        self.lock.acquire(blocking=True)
         prefixAddedToIpSpaces = self.rollback.apiData.get("prefixAddedToIpSpaces", [])
         ipSpaceUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                    vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId))
@@ -5568,16 +5649,30 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         if ipSpaceResponse.status_code == requests.codes.ok:
             ipSpaceResponseDict = ipSpaceResponse.json()
             ipSpacePrefixes = ipSpaceResponseDict.get("ipSpacePrefixes", [])
-            ipSpacePrefixes.append({
-                "ipPrefixSequence": [
-                    {
-                        "id": None,
-                        "startingPrefixIpAddress": prefix.split("/")[0],
-                        "prefixLength": prefix.split("/")[1],
-                        "totalPrefixCount": 1
-                    }
-                ]
-            })
+            for ipPrefix in ipSpacePrefixes:
+                for prefixSequence in ipPrefix["ipPrefixSequence"]:
+                    if str(prefixSequence["prefixLength"]) == prefix.split("/")[1]:
+                        ipPrefix["ipPrefixSequence"].append({
+                            "id": None,
+                            "startingPrefixIpAddress": prefix.split("/")[0],
+                            "prefixLength": prefix.split("/")[1],
+                            "totalPrefixCount": 1
+                        })
+                        break
+                else:
+                    continue
+                break
+            else:
+                ipSpacePrefixes.append({
+                    "ipPrefixSequence": [
+                        {
+                            "id": None,
+                            "startingPrefixIpAddress": prefix.split("/")[0],
+                            "prefixLength": prefix.split("/")[1],
+                            "totalPrefixCount": 1
+                        }
+                    ]
+                })
             ipSpaceResponseDict["ipSpacePrefixes"] = ipSpacePrefixes
             payloadData = json.dumps(ipSpaceResponseDict)
             response = self.restClientObj.put(ipSpaceUrl, headers=headers, data=payloadData)
@@ -5597,6 +5692,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         self.allocate(ipSpaceId, "IP_PREFIX", prefix, ipSpaceId)
         prefixAddedToIpSpaces.append(prefix)
         self.rollback.apiData["prefixAddedToIpSpaces"] = prefixAddedToIpSpaces
+        # Releasing lock
+        self.lock.release()
 
     @isSessionExpired
     def connectIpSpaceUplinkToProviderGateway(self, sourceEdgeGatewayName, ipSpaceName, ipSpaceId):
@@ -5605,6 +5702,8 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
         Parameteres:   sourceEdgeGatewayName - Name of Target Edge Gateway being connected to Provider Gateway (STRING)
                        ipSpaceName - Name of IP SPACE to be connected to provider gateway as uplink (STRING)
         """
+        # Acquiring lock as only one uplink can be added to provider gateway at a time
+        self.lock.acquire(blocking=True)
         manuallyAddedUplinks = self.rollback.apiData.get("manuallyAddedUplinks", [])
         uplinkName = "{}-{}".format(vcdConstants.MIGRATION_UPLINK, ipSpaceName)
         t0Gateway = self.orgVdcInput['EdgeGateways'][sourceEdgeGatewayName]['Tier0Gateways']
@@ -5637,3 +5736,5 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
             errorResponse = response.json()
             raise Exception("Failed to add IP Space Uplink - '{}' added to Provider Gateway - '{}' with error - {}".format(payloadDict["name"], t0Gateway,
                                                                                                errorResponse['message']))
+        # Releasing lock
+        self.lock.release()
