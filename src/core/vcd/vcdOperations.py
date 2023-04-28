@@ -1112,6 +1112,16 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         for ipSpaceName, ipSpaceId in self.rollback.apiData.get("privateIpSpaces", {}).items():
             if ipSpaceId not in privateIpSpacesIdList:
                 continue
+            floatingIpUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                             vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId),
+                                             vcdConstants.IP_SPACE_ALLOCATIONS)
+            headers = {'Authorization': self.headers['Authorization'],
+                       'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+            floatingIpList = self.getPaginatedResults("Floating IPs", floatingIpUrl, headers,
+                                                      urlFilter="filter=type==FLOATING_IP")
+            if floatingIpList:
+                logger.warning("Skipping deleting IP Space - '{}' since it has allocated IPs".format(ipSpaceName))
+                continue
             url = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                 vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId))
             headers = {'Authorization': self.headers['Authorization'],
@@ -1193,14 +1203,22 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         if not self.rollback.apiData.get("ipBlockToBeAddedToIpSpaceUplinks", {}):
             return
+        # Acquiring lock as only one ipspace can be updated at a time
+        self.lock.acquire(blocking=True)
         for ipSpaceId, ipPrefixList in self.rollback.apiData.get("ipBlockToBeAddedToIpSpaceUplinks", {}).items():
             ipSpaceDict = self.fetchIpSpace(ipSpaceId)
             preFixNetworkList = [ipaddress.ip_network(prefix, strict=False) for prefix in ipPrefixList]
-            prefixList = [ipSpacePrefix for ipSpacePrefix in ipSpaceDict.get("ipSpacePrefixes", []) if
-                          ipaddress.ip_network("{}/{}".format(ipSpacePrefix["ipPrefixSequence"][0]["startingPrefixIpAddress"],
-                                                              ipSpacePrefix["ipPrefixSequence"][0]["prefixLength"]),
-                                               strict=False) not in preFixNetworkList and ipSpacePrefix["ipPrefixSequence"][0]["totalPrefixCount"] == "1"]
-            ipSpaceDict["ipSpacePrefixes"] = prefixList if prefixList else None
+            targetPrefixes = []
+            for ipPrefix in ipSpaceDict.get("ipSpacePrefixes", []):
+                targetPrefixSequence = [prefixSequence for prefixSequence in ipPrefix["ipPrefixSequence"]
+                                        if ipaddress.ip_network("{}/{}".format(prefixSequence["startingPrefixIpAddress"],
+                                                                               prefixSequence["prefixLength"]), strict=False) not in preFixNetworkList]
+                if targetPrefixSequence:
+                    targetPrefixes.append({
+                        "ipPrefixSequence": targetPrefixSequence,
+                        "defaultQuotaForPrefixLength": ipPrefix["defaultQuotaForPrefixLength"]
+                    })
+            ipSpaceDict["ipSpacePrefixes"] = targetPrefixes if targetPrefixes else None
             ipSpaceUrl = "{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                        vcdConstants.UPDATE_IP_SPACES.format(ipSpaceId))
             headers = {'Authorization': self.headers['Authorization'],
@@ -1218,6 +1236,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     "Failed to remove Prefixes - '{}' from IP Space Uplink - '{}' with error - {}".format(prefixList, ipSpaceId,
                                                                                                    errorResponse['message']))
         logger.debug("Removed IP Prefixes from respective IP Space Uplinks successfully")
+        # Releasing lock
+        self.lock.release()
 
     @isSessionExpired
     def removeManuallyAddedUplinks(self):
@@ -1226,6 +1246,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         """
         if not self.rollback.apiData.get("manuallyAddedUplinks", []):
             return
+        # Acquiring lock as only one uplink can be added to provider gateway at a time
+        self.lock.acquire(blocking=True)
         for ipSpaceId, ipSpaceUplinkId in self.rollback.apiData.get("manuallyAddedUplinks", []):
             url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.IP_SPACE_UPLINKS, ipSpaceUplinkId)
             headers = {'Authorization': self.headers['Authorization'],
@@ -1240,6 +1262,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 delResponseDict = delResponse.content.json()
                 raise Exception("Failed to remove IP Space uplink - '{}' due to error ".format(ipSpaceUplinkId, delResponseDict["message"]))
         logger.debug("Removed manually added Uplinks to IP Space Provider Gateways during migration successfully")
+        # Releasing lock
+        self.lock.release()
 
     @isSessionExpired
     def deleteNsxVBackedOrgVDCEdgeGateways(self, orgVDCId):
