@@ -1529,6 +1529,8 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 # retrieving the details of the edge gateway
                 response = self.restClientObj.get(url, headers)
                 responseDict = response.json()
+                logger.warning("responseDict",responseDict)
+
                 if response.status_code == requests.codes.ok:
                     if not responseDict['configuration']['gatewayInterfaces']['gatewayInterface'][0][
                         'connected'] and not connect:
@@ -1556,6 +1558,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     else:
                         continue
                     payloadData = json.dumps(responseDict)
+
                     acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER
                     self.headers["Content-Type"] = vcdConstants.XML_UPDATE_EDGE_GATEWAY
                     headers = {'Authorization': self.headers['Authorization'], 'Accept': acceptHeader,
@@ -1595,6 +1598,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
             else:
                 logger.info('Disconnecting target Edge gateway from T0 router.')
             data = self.rollback.apiData
+            logger.warning("data", data)
             for targetEdgeGateway in data['targetEdgeGateway']:
                 payloadDict = targetEdgeGateway
                 if reconnect:
@@ -1612,7 +1616,11 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
                                        targetEdgeGateway['id'])
                 # creating the payload data
+                logger.warning("PayloadDict",payloadDict)
+
                 payloadData = json.dumps(payloadDict)
+                logger.warning("PayloadData",payloadData)
+
                 self.headers["Content-Type"] = vcdConstants.OPEN_API_CONTENT_TYPE
                 # put api to reconnect the target edge gateway
                 response = self.restClientObj.put(url, self.headers, data=payloadData)
