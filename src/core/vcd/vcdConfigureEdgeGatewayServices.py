@@ -3759,6 +3759,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                 certificate = nsxvObj.certRetrieval(objectId)
                 logger.debug('Uploading the certificate {} for load balancer HTTPS configuration'.format(objectId))
                 self.uploadCertificate(certificate, objectId)
+                lbCertificates = self.getCertificatesFromTenant()
 
         # Fetching all the newly added certificate after they are uploaded in above else condition
         lbCertificates = self.getCertificatesFromTenant()
