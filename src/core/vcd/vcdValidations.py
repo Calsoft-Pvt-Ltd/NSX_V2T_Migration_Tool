@@ -7128,7 +7128,7 @@ class VCDMigrationValidation:
                                 vcdConstants.OPEN_API_URL.format(self.ipAddress),
                                 vcdConstants.ALL_EXTERNAL_NETWORKS,
                             ),
-                            urlFilter=vcdConstants.SCOPE_EXTERNAL_NETWORK_QUERY.format(targetProviderVDCId),
+                            urlFilter=vcdConstants.SCOPE_EXTERNAL_NETWORK_QUERY.format(targetProviderVDCId)+'&sortAsc=name',
                         )
                         externalNetworkIds = [values['name'] for values in responseValues]
                         if parentNetworkId['name'] not in externalNetworkIds:
