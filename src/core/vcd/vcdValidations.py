@@ -3919,7 +3919,7 @@ class VCDMigrationValidation:
                             vnics['addressGroups']['addressGroup']['secondaryAddresses']['ipAddress']):
                         vnicIpToTypeMap[ip] = vnics['type']
         for virtualServer in virtualServersData:
-            if vnicIpToTypeMap[virtualServer['ipAddress']] == 'internal' and float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
+            if vnicIpToTypeMap.get(virtualServer['ipAddress']) == 'internal' and float(self.version) < float(vcdConstants.API_VERSION_BETELGEUSE_10_4):
                 return ["VIP from org VDC network is not supported on target side"]
 
         for vnics in vNicsDetails:
