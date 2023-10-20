@@ -1732,7 +1732,7 @@ class NSXTOperations():
             dcGroupInfo = dict()
             orgVdcDict = dict()
             for network in networkList:
-                if network['networkType'] == 'NAT_ROUTED' and network.get('ownerRef').get('id'):
+                if network['networkType'] in ['NAT_ROUTED', 'DIRECT'] and network.get('ownerRef').get('id'):
                     # Storing orgVdc if network not scoped to DC group
                     if network['orgVdc']:
                         if not orgVdcDict.get(network['orgVdc']['id']):
