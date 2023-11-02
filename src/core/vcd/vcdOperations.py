@@ -3224,8 +3224,13 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                                                               strict=False)
                         # If IP belongs to the network add to ipRange value
                         if ipaddress.ip_address(ip) in networkAddress:
-                            subnet['ipRanges']['values'].extend(self.createExternalNetworkSubPoolRangePayload([ip]))
-                            break
+                            if subnet['ipRanges']['values']:
+                                subnet['ipRanges']['values'].extend(self.createExternalNetworkSubPoolRangePayload([ip]))
+                                break
+                            else:
+                                subnet['ipRanges']['values'] = []
+                                subnet['ipRanges']['values'].extend(self.createExternalNetworkSubPoolRangePayload([ip]))
+                                break
 
                 # url to update external network properties
                 url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
@@ -4608,7 +4613,12 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                     # removing the sub allocated ip pools of source edge gateway from source external network
                     for ip in subIpRangeList:
                         if ip in externalRangeList:
-                            externalRangeList.remove(ip)
+                            if len(externalRangeList) == 1 and self.orgVdcInput.get("EmptyIPPoolOverride", False):
+                                logger.warning("Skipping removing the sub allocated '{}' IP of source edge gateway from source external network - '{}'".format(
+                                    externalRangeList[0], networkName))
+                                break
+                            else:
+                                externalRangeList.remove(ip)
                     # getting the source edge gateway sub allocated ip pool after removing used ips i.e source edge gateway
                     result = self.createExternalNetworkSubPoolRangePayload(externalRangeList)
                     response['subnets']['values'][index]['ipRanges']['values'] = result
