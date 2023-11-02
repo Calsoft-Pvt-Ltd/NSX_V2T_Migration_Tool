@@ -1354,7 +1354,11 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                             if firewallRuleId == firewallRule["name"].split('-')[-1]:
                                 firewallRuleData = firewallRule
                                 break
-                        firewallRuleData["appliedTo"] = networkData
+                        # Setting None in AppliedTo field of Target side FW rule IF Rule Type is SNAT, ELSE setting networkData in AppliedTo field
+                        if natRule.get("ruleType") == "SNAT":
+                            firewallRuleData["appliedTo"] = None
+                        else:
+                            firewallRuleData["appliedTo"] = networkData
                     else:
                         for firewallRule in userDefinedFirewallRulesList:
                             if firewallRuleId == firewallRule["name"].split('-')[-1]:
