@@ -211,7 +211,7 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 edgeClusterId = nsxObj.fetchEdgeClusterDetails(self.orgVdcInput["EdgeGatewayDeploymentEdgeCluster"]).get('id')
             else:
                 edgeClusterId = nsxObj.fetchEdgeClusterIdForTier0Gateway(
-                    externalDict['networkBackings']['values'][0]['name'])
+                    externalDict['networkBackings']['values'][0]['backingId'])
 
             # Prepare payload for edgeGatewayUplinks->subnets->values
             subnetData = []
