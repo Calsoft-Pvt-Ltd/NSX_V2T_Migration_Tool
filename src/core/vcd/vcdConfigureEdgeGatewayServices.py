@@ -517,7 +517,7 @@ class ConfigureEdgeGatewayServices(VCDMigrationValidation):
                                             break
                                         # if protocol is icmp
                                         # iterating over the application port profiles
-                                        elif applicationService['protocol'] == "icmp":
+                                        elif applicationService['protocol'].lower() == "icmp":
                                             for value in applicationPortProfilesList:
                                                 if value['name'] == vcdConstants.ICMP_ALL:
                                                     protocol_name, port_id = value['name'], value['id']
