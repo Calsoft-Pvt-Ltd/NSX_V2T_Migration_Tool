@@ -4536,6 +4536,7 @@ class VCDMigrationValidation:
                     logger.debug(msg)
                 time.sleep(vcdConstants.VCD_CREATION_INTERVAL)
                 timeout += vcdConstants.VCD_CREATION_INTERVAL
+            print(timeout)
             raise Exception('Task {}{} could not complete in the allocated time.'.format(
                 responseDict["operationName"], entityName))
         except:
