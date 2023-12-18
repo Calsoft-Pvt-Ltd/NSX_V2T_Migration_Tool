@@ -47,12 +47,12 @@ class Rollback:
             'vcdObj.setStaticRoutesScope(rollback=True)',
             'vcdObj.disconnectTargetOrgVDCNetwork(rollback=True)',
             'vcdObj.reconnectTargetEdgeGateway(reconnect=False)',
+            'vcdObj.reconnectOrDisconnectSourceEdgeGateway(sourceEdgeGatewayId, connect=True)',
+            'vcdObj.connectUplinkSourceEdgeGateway(sourceEdgeGatewayId, rollback=True)',
             'vcdObj.disconnectSourceOrgVDCNetwork(orgVDCNetworkList, sourceEdgeGatewayId, rollback=True)',
             'vcdObj.setStaticRoutesInterfaces(rollback=True)',
             'vcdObj.dhcpRollBack()',
             'vcdObj.ipsecRollBack()',
-            'vcdObj.reconnectOrDisconnectSourceEdgeGateway(sourceEdgeGatewayId, connect=True)',
-            'vcdObj.connectUplinkSourceEdgeGateway(sourceEdgeGatewayId, rollback=True)',
         ]
 
         self.rollbackTaskDfw = [
