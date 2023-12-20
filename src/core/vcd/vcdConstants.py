@@ -77,6 +77,9 @@ XML_VCD_NSX_API = "https://{}/network/"
 # external networks uri
 ALL_EXTERNAL_NETWORKS = "externalNetworks"
 
+# filter for external networks
+EXTERNAL_NETWORK_FILTER = "filter=(name=={})"
+
 # create IP Spaces
 CREATE_IP_SPACES = "ipSpaces"
 
