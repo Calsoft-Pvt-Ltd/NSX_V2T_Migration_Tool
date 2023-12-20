@@ -3077,10 +3077,16 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 extNetName = extNetName + '-v2t' if not source else extNetName
 
                 # Fetching source external network
-                for extNet in self.fetchAllExternalNetworks():
-                    if extNet['name'] == extNetName:
-                        extNetData = extNet
-                        break
+                externalNetworkurl = "{}{}?{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                            vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                                            vcdConstants.EXTERNAL_NETWORK_FILTER.format(
+                                                                extNetName))
+                # GET call to fetch the External Network details using its name
+                response = self.restClientObj.get(externalNetworkurl, headers=self.headers)
+
+                if response.status_code == requests.codes.ok:
+                    responseDict = response.json()
+                    extNetData = responseDict.get("values")[0]
                 else:
                     raise Exception(f"External Network {extNetName} is not present in vCD")
                 if ipData:
@@ -3207,13 +3213,15 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
                 if not rollback:
                     extNetName += '-v2t'
 
-                allExtNet = self.fetchAllExternalNetworks()
+                externalNetworkurl = "{}{}?{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                            vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                                            vcdConstants.EXTERNAL_NETWORK_FILTER.format(extNetName))
+                # GET call to fetch the External Network details using its name
+                response = self.restClientObj.get(externalNetworkurl, headers=self.headers)
 
-                # Fetching NSX-T segment backed external network
-                for extNet in allExtNet:
-                    if extNet['name'] == extNetName:
-                        segmentBackedExtNetData = extNet
-                        break
+                if response.status_code == requests.codes.ok:
+                    responseDict = response.json()
+                    segmentBackedExtNetData = responseDict.get("values")[0]
                 else:
                     raise Exception(f"External Network {extNetName} is not present in vCD")
 
@@ -6625,14 +6633,19 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         return: payload data - payload data for creating a dedicated direct network(shared/non-shared)
         """
         # Getting source external network details
-        sourceExternalNetwork = self.fetchAllExternalNetworks()
-        externalList = [externalNetwork['networkBackings'] for externalNetwork in sourceExternalNetwork if
-                        externalNetwork['id'] == parentNetworkId['id']]
-        if isinstance(sourceExternalNetwork, Exception):
-            raise sourceExternalNetwork
-        for value in externalList:
-            externalDict = value
-        backingid = [values['backingId'] for values in externalDict['values']]
+        extNetUrl = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                     vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                     parentNetworkId['id'])
+        extNetResponse = self.restClientObj.get(extNetUrl, self.headers)
+        if extNetResponse.status_code == requests.codes.ok:
+            extNetResponseDict = extNetResponse.json()
+        else:
+            raise Exception('Failed to get external network {} details with error - {}'.format(
+                parentNetworkId['name'], extNetResponse["message"]))
+
+        externalList = extNetResponseDict['networkBackings']
+
+        backingid = [values['backingId'] for values in externalList['values']]
         url = '{}{}'.format(vcdConstants.XML_API_URL.format(self.ipAddress),
                             vcdConstants.GET_PORTGROUP_VLAN_ID.format(backingid[0]))
         acceptHeader = vcdConstants.GENERAL_JSON_ACCEPT_HEADER.format(self.version)
@@ -6697,23 +6710,30 @@ class VCloudDirectorOperations(ConfigureEdgeGatewayServices):
         Description: THis method is used to create payload for service direct network(shared/non-shared) in non-legacy mode
         return: payload data - payload data for creating a service direct network
         """
+
         # Payload for shared direct network / service network use case
-        externalNetworks = self.fetchAllExternalNetworks()
-        for extNet in externalNetworks:
+        targetExternalNetworkurl = "{}{}?{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                                    vcdConstants.ALL_EXTERNAL_NETWORKS,
+                                                    vcdConstants.EXTERNAL_NETWORK_FILTER.format(
+                                                        parentNetworkId['name'] + '-v2t'))
+        # GET call to fetch the External Network details using its name
+        response = self.restClientObj.get(targetExternalNetworkurl, headers=self.headers)
+
+        if response.status_code == requests.codes.ok:
+            responseDict = response.json()
+            extNet = responseDict.get("values")[0]
             # Finding segment backed ext net for shared direct network
-            if parentNetworkId['name'] + '-v2t' == extNet['name']:
-                if [backing for backing in extNet['networkBackings']['values'] if
-                     backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH']:
-                    payload = {
-                        'name': orgvdcNetwork['name'] + '-v2t',
-                        'description': orgvdcNetwork['description'] if orgvdcNetwork.get(
-                            'description') else '',
-                        'networkType': orgvdcNetwork['networkType'],
-                        'parentNetworkId': {'name': extNet['name'],
-                                            'id': extNet['id']},
-                        'shared': Shared
-                    }
-                    break
+            if [backing for backing in extNet['networkBackings']['values'] if
+                 backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH']:
+                payload = {
+                    'name': orgvdcNetwork['name'] + '-v2t',
+                    'description': orgvdcNetwork['description'] if orgvdcNetwork.get(
+                        'description') else '',
+                    'networkType': orgvdcNetwork['networkType'],
+                    'parentNetworkId': {'name': extNet['name'],
+                                        'id': extNet['id']},
+                    'shared': Shared
+                }
         else:
             raise (
                 f"NSXT segment backed external network {parentNetworkId['name'] + '-v2t'} is not present, and it is "

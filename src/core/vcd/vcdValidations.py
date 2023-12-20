@@ -820,15 +820,23 @@ class VCDMigrationValidation:
         """
         try:
             sourceEdgeGatewayIdList = self.getOrgVDCEdgeGatewayId(sourceEdgeGatewayData)
-            sourceExternalNetworkNames = self.getSourceExternalNetworkName(sourceEdgeGatewayIdList)
+            sourceExternalNetworkNames, sourceExternalNetworkIds = self.getSourceExternalNetworkName(
+                sourceEdgeGatewayIdList)
             sourceExternalNetworkData = []
 
-            # iterating over all the external networks
-            for response in self.fetchAllExternalNetworks():
-                # checking if networkName is present in the list, if present saving the specified network's details to apiOutput.json
-                if response['name'] in sourceExternalNetworkNames:
-                    sourceExternalNetworkData.append(response)
-                    logger.debug("Retrieved External Network {} details Successfully".format(response['name']))
+            #Iterating over the Source External Network IDs
+            for ext_net in sourceExternalNetworkIds:
+                url = "{}{}/{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                       vcdConstants.ALL_EXTERNAL_NETWORKS, str(ext_net))
+                #GET call to fetch the External Network details using its ID
+                response = self.restClientObj.get(url, headers=self.headers)
+                if response.status_code == requests.codes.ok:
+                    responseDict = response.json()
+                else:
+                    raise Exception('Failed to get external network with ID {} details with error - {}'.format(
+                        ext_net, response["message"]))
+                sourceExternalNetworkData.append(responseDict)
+                logger.debug("Retrieved External Network {} details Successfully".format(responseDict['name']))
             self.rollback.apiData['sourceExternalNetwork'] = sourceExternalNetworkData
             return sourceExternalNetworkData
         except Exception:
@@ -1621,7 +1629,6 @@ class VCDMigrationValidation:
         data['vlanSegmentToGatewayMapping'] = dict()
         errorList = list()
 
-        externalNetworks = self.fetchAllExternalNetworks()
         for edgeGateway in copy.deepcopy(self.rollback.apiData['sourceEdgeGateway']):
             if edgeGateway["id"] not in gatewayErrorList:
                 continue
@@ -1664,40 +1671,44 @@ class VCDMigrationValidation:
                     errorList.append("Edge Gateway {} is connected to multiple subnets of external network {}".format(edgeGateway['name'], uplink['uplinkName']))
                     continue
 
-                for extNet in externalNetworks:
+                targetExternalNetworkurl = "{}{}?{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                                           vcdConstants.ALL_EXTERNAL_NETWORKS, vcdConstants.EXTERNAL_NETWORK_FILTER.format(uplink['uplinkName'] + '-v2t'))
+                # GET call to fetch the External Network details using its name
+                response = self.restClientObj.get(targetExternalNetworkurl, headers=self.headers)
+
+                if response.status_code == requests.codes.ok:
+                    responseDict = response.json()
+                    extNet = responseDict.get("values")[0]
                     # Finding segment backed ext net for shared direct network
-                    if extNet['name'] == uplink['uplinkName'] + '-v2t':
-                        if [backing for backing in extNet['networkBackings']['values'] if
-                            backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH']:
-                            extNetAddressList = [ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
-                                                 for subnet in extNet['subnets']['values']]
-                            if all(uplinkAddress in extNetAddressList for uplinkAddress in uplinkAddressList):
-                                # Checks whether the segment is VLAN or Overlay Backed
-                                # If VLAN backed checks if more than one edge gateways are getting connected
-                                # If more than 1 then gives error
-                                data['isT1Connected'][edgeGateway['name']][uplink['uplinkName']] = uplinkGatewayAndPrefixList
-                                data['segmentToIdMapping'][extNet['name']] = extNet['id']
-                                if any([backing.get("isNsxTVlanSegment") for backing in extNet['networkBackings']['values']]):
-                                    url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
-                                                        vcdConstants.VALIDATE_DEDICATED_EXTERNAL_NETWORK_FILTER.format(extNet["id"]))
-                                    headers = {'Authorization': self.headers['Authorization'],
-                                               'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
-                                    response = self.restClientObj.get(url, headers)
-                                    if response.status_code == requests.codes.ok:
-                                        responseDict = response.json()
-                                        if responseDict["resultTotal"] > 0:
-                                            errorList.append("Cannot connect more than 1 edge gateways to VLAN backed segment {}".format(extNet["name"]))
-                                        else:
-                                            if isinstance(data['vlanSegmentToGatewayMapping'].get(extNet["name"]), list):
-                                                data['vlanSegmentToGatewayMapping'][extNet["name"]].append(edgeGateway["id"])
-                                            else:
-                                                data['vlanSegmentToGatewayMapping'][extNet["name"]] = [edgeGateway["id"]]
+                    if [backing for backing in extNet['networkBackings']['values'] if
+                        backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH']:
+                        extNetAddressList = [ipaddress.ip_network('{}/{}'.format(subnet['gateway'], subnet['prefixLength']), strict=False)
+                                             for subnet in extNet['subnets']['values']]
+                        if all(uplinkAddress in extNetAddressList for uplinkAddress in uplinkAddressList):
+                            # Checks whether the segment is VLAN or Overlay Backed
+                            # If VLAN backed checks if more than one edge gateways are getting connected
+                            # If more than 1 then gives error
+                            data['isT1Connected'][edgeGateway['name']][uplink['uplinkName']] = uplinkGatewayAndPrefixList
+                            data['segmentToIdMapping'][extNet['name']] = extNet['id']
+                            if any([backing.get("isNsxTVlanSegment") for backing in extNet['networkBackings']['values']]):
+                                url = "{}{}{}".format(vcdConstants.OPEN_API_URL.format(self.ipAddress), vcdConstants.ALL_EDGE_GATEWAYS,
+                                                    vcdConstants.VALIDATE_DEDICATED_EXTERNAL_NETWORK_FILTER.format(extNet["id"]))
+                                headers = {'Authorization': self.headers['Authorization'],
+                                           'Accept': vcdConstants.OPEN_API_CONTENT_TYPE}
+                                response = self.restClientObj.get(url, headers)
+                                if response.status_code == requests.codes.ok:
+                                    responseDict = response.json()
+                                    if responseDict["resultTotal"] > 0:
+                                        errorList.append("Cannot connect more than 1 edge gateways to VLAN backed segment {}".format(extNet["name"]))
                                     else:
-                                        raise Exception("Failed to fetch external network {} edge gateway uplink details".format(extNet["name"]))
-                                break
-                            else:
-                                errorList.append("edge gateway {} subnets not present in segment backed network {}".format(edgeGateway['name'], extNet['name']))
-                                break
+                                        if isinstance(data['vlanSegmentToGatewayMapping'].get(extNet["name"]), list):
+                                            data['vlanSegmentToGatewayMapping'][extNet["name"]].append(edgeGateway["id"])
+                                        else:
+                                            data['vlanSegmentToGatewayMapping'][extNet["name"]] = [edgeGateway["id"]]
+                                else:
+                                    raise Exception("Failed to fetch external network {} edge gateway uplink details".format(extNet["name"]))
+                        else:
+                            errorList.append("edge gateway {} subnets not present in segment backed network {}".format(edgeGateway['name'], extNet['name']))
                 else:
                     errorList.insert(0, "External network {} is used by edge Gateway - {}. It's equivalent NSX-T segment backed external network - {}-v2t is not present".format(
                         uplink['uplinkName'], edgeGateway['name'], uplink['uplinkName']))
@@ -2497,10 +2508,11 @@ class VCDMigrationValidation:
     @isSessionExpired
     def getSourceExternalNetworkName(self, edgeGatewayIdList):
         """
-            Description :   Fetch name of source external networks
+            Description :   Fetch name and ID of source external networks
             Parameters  :   edgeGatewayIdList   -   List of Id's of the Edge Gateway  (STRING)
         """
         sourceExternalNetworks = []
+        sourceExternalNetworkIds = []
         for sourceEdgeGatewayId in edgeGatewayIdList:
             edgeGatewayId = sourceEdgeGatewayId.split(':')[-1]
             url = "{}{}".format(vcdConstants.XML_ADMIN_API_URL.format(self.ipAddress),
@@ -2514,7 +2526,8 @@ class VCDMigrationValidation:
                 for gatewayInterface in responseDict['configuration']['gatewayInterfaces']['gatewayInterface']:
                     if gatewayInterface['interfaceType'] == 'uplink':
                         sourceExternalNetworks.append(gatewayInterface['name'])
-        return set(sourceExternalNetworks)
+                        sourceExternalNetworkIds.append(gatewayInterface.get('network').get('id'))
+        return (set(sourceExternalNetworks), set(sourceExternalNetworkIds))
 
     @isSessionExpired
     def getServiceGroups(self, orgVdcId):
@@ -7089,40 +7102,39 @@ class VCDMigrationValidation:
                     if not self.orgVdcInput.get("LegacyDirectNetwork", False) or extNetResponseDict['networkBackings']['values'][0]["name"][:7] == "vxw-dvs":
                         if float(self.version) < float(vcdConstants.API_VERSION_ANDROMEDA):
                             return None, "Shared Networks are not supported with this vCD version"
-                        # Fetching all external networks from vCD
-                        try:
-                            externalNetworks = self.fetchAllExternalNetworks()
-                        except Exception as err:
-                            logger.debug(traceback.format_exc())
-                            return None, str(err)
 
-                        # Fetching external network used by direct network
-                        for extNet in externalNetworks:
-                            if extNet['name'] == parentNetworkId['name']:
-                                extNetUsedByDirectNet = copy.deepcopy(extNet)
-                                break
+                        if extNetResponseDict:
+                            extNetUsedByDirectNet = extNetResponseDict
                         else:
                             return None, "External Network - '{}' used by direct network - '{}' is not present".format(parentNetworkId['name'], orgvdcNetwork)
 
-                        for extNet in externalNetworks:
+                        targetExternalNetworkurl = "{}{}?{}".format(
+                            vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                            vcdConstants.ALL_EXTERNAL_NETWORKS,
+                            vcdConstants.EXTERNAL_NETWORK_FILTER.format(parentNetworkId['name'] + '-v2t'))
+                        # GET call to fetch the External Network details using its name
+                        targetExternalNetworkResponse = self.restClientObj.get(targetExternalNetworkurl, headers=self.headers)
+
+                        if targetExternalNetworkResponse.status_code == requests.codes.ok:
+                            targetExternalNetworkResponseDict = targetExternalNetworkResponse.json()
+                            extNet = targetExternalNetworkResponseDict.get("values")[0]
                             # Finding segment backed ext net for shared direct network
-                            if parentNetworkId['name'] + '-v2t' == extNet['name']:
-                                if [backing for backing in extNet['networkBackings']['values'] if
-                                   backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH']:
-                                    # Fetching all subnets from source ext net used by direct network
-                                    extNetUsedByDirectNetSubnets = [ipaddress.ip_network(
-                                        f'{subnet["gateway"]}/{subnet["prefixLength"]}', strict=False)
-                                                                    for subnet in extNetUsedByDirectNet['subnets']
-                                                                    ['values']]
-                                    # Fetching all subnets from nsxt segment backed external network
-                                    nsxtSegmentBackedExtNetSubnets = [ipaddress.ip_network(
-                                        f'{subnet["gateway"]}/{subnet["prefixLength"]}', strict=False)
-                                                                      for subnet in extNet['subnets']['values']]
-                                    # If all the subnets from source ext-net are not present in nsxt segment backed ext net, then raise exception
-                                    if [gateway for gateway in extNetUsedByDirectNetSubnets if
-                                       gateway not in nsxtSegmentBackedExtNetSubnets]:
-                                        return None, f"All the External Network - '{parentNetworkId['name']}' subnets are not present in Target External Network - '{extNet['name']}'."
-                                    break
+                            if [backing for backing in extNet['networkBackings']['values'] if
+                               backing['backingTypeValue'] == 'IMPORTED_T_LOGICAL_SWITCH']:
+                                # Fetching all subnets from source ext net used by direct network
+                                extNetUsedByDirectNetSubnets = [ipaddress.ip_network(
+                                    f'{subnet["gateway"]}/{subnet["prefixLength"]}', strict=False)
+                                                                for subnet in extNetUsedByDirectNet['subnets']
+                                                                ['values']]
+                                # Fetching all subnets from nsxt segment backed external network
+                                nsxtSegmentBackedExtNetSubnets = [ipaddress.ip_network(
+                                    f'{subnet["gateway"]}/{subnet["prefixLength"]}', strict=False)
+                                                                  for subnet in extNet['subnets']['values']]
+                                # If all the subnets from source ext-net are not present in nsxt segment backed ext net, then raise exception
+                                if [gateway for gateway in extNetUsedByDirectNetSubnets if
+                                   gateway not in nsxtSegmentBackedExtNetSubnets]:
+                                    return None, f"All the External Network - '{parentNetworkId['name']}' subnets are not present in Target External Network - '{extNet['name']}'."
+
                         else:
                             return None, f"NSXT segment backed external network {parentNetworkId['name']+'-v2t'} is not present, and it is required for this direct shared network - {orgvdcNetwork}\n"
                     else:
@@ -7139,16 +7151,8 @@ class VCDMigrationValidation:
                         if parentNetworkId['name'] not in externalNetworkIds:
                             return None, 'The external network - {} used in the network - {} must be scoped to Target provider VDC - {}\n'.format(parentNetworkId['name'], orgvdcNetwork, self.orgVdcInput["NSXTProviderVDCName"])
                 else:
-                    try:
-                        sourceExternalNetwork = self.fetchAllExternalNetworks()
-                    except Exception as err:
-                        logger.debug(traceback.format_exc())
-                        return None, str(err)
-                    externalList = [externalNetwork['networkBackings'] for externalNetwork in sourceExternalNetwork if
-                                    externalNetwork['id'] == parentNetworkId['id']]
+                    externalDict = extNetResponseDict['networkBackings']
 
-                    for value in externalList:
-                        externalDict = value
                     for value in externalDict['values']:
                         if value['backingType'] != 'DV_PORTGROUP':
                             return None, 'The external network {} should be backed by VLAN if a dedicated direct network is connected to it'.format(parentNetworkId['name'])
