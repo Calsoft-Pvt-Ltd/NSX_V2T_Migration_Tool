@@ -245,7 +245,7 @@ VAPP_NETWORK_CONFIGURATION = "vApp/vapp-{}/networkConfigSection"
 
 
 # vcd task operations timeout
-VCD_CREATION_TIMEOUT = 360
+VCD_CREATION_TIMEOUT = 900
 
 # vcd task operations interval
 VCD_CREATION_INTERVAL = 10.0
