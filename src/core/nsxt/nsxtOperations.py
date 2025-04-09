@@ -563,12 +563,13 @@ class NSXTOperations():
                                   orgVdcNetwork['orgVdc']['id'] in data['tag']]
 
                     if switchTags:
-                        switchList.append((orgVdcNetwork['name'], networkData['id'], orgVdcNetwork['networkType']))
+                        switchList.append((orgVdcNetwork['name'], networkData['id'], orgVdcNetwork['networkType'], orgVdcNetwork['vdcName']))
 
             edgeSwitchList = []
             for item in portgroupList:
                 for item1 in switchList:
-                    if item[0]['networkName'] + '-v2t' == item1[0]:
+                    if item[0]['networkName'] + '-v2t' == item1[0] and \
+                        item[0]['vdcName'] + '-v2t' == item[3]:
                         edgeSwitchList.append((item, item1[1], item1[2], item1[0]))
 
             if not edgeSwitchList or len(portgroupList) != len(edgeSwitchList):
