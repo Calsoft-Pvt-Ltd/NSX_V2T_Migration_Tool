@@ -28,6 +28,9 @@ API_VERSION_ANDROMEDA_10_3_3 = "36.3"
 API_VERSION_BETELGEUSE_10_4 = "37.0"
 API_VERSION_CASTOR_10_4_1 = "37.1"
 API_10_4_2_BUILD = "37.2"
+API_10_4_3_BUILD = "37.3"
+API_10_5_0_BUILD = "38.0"
+API_10_5_1_BUILD = "38.1"
 
 # vm Affinity rule url
 AFFINITY_URL = "https://{}/api/vdc/{}/vmAffinityRules/"
