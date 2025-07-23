@@ -134,36 +134,62 @@ class NSXTOperations():
     def getNetworkData(self, componentName=None, backingNetworkingId=None):
         """
         Description   : This function validates the presence of the component in NSX-T
-        Parameters    : nsxtVersion         -   NSXT version to check for interop (STRING)
-                        componentName       -   Display-Name of the network (STRING)
-                        backingNetworkingId -   Backing Network Id of org vdc network (STRING)
-        Returns       : componentData if the component with the same display name is already present (DICTIONARY)
+        Parameters    : componentName       - Display-Name of the network (STRING)
+                        backingNetworkingId - Backing Network Id of org vdc network (STRING)
+        Returns       : componentData if the component with the same display name or backing ID is found (DICTIONARY),
+                        else returns all data if componentName is not given.
         """
         try:
-            logger.debug("Fetching NSXT Logical-Segment data")
-            url = "{}{}".format(
+            logger.debug("Fetching NSXT Logical-Segment data with pagination support")
+            base_url = "{}{}".format(
                 nsxtConstants.NSXT_HOST_POLICY_API.format(self.ipAddress),
                 nsxtConstants.SEGMENT_DETAILS)
 
-            response = self.restClientObj.get(url=url, headers=nsxtConstants.NSXT_API_HEADER, auth=self.restClientObj.auth)
-            if response.status_code == requests.codes.ok:
+            all_segments = []
+            next_url = base_url
+
+            while next_url:
+                response = self.restClientObj.get(
+                    url=next_url,
+                    headers=nsxtConstants.NSXT_API_HEADER,
+                    auth=self.restClientObj.auth
+                )
+
+                if response.status_code != requests.codes.ok:
+                    raise Exception(f"Failed to fetch data: {response.status_code} - {response.text}")
+
                 responseData = json.loads(response.content)
-                if nsxtConstants.NSX_API_RESULTS_KEY in responseData.keys():
-                    responseData = responseData[nsxtConstants.NSX_API_RESULTS_KEY]
-                # If componentName not provided return the whole response dict
-                if not componentName:
-                    return responseData
-                if not isinstance(responseData, list):
-                    responseData = [responseData]
-                # Iterate through the response for the componentName
-                for component in responseData:
-                    if component[nsxtConstants.NSX_API_DISPLAY_NAME_KEY] == componentName or \
-                            backingNetworkingId == component['id']:
-                        logger.debug("NSXT Logical Segment Name : {}".format(
-                            component[nsxtConstants.NSX_API_DISPLAY_NAME_KEY]))
-                        return component
-            raise Exception("Failed to get NSXT Logical Segment details with name {}".format(componentName))
-        except Exception:
+
+                segments = responseData.get(nsxtConstants.NSX_API_RESULTS_KEY, [])
+                if not isinstance(segments, list):
+                    segments = [segments]
+
+                all_segments.extend(segments)
+
+                # Search early if componentName or backingNetworkingId is provided
+                if componentName or backingNetworkingId:
+                    for component in segments:
+                        if (component.get(nsxtConstants.NSX_API_DISPLAY_NAME_KEY) == componentName or
+                                component.get('id') == backingNetworkingId):
+                            logger.debug("NSXT Logical Segment Name : {}".format(
+                                component[nsxtConstants.NSX_API_DISPLAY_NAME_KEY]))
+                            return component
+
+                # Prepare next URL if a cursor is provided
+                cursor = responseData.get('cursor')
+                if cursor:
+                    next_url = f"{base_url}?cursor={cursor}"
+                else:
+                    next_url = None
+
+            # Return full list if no filter criteria was given
+            if not componentName:
+                return all_segments
+
+            raise Exception("Failed to find NSXT Logical Segment with the specified name or ID.")
+
+        except Exception as e:
+            logger.error("Exception occurred while fetching NSXT Logical Segments: {}".format(str(e)))
             raise
 
     def getNsxtAPIVersion(self):
