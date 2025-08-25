@@ -7874,10 +7874,25 @@ class VCDMigrationValidation:
                 response = self.restClientObj.get(eachVapp['@href'], self.headers)
                 responseDict = self.vcdUtils.parseXml(response.content)
                 if response.status_code == requests.codes.ok:
+                    logger.debug(f"ResponseDict for VApp Nw:({responseDict}).")
                     for vm in listify(responseDict['VApp']['Children']['Vm']):
-                        for vm_ip in listify(
-                                vm.get('NetworkConnectionSection', {}).get('NetworkConnection', {}).get('IpAddress')):
-                            vm_ip_addresses.append(vm_ip)
+                        net_conns = listify(
+                            vm.get('NetworkConnectionSection', {}).get('NetworkConnection')
+                        )
+
+                        for net_conn in net_conns:
+                            net_type = net_conn.get('@network')
+                            logger.debug(f"Network Type:({net_type}).")
+                            ip_mode = net_conn.get('IpAddressAllocationMode')
+                            logger.debug(f"Allocation mode:({ip_mode}).")
+                            ip_list = listify(net_conn.get('IpAddress'))
+                            logger.debug(f"IP Adddres:({ip_list}).")
+
+                            if net_type == 'ISOLATED':
+                                vm_ip_addresses.extend(ip_list)
+
+                            elif net_type == 'DIRECT' and ip_mode == 'MANUAL':
+                                vm_ip_addresses.extend(ip_list)
                 else:
                     raise Exception('Error occurred while retrieving fencing details due to {}'.format(
                         responseDict['error']['@message']))
@@ -7891,15 +7906,35 @@ class VCDMigrationValidation:
                     response = self.restClientObj.get(url, self.headers)
                     if response.status_code == requests.codes.ok:
                         responseDict1 = response.json()
+                        logger.debug(f"ResponseDict for Isolated Nw:({responseDict1}).")
                         if responseDict1.get('dhcpPools'):
                             start_ip_address = responseDict1['dhcpPools'][0]['ipRange']['startAddress']
 
                             for vm_ip in vm_ip_addresses:
                                 if vm_ip == start_ip_address:
-                                    errorList.append(f"VM IP Address ({vm_ip}) and DHCP start IP Address ({start_ip_address}) are the same!")
+                                    errorList.append(
+                                        f"VM IP Address ({vm_ip}) and DHCP start IP Address ({start_ip_address}) are the same!")
                                 else:
                                     logger.debug(
                                         f"OK: VM IP Address ({vm_ip}) and DHCP start IP Address ({start_ip_address}) are different.")
+
+                elif orgVdcNetwork['networkType'] == 'DIRECT':
+                    url = "{}{}{}".format(
+                        vcdConstants.OPEN_API_URL.format(self.ipAddress),
+                        vcdConstants.ALL_ORG_VDC_NETWORKS,
+                        vcdConstants.QUERY_EXTERNAL_NETWORK.format(orgVdcNetwork['parentNetworkId']['id']))
+                    response = self.restClientObj.get(url, self.headers)
+                    if response.status_code == requests.codes.ok:
+                        responseDict2 = response.json()
+                        logger.debug(f"ResponseDict for Direct Nw:({responseDict2}).")
+                        first_ipaddress = responseDict2["subnets"]["values"][0]["ipRanges"]["values"][0]["startAddress"]
+                        for vm_ip in vm_ip_addresses:
+                            if vm_ip == first_ipaddress:
+                                errorList.append(
+                                    f"Manual assigned IP Address ({vm_ip}) and first IP of direct network ({first_ipaddress}) unsupported.")
+                            else:
+                                logger.info(f"Successfully assignment of manual IP Address ({vm_ip}).")
+
             if errorList:
                 raise Exception('; '.join(errorList))
         except Exception as e:
